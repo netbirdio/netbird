@@ -1146,3 +1146,55 @@ func TestGetPeerNetworkMapCompact(t *testing.T) {
 
 	require.JSONEq(t, string(regularJSON), string(uncompactedJSON), "regular and uncompacted network maps should be equal")
 }
+
+func BenchmarkGetPeerNetworkMapCompact(b *testing.B) {
+	account, err := createAccountFromFile()
+	require.NoError(b, err)
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{}, len(account.Peers))
+	for _, peer := range account.Peers {
+		validatedPeersMap[peer.ID] = struct{}{}
+	}
+	dnsDomain := account.Settings.DNSDomain
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	testingPeerID := "d3knp53l0ubs738a3n6g"
+
+	regularNm := builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+	compactNm := builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+
+	regularJSON, err := json.Marshal(regularNm)
+	require.NoError(b, err)
+
+	compactJSON, err := json.Marshal(compactNm)
+	require.NoError(b, err)
+
+	regularSize := len(regularJSON)
+	compactSize := len(compactJSON)
+	savingsPercent := 100 - int(float64(compactSize)/float64(regularSize)*100)
+
+	b.ReportMetric(float64(regularSize), "regular_bytes")
+	b.ReportMetric(float64(compactSize), "compact_bytes")
+	b.ReportMetric(float64(savingsPercent), "savings_%")
+
+	b.Logf("Regular network map: %d bytes", regularSize)
+	b.Logf("Compact network map: %d bytes", compactSize)
+	b.Logf("Data savings: %d%% (%d bytes saved)", savingsPercent, regularSize-compactSize)
+
+	b.Run("Regular", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+
+	b.Run("Compact", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+}
