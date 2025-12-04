@@ -291,20 +291,11 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
-	if os.Getenv("NB_REMOVE_BEFORE_DNS") == "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
-		log.Info("removing peers before dns")
-		if err := e.removeAllPeers(); err != nil {
-			log.Errorf("failed to remove all peers: %s", err)
-		}
-	}
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
 	}
 
 	e.cleanupSSHConfig()
-
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
 
 	if e.ingressGatewayMgr != nil {
 		if err := e.ingressGatewayMgr.Close(); err != nil {
@@ -313,33 +304,28 @@ func (e *Engine) Stop() error {
 		e.ingressGatewayMgr = nil
 	}
 
-	e.stopDNSForwarder()
+	if e.srWatcher != nil {
+		e.srWatcher.Close()
+	}
 
-	if os.Getenv("NB_REMOVE_BEFORE_ROUTES") == "true" && os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" {
-		log.Info("removing peers before routes")
-		if err := e.removeAllPeers(); err != nil {
-			log.Errorf("failed to remove all peers: %s", err)
-		}
+	log.Info("cleaning up status recorder states")
+	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
+	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
+	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
+
+	if err := e.removeAllPeers(); err != nil {
+		log.Errorf("failed to remove all peers: %s", err)
 	}
 
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
 	}
 
-	if e.srWatcher != nil {
-		e.srWatcher.Close()
-	}
-	log.Info("cleaning up status recorder states")
-	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
-	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
-	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
+	e.stopDNSForwarder()
 
-	if os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
-		log.Info("removing peers after dns and routes")
-		if err := e.removeAllPeers(); err != nil {
-			log.Errorf("failed to remove all peers: %s", err)
-		}
-	}
+	// stop/restore DNS after peers are closed but before interface goes down
+	// so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
 
 	if e.cancel != nil {
 		e.cancel()
