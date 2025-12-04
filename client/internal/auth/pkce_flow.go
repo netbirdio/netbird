@@ -107,10 +107,9 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 	if !p.providerConfig.DisablePromptLogin {
 		switch p.providerConfig.LoginFlag {
 		case common.LoginFlagPromptLogin:
-			params = append(params, oauth2.SetAuthURLParam("prompt", "login select_account"))
+			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
 		case common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
-			params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
 		}
 	}
 	if p.providerConfig.LoginHint != "" {
