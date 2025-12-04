@@ -36,6 +36,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+const (
+	compactNetworkMapMinVersion = "v0.61.0" // TODO change to real version
+)
+
 type Controller struct {
 	repo    Repository
 	metrics *metrics
@@ -478,6 +482,12 @@ func (c *Controller) getPeerNetworkMapExp(
 			Network: &types.Network{},
 		}
 	}
+
+	peer := account.GetPeer(peerId)
+	if peer != nil && supportsCompactNetworkMap(peer) {
+		return account.GetPeerNetworkMapCompactExp(ctx, peerId, customZone, validatedPeers, metrics)
+	}
+
 	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 }
 
@@ -616,6 +626,19 @@ func (c *Controller) StartWarmup(ctx context.Context) {
 	c.updateAccountPeersBufferInterval.Store(int64(time.Duration(initialInterval) * time.Millisecond))
 	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
 
+}
+
+func supportsCompactNetworkMap(peer *nbpeer.Peer) bool {
+	if peer.Meta.WtVersion == "development" || peer.Meta.WtVersion == "dev" {
+		return true
+	}
+
+	peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
+	if peerVersion == "" {
+		return false
+	}
+
+	return semver.Compare(peerVersion, compactNetworkMapMinVersion) >= 0
 }
 
 // computeForwarderPort checks if all peers in the account have updated to a specific version or newer.

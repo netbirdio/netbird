@@ -32,6 +32,17 @@ func (a *Account) GetPeerNetworkMapExp(
 	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
 }
 
+func (a *Account) GetPeerNetworkMapCompactExp(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeers map[string]struct{},
+	metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	a.initNetworkMapBuilder(validatedPeers)
+	return a.NetworkMapCache.GetPeerNetworkMapCompact(ctx, peerID, peersCustomZone, validatedPeers, metrics)
+}
+
 func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
 	if a.NetworkMapCache == nil {
 		return nil
