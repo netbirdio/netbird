@@ -6,14 +6,14 @@ package common
 //
 //	| Value | Flag                 | OAuth Parameters                        |
 //	|-------|----------------------|-----------------------------------------|
-//	| 0     | LoginFlagPromptLogin | prompt=select_account login             |
-//	| 1     | LoginFlagMaxAge0     | max_age=0 & prompt=select_account       |
+//	| 0     | LoginFlagPromptLogin | prompt=login                            |
+//	| 1     | LoginFlagMaxAge0     | max_age=0                               |
 type LoginFlag uint8
 
 const (
-	// LoginFlagPromptLogin adds prompt=select_account login to the authorization request
+	// LoginFlagPromptLogin adds prompt=login to the authorization request
 	LoginFlagPromptLogin LoginFlag = iota
-	// LoginFlagMaxAge0 adds max_age=0 and prompt=select_account to the authorization request
+	// LoginFlagMaxAge0 adds max_age=0 to the authorization request
 	LoginFlagMaxAge0
 	// LoginFlagNone disables all login flags
 	LoginFlagNone
