@@ -496,7 +496,7 @@ func (s *serviceClient) saveSettings() {
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableUpdateSettings {
 		log.Warn("Configuration updates are disabled by daemon")
-		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		dialog.ShowError(fmt.Errorf("configuration updates are disabled by daemon"), s.wSettings)
 		return
 	}
 
@@ -526,7 +526,7 @@ func (s *serviceClient) saveSettings() {
 func (s *serviceClient) validateSettings() error {
 	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-			return fmt.Errorf("Invalid Pre-shared Key Value")
+			return fmt.Errorf("invalid pre-shared key value")
 		}
 	}
 	return nil
@@ -535,10 +535,10 @@ func (s *serviceClient) validateSettings() error {
 func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
 	if err != nil {
-		return 0, 0, errors.New("Invalid interface port")
+		return 0, 0, errors.New("invalid interface port")
 	}
 	if port < 1 || port > 65535 {
-		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+		return 0, 0, errors.New("invalid interface port: out of range 1-65535")
 	}
 
 	var mtu int64
@@ -546,7 +546,7 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	if mtuText != "" {
 		mtu, err = strconv.ParseInt(mtuText, 10, 64)
 		if err != nil {
-			return 0, 0, errors.New("Invalid MTU value")
+			return 0, 0, errors.New("invalid MTU value")
 		}
 		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
 			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
