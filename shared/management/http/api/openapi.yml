@@ -3366,6 +3366,14 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: name
+          required: false
+          schema:
+            type: string
+          description: Filter groups by name (exact match)
+          example: "devs"
       responses:
         '200':
           description: A JSON Array of Groups
@@ -3379,6 +3387,8 @@ paths:
           "$ref": "#/components/responses/bad_request"
         '401':
           "$ref": "#/components/responses/requires_authentication"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '403':
           "$ref": "#/components/responses/forbidden"
         '500':

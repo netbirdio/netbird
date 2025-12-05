@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/templates"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -104,10 +105,10 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		if p.providerConfig.LoginFlag.IsPromptLogin() {
+		switch p.providerConfig.LoginFlag {
+		case common.LoginFlagPromptLogin:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		}
-		if p.providerConfig.LoginFlag.IsMaxAge0Login() {
+		case common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
 	}

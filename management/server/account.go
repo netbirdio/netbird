@@ -37,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -77,7 +76,6 @@ type DefaultAccountManager struct {
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
-	ephemeralManager     ephemeral.Manager
 
 	requestBuffer *AccountRequestBuffer
 
@@ -238,7 +236,7 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	if err != nil {
 		return nil, fmt.Errorf("getting cache store: %s", err)
 	}
@@ -261,10 +259,6 @@ func BuildManager(
 	})
 
 	return am, nil
-}
-
-func (am *DefaultAccountManager) SetEphemeralManager(em ephemeral.Manager) {
-	am.ephemeralManager = em
 }
 
 func (am *DefaultAccountManager) GetExternalCacheManager() account.ExternalCacheManager {
@@ -457,11 +451,11 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 }
 
 func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
-   if oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
-   	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
-   		"version": newSettings.AutoUpdateVersion,
-   	})
-   }
+	if oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
+			"version": newSettings.AutoUpdateVersion,
+		})
+	}
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -2086,7 +2080,10 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		if err != nil {
 			return err
 		}
-		am.networkMapController.OnPeerUpdated(peer.AccountID, peer)
+		err = am.networkMapController.OnPeersUpdated(ctx, peer.AccountID, []string{peerID})
+		if err != nil {
+			return fmt.Errorf("notify network map controller of peer update: %w", err)
+		}
 	}
 	return nil
 }

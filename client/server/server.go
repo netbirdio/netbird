@@ -85,6 +85,9 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
+	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
+	sleepTriggeredDown atomic.Bool
+
 	jwtCache *jwtCache
 }
 
@@ -825,6 +828,7 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	defer s.mutex.Unlock()
 
 	if err := s.cleanupConnection(); err != nil {
+		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
@@ -917,6 +921,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	}
 
 	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		// todo review to update the status in case any type of error
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err
 	}

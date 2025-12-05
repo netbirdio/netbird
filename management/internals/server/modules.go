@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -14,20 +16,29 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/peers"
+
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/users"
 )
 
+const (
+	geolocationDisabledKey = "NB_DISABLE_GEOLOCATION"
+)
+
 func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
+	if os.Getenv(geolocationDisabledKey) == "true" {
+		log.Info("geolocation service is disabled, skipping initialization")
+		return nil
+	}
+
 	return Create(s, func() geolocation.Geolocation {
-		geo, err := geolocation.NewGeolocation(context.Background(), s.config.Datadir, !s.disableGeoliteUpdate)
+		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
 		if err != nil {
 			log.Fatalf("could not initialize geolocation service: %v", err)
 		}
 
-		log.Infof("geolocation service has been initialized from %s", s.config.Datadir)
+		log.Infof("geolocation service has been initialized from %s", s.Config.Datadir)
 
 		return geo
 	})
@@ -60,20 +71,22 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		return peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		s.AfterInit(func(s *BaseServer) {
+			manager.SetNetworkMapController(s.NetworkMapController())
+			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
+			manager.SetAccountManager(s.AccountManager())
+		})
+		return manager
 	})
 }
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.config, s.Store(), s.NetworkMapController(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.config.DisableDefaultPolicy)
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy)
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
-
-		s.AfterInit(func(s *BaseServer) {
-			accountManager.SetEphemeralManager(s.EphemeralManager())
-		})
 		return accountManager
 	})
 }
@@ -82,8 +95,8 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
-		if s.config.IdpManagerConfig != nil {
-			idpManager, err = idp.NewManager(context.Background(), *s.config.IdpManagerConfig, s.Metrics())
+		if s.Config.IdpManagerConfig != nil {
+			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create IDP manager: %v", err)
 			}

@@ -308,11 +308,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
-		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
+		engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		c.engine = engine
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
+		if err := engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -337,12 +338,14 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		<-engineCtx.Done()
 
 		c.engineMutex.Lock()
-		engine := c.engine
 		c.engine = nil
 		c.engineMutex.Unlock()
 
-		if engine != nil && engine.wgInterface != nil {
+		// todo: consider to remove this condition. Is not thread safe.
+		// We should always call Stop(), but we need to verify that it is idempotent
+		if engine.wgInterface != nil {
 			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+
 			if err := engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
