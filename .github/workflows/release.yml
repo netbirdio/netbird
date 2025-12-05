@@ -42,10 +42,13 @@ jobs:
 
       - name: Test FreeBSD port
         uses: vmactions/freebsd-vm@v1
+        env:
+          DIFF_FILE: netbird-${{ steps.version.outputs.version }}.diff
         with:
           usesh: true
           copyback: false
           release: "14.2"
+          envs: "DIFF_FILE"
           prepare: |
             # Install required packages
             pkg install -y git curl portlint
@@ -65,10 +68,15 @@ jobs:
             set -e -x
             export PATH=$PATH:/usr/local/go/bin
 
+            # vmactions syncs workspace to current working directory
+            echo "Current directory: $(pwd)"
+            echo "Contents:"
+            ls -la
+
             cd /usr/ports/security/netbird
 
             # Apply the generated diff
-            patch -p2 < /home/runner/work/netbird/netbird/netbird-${{ steps.version.outputs.version }}.diff
+            patch -p2 < ~/$DIFF_FILE
 
             # Run port linting
             portlint -AC || true
