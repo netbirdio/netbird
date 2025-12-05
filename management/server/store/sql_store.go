@@ -413,6 +413,18 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, accountID string, peerW
 	return nil
 }
 
+// ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
+func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
+	result := s.db.Model(&nbpeer.Peer{}).
+		Where("account_id = ? AND peer_status_requires_approval = ?", accountID, true).
+		Update("peer_status_requires_approval", false)
+	if result.Error != nil {
+		return 0, status.Errorf(status.Internal, "failed to approve pending account peers: %v", result.Error)
+	}
+
+	return int(result.RowsAffected), nil
+}
+
 // SaveUsers saves the given list of users to the database.
 func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 	if len(users) == 0 {
