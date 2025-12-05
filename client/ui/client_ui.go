@@ -34,6 +34,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
@@ -43,7 +44,6 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
-
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/version"
@@ -87,22 +87,24 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:             flags.daemonAddr,
-		logFile:          logFile,
-		app:              a,
-		showSettings:     flags.showSettings,
-		showNetworks:     flags.showNetworks,
-		showLoginURL:     flags.showLoginURL,
-		showDebug:        flags.showDebug,
-		showProfiles:     flags.showProfiles,
-		showQuickActions: flags.showQuickActions,
+		addr:              flags.daemonAddr,
+		logFile:           logFile,
+		app:               a,
+		showSettings:      flags.showSettings,
+		showNetworks:      flags.showNetworks,
+		showLoginURL:      flags.showLoginURL,
+		showDebug:         flags.showDebug,
+		showProfiles:      flags.showProfiles,
+		showQuickActions:  flags.showQuickActions,
+		showUpdate:        flags.showUpdate,
+		showUpdateVersion: flags.showUpdateVersion,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate {
 		a.Run()
 		return
 	}
@@ -128,15 +130,17 @@ func main() {
 }
 
 type cliFlags struct {
-	daemonAddr       string
-	showSettings     bool
-	showNetworks     bool
-	showProfiles     bool
-	showDebug        bool
-	showLoginURL     bool
-	showQuickActions bool
-	errorMsg         string
-	saveLogsInFile   bool
+	daemonAddr        string
+	showSettings      bool
+	showNetworks      bool
+	showProfiles      bool
+	showDebug         bool
+	showLoginURL      bool
+	showQuickActions  bool
+	errorMsg          string
+	saveLogsInFile    bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -156,6 +160,8 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
+	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
+	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
 	return &flags
 }
@@ -319,6 +325,8 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
+	wUpdateProgress      fyne.Window
+	updateContextCancel  context.CancelFunc
 
 	connectCancel context.CancelFunc
 }
@@ -329,15 +337,17 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr             string
-	logFile          string
-	app              fyne.App
-	showSettings     bool
-	showNetworks     bool
-	showDebug        bool
-	showLoginURL     bool
-	showProfiles     bool
-	showQuickActions bool
+	addr              string
+	logFile           string
+	app               fyne.App
+	showSettings      bool
+	showNetworks      bool
+	showDebug         bool
+	showLoginURL      bool
+	showProfiles      bool
+	showQuickActions  bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // newServiceClient instance constructor
@@ -355,7 +365,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdate("nb/client-ui"),
+		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -375,6 +385,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showProfilesUI()
 	case args.showQuickActions:
 		s.showQuickActionsUI()
+	case args.showUpdate:
+		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
 
 	return s
@@ -814,7 +826,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context) error {
+func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -836,7 +848,9 @@ func (s *serviceClient) menuUpClick(ctx context.Context) error {
 		return nil
 	}
 
-	if _, err := conn.Up(ctx, &proto.UpRequest{}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
+	}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -1095,6 +1109,26 @@ func (s *serviceClient) onTrayReady() {
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
 			s.updateExitNodes()
+		}
+	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// todo use new Category
+		if windowAction, ok := event.Metadata["progress_window"]; ok {
+			targetVersion, ok := event.Metadata["version"]
+			if !ok {
+				targetVersion = "unknown"
+			}
+			log.Debugf("window action: %v", windowAction)
+			if windowAction == "show" {
+				if s.updateContextCancel != nil {
+					s.updateContextCancel()
+					s.updateContextCancel = nil
+				}
+
+				subCtx, cancel := context.WithCancel(s.ctx)
+				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
+				s.updateContextCancel = cancel
+			}
 		}
 	})
 
