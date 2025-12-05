@@ -797,7 +797,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	nm := update.GetNetworkMap()
-	if nm == nil {
+	if nm == nil || update.SkipNetworkMapUpdate {
 		return nil
 	}
 
