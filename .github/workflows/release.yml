@@ -67,7 +67,7 @@ jobs:
 
             # Find the diff file
             echo "Finding diff file..."
-            DIFF_FILE=$(find . -name "netbird-*.diff" -type f 2>/dev/null | head -1)
+            DIFF_FILE=$(find $PWD -name "netbird-*.diff" -type f 2>/dev/null | head -1)
             echo "Found: $DIFF_FILE"
 
             if [ -z "$DIFF_FILE" ]; then
@@ -77,7 +77,6 @@ jobs:
             fi
 
             cd /usr/ports/security/netbird
-            git --no-pager diff --exit-code || true
             # Apply the generated diff
             patch -p2 < "$DIFF_FILE"
 
