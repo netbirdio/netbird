@@ -282,7 +282,6 @@ func (e *Engine) Stop() error {
 		return nil
 	}
 	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
 
 	if e.connMgr != nil {
 		e.connMgr.Close()
@@ -300,9 +299,6 @@ func (e *Engine) Stop() error {
 
 	e.cleanupSSHConfig()
 
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
 	if e.ingressGatewayMgr != nil {
 		if err := e.ingressGatewayMgr.Close(); err != nil {
 			log.Warnf("failed to cleanup forward rules: %v", err)
@@ -310,23 +306,28 @@ func (e *Engine) Stop() error {
 		e.ingressGatewayMgr = nil
 	}
 
-	e.stopDNSForwarder()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop(e.stateManager)
-	}
-
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
 
+	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
 	if err := e.removeAllPeers(); err != nil {
-		return fmt.Errorf("failed to remove all peers: %s", err)
+		log.Errorf("failed to remove all peers: %s", err)
 	}
+
+	if e.routeManager != nil {
+		e.routeManager.Stop(e.stateManager)
+	}
+
+	e.stopDNSForwarder()
+
+	// stop/restore DNS after peers are closed but before interface goes down
+	// so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
 
 	if e.cancel != nil {
 		e.cancel()
@@ -339,15 +340,17 @@ func (e *Engine) Stop() error {
 		e.flowManager.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	stateCtx, stateCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stateCancel()
 
-	if err := e.stateManager.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop state manager: %w", err)
+	if err := e.stateManager.Stop(stateCtx); err != nil {
+		log.Errorf("failed to stop state manager: %v", err)
 	}
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
+
+	e.syncMsgMux.Unlock()
 
 	timeout := e.calculateShutdownTimeout()
 	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
@@ -434,8 +437,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if err != nil {
 			return fmt.Errorf("create rosenpass manager: %w", err)
 		}
-		err := e.rpManager.Run()
-		if err != nil {
+		if err := e.rpManager.Run(); err != nil {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
@@ -487,6 +489,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 
 	if err := e.createFirewall(); err != nil {
+		e.close()
 		return err
 	}
 
@@ -751,6 +754,11 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	// Check context INSIDE lock to ensure atomicity with shutdown
+	if e.ctx.Err() != nil {
+		return e.ctx.Err()
+	}
 
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
@@ -1370,6 +1378,11 @@ func (e *Engine) receiveSignalEvents() {
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
+
+			// Check context INSIDE lock to ensure atomicity with shutdown
+			if e.ctx.Err() != nil {
+				return e.ctx.Err()
+			}
 
 			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
