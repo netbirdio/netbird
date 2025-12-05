@@ -79,6 +79,7 @@ func (h *eventHandler) handleConnectClick() {
 
 	go func() {
 		defer connectCancel()
+		defer h.client.startSleepListener()
 
 		if err := h.client.menuUpClick(connectCtx); err != nil {
 			st, ok := status.FromError(err)
@@ -104,6 +105,8 @@ func (h *eventHandler) handleDisconnectClick() {
 		h.client.connectCancel()
 		h.client.connectCancel = nil
 	}
+
+	h.client.stopSleepListener()
 
 	go func() {
 		if err := h.client.menuDownClick(); err != nil {
