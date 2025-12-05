@@ -19,6 +19,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release_freebsd_port:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - run: bash release_files/freebsd-port-diff.sh
+      - run: bash release_files/freebsd-port-issue-body.sh
+      - name: upload freebsd port files
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-port-files
+          path: |
+            ./netbird-*-issue.txt
+            ./netbird-*.diff
+          retention-days: 30
   release:
     runs-on: ubuntu-latest-m
     env:
