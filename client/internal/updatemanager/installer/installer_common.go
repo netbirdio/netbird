@@ -109,23 +109,24 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) (
 
 	updateCmd := exec.Command(updaterPath, args...)
 	log.Infof("starting updater process: %s", updateCmd.String())
-	/*
-		updateCmd.SysProcAttr = &syscall.SysProcAttr{
-			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
-		}
-	*/
+
+	// Configure the updater to run in a separate session/process group
+	// so it survives the parent daemon being stopped
+	setUpdaterProcAttr(updateCmd)
 
 	// Start the updater process asynchronously
 	if err := updateCmd.Start(); err != nil {
 		return err
 	}
 
+	pid := updateCmd.Process.Pid
+	log.Infof("updater started with PID %d", pid)
+
 	// Release the process so the OS can fully detach it
 	if err := updateCmd.Process.Release(); err != nil {
 		log.Warnf("failed to release updater process: %v", err)
 	}
 
-	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
 	return nil
 }
 

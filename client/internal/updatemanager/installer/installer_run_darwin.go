@@ -18,7 +18,7 @@ import (
 const (
 	daemonName    = "netbird"
 	updaterBinary = "updater"
-	uiBinary      = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
+	uiBinary      = "/Applications/NetBird.app"
 
 	defaultTempDir = "/var/lib/netbird/tmp-install"
 
@@ -57,7 +57,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 			log.Errorf("failed to start daemon: %v", err)
 		}
 
-		// todo prevent to run UI multiple times
 		log.Infof("starting UI back")
 		if err := u.startUIAsUser(); err != nil {
 			log.Errorf("failed to start UI: %v", err)
@@ -141,6 +140,11 @@ func (u *Installer) startUIAsUser() error {
 
 func (u *Installer) installPkgFile(ctx context.Context, path string) error {
 	log.Infof("installing pkg file: %s", path)
+
+	// Kill any existing UI processes before installation
+	// This ensures the postinstall script's "open $APP" will start the new version
+	u.killUI()
+
 	volume := "/"
 
 	cmd := exec.CommandContext(ctx, "installer", "-pkg", path, "-target", volume)
@@ -217,6 +221,17 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 	// We're dying now, which should restart us
 	log.Infof("homebrew updated successfully")
 	return nil
+}
+
+func (u *Installer) killUI() {
+	log.Infof("killing existing netbird-ui processes")
+	cmd := exec.Command("pkill", "-x", "netbird-ui")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// pkill returns exit code 1 if no processes matched, which is fine
+		log.Debugf("pkill netbird-ui result: %v, output: %s", err, string(output))
+	} else {
+		log.Infof("netbird-ui processes killed")
+	}
 }
 
 func urlWithVersionArch(_ Type, version string) string {
