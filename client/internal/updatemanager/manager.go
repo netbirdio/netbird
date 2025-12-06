@@ -69,6 +69,8 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 	}
 	manager.triggerUpdateFn = manager.triggerUpdate
 
+	stateManager.RegisterState(&UpdateState{})
+
 	return manager, nil
 }
 
