@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
@@ -123,7 +124,11 @@ func (r *Relay) Accept(conn net.Conn) {
 	}
 	peerID, err := h.handshakeReceive()
 	if err != nil {
-		log.Errorf("failed to handshake: %s", err)
+		if peerid.IsHealthCheck(peerID) {
+			log.Debugf("health check connection from %s", conn.RemoteAddr())
+		} else {
+			log.Errorf("failed to handshake: %s", err)
+		}
 		if cErr := conn.Close(); cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
