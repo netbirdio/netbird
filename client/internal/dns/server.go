@@ -602,6 +602,7 @@ func (s *DefaultServer) applyHostConfig() {
 		return
 	}
 
+	log.Debugf("applying host config as there are changes")
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
 		return
