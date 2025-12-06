@@ -320,6 +320,9 @@ type serviceClient struct {
 	logFile              string
 	wLoginURL            fyne.Window
 
+	sleepService  *sleep.Service
+	sleepLock     sync.Mutex
+
 	connectCancel context.CancelFunc
 }
 
@@ -1165,6 +1168,14 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 // startSleepListener initializes the sleep detection service and listens for sleep events
 func (s *serviceClient) startSleepListener() {
+	s.sleepLock.Lock()
+	defer s.sleepLock.Unlock()
+
+	if s.sleepService != nil {
+		log.Debug("sleep detection service already initialized")
+		return
+	}
+
 	sleepService, err := sleep.New()
 	if err != nil {
 		log.Warnf("%v", err)
@@ -1176,16 +1187,30 @@ func (s *serviceClient) startSleepListener() {
 		return
 	}
 
+	s.sleepService = sleepService
 	log.Info("sleep detection service initialized")
 
 	// Cleanup on context cancellation
 	go func() {
 		<-s.ctx.Done()
-		log.Info("stopping sleep event listener")
-		if err := sleepService.Deregister(); err != nil {
-			log.Errorf("failed to deregister sleep detection: %v", err)
-		}
+		s.stopSleepListener()
 	}()
+}
+
+// stopSleepListener stops the sleep detection service
+func (s *serviceClient) stopSleepListener() {
+	s.sleepLock.Lock()
+	defer s.sleepLock.Unlock()
+
+	if s.sleepService == nil {
+		return
+	}
+
+	log.Info("stopping sleep event listener")
+	if err := s.sleepService.Deregister(); err != nil {
+		log.Errorf("failed to deregister sleep detection: %v", err)
+	}
+	s.sleepService = nil
 }
 
 // handleSleepEvents sends a sleep notification to the daemon via gRPC
