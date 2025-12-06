@@ -162,9 +162,22 @@ func (u *Installer) installPkgFile(ctx context.Context, path string) error {
 func (u *Installer) updateHomeBrew(ctx context.Context) error {
 	log.Infof("updating homebrew")
 
+	// Kill any existing UI processes before upgrade
+	// This ensures the new version will be started after upgrade
+	u.killUI()
+
 	// Homebrew must be run as a non-root user
 	// To find out which user installed NetBird using HomeBrew we can check the owner of our brew tap directory
-	fileInfo, err := os.Stat("/opt/homebrew/Library/Taps/netbirdio/homebrew-tap/")
+	// Check both Apple Silicon and Intel Mac paths
+	brewTapPath := "/opt/homebrew/Library/Taps/netbirdio/homebrew-tap/"
+	brewBinPath := "/opt/homebrew/bin/brew"
+	if _, err := os.Stat(brewTapPath); os.IsNotExist(err) {
+		// Try Intel Mac path
+		brewTapPath = "/usr/local/Homebrew/Library/Taps/netbirdio/homebrew-tap/"
+		brewBinPath = "/usr/local/bin/brew"
+	}
+
+	fileInfo, err := os.Stat(brewTapPath)
 	if err != nil {
 		return fmt.Errorf("error getting homebrew installation path info: %w", err)
 	}
@@ -175,50 +188,34 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 	}
 
 	// Get username from UID
-	installer, err := user.LookupId(fmt.Sprintf("%d", fileSysInfo.Uid))
+	brewUser, err := user.LookupId(fmt.Sprintf("%d", fileSysInfo.Uid))
 	if err != nil {
 		return fmt.Errorf("error looking up brew installer user: %w", err)
 	}
-	userName := installer.Name
+	userName := brewUser.Username
 	// Get user HOME, required for brew to run correctly
 	// https://github.com/Homebrew/brew/issues/15833
-	homeDir := installer.HomeDir
+	homeDir := brewUser.HomeDir
+
+	// Check if netbird-ui is installed (must run as the brew user, not root)
+	checkUICmd := exec.CommandContext(ctx, "sudo", "-u", userName, brewBinPath, "list", "--formula", "netbirdio/tap/netbird-ui")
+	checkUICmd.Env = append(os.Environ(), "HOME="+homeDir)
+	uiInstalled := checkUICmd.Run() == nil
+
 	// Homebrew does not support installing specific versions
 	// Thus it will always update to latest and ignore targetVersion
-	upgradeArgs := []string{"-u", userName, "/opt/homebrew/bin/brew", "upgrade", "netbirdio/tap/netbird"}
-	// Check if netbird-ui is installed
-	cmd := exec.CommandContext(ctx, "brew", "info", "--json", "netbirdio/tap/netbird-ui")
-	err = cmd.Run()
-	if err == nil {
-		// netbird-ui is installed
+	upgradeArgs := []string{"-u", userName, brewBinPath, "upgrade", "netbirdio/tap/netbird"}
+	if uiInstalled {
 		upgradeArgs = append(upgradeArgs, "netbirdio/tap/netbird-ui")
 	}
-	cmd = exec.CommandContext(ctx, "sudo", upgradeArgs...)
-	cmd.Env = append(cmd.Env, "HOME="+homeDir)
 
-	// Homebrew upgrade doesn't restart the client on its own
-	// So we have to wait for it to finish running and ensure it's done
-	// And then basically restart the netbird service
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("error running brew upgrade: %w", err)
+	cmd := exec.CommandContext(ctx, "sudo", upgradeArgs...)
+	cmd.Env = append(os.Environ(), "HOME="+homeDir)
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("error running brew upgrade: %w, output: %s", err, string(output))
 	}
 
-	currentPID := os.Getpid()
-
-	// Restart netbird service after the fact
-	// This is a workaround since attempting to restart using launchctl will kill the service and die before starting
-	// the service again as it's a child process
-	// using SIGTERM should ensure a clean shutdown
-	process, err := os.FindProcess(currentPID)
-	if err != nil {
-		return fmt.Errorf("error finding current process: %w", err)
-	}
-	err = process.Signal(syscall.SIGTERM)
-	if err != nil {
-		return fmt.Errorf("error sending SIGTERM to current process: %w", err)
-	}
-	// We're dying now, which should restart us
 	log.Infof("homebrew updated successfully")
 	return nil
 }
