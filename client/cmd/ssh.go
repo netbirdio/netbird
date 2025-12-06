@@ -634,7 +634,7 @@ func parseAndStartLocalForward(ctx context.Context, c *sshclient.Client, forward
 		return err
 	}
 
-	cmd.Printf("Local port forwarding: %s -> %s\n", localAddr, remoteAddr)
+	log.Debugf("Local port forwarding: %s -> %s", localAddr, remoteAddr)
 
 	go func() {
 		if err := c.LocalPortForward(ctx, localAddr, remoteAddr); err != nil && !errors.Is(err, context.Canceled) {
@@ -652,7 +652,7 @@ func parseAndStartRemoteForward(ctx context.Context, c *sshclient.Client, forwar
 		return err
 	}
 
-	cmd.Printf("Remote port forwarding: %s -> %s\n", remoteAddr, localAddr)
+	log.Debugf("Remote port forwarding: %s -> %s", remoteAddr, localAddr)
 
 	go func() {
 		if err := c.RemotePortForward(ctx, remoteAddr, localAddr); err != nil && !errors.Is(err, context.Canceled) {

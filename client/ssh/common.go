@@ -193,3 +193,52 @@ func buildAddressList(hostname string, remote net.Addr) []string {
 	}
 	return addresses
 }
+
+// BidirectionalCopy copies data bidirectionally between two io.ReadWriter connections.
+// It waits for both directions to complete before returning.
+// The caller is responsible for closing the connections.
+func BidirectionalCopy(rw1, rw2 io.ReadWriter) {
+	done := make(chan struct{}, 2)
+
+	go func() {
+		_, _ = io.Copy(rw2, rw1)
+		done <- struct{}{}
+	}()
+
+	go func() {
+		_, _ = io.Copy(rw1, rw2)
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+}
+
+// BidirectionalCopyWithContext copies data bidirectionally between two io.ReadWriteCloser connections.
+// It waits for both directions to complete or for context cancellation before returning.
+// Both connections are closed when the function returns.
+func BidirectionalCopyWithContext(ctx context.Context, conn1, conn2 io.ReadWriteCloser) {
+	done := make(chan struct{}, 2)
+
+	go func() {
+		_, _ = io.Copy(conn2, conn1)
+		done <- struct{}{}
+	}()
+
+	go func() {
+		_, _ = io.Copy(conn1, conn2)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+	case <-done:
+		select {
+		case <-ctx.Done():
+		case <-done:
+		}
+	}
+
+	_ = conn1.Close()
+	_ = conn2.Close()
+}

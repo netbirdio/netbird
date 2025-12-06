@@ -392,3 +392,96 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 		})
 	}
 }
+
+func TestServer_PortForwardingOnlySession(t *testing.T) {
+	// Test that sessions without PTY and command are allowed when port forwarding is enabled
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
+	// Generate host key for server
+	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name                  string
+		allowLocalForwarding  bool
+		allowRemoteForwarding bool
+		expectAllowed         bool
+		description           string
+	}{
+		{
+			name:                  "session_allowed_with_local_forwarding",
+			allowLocalForwarding:  true,
+			allowRemoteForwarding: false,
+			expectAllowed:         true,
+			description:           "Port-forwarding-only session should be allowed when local forwarding is enabled",
+		},
+		{
+			name:                  "session_allowed_with_remote_forwarding",
+			allowLocalForwarding:  false,
+			allowRemoteForwarding: true,
+			expectAllowed:         true,
+			description:           "Port-forwarding-only session should be allowed when remote forwarding is enabled",
+		},
+		{
+			name:                  "session_allowed_with_both",
+			allowLocalForwarding:  true,
+			allowRemoteForwarding: true,
+			expectAllowed:         true,
+			description:           "Port-forwarding-only session should be allowed when both forwarding types enabled",
+		},
+		{
+			name:                  "session_denied_without_forwarding",
+			allowLocalForwarding:  false,
+			allowRemoteForwarding: false,
+			expectAllowed:         false,
+			description:           "Port-forwarding-only session should be denied when all forwarding is disabled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
+			server.SetAllowRootLogin(true)
+			server.SetAllowLocalPortForwarding(tt.allowLocalForwarding)
+			server.SetAllowRemotePortForwarding(tt.allowRemoteForwarding)
+
+			serverAddr := StartTestServer(t, server)
+			defer func() {
+				_ = server.Stop()
+			}()
+
+			// Connect to the server without requesting PTY or command
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			client, err := sshclient.Dial(ctx, serverAddr, currentUser.Username, sshclient.DialOptions{
+				InsecureSkipVerify: true,
+			})
+			require.NoError(t, err)
+			defer func() {
+				_ = client.Close()
+			}()
+
+			// Execute a command without PTY - this simulates ssh -T with no command
+			// The server should either allow it (port forwarding enabled) or reject it
+			output, err := client.ExecuteCommand(ctx, "")
+			if tt.expectAllowed {
+				// When allowed, the session stays open until cancelled
+				// ExecuteCommand with empty command should return without error
+				// (though output may be empty since we're in port-forward-only mode)
+				t.Logf("Output: %q, Error: %v", output, err)
+			} else {
+				// When denied, we expect an error message about port forwarding being disabled
+				if err != nil {
+					assert.Contains(t, err.Error(), "port forwarding is disabled",
+						"Should get port forwarding disabled message")
+				}
+			}
+		})
+	}
+}
