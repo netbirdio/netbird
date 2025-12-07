@@ -102,6 +102,15 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
+### Development Setup
+
+After cloning the repository, run:
+```bash
+make setup-hooks
+```
+
+This will configure Git to run linting automatically before each push.
+
 ### A bit on NetBird internals
 -  Every machine in the network runs [NetBird Agent (or Client)](client/) that manages WireGuard.
 -  Every agent connects to [Management Service](management/) that holds network state, manages peer IPs, and distributes network updates to agents (peers).

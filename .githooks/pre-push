@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+echo "Running pre-push hook..."
+make lint
+
+echo "All checks passed!"
