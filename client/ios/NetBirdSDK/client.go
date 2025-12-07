@@ -93,7 +93,9 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
-	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	cfg, err := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    c.cfgFile,
 		StateFilePath: c.stateFile,
 	})
@@ -116,7 +118,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.Login()
+	err = auth.LoginSync()
 	if err != nil {
 		return err
 	}
@@ -204,7 +206,9 @@ func (c *Client) IsLoginRequired() bool {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	cfg, _ := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 
@@ -224,7 +228,9 @@ func (c *Client) LoginForMobile() string {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	cfg, _ := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 

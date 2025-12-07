@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -31,7 +32,8 @@ type ErrListener interface {
 // URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
 type URLOpener interface {
-	Open(string)
+	Open(url string, userCode string)
+	OnLoginSuccess()
 }
 
 // Auth can register or login new client
@@ -70,13 +72,28 @@ func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth
 // SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
 // If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
 // is not supported and returns false without saving the configuration. For other errors return false.
-func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
+func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
+	go func() {
+		sso, err := a.saveConfigIfSSOSupported()
+		if err != nil {
+			listener.OnError(err)
+		} else {
+			listener.OnSuccess(sso)
+		}
+	}()
+}
+
+func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
-		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+		_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL, nil)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-			_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL, nil)
-			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
+			_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+			s, ok := gstatus.FromError(err)
+			if !ok {
+				return err
+			}
+			if s.Code() == codes.NotFound || s.Code() == codes.Unimplemented {
 				supportsSSO = false
 				err = nil
 			}
@@ -95,12 +112,25 @@ func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	err = profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
 	return true, err
 }
 
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
-func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
+func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
+	go func() {
+		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
+		}
+	}()
+}
+
+func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
 	//nolint
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 
@@ -116,10 +146,14 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 		return fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	return profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
 }
 
-func (a *Auth) Login() error {
+// LoginSync performs a synchronous login check without UI interaction
+// Used for background VPN connection where user should already be authenticated
+func (a *Auth) LoginSync() error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token
@@ -133,7 +167,7 @@ func (a *Auth) Login() error {
 
 	jwtToken := ""
 	if needsLogin {
-		return fmt.Errorf("Not authenticated")
+		return fmt.Errorf("not authenticated")
 	}
 
 	err = a.withBackOff(a.ctx, func() error {
@@ -148,6 +182,92 @@ func (a *Auth) Login() error {
 	}
 
 	return nil
+}
+
+// Login performs interactive login with device authentication support
+func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool) {
+	go func() {
+		err := a.login(urlOpener, forceDeviceAuth)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
+		}
+	}()
+}
+
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
+	var needsLogin bool
+
+	// check if we need to generate JWT token
+	err := a.withBackOff(a.ctx, func() (err error) {
+		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config)
+		return
+	})
+	if err != nil {
+		return fmt.Errorf("backoff cycle failed: %v", err)
+	}
+
+	jwtToken := ""
+	if needsLogin {
+		tokenInfo, err := a.foregroundGetTokenInfo(urlOpener, forceDeviceAuth)
+		if err != nil {
+			return fmt.Errorf("interactive sso login failed: %v", err)
+		}
+		jwtToken = tokenInfo.GetTokenToUse()
+	}
+
+	err = a.withBackOff(a.ctx, func() error {
+		err := internal.Login(a.ctx, a.config, "", jwtToken)
+
+		if err == nil {
+			go urlOpener.OnLoginSuccess()
+		}
+
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("backoff cycle failed: %v", err)
+	}
+
+	// Save the config after successful login to persist credentials
+	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	if a.cfgPath != "" {
+		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
+			log.Warnf("failed to save config after login: %v", err)
+			// Don't return error - login itself succeeded, just config save failed
+		}
+	}
+
+	return nil
+}
+
+func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
+	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, forceDeviceAuth, "")
+	if err != nil {
+		return nil, err
+	}
+
+	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	if err != nil {
+		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
+	}
+
+	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+
+	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
+	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
+	defer cancel()
+	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+	if err != nil {
+		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
+	}
+
+	return &tokenInfo, nil
 }
 
 func (a *Auth) withBackOff(ctx context.Context, bf func() error) error {

@@ -812,3 +812,49 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 func WriteOutConfig(path string, config *Config) error {
 	return util.WriteJson(context.Background(), path, config)
 }
+
+// DirectWriteOutConfig writes config directly without atomic temp file operations.
+// Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
+func DirectWriteOutConfig(path string, config *Config) error {
+	return util.DirectWriteJson(context.Background(), path, config)
+}
+
+// DirectUpdateOrCreateConfig is like UpdateOrCreateConfig but uses direct (non-atomic) writes.
+// Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
+func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		cfg, err := createNewConfig(input)
+		if err != nil {
+			return nil, err
+		}
+		err = util.DirectWriteJson(context.Background(), input.ConfigPath, cfg)
+		return cfg, err
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	return directUpdate(input)
+}
+
+func directUpdate(input ConfigInput) (*Config, error) {
+	config := &Config{}
+
+	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
+		return nil, err
+	}
+
+	updated, err := config.apply(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if updated {
+		if err := util.DirectWriteJson(context.Background(), input.ConfigPath, config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
