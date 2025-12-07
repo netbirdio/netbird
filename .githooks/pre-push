@@ -1,7 +1,11 @@
 #!/bin/bash
-set -e
 
 echo "Running pre-push hook..."
-make lint
+if ! make lint; then
+    echo ""
+    echo "Hint: To push without verification, run:"
+    echo "  git push --no-verify"
+    exit 1
+fi
 
 echo "All checks passed!"
