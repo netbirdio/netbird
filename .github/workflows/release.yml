@@ -78,7 +78,7 @@ jobs:
 
             # Apply the generated diff from /usr/ports (diff has a/security/netbird/... paths)
             cd /usr/ports
-            patch -p1 --no-backup-if-mismatch < "$DIFF_FILE"
+            patch -p1 -V none < "$DIFF_FILE"
 
             # Show patched Makefile
             cat security/netbird/Makefile
