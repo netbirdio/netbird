@@ -80,7 +80,7 @@ jobs:
             patch -p1 -V none < "$DIFF_FILE"
 
             # Show patched Makefile
-            version=$(cat security/netbird/Makefile | grep DISTVERSION | awk '{print $NF}')
+            version=$(cat security/netbird/Makefile | grep -E '^DISTVERSION=' | awk '{print $NF}')
             
             cd /usr/ports/security/netbird
             export BATCH=yes
