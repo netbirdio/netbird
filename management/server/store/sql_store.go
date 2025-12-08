@@ -4227,7 +4227,7 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	var peerID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("id").
-		Where("key = ?", key).
+		Where(GetKeyQueryCondition(s), key).
 		Limit(1).
 		Scan(&peerID)
 	if result.Error != nil {
