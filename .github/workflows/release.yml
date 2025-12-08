@@ -45,7 +45,7 @@ jobs:
         with:
           usesh: true
           copyback: false
-          release: "14.2"
+          release: "15.0"
           prepare: |
             # Install required packages
             pkg install -y git curl portlint
