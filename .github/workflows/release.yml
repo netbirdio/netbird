@@ -59,7 +59,6 @@ jobs:
             # Clone ports tree (shallow, only what we need)
             git clone --depth 1 --filter=blob:none https://git.FreeBSD.org/ports.git /usr/ports
             cd /usr/ports
-            # git sparse-checkout set Mk Templates Keywords security/netbird
 
           run: |
             set -e -x
@@ -81,11 +80,13 @@ jobs:
             patch -p1 -V none < "$DIFF_FILE"
 
             # Show patched Makefile
-            cat security/netbird/Makefile
+            version=$(cat security/netbird/Makefile | grep DISTVERSION | awk '{print $NF}')
             
-            pkg install netbird
+            cd /usr/ports/security/netbird
+            make package
+            pkg add -y ./work/pkg/netbird-*.pkg
             
-            netbird version
+            netbird version | grep $version
 
             echo "FreeBSD port test completed successfully!"
 
