@@ -59,7 +59,7 @@ jobs:
             # Clone ports tree (shallow, only what we need)
             git clone --depth 1 --filter=blob:none --sparse https://git.FreeBSD.org/ports.git /usr/ports
             cd /usr/ports
-            git sparse-checkout set Mk Templates Keywords security/netbird
+            # git sparse-checkout set Mk Templates Keywords security/netbird
 
           run: |
             set -e -x
