@@ -2,9 +2,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -222,7 +225,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			var remotePeerNetworkMap *types.NetworkMap
 
 			if c.experimentalNetworkMap(accountID) {
-				remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, c.accountManagerMetrics)
+				remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, c.accountManagerMetrics, resourcePolicies, routers)
 			} else {
 				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics)
 			}
@@ -336,7 +339,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	var remotePeerNetworkMap *types.NetworkMap
 
 	if c.experimentalNetworkMap(accountId) {
-		remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, c.accountManagerMetrics)
+		remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, c.accountManagerMetrics, resourcePolicies, routers)
 	} else {
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics)
 	}
@@ -441,11 +444,13 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 
 	var networkMap *types.NetworkMap
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
 
 	if c.experimentalNetworkMap(accountID) {
-		networkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, c.accountManagerMetrics)
+		networkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, c.accountManagerMetrics, resourcePolicies, routers)
 	} else {
-		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), c.accountManagerMetrics)
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics)
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -470,6 +475,8 @@ func (c *Controller) getPeerNetworkMapExp(
 	validatedPeers map[string]struct{},
 	customZone nbdns.CustomZone,
 	metrics *telemetry.AccountManagerMetrics,
+	resourcePolicies map[string][]*types.Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
 ) *types.NetworkMap {
 	account := c.getAccountFromHolderOrInit(accountId)
 	if account == nil {
@@ -478,7 +485,15 @@ func (c *Controller) getPeerNetworkMapExp(
 			Network: &types.Network{},
 		}
 	}
-	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
+
+	legacyMap := account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, metrics)
+
+	go func() {
+		expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
+		c.compareAndSaveNetworkMaps(ctx, accountId, peerId, expMap, legacyMap)
+	}()
+
+	return legacyMap
 }
 
 func (c *Controller) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string) error {
@@ -810,11 +825,13 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	}
 
 	var networkMap *types.NetworkMap
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
 
 	if c.experimentalNetworkMap(peer.AccountID) {
-		networkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peerID, validatedPeers, customZone, nil)
+		networkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peerID, validatedPeers, customZone, nil, resourcePolicies, routers)
 	} else {
-		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, resourcePolicies, routers, nil)
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -827,4 +844,68 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 
 func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peerIDs []string) {
 	c.peersUpdateManager.CloseChannels(ctx, peerIDs)
+}
+
+func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, peerId string, expMap, legacyMap *types.NetworkMap) {
+	if c.compareNetworkMapComponentLengths(expMap, legacyMap) {
+		return
+	}
+
+	log.WithContext(ctx).Infof("network maps differ in component lengths for peer %s in account %s", peerId, accountId)
+
+	expBytes, err := json.Marshal(expMap)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to marshal experimental network map: %v", err)
+		return
+	}
+
+	legacyBytes, err := json.Marshal(legacyMap)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to marshal legacy network map: %v", err)
+		return
+	}
+
+	timestamp := time.Now().UnixMicro()
+	baseDir := filepath.Join("debug_networkmaps", accountId, peerId)
+
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		log.WithContext(ctx).Warnf("failed to create debug directory %s: %v", baseDir, err)
+		return
+	}
+
+	expFile := filepath.Join(baseDir, fmt.Sprintf("exp_networkmap_%d.json", timestamp))
+	if err := os.WriteFile(expFile, expBytes, 0o644); err != nil {
+		log.WithContext(ctx).Warnf("failed to write experimental network map to %s: %v", expFile, err)
+		return
+	}
+
+	legacyFile := filepath.Join(baseDir, fmt.Sprintf("legacy_networkmap_%d.json", timestamp))
+	if err := os.WriteFile(legacyFile, legacyBytes, 0o644); err != nil {
+		log.WithContext(ctx).Warnf("failed to write legacy network map to %s: %v", legacyFile, err)
+		return
+	}
+
+	log.WithContext(ctx).Infof("network maps saved to %s (exp: %d bytes, legacy: %d bytes)", baseDir, len(expBytes), len(legacyBytes))
+}
+
+func (c *Controller) compareNetworkMapComponentLengths(expMap, legacyMap *types.NetworkMap) bool {
+	if len(expMap.Peers) != len(legacyMap.Peers) {
+		return false
+	}
+	if len(expMap.Routes) != len(legacyMap.Routes) {
+		return false
+	}
+	if len(expMap.OfflinePeers) != len(legacyMap.OfflinePeers) {
+		return false
+	}
+	if len(expMap.FirewallRules) != len(legacyMap.FirewallRules) {
+		return false
+	}
+	if len(expMap.RoutesFirewallRules) != len(legacyMap.RoutesFirewallRules) {
+		return false
+	}
+	if len(expMap.ForwardingRules) != len(legacyMap.ForwardingRules) {
+		return false
+	}
+	return true
 }
