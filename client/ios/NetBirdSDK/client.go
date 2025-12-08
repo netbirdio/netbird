@@ -441,8 +441,13 @@ func exportEnvList(list *EnvList) {
 		return
 	}
 	for k, v := range list.AllItems() {
+		log.Debugf("Env variable %s's value is currently: %s", k, os.Getenv(k))
+		log.Debugf("Setting env variable %s: %s", k, v)
+
 		if err := os.Setenv(k, v); err != nil {
 			log.Errorf("could not set env variable %s: %v", k, err)
+		} else {
+			log.Debugf("Env variable %s was set successfully", k)
 		}
 	}
 }
