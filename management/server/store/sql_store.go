@@ -157,7 +157,25 @@ func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
 }
 
 // job was pending for too long and has been cancelled
-func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+" AND id = ?"+" AND status = ?", accountID, peerID, jobID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
 	now := time.Now().UTC()
 	result := s.db.
 		Model(&types.Job{}).
@@ -4198,4 +4216,24 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		Where("key = ?", key).
+		Limit(1).
+		Scan(&peerID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peer ID by key: %s", result.Error)
+		return "", status.Errorf(status.Internal, "failed to get peer ID by key")
+	}
+
+	return peerID, nil
 }

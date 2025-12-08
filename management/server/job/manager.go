@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -27,9 +28,10 @@ type Manager struct {
 	responseWait time.Duration
 	metrics      telemetry.AppMetrics
 	Store        store.Store
+	peersManager peers.Manager
 }
 
-func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *Manager {
+func NewJobManager(metrics telemetry.AppMetrics, store store.Store, peersManager peers.Manager) *Manager {
 
 	return &Manager{
 		jobChannels:  make(map[string]*Channel),
@@ -38,13 +40,14 @@ func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *Manager {
 		metrics:      metrics,
 		mu:           &sync.RWMutex{},
 		Store:        store,
+		peersManager: peersManager,
 	}
 }
 
 // CreateJobChannel creates or replaces a channel for a peer
 func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID string) *Channel {
 	// all pending jobs stored in db for this peer should be failed
-	if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Pending job cleanup: marked as failed automatically due to being stuck too long"); err != nil {
+	if err := jm.Store.MarkAllPendingJobsAsFailed(ctx, accountID, peerID, "Pending job cleanup: marked as failed automatically due to being stuck too long"); err != nil {
 		log.WithContext(ctx).Error(err.Error())
 	}
 
@@ -88,7 +91,7 @@ func (jm *Manager) SendJob(ctx context.Context, accountID, peerID string, req *p
 }
 
 // HandleResponse marks a job as finished and moves it to completed
-func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse) error {
+func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse, peerKey string) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -105,15 +108,23 @@ func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse) 
 	if err := job.ApplyResponse(resp); err != nil {
 		return fmt.Errorf("invalid job response: %v", err)
 	}
-	//update or create the store for job response
-	err := jm.Store.CompletePeerJob(ctx, &job)
-	// todo incorrect error handling. Why do we touch event if we drop it the next step?
-	if err == nil {
-		event.Response = resp
+
+	peerID, err := jm.peersManager.GetPeerID(ctx, peerKey)
+	if err != nil {
+		return fmt.Errorf("failed to get peer ID: %v", err)
+	}
+	if peerID != event.PeerID {
+		return fmt.Errorf("peer ID mismatch: %s != %s", peerID, event.PeerID)
+	}
+
+	// update or create the store for job response
+	err = jm.Store.CompletePeerJob(ctx, &job)
+	if err != nil {
+		return fmt.Errorf("failed to complete job %s: %v", jobID, err)
 	}
 
 	delete(jm.pending, jobID)
-	return err
+	return nil
 }
 
 // CloseChannel closes a peer’s channel and cleans up its jobs
@@ -128,8 +139,8 @@ func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
 
 	for jobID, ev := range jm.pending {
 		if ev.PeerID == peerID {
-			// if the client disconnect and there is pending job then marke it as failed
-			if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Time out peer disconnected"); err != nil {
+			// if the client disconnect and there is pending job then mark it as failed
+			if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, jobID, "Time out peer disconnected"); err != nil {
 				log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
 			}
 			delete(jm.pending, jobID)
@@ -143,7 +154,7 @@ func (jm *Manager) cleanup(ctx context.Context, accountID, jobID string, reason 
 	defer jm.mu.Unlock()
 
 	if ev, ok := jm.pending[jobID]; ok {
-		if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, ev.PeerID, reason); err != nil {
+		if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, ev.PeerID, jobID, reason); err != nil {
 			log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
 		}
 		delete(jm.pending, jobID)

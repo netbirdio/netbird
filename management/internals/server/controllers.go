@@ -28,7 +28,7 @@ func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
 
 func (s *BaseServer) JobManager() *job.Manager {
 	return Create(s, func() *job.Manager {
-		return job.NewJobManager(s.Metrics(), s.Store())
+		return job.NewJobManager(s.Metrics(), s.Store(), s.PeersManager())
 	})
 }
 

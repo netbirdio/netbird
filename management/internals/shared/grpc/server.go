@@ -198,14 +198,11 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 		return status.Errorf(codes.Unauthenticated, "peer is not registered")
 	}
 
-	// Start background response handler
 	s.startResponseReceiver(ctx, srv)
 
-	// Prepare per-peer state
 	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
 	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
 
-	// Main loop: forward jobs to client
 	return s.sendJobsLoop(ctx, accountID, peerKey, peer, updates, srv)
 }
 
@@ -357,10 +354,9 @@ func (s *Server) startResponseReceiver(ctx context.Context, srv proto.Management
 				continue
 			}
 
-			if err := s.jobManager.HandleResponse(ctx, jobResp); err != nil {
+			if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 			}
-
 		}
 	}()
 }

@@ -207,7 +207,9 @@ type Store interface {
 	CompletePeerJob(ctx context.Context, job *types.Job) error
 	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
 	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
-	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 }
 
 const (
