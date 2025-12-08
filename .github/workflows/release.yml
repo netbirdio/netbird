@@ -83,6 +83,7 @@ jobs:
             version=$(cat security/netbird/Makefile | grep DISTVERSION | awk '{print $NF}')
             
             cd /usr/ports/security/netbird
+            export BATCH=yes
             make package
             pkg add -y ./work/pkg/netbird-*.pkg
             
