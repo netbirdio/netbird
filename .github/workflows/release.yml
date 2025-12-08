@@ -83,7 +83,7 @@ jobs:
             # Show patched Makefile
             cat security/netbird/Makefile
             
-            port install netbird
+            pkg install netbird
             
             netbird version
 
