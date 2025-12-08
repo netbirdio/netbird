@@ -237,6 +237,10 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 		sourcePeers,
 	)
 
+	if len(finalAllPeers) > 0 && len(firewallRules) == 0 {
+		log.Debugf("NetworkMapBuilder: peer %s - no fwrules was calculated for %d potential peers", peerID, len(allPotentialPeers))
+	}
+
 	view := &PeerACLView{
 		ConnectedPeerIDs: make([]string, 0, len(finalAllPeers)),
 		FirewallRuleIDs:  make([]string, 0, len(firewallRules)),
@@ -1013,6 +1017,8 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	for _, ruleID := range aclView.FirewallRuleIDs {
 		if rule := b.cache.globalRules[ruleID]; rule != nil {
 			firewallRules = append(firewallRules, rule)
+		} else {
+			log.Debugf("NetworkMapBuilder: peer %s assembling network map has no fwrule %s in globalRules", peer.ID, ruleID)
 		}
 	}
 

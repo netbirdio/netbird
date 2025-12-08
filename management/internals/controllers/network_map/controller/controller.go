@@ -535,6 +535,9 @@ func (c *Controller) enrichAccountFromHolder(account *types.Account) {
 	if account.NetworkMapCache == nil {
 		return
 	}
+	if a.Network.CurrentSerial() >= account.Network.CurrentSerial() {
+		return
+	}
 	account.NetworkMapCache.UpdateAccountPointer(account)
 	c.holder.AddAccount(account)
 }
