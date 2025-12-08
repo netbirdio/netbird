@@ -32,7 +32,7 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 	s.wUpdateProgress.RequestFocus()
 	s.wUpdateProgress.Show()
 
-	updateWindowCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	updateWindowCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 
 	// Initialize dot updater
 	updateText := dotUpdater()
