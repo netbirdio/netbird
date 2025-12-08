@@ -895,6 +895,7 @@ func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, pee
 		simpleRecords := make([]nbdns.SimpleRecord, 0, len(zone.Records))
 		for _, record := range zone.Records {
 			var recordType int
+			rData := record.Content
 
 			switch record.Type {
 			case records.RecordTypeA:
@@ -903,6 +904,7 @@ func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, pee
 				recordType = int(dns.TypeAAAA)
 			case records.RecordTypeCNAME:
 				recordType = int(dns.TypeCNAME)
+				rData = dns.Fqdn(record.Content)
 			default:
 				log.WithContext(ctx).Warnf("unknown DNS record type %s for record %s", record.Type, record.ID)
 				continue
@@ -913,7 +915,7 @@ func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, pee
 				Type:  recordType,
 				Class: nbdns.DefaultClass,
 				TTL:   record.TTL,
-				RData: record.Content,
+				RData: rData,
 			})
 		}
 
