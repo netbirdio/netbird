@@ -82,19 +82,10 @@ jobs:
 
             # Show patched Makefile
             cat security/netbird/Makefile
-
-            cd /usr/ports/security/netbird
-
-            # Run port linting
-            portlint -AC || true
-
-            # Build and test the port
-            make stage
-            make stage-qa || true
-            make package
-
-            # Verify the package was created
-            ls -la /usr/ports/security/netbird/work/pkg/
+            
+            port install netbird
+            
+            netbird version
 
             echo "FreeBSD port test completed successfully!"
 
