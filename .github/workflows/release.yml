@@ -48,7 +48,7 @@ jobs:
           release: "15.0"
           prepare: |
             # Install required packages
-            pkg install -y git curl portlint
+            pkg install -y git curl portlint go
 
             # Install Go for building
             GO_TARBALL="go1.24.10.freebsd-amd64.tar.gz"
@@ -85,7 +85,7 @@ jobs:
             cd /usr/ports/security/netbird
             export BATCH=yes
             make package
-            pkg add -y ./work/pkg/netbird-*.pkg
+            pkg add ./work/pkg/netbird-*.pkg
             
             netbird version | grep $version
 
