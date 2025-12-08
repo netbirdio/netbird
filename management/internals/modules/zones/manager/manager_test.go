@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -25,6 +26,7 @@ const (
 	testUserID    = "test-user-id"
 	testZoneID    = "test-zone-id"
 	testGroupID   = "test-group-id"
+	testDNSDomain = "netbird.selfhosted"
 )
 
 func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccountManager, *permissions.MockManager, *gomock.Controller, func()) {
@@ -53,6 +55,7 @@ func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccoun
 		store:              testStore,
 		accountManager:     mockAccountManager,
 		permissionsManager: mockPermissionsManager,
+		dnsDomain:          testDNSDomain,
 	}
 
 	return manager, testStore, mockAccountManager, mockPermissionsManager, ctrl, cleanup
@@ -237,6 +240,94 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
 		assert.Nil(t, result)
+	})
+
+	t.Run("duplicate domain", func(t *testing.T) {
+		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		existingZone := zones.NewZone(testAccountID, "Existing Zone", "duplicate.example.com", true, false, []string{testGroupID})
+		err := testStore.CreateZone(ctx, existingZone)
+		require.NoError(t, err)
+
+		inputZone := &zones.Zone{
+			Name:               "New Zone",
+			Domain:             "duplicate.example.com",
+			Enabled:            true,
+			EnableSearchDomain: false,
+			DistributionGroups: []string{testGroupID},
+		}
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
+			Return(true, nil)
+
+		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "zone with domain duplicate.example.com already exists")
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.AlreadyExists, s.Type())
+	})
+
+	t.Run("peer DNS domain conflict", func(t *testing.T) {
+		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		account, err := testStore.GetAccount(ctx, testAccountID)
+		require.NoError(t, err)
+		account.Settings.DNSDomain = "peers.example.com"
+		err = testStore.SaveAccount(ctx, account)
+		require.NoError(t, err)
+
+		inputZone := &zones.Zone{
+			Name:               "Test Zone",
+			Domain:             "peers.example.com",
+			Enabled:            true,
+			EnableSearchDomain: false,
+			DistributionGroups: []string{testGroupID},
+		}
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
+			Return(true, nil)
+
+		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "zone domain peers.example.com conflicts with peer DNS domain")
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.InvalidArgument, s.Type())
+	})
+
+	t.Run("default DNS domain conflict", func(t *testing.T) {
+		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		inputZone := &zones.Zone{
+			Name:               "Test Zone",
+			Domain:             testDNSDomain,
+			Enabled:            true,
+			EnableSearchDomain: false,
+			DistributionGroups: []string{testGroupID},
+		}
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
+			Return(true, nil)
+
+		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), fmt.Sprintf("zone domain %s conflicts with peer DNS domain", testDNSDomain))
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.InvalidArgument, s.Type())
 	})
 }
 

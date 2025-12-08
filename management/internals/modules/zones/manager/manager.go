@@ -18,13 +18,15 @@ type managerImpl struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
+	dnsDomain          string
 }
 
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager) zones.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, dnsDomain string) zones.Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
+		dnsDomain:          dnsDomain,
 	}
 }
 
@@ -61,8 +63,18 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	if err = m.validateZoneDomainConflict(ctx, accountID, zone.Domain); err != nil {
+		return nil, err
+	}
+
 	zone = zones.NewZone(accountID, zone.Name, zone.Domain, zone.Enabled, zone.EnableSearchDomain, zone.DistributionGroups)
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+
+		existingZone, err := transaction.GetZoneByDomain(ctx, accountID, zone.Domain)
+		if err == nil && existingZone != nil {
+			return status.Errorf(status.AlreadyExists, "zone with domain %s already exists", zone.Domain)
+		}
+
 		for _, groupID := range zone.DistributionGroups {
 			_, err = transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
@@ -191,6 +203,23 @@ func (m *managerImpl) DeleteZone(ctx context.Context, accountID, userID, zoneID 
 	}
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *managerImpl) validateZoneDomainConflict(ctx context.Context, accountID, domain string) error {
+	if m.dnsDomain != "" && m.dnsDomain == domain {
+		return status.Errorf(status.InvalidArgument, "zone domain %s conflicts with peer DNS domain", domain)
+	}
+
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+
+	if settings.DNSDomain != "" && settings.DNSDomain == domain {
+		return status.Errorf(status.InvalidArgument, "zone domain %s conflicts with peer DNS domain", domain)
+	}
 
 	return nil
 }

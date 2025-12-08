@@ -210,6 +210,7 @@ type Store interface {
 	UpdateZone(ctx context.Context, zone *zones.Zone) error
 	DeleteZone(ctx context.Context, accountID, zoneID string) error
 	GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error)
+	GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error)
 	GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error)
 
 	CreateDNSRecord(ctx context.Context, record *records.Record) error

@@ -125,7 +125,7 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
-		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
 	})
 }
 

@@ -4182,6 +4182,21 @@ func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength
 	return zone, nil
 }
 
+func (s *SqlStore) GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error) {
+	var zone *zones.Zone
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&zone)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone by domain from store")
+	}
+
+	return zone, nil
+}
+
 func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {

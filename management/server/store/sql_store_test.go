@@ -3826,6 +3826,74 @@ func TestSqlStore_GetAccountZones(t *testing.T) {
 	assert.True(t, zoneIDs[zone2.ID])
 }
 
+func TestSqlStore_GetZoneByDomain(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	otherAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3c"
+
+	zone := zones.NewZone(accountID, "Test Zone", "example.com", true, false, []string{"group1"})
+	err = store.CreateZone(context.Background(), zone)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		accountID   string
+		domain      string
+		expectError bool
+		errorType   status.Type
+	}{
+		{
+			name:        "retrieve existing zone by domain",
+			accountID:   accountID,
+			domain:      "example.com",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing zone domain",
+			accountID:   accountID,
+			domain:      "non-existing.com",
+			expectError: true,
+			errorType:   status.NotFound,
+		},
+		{
+			name:        "retrieve with empty domain",
+			accountID:   accountID,
+			domain:      "",
+			expectError: true,
+			errorType:   status.NotFound,
+		},
+		{
+			name:        "retrieve with different account ID",
+			accountID:   otherAccountID,
+			domain:      "example.com",
+			expectError: true,
+			errorType:   status.NotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			savedZone, err := store.GetZoneByDomain(context.Background(), tt.accountID, tt.domain)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, tt.errorType, sErr.Type())
+				require.Nil(t, savedZone)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, savedZone)
+				assert.Equal(t, tt.domain, savedZone.Domain)
+				assert.Equal(t, zone.ID, savedZone.ID)
+				assert.Equal(t, zone.Name, savedZone.Name)
+			}
+		})
+	}
+}
+
 func TestSqlStore_UpdateZone(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
