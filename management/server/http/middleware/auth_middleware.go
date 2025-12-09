@@ -171,10 +171,6 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return r, fmt.Errorf("error extracting token: %w", err)
 	}
 
-	if m.patUsageTracker != nil {
-		m.patUsageTracker.IncrementUsage(token)
-	}
-
 	if m.rateLimiter != nil {
 		if !m.rateLimiter.Allow(token) {
 			return r, status.Errorf(status.TooManyRequests, "too many requests")
@@ -186,6 +182,11 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	if err != nil {
 		return r, fmt.Errorf("invalid Token: %w", err)
 	}
+
+	if m.patUsageTracker != nil {
+		m.patUsageTracker.IncrementUsage(pat.ID)
+	}
+
 	if time.Now().After(pat.GetExpirationDate()) {
 		return r, fmt.Errorf("token expired")
 	}

@@ -74,8 +74,11 @@ func (t *PATUsageTracker) reportUsageBuckets() {
 
 	totalTokens := len(snapshot)
 	if totalTokens > 0 {
-		for _, count := range snapshot {
+		for id, count := range snapshot {
 			t.histogram.Record(t.ctx, count)
+			if count > 120 {
+				log.Debugf("High PAT usage detected: token %s used %d times in the last minute", id, count)
+			}
 		}
 		log.Debugf("PAT usage in last minute: %d unique tokens used", totalTokens)
 	}
