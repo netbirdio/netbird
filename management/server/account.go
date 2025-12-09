@@ -386,6 +386,13 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
 
+	if newSettings.DNSDomain != oldSettings.DNSDomain && newSettings.DNSDomain != "" {
+		existingZone, err := transaction.GetZoneByDomain(ctx, accountID, newSettings.DNSDomain)
+		if err == nil && existingZone != nil {
+			return status.Errorf(status.InvalidArgument, "peer DNS domain %s conflicts with existing custom DNS zone", newSettings.DNSDomain)
+		}
+	}
+
 	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	if err != nil {
 		return err

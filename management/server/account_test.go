@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -2056,6 +2057,35 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_DNSDomainConflict(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	require.NoError(t, err, "unable to create an account")
+
+	ctx := context.Background()
+	err = manager.Store.CreateZone(ctx, &zones.Zone{
+		ID:                 "test-zone-id",
+		AccountID:          accountID,
+		Name:               "Test Zone",
+		Domain:             "custom.example.com",
+		Enabled:            true,
+		EnableSearchDomain: false,
+		DistributionGroups: []string{},
+	})
+	require.NoError(t, err, "unable to create custom DNS zone")
+
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		DNSDomain:                  "custom.example.com",
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.Error(t, err, "expecting to fail when DNS domain conflicts with custom zone")
+	assert.Contains(t, err.Error(), "conflicts with existing custom DNS zone")
 }
 
 func TestAccount_GetExpiredPeers(t *testing.T) {
