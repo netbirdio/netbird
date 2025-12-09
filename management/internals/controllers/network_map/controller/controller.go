@@ -731,13 +731,12 @@ func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerI
 }
 
 func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
-	for _, peerID := range peerIDs {
-		if c.experimentalNetworkMap(accountID) {
-			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-			if err != nil {
-				return err
-			}
-
+	if c.experimentalNetworkMap(accountID) {
+		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		for _, peerID := range peerIDs {
 			err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
 			if err != nil {
 				return err
