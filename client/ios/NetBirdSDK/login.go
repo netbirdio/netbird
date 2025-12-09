@@ -187,10 +187,14 @@ func (a *Auth) LoginSync() error {
 // Login performs interactive login with device authentication support
 func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool) {
 	go func() {
+		log.Info("Login: starting login goroutine")
 		err := a.login(urlOpener, forceDeviceAuth)
+		log.Infof("Login: a.login() returned err=%v", err)
 		if err != nil {
+			log.Infof("Login: calling resultListener.OnError(%v)", err)
 			resultListener.OnError(err)
 		} else {
+			log.Info("Login: calling resultListener.OnSuccess()")
 			resultListener.OnSuccess()
 		}
 	}()
@@ -218,13 +222,25 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
 	}
 
 	err = a.withBackOff(a.ctx, func() error {
+		log.Infof("login: calling internal.Login with jwtToken length=%d", len(jwtToken))
 		err := internal.Login(a.ctx, a.config, "", jwtToken)
+		log.Infof("login: internal.Login returned err=%v", err)
 
-		if err == nil {
+		// Check for "acceptable" errors that mean login is actually successful
+		// (e.g., peer already registered, expired token but peer exists, etc.)
+		isAcceptableError := false
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			log.Infof("login: got acceptable gRPC error code=%v, treating as success", s.Code())
+			isAcceptableError = true
+		}
+
+		// Call OnLoginSuccess if login succeeded OR if error is acceptable
+		if err == nil || isAcceptableError {
+			log.Info("login: calling urlOpener.OnLoginSuccess()")
 			go urlOpener.OnLoginSuccess()
 		}
 
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		if isAcceptableError {
 			return nil
 		}
 		return err
@@ -247,22 +263,29 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
 }
 
 func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
+	log.Infof("foregroundGetTokenInfo: starting, forceDeviceAuth=%v", forceDeviceAuth)
 	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, forceDeviceAuth, "")
 	if err != nil {
+		log.Errorf("foregroundGetTokenInfo: NewOAuthFlow failed: %v", err)
 		return nil, err
 	}
 
+	log.Info("foregroundGetTokenInfo: requesting auth info")
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
+		log.Errorf("foregroundGetTokenInfo: RequestAuthInfo failed: %v", err)
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
+	log.Infof("foregroundGetTokenInfo: got flowInfo, calling urlOpener.Open with URL=%s, userCode=%s", flowInfo.VerificationURIComplete, flowInfo.UserCode)
 	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
+	log.Infof("foregroundGetTokenInfo: waiting for token with timeout=%v", waitTimeout)
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
 	defer cancel()
 	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+	log.Infof("foregroundGetTokenInfo: WaitToken returned, err=%v", err)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}
@@ -277,4 +300,25 @@ func (a *Auth) withBackOff(ctx context.Context, bf func() error) error {
 		func(err error, duration time.Duration) {
 			log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
 		})
+}
+
+// GetConfigJSON returns the current config as a JSON string.
+// This can be used by the caller to persist the config via alternative storage
+// mechanisms (e.g., UserDefaults on tvOS where file writes are blocked).
+func (a *Auth) GetConfigJSON() (string, error) {
+	if a.config == nil {
+		return "", fmt.Errorf("no config available")
+	}
+	return profilemanager.ConfigToJSON(a.config)
+}
+
+// SetConfigFromJSON loads config from a JSON string.
+// This can be used to restore config from alternative storage mechanisms.
+func (a *Auth) SetConfigFromJSON(jsonStr string) error {
+	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
+	if err != nil {
+		return err
+	}
+	a.config = cfg
+	return nil
 }

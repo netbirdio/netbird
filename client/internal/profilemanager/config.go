@@ -3,6 +3,7 @@ package profilemanager
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -856,5 +857,27 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		}
 	}
 
+	return config, nil
+}
+
+// ConfigToJSON serializes a Config struct to a JSON string.
+// This is useful for exporting config to alternative storage mechanisms
+// (e.g., UserDefaults on tvOS where file writes are blocked).
+func ConfigToJSON(config *Config) (string, error) {
+	bs, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return "", err
+	}
+	return string(bs), nil
+}
+
+// ConfigFromJSON deserializes a JSON string to a Config struct.
+// This is useful for restoring config from alternative storage mechanisms.
+func ConfigFromJSON(jsonStr string) (*Config, error) {
+	config := &Config{}
+	err := json.Unmarshal([]byte(jsonStr), config)
+	if err != nil {
+		return nil, err
+	}
 	return config, nil
 }

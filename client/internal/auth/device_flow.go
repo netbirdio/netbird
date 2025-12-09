@@ -203,29 +203,39 @@ func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestR
 func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenInfo, error) {
 	interval := time.Duration(info.Interval) * time.Second
 	ticker := time.NewTicker(interval)
+	log.Infof("WaitToken: starting polling with interval=%v", interval)
+	pollCount := 0
 	for {
 		select {
 		case <-ctx.Done():
+			log.Infof("WaitToken: context done, err=%v", ctx.Err())
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
+			pollCount++
+			log.Infof("WaitToken: polling for token (attempt %d)", pollCount)
 
 			tokenResponse, err := d.requestToken(info)
 			if err != nil {
+				log.Errorf("WaitToken: requestToken failed: %v", err)
 				return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
 			}
 
 			if tokenResponse.Error != "" {
 				if tokenResponse.Error == "authorization_pending" {
+					log.Debug("WaitToken: authorization_pending, continuing...")
 					continue
 				} else if tokenResponse.Error == "slow_down" {
 					interval += (3 * time.Second)
 					ticker.Reset(interval)
+					log.Infof("WaitToken: slow_down, increasing interval to %v", interval)
 					continue
 				}
 
+				log.Errorf("WaitToken: token error: %s - %s", tokenResponse.Error, tokenResponse.ErrorDescription)
 				return TokenInfo{}, errors.New(tokenResponse.ErrorDescription)
 			}
 
+			log.Info("WaitToken: got token successfully!")
 			tokenInfo := TokenInfo{
 				AccessToken:  tokenResponse.AccessToken,
 				TokenType:    tokenResponse.TokenType,
@@ -237,9 +247,11 @@ func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowIn
 
 			err = isValidAccessToken(tokenInfo.GetTokenToUse(), d.providerConfig.Audience)
 			if err != nil {
+				log.Errorf("WaitToken: token validation failed: %v", err)
 				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 			}
 
+			log.Info("WaitToken: token validated, returning")
 			return tokenInfo, err
 		}
 	}

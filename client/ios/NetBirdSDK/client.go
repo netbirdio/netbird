@@ -72,6 +72,8 @@ type Client struct {
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
 	connectClient         *internal.ConnectClient
+	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
+	preloadedConfig       *profilemanager.Config
 }
 
 // NewClient instantiate a new Client
@@ -89,18 +91,43 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 	}
 }
 
+// SetConfigFromJSON loads config from a JSON string into memory.
+// This is used on tvOS where file writes to App Group containers are blocked.
+// When set, IsLoginRequired() and Run() will use this preloaded config instead of reading from file.
+func (c *Client) SetConfigFromJSON(jsonStr string) error {
+	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
+	if err != nil {
+		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
+		return err
+	}
+	c.preloadedConfig = cfg
+	log.Infof("SetConfigFromJSON: config loaded successfully from JSON")
+	return nil
+}
+
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
-	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	cfg, err := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    c.cfgFile,
-		StateFilePath: c.stateFile,
-	})
-	if err != nil {
-		return err
+
+	var cfg *profilemanager.Config
+	var err error
+
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("Run: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("Run: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath:    c.cfgFile,
+			StateFilePath: c.stateFile,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
@@ -206,13 +233,23 @@ func (c *Client) IsLoginRequired() bool {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	cfg, _ := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath: c.cfgFile,
-	})
+	var cfg *profilemanager.Config
+
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("IsLoginRequired: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("IsLoginRequired: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, _ = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath: c.cfgFile,
+		})
+	}
 
 	needsLogin, _ := internal.IsLoginRequired(ctx, cfg)
+	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
 }
 

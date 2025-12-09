@@ -48,23 +48,41 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Infof("create tun interface")
 
-	dupTunFd, err := unix.Dup(t.tunFd)
-	if err != nil {
-		log.Errorf("Unable to dup tun fd: %v", err)
-		return nil, err
-	}
+	var tunDevice tun.Device
+	var err error
 
-	err = unix.SetNonblock(dupTunFd, true)
-	if err != nil {
-		log.Errorf("Unable to set tun fd as non blocking: %v", err)
-		_ = unix.Close(dupTunFd)
-		return nil, err
-	}
-	tunDevice, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
-	if err != nil {
-		log.Errorf("Unable to create new tun device from fd: %v", err)
-		_ = unix.Close(dupTunFd)
-		return nil, err
+	// On tvOS, the file descriptor may be 0 because the low-level socket APIs
+	// (ctl_info, sockaddr_ctl, CTLIOCGINFO) are not exposed in the tvOS SDK.
+	// In this case, try to create the TUN device directly using the interface name.
+	if t.tunFd == 0 {
+		log.Warnf("File descriptor is 0, attempting to create TUN directly with name: %s", t.name)
+		// Try to create TUN device directly (works on macOS/Darwin, may work on tvOS)
+		tunDevice, err = tun.CreateTUN(t.name, int(t.mtu))
+		if err != nil {
+			log.Errorf("Unable to create tun device directly: %v", err)
+			return nil, err
+		}
+		log.Infof("Successfully created TUN device directly")
+	} else {
+		// Normal iOS path: use the provided file descriptor
+		dupTunFd, err := unix.Dup(t.tunFd)
+		if err != nil {
+			log.Errorf("Unable to dup tun fd: %v", err)
+			return nil, err
+		}
+
+		err = unix.SetNonblock(dupTunFd, true)
+		if err != nil {
+			log.Errorf("Unable to set tun fd as non blocking: %v", err)
+			_ = unix.Close(dupTunFd)
+			return nil, err
+		}
+		tunDevice, err = tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+		if err != nil {
+			log.Errorf("Unable to create new tun device from fd: %v", err)
+			_ = unix.Close(dupTunFd)
+			return nil, err
+		}
 	}
 
 	t.filteredDevice = newDeviceFilter(tunDevice)
