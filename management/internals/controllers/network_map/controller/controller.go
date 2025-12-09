@@ -489,7 +489,7 @@ func (c *Controller) getPeerNetworkMapExp(
 	legacyMap := account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, metrics)
 
 	go func() {
-		expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
+		expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics, legacyMap.IsRouter)
 		c.compareAndSaveNetworkMaps(ctx, accountId, peerId, expMap, legacyMap)
 	}()
 

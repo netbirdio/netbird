@@ -29,17 +29,15 @@ func (a *Account) GetPeerNetworkMapExp(
 	peersCustomZone nbdns.CustomZone,
 	validatedPeers map[string]struct{},
 	metrics *telemetry.AccountManagerMetrics,
+	isRouter bool,
 ) *NetworkMap {
 	a.initNetworkMapBuilder(validatedPeers)
 	nmap := a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
-	if len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
+	if isRouter && len(nmap.Peers) > 0 && len(nmap.RoutesFirewallRules) == 0 {
+		log.WithContext(ctx).Debugf("NetworkMapBuilder: generated network map for peer %s with peers but no routes firewall rules, network serial %d", peerID, nmap.Network.Serial)
+	}
+	if !isRouter && len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
 		log.WithContext(ctx).Debugf("NetworkMapBuilder: generated network map for peer %s with peers but no firewall rules, network serial %d", peerID, nmap.Network.Serial)
-		a.OnPeerDeletedUpdNetworkMapCache(peerID)
-		a.OnPeerAddedUpdNetworkMapCache(peerID)
-		nmap = a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
-		if len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
-			log.WithContext(ctx).Debugf("NetworkMapBuilder: regenerated network map for peer %s still has no firewall rules", peerID)
-		}
 	}
 	return nmap
 }

@@ -338,6 +338,7 @@ func (a *Account) GetPeerNetworkMap(
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+		IsRouter:            isRouter,
 	}
 
 	if metrics != nil {
