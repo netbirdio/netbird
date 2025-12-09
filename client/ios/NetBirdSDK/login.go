@@ -185,27 +185,37 @@ func (a *Auth) LoginSync() error {
 }
 
 // Login performs interactive login with device authentication support
+// Deprecated: Use LoginWithDeviceName instead to ensure proper device naming on tvOS
 func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool) {
+	// Use empty device name - system will use hostname as fallback
+	a.LoginWithDeviceName(resultListener, urlOpener, forceDeviceAuth, "")
+}
+
+// LoginWithDeviceName performs interactive login with device authentication support
+// The deviceName parameter allows specifying a custom device name (required for tvOS)
+func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
 	go func() {
-		log.Info("Login: starting login goroutine")
-		err := a.login(urlOpener, forceDeviceAuth)
-		log.Infof("Login: a.login() returned err=%v", err)
+		err := a.login(urlOpener, forceDeviceAuth, deviceName)
 		if err != nil {
-			log.Infof("Login: calling resultListener.OnError(%v)", err)
 			resultListener.OnError(err)
 		} else {
-			log.Info("Login: calling resultListener.OnSuccess()")
 			resultListener.OnSuccess()
 		}
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string) error {
 	var needsLogin bool
 
+	// Create context with device name if provided
+	ctx := a.ctx
+	if deviceName != "" {
+		ctx = context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
+	}
+
 	// check if we need to generate JWT token
-	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config)
+	err := a.withBackOff(ctx, func() (err error) {
+		needsLogin, err = internal.IsLoginRequired(ctx, a.config)
 		return
 	})
 	if err != nil {
@@ -221,22 +231,18 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
 		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
-	err = a.withBackOff(a.ctx, func() error {
-		log.Infof("login: calling internal.Login with jwtToken length=%d", len(jwtToken))
-		err := internal.Login(a.ctx, a.config, "", jwtToken)
-		log.Infof("login: internal.Login returned err=%v", err)
+	err = a.withBackOff(ctx, func() error {
+		err := internal.Login(ctx, a.config, "", jwtToken)
 
 		// Check for "acceptable" errors that mean login is actually successful
 		// (e.g., peer already registered, expired token but peer exists, etc.)
 		isAcceptableError := false
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.Infof("login: got acceptable gRPC error code=%v, treating as success", s.Code())
 			isAcceptableError = true
 		}
 
 		// Call OnLoginSuccess if login succeeded OR if error is acceptable
 		if err == nil || isAcceptableError {
-			log.Info("login: calling urlOpener.OnLoginSuccess()")
 			go urlOpener.OnLoginSuccess()
 		}
 
@@ -250,12 +256,9 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
 	}
 
 	// Save the config after successful login to persist credentials
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
 	if a.cfgPath != "" {
 		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
 			log.Warnf("failed to save config after login: %v", err)
-			// Don't return error - login itself succeeded, just config save failed
 		}
 	}
 
@@ -263,29 +266,22 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool) error {
 }
 
 func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	log.Infof("foregroundGetTokenInfo: starting, forceDeviceAuth=%v", forceDeviceAuth)
 	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, forceDeviceAuth, "")
 	if err != nil {
-		log.Errorf("foregroundGetTokenInfo: NewOAuthFlow failed: %v", err)
 		return nil, err
 	}
 
-	log.Info("foregroundGetTokenInfo: requesting auth info")
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
-		log.Errorf("foregroundGetTokenInfo: RequestAuthInfo failed: %v", err)
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	log.Infof("foregroundGetTokenInfo: got flowInfo, calling urlOpener.Open with URL=%s, userCode=%s", flowInfo.VerificationURIComplete, flowInfo.UserCode)
 	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-	log.Infof("foregroundGetTokenInfo: waiting for token with timeout=%v", waitTimeout)
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
 	defer cancel()
 	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
-	log.Infof("foregroundGetTokenInfo: WaitToken returned, err=%v", err)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}
