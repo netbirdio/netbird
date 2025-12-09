@@ -89,14 +89,14 @@ func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationLis
 	downloadURL := a.keysBaseURL.JoinPath("keys", revocationFileName).String()
 	data, err := downloader.DownloadToMemory(ctx, downloadURL, revocationLimit)
 	if err != nil {
-		log.Debugf("failed to download revocation list for: %s", err)
+		log.Debugf("failed to download revocation list '%s': %s", downloadURL, err)
 		return nil, err
 	}
 
 	downloadURL = a.keysBaseURL.JoinPath("keys", revocationSignFileName).String()
 	sigData, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
-		log.Debugf("failed to download revocation list for: %s", err)
+		log.Debugf("failed to download revocation list '%s': %s", downloadURL, err)
 		return nil, err
 	}
 
