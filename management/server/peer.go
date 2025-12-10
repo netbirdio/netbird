@@ -31,6 +31,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+const remoteJobsMinVer = "0.60.0"
+
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
@@ -321,8 +323,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -330,16 +331,20 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		return status.NewPermissionDeniedError()
 	}
 
-	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	p, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return err
 	}
 
-	if peerAccountID != accountID {
+	if p.AccountID != accountID {
 		return status.NewPeerNotPartOfAccountError()
 	}
 
-	// check if peer connected
+	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
+	if !strings.Contains(p.Meta.WtVersion, "dev") && (!meetMinVer || err != nil) {
+		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
+	}
+
 	if !am.jobManager.IsPeerConnected(peerID) {
 		return status.Errorf(status.BadRequest, "peer not connected")
 	}
@@ -394,7 +399,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 
 func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
 	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -420,8 +425,7 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 }
 
 func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
