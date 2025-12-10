@@ -266,7 +266,7 @@ func copyFile(src, dst string) error {
 	}
 	defer func() {
 		if err := out.Close(); err != nil {
-			log.Warnf("failed to close source file: %v", err)
+			log.Warnf("failed to close destination file: %v", err)
 		}
 	}()
 
