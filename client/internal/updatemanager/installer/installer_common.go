@@ -197,7 +197,7 @@ func (u *Installer) downloadInstaller(ctx context.Context, installerType Type, t
 	}
 
 	outputFilePath := filepath.Join(u.tempDir, fileName)
-	if err := downloader.DownloadToFile(ctx, fileURL, outputFilePath); err != nil {
+	if err := downloader.DownloadToFile(ctx, downloader.DefaultRetryDelay, fileURL, outputFilePath); err != nil {
 		return "", err
 	}
 

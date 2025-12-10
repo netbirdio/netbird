@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	userAgent  = "NetBird agent installer/%s"
-	retryDelay = 3 * time.Second
+	userAgent         = "NetBird agent installer/%s"
+	DefaultRetryDelay = 3 * time.Second
 )
 
-func DownloadToFile(ctx context.Context, url, dstFile string) error {
+func DownloadToFile(ctx context.Context, retryDelay time.Duration, url, dstFile string) error {
 	log.Debugf("starting download from %s", url)
 
 	out, err := os.Create(dstFile)
@@ -36,6 +36,11 @@ func DownloadToFile(ctx context.Context, url, dstFile string) error {
 	if err == nil {
 		log.Infof("successfully downloaded file to %s", dstFile)
 		return nil
+	}
+
+	// If retryDelay is 0, don't retry
+	if retryDelay == 0 {
+		return err
 	}
 
 	log.Warnf("download failed, retrying after %v: %v", retryDelay, err)
