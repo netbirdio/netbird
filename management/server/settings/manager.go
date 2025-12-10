@@ -48,11 +48,6 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 }
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("GetSettings took %s", time.Since(start))
-	}()
-
 	if userID != activity.SystemInitiator {
 		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 		if err != nil {

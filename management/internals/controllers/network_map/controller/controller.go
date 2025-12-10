@@ -425,12 +425,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		return nil, nil, nil, 0, err
 	}
 
-	startPosture := time.Now()
 	postureChecks, err := c.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
-	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	customZone := account.GetPeersCustomZone(ctx, c.GetDNSDomain(account.Settings))
 
