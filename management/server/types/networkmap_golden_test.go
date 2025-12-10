@@ -69,7 +69,7 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
 
@@ -141,7 +141,7 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 	b.Run("old builder", func(b *testing.B) {
 		for range b.N {
 			for _, peerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, peerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil)
 			}
 		}
 	})
@@ -201,7 +201,7 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
 
@@ -320,7 +320,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil)
 			}
 		}
 	})
@@ -395,7 +395,7 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
 
@@ -550,7 +550,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil)
 			}
 		}
 	})
@@ -604,7 +604,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
 
@@ -730,7 +730,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
 
@@ -847,7 +847,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.Run("old builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, account.Settings.DNSDomain, []dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil)
 			}
 		}
 	})

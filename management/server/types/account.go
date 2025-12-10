@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -147,17 +149,16 @@ func (o AccountOnboarding) IsEqual(onboarding AccountOnboarding) bool {
 // GetRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID.
 // Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-func (a *Account) GetRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer) []*route.Route {
+func (a *Account) GetRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer, peerGroups LookupMap) []*route.Route {
 	routes, peerDisabledRoutes := a.getRoutingPeerRoutes(ctx, peerID)
 	peerRoutesMembership := make(LookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
 	}
 
-	groupListMap := a.GetPeerGroups(peerID)
 	for _, peer := range aclPeers {
 		activeRoutes, _ := a.getRoutingPeerRoutes(ctx, peer.ID)
-		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
+		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, peerGroups)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
 	}
@@ -270,8 +271,8 @@ func (a *Account) GetGroup(groupID string) *Group {
 func (a *Account) GetPeerNetworkMap(
 	ctx context.Context,
 	peerID string,
-	dnsDomain string,
-	customZones []nbdns.CustomZone,
+	peersCustomZone nbdns.CustomZone,
+	accountZones []*zones.Zone,
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
@@ -291,6 +292,8 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
+	peerGroups := a.GetPeerGroups(peerID)
+
 	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
@@ -304,7 +307,7 @@ func (a *Account) GetPeerNetworkMap(
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
+	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
 	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	var networkResourcesFirewallRules []*RouteFirewallRule
@@ -319,16 +322,20 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	if dnsManagementStatus {
-		for i, customZone := range customZones {
-			if customZone.Domain == dns.Fqdn(dnsDomain) {
-				records := filterZoneRecordsForPeers(peer, customZone, peersToConnectIncludingRouters, expiredPeers)
-				customZones[i] = nbdns.CustomZone{
-					Domain:  customZone.Domain,
-					Records: records,
-				}
-			}
+		var zones []nbdns.CustomZone
+
+		if peersCustomZone.Domain != "" {
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnectIncludingRouters, expiredPeers)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
 		}
-		dnsUpdate.CustomZones = customZones
+
+		filteredAccountZones := filterPeerAppliedZones(ctx, accountZones, peerGroups)
+		zones = append(zones, filteredAccountZones...)
+
+		dnsUpdate.CustomZones = zones
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 
@@ -1775,4 +1782,66 @@ func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, p
 	}
 
 	return filteredRecords
+}
+
+// filterPeerAppliedZones filters account zones based on the peer's group membership
+func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups LookupMap) []nbdns.CustomZone {
+	var customZones []nbdns.CustomZone
+
+	if len(peerGroups) == 0 {
+		return customZones
+	}
+
+	for _, zone := range accountZones {
+		if !zone.Enabled || len(zone.Records) == 0 {
+			continue
+		}
+
+		hasAccess := false
+		for _, distGroupID := range zone.DistributionGroups {
+			if _, found := peerGroups[distGroupID]; found {
+				hasAccess = true
+				break
+			}
+		}
+
+		if !hasAccess {
+			continue
+		}
+
+		simpleRecords := make([]nbdns.SimpleRecord, 0, len(zone.Records))
+		for _, record := range zone.Records {
+			var recordType int
+			rData := record.Content
+
+			switch record.Type {
+			case records.RecordTypeA:
+				recordType = int(dns.TypeA)
+			case records.RecordTypeAAAA:
+				recordType = int(dns.TypeAAAA)
+			case records.RecordTypeCNAME:
+				recordType = int(dns.TypeCNAME)
+				rData = dns.Fqdn(record.Content)
+			default:
+				log.WithContext(ctx).Warnf("unknown DNS record type %s for record %s", record.Type, record.ID)
+				continue
+			}
+
+			simpleRecords = append(simpleRecords, nbdns.SimpleRecord{
+				Name:  dns.Fqdn(record.Name),
+				Type:  recordType,
+				Class: nbdns.DefaultClass,
+				TTL:   record.TTL,
+				RData: rData,
+			})
+		}
+
+		customZones = append(customZones, nbdns.CustomZone{
+			Domain:               dns.Fqdn(zone.Domain),
+			Records:              simpleRecords,
+			SearchDomainDisabled: !zone.EnableSearchDomain,
+		})
+	}
+
+	return customZones
 }

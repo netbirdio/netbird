@@ -415,7 +415,7 @@ func TestController_filterPeerAppliedZones(t *testing.T) {
 							Type:  int(dns.TypeCNAME),
 							Class: nbdns.DefaultClass,
 							TTL:   900,
-							RData: "www.mixed.com",
+							RData: "www.mixed.com.",
 						},
 					},
 					SearchDomainDisabled: true,
