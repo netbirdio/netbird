@@ -165,7 +165,7 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 
 	var pi windows.ProcessInformation
 
-	cmdLine, err := windows.UTF16PtrFromString(uiPath)
+	cmdLine, err := windows.UTF16PtrFromString(fmt.Sprintf("\"%s\"", uiPath))
 	if err != nil {
 		return fmt.Errorf("failed to convert path to UTF16: %w", err)
 	}
