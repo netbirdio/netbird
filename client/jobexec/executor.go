@@ -34,7 +34,9 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 	}
 
 	if waitForDuration > 0 {
-		waitFor(ctx, waitForDuration)
+		if err := waitFor(ctx, waitForDuration); err != nil {
+			return "", err
+		}
 	}
 
 	log.Infof("execute debug bundle generation")
@@ -56,11 +58,13 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 	return key, nil
 }
 
-func waitFor(ctx context.Context, duration time.Duration) {
+func waitFor(ctx context.Context, duration time.Duration) error {
 	log.Infof("wait for %v minutes before executing debug bundle", duration.Minutes())
 	select {
 	case <-time.After(duration):
+		return nil
 	case <-ctx.Done():
 		log.Infof("wait cancelled: %v", ctx.Err())
+		return ctx.Err()
 	}
 }
