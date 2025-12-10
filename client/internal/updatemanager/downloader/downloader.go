@@ -6,13 +6,17 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/version"
 )
 
-const userAgent = "NetBird agent installer/%s"
+const (
+	userAgent  = "NetBird agent installer/%s"
+	retryDelay = 3 * time.Second
+)
 
 func DownloadToFile(ctx context.Context, url, dstFile string) error {
 	log.Debugf("starting download from %s", url)
@@ -27,6 +31,38 @@ func DownloadToFile(ctx context.Context, url, dstFile string) error {
 		}
 	}()
 
+	// First attempt
+	err = downloadToFileOnce(ctx, url, out)
+	if err == nil {
+		log.Infof("successfully downloaded file to %s", dstFile)
+		return nil
+	}
+
+	log.Warnf("download failed, retrying after %v: %v", retryDelay, err)
+
+	// Sleep before retry
+	if sleepErr := sleepWithContext(ctx, retryDelay); sleepErr != nil {
+		return fmt.Errorf("download cancelled during retry delay: %w", sleepErr)
+	}
+
+	// Truncate file before retry
+	if err := out.Truncate(0); err != nil {
+		return fmt.Errorf("failed to truncate file on retry: %w", err)
+	}
+	if _, err := out.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek to beginning of file: %w", err)
+	}
+
+	// Second attempt
+	if err := downloadToFileOnce(ctx, url, out); err != nil {
+		return fmt.Errorf("download failed after retry: %w", err)
+	}
+
+	log.Infof("successfully downloaded file to %s", dstFile)
+	return nil
+}
+
+func downloadToFileOnce(ctx context.Context, url string, out *os.File) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
@@ -53,8 +89,16 @@ func DownloadToFile(ctx context.Context, url, dstFile string) error {
 		return fmt.Errorf("failed to write response body to file: %w", err)
 	}
 
-	log.Infof("successfully downloaded file to %s", dstFile)
 	return nil
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	select {
+	case <-time.After(duration):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func DownloadToMemory(ctx context.Context, url string, limit int64) ([]byte, error) {
