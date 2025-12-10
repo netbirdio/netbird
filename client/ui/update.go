@@ -45,13 +45,15 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 	go func() {
 		conn, err := s.getSrvClient(defaultFailTimeout)
 		if err != nil {
-			log.Warnf("Failed to connect to server: %v", err)
+			log.Infof("backend not reachable, upgrade in progress: %v", err)
+			close(resultOkCh)
 			return
 		}
 
 		resp, err := conn.GetInstallerResult(updateWindowCtx, &proto.InstallerResultRequest{})
 		if err != nil {
-			log.Warnf("get update result RPC failed: %v", err)
+			log.Infof("backend stopped responding, upgrade in progress: %v", err)
+			close(resultOkCh)
 			return
 		}
 
@@ -79,8 +81,9 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 				s.showInstallerResult(statusLabel, err)
 				return
 			case <-resultOkCh:
-				s.wUpdateProgress.SetCloseIntercept(nil)
-				s.wUpdateProgress.Close()
+				log.Info("backend exited, upgrade in progress, closing all UI")
+				killParentUIProcess()
+				s.app.Quit()
 				return
 			case <-ticker.C:
 				statusLabel.SetText(updateText())
