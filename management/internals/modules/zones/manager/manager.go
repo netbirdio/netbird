@@ -69,9 +69,13 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 
 	zone = zones.NewZone(accountID, zone.Name, zone.Domain, zone.Enabled, zone.EnableSearchDomain, zone.DistributionGroups)
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-
 		existingZone, err := transaction.GetZoneByDomain(ctx, accountID, zone.Domain)
-		if err == nil && existingZone != nil {
+		if err != nil {
+			if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+				return fmt.Errorf("failed to check existing zone: %w", err)
+			}
+		}
+		if existingZone != nil {
 			return status.Errorf(status.AlreadyExists, "zone with domain %s already exists", zone.Domain)
 		}
 

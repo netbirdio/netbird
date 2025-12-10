@@ -388,7 +388,12 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 
 	if newSettings.DNSDomain != oldSettings.DNSDomain && newSettings.DNSDomain != "" {
 		existingZone, err := transaction.GetZoneByDomain(ctx, accountID, newSettings.DNSDomain)
-		if err == nil && existingZone != nil {
+		if err != nil {
+			if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+				return fmt.Errorf("failed to check existing zone: %w", err)
+			}
+		}
+		if existingZone != nil {
 			return status.Errorf(status.InvalidArgument, "peer DNS domain %s conflicts with existing custom DNS zone", newSettings.DNSDomain)
 		}
 	}
