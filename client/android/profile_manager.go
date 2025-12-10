@@ -165,8 +165,9 @@ func (pm *ProfileManager) LogoutProfile(profileName string) error {
 		return fmt.Errorf("failed to read profile config: %w", err)
 	}
 
-	// Clear authentication by removing private key
+	// Clear authentication by removing private key and SSH key
 	config.PrivateKey = ""
+	config.SSHKey = ""
 
 	// Save config using internal profilemanager
 	if err := profilemanager.WriteOutConfig(configPath, config); err != nil {
