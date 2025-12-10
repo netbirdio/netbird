@@ -5,9 +5,6 @@ package settings
 import (
 	"context"
 	"fmt"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
