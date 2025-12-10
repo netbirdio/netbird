@@ -150,7 +150,7 @@ func (u *Installer) CleanUpInstallerFiles() error {
 
 	var merr *multierror.Error
 
-	if err := os.Remove(filepath.Join(u.tempDir, updaterBinary)); err != nil {
+	if err := os.Remove(filepath.Join(u.tempDir, updaterBinary)); err != nil && !os.IsNotExist(err) {
 		merr = multierror.Append(merr, fmt.Errorf("failed to remove updater binary: %w", err))
 	}
 
