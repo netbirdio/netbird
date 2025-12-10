@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -47,6 +48,11 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
 	}
+	defer func() {
+		if err := os.Remove(path); err != nil {
+			log.Errorf("failed to remove debug bundle file: %v", err)
+		}
+	}()
 
 	key, err := debug.UploadDebugBundle(ctx, types.DefaultBundleURL, mgmURL, path)
 	if err != nil {
