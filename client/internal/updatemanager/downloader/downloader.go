@@ -67,6 +67,37 @@ func DownloadToFile(ctx context.Context, retryDelay time.Duration, url, dstFile 
 	return nil
 }
 
+func DownloadToMemory(ctx context.Context, url string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Add User-Agent header
+	req.Header.Set("User-Agent", fmt.Sprintf(userAgent, version.NetbirdVersion()))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform HTTP request: %w", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log.Warnf("error closing response body: %v", cerr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status: %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return data, nil
+}
+
 func downloadToFileOnce(ctx context.Context, url string, out *os.File) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -104,35 +135,4 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func DownloadToMemory(ctx context.Context, url string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	// Add User-Agent header
-	req.Header.Set("User-Agent", fmt.Sprintf(userAgent, version.NetbirdVersion()))
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to perform HTTP request: %w", err)
-	}
-	defer func() {
-		if cerr := resp.Body.Close(); cerr != nil {
-			log.Warnf("error closing response body: %v", cerr)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected HTTP status: %d", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	return data, nil
 }

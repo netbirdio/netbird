@@ -11,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	goversion "github.com/hashicorp/go-version"
@@ -291,13 +290,4 @@ func getServiceBinary() (string, error) {
 
 func isDryRunEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("NB_AUTO_UPDATE_DRY_RUN")), "true")
-}
-
-func sleepWithContext(ctx context.Context, duration time.Duration) error {
-	select {
-	case <-time.After(duration):
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
