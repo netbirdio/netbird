@@ -72,6 +72,10 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 		defer ticker.Stop()
 		defer cancel()
 
+		// allow closing update window after 10 sec
+		timerResetCloseInterceptor := time.NewTimer(10 * time.Second)
+		defer timerResetCloseInterceptor.Stop()
+
 		for {
 			select {
 			case <-updateWindowCtx.Done():
@@ -87,6 +91,8 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 				return
 			case <-ticker.C:
 				statusLabel.SetText(updateText())
+			case <-timerResetCloseInterceptor.C:
+				s.wUpdateProgress.SetCloseIntercept(nil)
 			}
 		}
 	}()
