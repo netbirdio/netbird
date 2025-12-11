@@ -111,6 +111,8 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+	backOff := defaultBackoff(ctx)
+
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -128,10 +130,10 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler, backOff)
 	}
 
-	err := backoff.Retry(operation, defaultBackoff(ctx))
+	err := backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
@@ -140,7 +142,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 }
 
 func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
-	msgHandler func(msg *proto.SyncResponse) error) error {
+	msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
@@ -154,6 +156,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	}
 
 	log.Infof("connected to the Management Service stream")
+	backOff.Reset()
 	c.notifyConnected()
 
 	// blocking until error
