@@ -185,6 +185,18 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		h.ServeHTTP(w, r.WithContext(ctx))
 
+		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
+		if err == nil {
+			if userAuth.AccountId != "" {
+				//nolint
+				ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
+			}
+			if userAuth.UserId != "" {
+				//nolint
+				ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
+			}
+		}
+
 		if w.Status() > 399 {
 			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
 		} else {
