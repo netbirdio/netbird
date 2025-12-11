@@ -1,5 +1,5 @@
 .PHONY: lint lint-all lint-install setup-hooks
-GOLANGCI_LINT := $(shell pwd)/bin/golangci-lint2
+GOLANGCI_LINT := $(shell pwd)/bin/golangci-lint
 
 # Install golangci-lint locally if needed
 $(GOLANGCI_LINT):
