@@ -588,7 +588,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	}
 
 	var user types.User
-	result := tx.WithContext(ctx).Take(&user, idQueryCondition, userID)
+	result := tx.Take(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewUserNotFoundError(userID)
