@@ -10,13 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -2031,65 +2029,4 @@ func (b *NetworkMapBuilder) UpdatePeer(peer *nbpeer.Peer) {
 		return
 	}
 	*peerStored = *peer
-}
-
-func (b *NetworkMapBuilder) filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups LookupMap) []nbdns.CustomZone {
-	var customZones []nbdns.CustomZone
-
-	if len(peerGroups) == 0 {
-		return customZones
-	}
-
-	for _, zone := range accountZones {
-		if !zone.Enabled || len(zone.Records) == 0 {
-			continue
-		}
-
-		hasAccess := false
-		for _, distGroupID := range zone.DistributionGroups {
-			if _, found := peerGroups[distGroupID]; found {
-				hasAccess = true
-				break
-			}
-		}
-
-		if !hasAccess {
-			continue
-		}
-
-		simpleRecords := make([]nbdns.SimpleRecord, 0, len(zone.Records))
-		for _, record := range zone.Records {
-			var recordType int
-			rData := record.Content
-
-			switch record.Type {
-			case records.RecordTypeA:
-				recordType = int(dns.TypeA)
-			case records.RecordTypeAAAA:
-				recordType = int(dns.TypeAAAA)
-			case records.RecordTypeCNAME:
-				recordType = int(dns.TypeCNAME)
-				rData = dns.Fqdn(record.Content)
-			default:
-				log.WithContext(ctx).Warnf("unknown DNS record type %s for record %s", record.Type, record.ID)
-				continue
-			}
-
-			simpleRecords = append(simpleRecords, nbdns.SimpleRecord{
-				Name:  dns.Fqdn(record.Name),
-				Type:  recordType,
-				Class: nbdns.DefaultClass,
-				TTL:   record.TTL,
-				RData: rData,
-			})
-		}
-
-		customZones = append(customZones, nbdns.CustomZone{
-			Domain:               dns.Fqdn(zone.Domain),
-			Records:              simpleRecords,
-			SearchDomainDisabled: !zone.EnableSearchDomain,
-		})
-	}
-
-	return customZones
 }
