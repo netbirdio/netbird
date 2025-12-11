@@ -4,6 +4,7 @@ import (
 	"context"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -24,13 +25,13 @@ func (a *Account) InitNetworkMapBuilderIfNeeded(validatedPeers map[string]struct
 func (a *Account) GetPeerNetworkMapExp(
 	ctx context.Context,
 	peerID string,
-	dnsDomain string,
-	customZones []nbdns.CustomZone,
+	peersCustomZone nbdns.CustomZone,
+	accountZones []*zones.Zone,
 	validatedPeers map[string]struct{},
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	a.initNetworkMapBuilder(validatedPeers)
-	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, dnsDomain, customZones, validatedPeers, metrics)
+	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, accountZones, validatedPeers, metrics)
 }
 
 func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {

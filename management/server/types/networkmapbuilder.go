@@ -15,6 +15,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -937,7 +939,7 @@ func (b *NetworkMapBuilder) UpdateAccountPointer(account *Account) {
 }
 
 func (b *NetworkMapBuilder) GetPeerNetworkMap(
-	ctx context.Context, peerID, dnsDomain string, customZones []nbdns.CustomZone,
+	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone, accountZones []*zones.Zone,
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -959,7 +961,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
 
-	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, customZones, validatedPeers, dnsDomain)
+	nm := b.assembleNetworkMap(ctx, account, peer, aclView, routesView, dnsConfig, peersCustomZone, accountZones, validatedPeers)
 
 	if metrics != nil {
 		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
@@ -976,9 +978,8 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 }
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
-	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
-	dnsConfig *nbdns.Config, customZones []nbdns.CustomZone, validatedPeers map[string]struct{},
-	dnsDomain string,
+	ctx context.Context, account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
+	dnsConfig *nbdns.Config, peersCustomZone nbdns.CustomZone, accountZones []*zones.Zone, validatedPeers map[string]struct{},
 ) *NetworkMap {
 
 	var peersToConnect []*nbpeer.Peer
@@ -1027,16 +1028,26 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 
 	finalDNSConfig := *dnsConfig
 	if finalDNSConfig.ServiceEnable {
-		for i, customZone := range customZones {
-			if customZone.Domain == dns.Fqdn(dnsDomain) {
-				records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
-				customZones[i] = nbdns.CustomZone{
-					Domain:  customZone.Domain,
-					Records: records,
-				}
-			}
+		var zones []nbdns.CustomZone
+
+		peerGroupsSlice := b.cache.peerToGroups[peer.ID]
+		peerGroups := make(LookupMap, len(peerGroupsSlice))
+		for _, groupID := range peerGroupsSlice {
+			peerGroups[groupID] = struct{}{}
 		}
-		finalDNSConfig.CustomZones = customZones
+
+		if peersCustomZone.Domain != "" {
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnect, expiredPeers)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
+		}
+
+		filteredAccountZones := filterPeerAppliedZones(ctx, accountZones, peerGroups)
+		zones = append(zones, filteredAccountZones...)
+
+		finalDNSConfig.CustomZones = zones
 	}
 
 	return &NetworkMap{
@@ -2020,4 +2031,65 @@ func (b *NetworkMapBuilder) UpdatePeer(peer *nbpeer.Peer) {
 		return
 	}
 	*peerStored = *peer
+}
+
+func (b *NetworkMapBuilder) filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups LookupMap) []nbdns.CustomZone {
+	var customZones []nbdns.CustomZone
+
+	if len(peerGroups) == 0 {
+		return customZones
+	}
+
+	for _, zone := range accountZones {
+		if !zone.Enabled || len(zone.Records) == 0 {
+			continue
+		}
+
+		hasAccess := false
+		for _, distGroupID := range zone.DistributionGroups {
+			if _, found := peerGroups[distGroupID]; found {
+				hasAccess = true
+				break
+			}
+		}
+
+		if !hasAccess {
+			continue
+		}
+
+		simpleRecords := make([]nbdns.SimpleRecord, 0, len(zone.Records))
+		for _, record := range zone.Records {
+			var recordType int
+			rData := record.Content
+
+			switch record.Type {
+			case records.RecordTypeA:
+				recordType = int(dns.TypeA)
+			case records.RecordTypeAAAA:
+				recordType = int(dns.TypeAAAA)
+			case records.RecordTypeCNAME:
+				recordType = int(dns.TypeCNAME)
+				rData = dns.Fqdn(record.Content)
+			default:
+				log.WithContext(ctx).Warnf("unknown DNS record type %s for record %s", record.Type, record.ID)
+				continue
+			}
+
+			simpleRecords = append(simpleRecords, nbdns.SimpleRecord{
+				Name:  dns.Fqdn(record.Name),
+				Type:  recordType,
+				Class: nbdns.DefaultClass,
+				TTL:   record.TTL,
+				RData: rData,
+			})
+		}
+
+		customZones = append(customZones, nbdns.CustomZone{
+			Domain:               dns.Fqdn(zone.Domain),
+			Records:              simpleRecords,
+			SearchDomainDisabled: !zone.EnableSearchDomain,
+		})
+	}
+
+	return customZones
 }
