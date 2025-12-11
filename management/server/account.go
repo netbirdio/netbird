@@ -787,6 +787,10 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
 

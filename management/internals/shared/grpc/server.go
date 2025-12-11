@@ -188,7 +188,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
 		if s.blockPeersWithSameConfig {
 			s.syncSem.Add(-1)
@@ -523,7 +523,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
 		}
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
