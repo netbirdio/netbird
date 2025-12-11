@@ -162,6 +162,11 @@ func (grpcMetrics *GRPCMetrics) CountLoginRequestDuration(duration time.Duration
 	}
 }
 
+// CountSyncRequestDuration counts the duration of the sync gRPC requests
+func (grpcMetrics *GRPCMetrics) CountSyncRequestDuration(duration time.Duration, accountID string) {
+	grpcMetrics.syncRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
+}
+
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.
 func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) error {
 	_, err := grpcMetrics.meter.RegisterCallback(

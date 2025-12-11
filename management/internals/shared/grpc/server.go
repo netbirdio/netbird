@@ -171,6 +171,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 	s.syncSem.Add(1)
 
+	reqStart := time.Now()
+
 	ctx := srv.Context()
 
 	syncReq := &proto.SyncRequest{}
@@ -260,6 +262,10 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
+
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
+	}
 
 	unlock()
 	unlock = nil
