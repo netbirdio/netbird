@@ -15,7 +15,6 @@ import (
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
 const (
@@ -187,15 +186,16 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r.WithContext(ctx))
 
 		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
+		if err == nil {
+			if userAuth.AccountId != "" {
+				//nolint
+				ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
+			}
+			if userAuth.UserId != "" {
+				//nolint
+				ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
+			}
 		}
-
-		//nolint
-		ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
-		//nolint
-		ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
 
 		if w.Status() > 399 {
 			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
