@@ -171,8 +171,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 	s.syncSem.Add(1)
 
-	reqStart := time.Now()
-
 	ctx := srv.Context()
 
 	syncReq := &proto.SyncRequest{}
@@ -262,10 +260,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
-
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
-	}
 
 	unlock()
 	unlock = nil
@@ -518,7 +512,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	reqStart := time.Now()
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
-	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(ctx, req, loginReq)
@@ -553,6 +546,8 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	defer func() {
 		if s.appMetrics != nil {
