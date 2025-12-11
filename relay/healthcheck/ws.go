@@ -3,22 +3,22 @@ package healthcheck
 import (
 	"context"
 	"fmt"
-	"strings"
+	"net/url"
 
 	"github.com/coder/websocket"
 
+	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/relay"
 )
 
-func dialWS(ctx context.Context, address string) error {
-	addressSplit := strings.Split(address, "/")
+func dialWS(ctx context.Context, address url.URL) error {
 	scheme := "ws"
-	if addressSplit[0] == "rels:" {
+	if address.Scheme == server.SchemeRELS {
 		scheme = "wss"
 	}
-	url := fmt.Sprintf("%s://%s%s", scheme, addressSplit[2], relay.WebSocketURLPath)
+	wsURL := fmt.Sprintf("%s://%s%s", scheme, address.Host, relay.WebSocketURLPath)
 
-	conn, resp, err := websocket.Dial(ctx, url, nil)
+	conn, resp, err := websocket.Dial(ctx, wsURL, nil)
 	if resp != nil {
 		defer func() {
 			if resp.Body != nil {

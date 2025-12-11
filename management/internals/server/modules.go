@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 
@@ -25,7 +26,16 @@ import (
 	"github.com/netbirdio/netbird/management/server/users"
 )
 
+const (
+	geolocationDisabledKey = "NB_DISABLE_GEOLOCATION"
+)
+
 func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
+	if os.Getenv(geolocationDisabledKey) == "true" {
+		log.Info("geolocation service is disabled, skipping initialization")
+		return nil
+	}
+
 	return Create(s, func() geolocation.Geolocation {
 		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
 		if err != nil {

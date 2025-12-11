@@ -6,13 +6,14 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
+	"net/url"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
+	"github.com/netbirdio/netbird/relay/server"
 )
 
 const (
@@ -26,7 +27,7 @@ const (
 
 type ServiceChecker interface {
 	ListenerProtocols() []protocol.Protocol
-	ExposedAddress() string
+	InstanceURL() url.URL
 }
 
 type HealthStatus struct {
@@ -134,7 +135,7 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 	}
 	status.Listeners = listeners
 
-	if !strings.HasPrefix(s.config.ServiceChecker.ExposedAddress(), "rels") {
+	if s.config.ServiceChecker.InstanceURL().Scheme != server.SchemeRELS {
 		status.CertificateValid = false
 	}
 
@@ -156,14 +157,9 @@ func (s *Server) validateListeners() ([]protocol.Protocol, bool) {
 }
 
 func (s *Server) validateConnection(ctx context.Context) bool {
-	exposedAddress := s.config.ServiceChecker.ExposedAddress()
-	if exposedAddress == "" {
-		log.Error("exposed address is empty, cannot validate certificate")
-		return false
-	}
-
-	if err := dialWS(ctx, exposedAddress); err != nil {
-		log.Errorf("failed to dial WebSocket listener at %s: %v", exposedAddress, err)
+	addr := s.config.ServiceChecker.InstanceURL()
+	if err := dialWS(ctx, addr); err != nil {
+		log.Errorf("failed to dial WebSocket listener at %s: %v", addr.String(), err)
 		return false
 	}
 

@@ -110,6 +110,7 @@ func NewAPIHandler(
 		accountManager.SyncUserJWTGroups,
 		accountManager.GetUserFromUserAuth,
 		rateLimitingConfig,
+		appMetrics.GetMeter(),
 	)
 
 	corsMiddleware := cors.AllowAll()
