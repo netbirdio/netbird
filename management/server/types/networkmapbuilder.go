@@ -320,13 +320,13 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 				if rule.Bidirectional {
 					if peerInSources {
 						b.generateResourcescached(
-							account, rule, destinationPeers, FirewallRuleDirectionIN,
+							rule, destinationPeers, FirewallRuleDirectionIN,
 							peer, &peers, &fwRules, peersExists, rulesExists,
 						)
 					}
 					if peerInDestinations {
 						b.generateResourcescached(
-							account, rule, sourcePeers, FirewallRuleDirectionOUT,
+							rule, sourcePeers, FirewallRuleDirectionOUT,
 							peer, &peers, &fwRules, peersExists, rulesExists,
 						)
 					}
@@ -334,14 +334,14 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 
 				if peerInSources {
 					b.generateResourcescached(
-						account, rule, destinationPeers, FirewallRuleDirectionOUT,
+						rule, destinationPeers, FirewallRuleDirectionOUT,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
 				}
 
 				if peerInDestinations {
 					b.generateResourcescached(
-						account, rule, sourcePeers, FirewallRuleDirectionIN,
+						rule, sourcePeers, FirewallRuleDirectionIN,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
 				}
@@ -402,14 +402,9 @@ func (b *NetworkMapBuilder) getPeersFromGroupscached(account *Account, groupIDs 
 }
 
 func (b *NetworkMapBuilder) generateResourcescached(
-	account *Account, rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, targetPeer *nbpeer.Peer,
+	rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int, targetPeer *nbpeer.Peer,
 	peers *[]*nbpeer.Peer, rules *[]*FirewallRule, peersExists map[string]struct{}, rulesExists map[string]struct{},
 ) {
-	isAll := false
-	if allGroup, err := account.GetGroupAll(); err == nil {
-		isAll = (len(allGroup.Peers) - 1) == len(groupPeers)
-	}
-
 	for _, peer := range groupPeers {
 		if peer == nil {
 			continue
@@ -425,10 +420,6 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			Direction: direction,
 			Action:    string(rule.Action),
 			Protocol:  string(rule.Protocol),
-		}
-
-		if isAll {
-			fr.PeerIP = allPeers
 		}
 
 		var s strings.Builder
