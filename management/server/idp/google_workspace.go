@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
@@ -49,9 +48,10 @@ func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClient
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+	
 	helper := JsonParser{}
 
 	if config.CustomerID == "" {
