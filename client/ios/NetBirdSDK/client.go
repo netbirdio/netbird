@@ -234,6 +234,7 @@ func (c *Client) IsLoginRequired() bool {
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
 	var cfg *profilemanager.Config
+	var err error
 
 	// Use preloaded config if available (tvOS where file writes are blocked)
 	if c.preloadedConfig != nil {
@@ -243,15 +244,33 @@ func (c *Client) IsLoginRequired() bool {
 		log.Infof("IsLoginRequired: loading config from file")
 		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 		// which are blocked by the tvOS sandbox in App Group containers
-		cfg, _ = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 			ConfigPath: c.cfgFile,
 		})
+		if err != nil {
+			log.Errorf("IsLoginRequired: failed to load config: %v", err)
+			// If we can't load config, assume login is required
+			return true
+		}
 	}
 
-	needsLogin, _ := internal.IsLoginRequired(ctx, cfg)
+	if cfg == nil {
+		log.Errorf("IsLoginRequired: config is nil")
+		return true
+	}
+
+	needsLogin, err := internal.IsLoginRequired(ctx, cfg)
+	if err != nil {
+		log.Errorf("IsLoginRequired: check failed: %v", err)
+		// If the check fails, assume login is required to be safe
+		return true
+	}
 	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
 }
+
+// loginForMobileAuthTimeout is the timeout for requesting auth info from the server
+const loginForMobileAuthTimeout = 30 * time.Second
 
 func (c *Client) LoginForMobile() string {
 	var ctx context.Context
@@ -267,16 +286,24 @@ func (c *Client) LoginForMobile() string {
 
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 	// which are blocked by the tvOS sandbox in App Group containers
-	cfg, _ := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+	cfg, err := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
+	if err != nil {
+		log.Errorf("LoginForMobile: failed to load config: %v", err)
+		return fmt.Sprintf("failed to load config: %v", err)
+	}
 
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {
 		return err.Error()
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	// Use a bounded timeout for the auth info request to prevent indefinite hangs
+	authInfoCtx, authInfoCancel := context.WithTimeout(ctx, loginForMobileAuthTimeout)
+	defer authInfoCancel()
+
+	flowInfo, err := oAuthFlow.RequestAuthInfo(authInfoCtx)
 	if err != nil {
 		return err.Error()
 	}
@@ -288,10 +315,14 @@ func (c *Client) LoginForMobile() string {
 		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 		if err != nil {
+			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
 			return
 		}
 		jwtToken := tokenInfo.GetTokenToUse()
-		_ = internal.Login(ctx, cfg, "", jwtToken)
+		if err := internal.Login(ctx, cfg, "", jwtToken); err != nil {
+			log.Errorf("LoginForMobile: Login failed: %v", err)
+			return
+		}
 		c.loginComplete = true
 	}()
 

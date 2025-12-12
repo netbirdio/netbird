@@ -836,6 +836,12 @@ func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}
+
+	// Enforce permissions on existing config files (same as UpdateOrCreateConfig)
+	if err := util.EnforcePermission(input.ConfigPath); err != nil {
+		log.Errorf("failed to enforce permission on config file: %v", err)
+	}
+
 	return directUpdate(input)
 }
 

@@ -172,13 +172,14 @@ func (a *Auth) LoginSync() error {
 
 	err = a.withBackOff(a.ctx, func() error {
 		err := internal.Login(a.ctx, a.config, "", jwtToken)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			return nil
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			// PermissionDenied means registration is required or peer is blocked
+			return backoff.Permanent(err)
 		}
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
 
 	return nil
@@ -234,21 +235,18 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 
 	err = a.withBackOff(ctx, func() error {
 		err := internal.Login(ctx, a.config, "", jwtToken)
-
-		if err == nil {
-			go urlOpener.OnLoginSuccess()
-		}
-
-		// Treat certain errors as acceptable (peer already registered, etc.)
-		// These mean the peer exists on the server even though there's a technical error
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			return nil
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			// PermissionDenied means registration is required or peer is blocked
+			return backoff.Permanent(err)
 		}
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
+
+	// Notify caller of successful login synchronously before returning
+	urlOpener.OnLoginSuccess()
 
 	// Save the config after successful login to persist credentials.
 	// Note: This differs from Android which doesn't save config after login.
@@ -265,13 +263,19 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	return nil
 }
 
+const authInfoRequestTimeout = 30 * time.Second
+
 func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
 	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, forceDeviceAuth, "")
 	if err != nil {
 		return nil, err
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	// Use a bounded timeout for the auth info request to prevent indefinite hangs
+	authInfoCtx, authInfoCancel := context.WithTimeout(a.ctx, authInfoRequestTimeout)
+	defer authInfoCancel()
+
+	flowInfo, err := oAuthFlow.RequestAuthInfo(authInfoCtx)
 	if err != nil {
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}

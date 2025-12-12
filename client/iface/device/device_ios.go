@@ -67,7 +67,8 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		log.Infof("Fallback TUN creation succeeded")
 	} else {
 		// Normal iOS path: use the provided file descriptor
-		dupTunFd, err := unix.Dup(t.tunFd)
+		var dupTunFd int
+		dupTunFd, err = unix.Dup(t.tunFd)
 		if err != nil {
 			log.Errorf("Unable to dup tun fd: %v", err)
 			return nil, err
