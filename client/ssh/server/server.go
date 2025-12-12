@@ -138,7 +138,8 @@ type Server struct {
 	jwtExtractor *jwt.ClaimsExtractor
 	jwtConfig    *JWTConfig
 
-	suSupportsPty bool
+	suSupportsPty    bool
+	loginIsUtilLinux bool
 }
 
 type JWTConfig struct {
@@ -193,6 +194,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	}
 
 	s.suSupportsPty = s.detectSuPtySupport(ctx)
+	s.loginIsUtilLinux = s.detectUtilLinuxLogin(ctx)
 
 	ln, addrDesc, err := s.createListener(ctx, addr)
 	if err != nil {
