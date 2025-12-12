@@ -3777,3 +3777,80 @@ func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "", retrievedUserID)
 }
+
+func TestSqlStore_ApproveAccountPeers(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		accountID := "test-account"
+		ctx := context.Background()
+
+		account := newAccountWithId(ctx, accountID, "testuser", "example.com")
+		err := store.SaveAccount(ctx, account)
+		require.NoError(t, err)
+
+		peers := []*nbpeer.Peer{
+			{
+				ID:        "peer1",
+				AccountID: accountID,
+				DNSLabel:  "peer1.netbird.cloud",
+				Key:       "peer1-key",
+				IP:        net.ParseIP("100.64.0.1"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: true,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+			{
+				ID:        "peer2",
+				AccountID: accountID,
+				DNSLabel:  "peer2.netbird.cloud",
+				Key:       "peer2-key",
+				IP:        net.ParseIP("100.64.0.2"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: true,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+			{
+				ID:        "peer3",
+				AccountID: accountID,
+				DNSLabel:  "peer3.netbird.cloud",
+				Key:       "peer3-key",
+				IP:        net.ParseIP("100.64.0.3"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: false,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+		}
+
+		for _, peer := range peers {
+			err = store.AddPeerToAccount(ctx, peer)
+			require.NoError(t, err)
+		}
+
+		t.Run("approve all pending peers", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, accountID)
+			require.NoError(t, err)
+			assert.Equal(t, 2, count)
+
+			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "")
+			require.NoError(t, err)
+
+			for _, peer := range allPeers {
+				assert.False(t, peer.Status.RequiresApproval, "peer %s should not require approval", peer.ID)
+			}
+		})
+
+		t.Run("no peers to approve", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, accountID)
+			require.NoError(t, err)
+			assert.Equal(t, 0, count)
+		})
+
+		t.Run("non-existent account", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, "non-existent")
+			require.NoError(t, err)
+			assert.Equal(t, 0, count)
+		})
+	})
+}
