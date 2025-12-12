@@ -145,6 +145,7 @@ type Store interface {
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)

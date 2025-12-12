@@ -295,8 +295,21 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
-		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
+		if err = am.validateSettingsUpdate(ctx, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
+		}
+
+		if oldSettings.Extra != nil && newSettings.Extra != nil &&
+			oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
+			approvedCount, err := transaction.ApproveAccountPeers(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to approve pending peers: %w", err)
+			}
+
+			if approvedCount > 0 {
+				log.WithContext(ctx).Debugf("approved %d pending peers in account %s", approvedCount, accountID)
+				updateAccountPeers = true
+			}
 		}
 
 		if oldSettings.NetworkRange != newSettings.NetworkRange {
@@ -372,7 +385,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	return newSettings, nil
 }
 
-func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, newSettings, oldSettings *types.Settings, userID, accountID string) error {
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -398,17 +411,7 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		}
 	}
 
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
-	if err != nil {
-		return err
-	}
-
-	peersMap := make(map[string]*nbpeer.Peer, len(peers))
-	for _, peer := range peers {
-		peersMap[peer.ID] = peer
-	}
-
-	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, peersMap, userID, accountID)
+	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, userID, accountID)
 }
 
 func (am *DefaultAccountManager) handleRoutingPeerDNSResolutionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
@@ -798,6 +801,13 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, u
 func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) (any, []cacheStore.Option, error) {
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// nolint:staticcheck
+	ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
 
 	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountIDString)
 	if err != nil {

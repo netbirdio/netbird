@@ -415,6 +415,18 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, accountID string, peerW
 	return nil
 }
 
+// ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
+func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
+	result := s.db.Model(&nbpeer.Peer{}).
+		Where("account_id = ? AND peer_status_requires_approval = ?", accountID, true).
+		Update("peer_status_requires_approval", false)
+	if result.Error != nil {
+		return 0, status.Errorf(status.Internal, "failed to approve pending account peers: %v", result.Error)
+	}
+
+	return int(result.RowsAffected), nil
+}
+
 // SaveUsers saves the given list of users to the database.
 func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 	if len(users) == 0 {
@@ -591,7 +603,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 	}
 
 	var user types.User
-	result := tx.WithContext(ctx).Take(&user, idQueryCondition, userID)
+	result := tx.Take(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewUserNotFoundError(userID)
@@ -2157,7 +2169,7 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, lockStrength LockingSt
 	}
 
 	var accountNetwork types.AccountNetwork
-	if err := tx.WithContext(ctx).Model(&types.Account{}).Where(idQueryCondition, accountID).Take(&accountNetwork).Error; err != nil {
+	if err := tx.Model(&types.Account{}).Where(idQueryCondition, accountID).Take(&accountNetwork).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewAccountNotFoundError(accountID)
 		}
@@ -2173,7 +2185,7 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 	}
 
 	var peer nbpeer.Peer
-	result := tx.WithContext(ctx).Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := tx.Take(&peer, GetKeyQueryCondition(s), peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -2223,7 +2235,7 @@ func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength Locking
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
 	var user types.User
-	result := s.db.WithContext(ctx).Take(&user, accountAndIDQueryCondition, accountID, userID)
+	result := s.db.Take(&user, accountAndIDQueryCondition, accountID, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return status.NewUserNotFoundError(userID)
@@ -2487,7 +2499,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 	}
 
 	var setupKey types.SetupKey
-	result := tx.WithContext(ctx).
+	result := tx.
 		Take(&setupKey, GetKeyQueryCondition(s), key)
 
 	if result.Error != nil {
@@ -2501,7 +2513,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 }
 
 func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error {
-	result := s.db.WithContext(ctx).Model(&types.SetupKey{}).
+	result := s.db.Model(&types.SetupKey{}).
 		Where(idQueryCondition, setupKeyID).
 		Updates(map[string]interface{}{
 			"used_times": gorm.Expr("used_times + 1"),
@@ -2522,7 +2534,7 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 // AddPeerToAllGroup adds a peer to the 'All' group. Method always needs to run in a transaction
 func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
 	var groupID string
-	_ = s.db.WithContext(ctx).Model(types.Group{}).
+	_ = s.db.Model(types.Group{}).
 		Select("id").
 		Where("account_id = ? AND name = ?", accountID, "All").
 		Limit(1).
@@ -2746,7 +2758,7 @@ func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrengt
 }
 
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
-	if err := s.db.WithContext(ctx).Create(peer).Error; err != nil {
+	if err := s.db.Create(peer).Error; err != nil {
 		return status.Errorf(status.Internal, "issue adding peer to account: %s", err)
 	}
 
@@ -2872,7 +2884,7 @@ func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID stri
 }
 
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
-	result := s.db.WithContext(ctx).Model(&types.Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
+	result := s.db.Model(&types.Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to increment network serial count in store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to increment network serial count in store")
@@ -4033,7 +4045,7 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 		Network: &types.Network{Net: ipNet},
 	}
 
-	result := s.db.WithContext(ctx).
+	result := s.db.
 		Model(&types.Account{}).
 		Where(idQueryCondition, accountID).
 		Updates(&patch)
