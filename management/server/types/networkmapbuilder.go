@@ -935,15 +935,16 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
+
+	b.cache.mu.RLock()
+	defer b.cache.mu.RUnlock()
+
 	account := b.account
 
 	peer := account.GetPeer(peerID)
 	if peer == nil {
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
-
-	b.cache.mu.RLock()
-	defer b.cache.mu.RUnlock()
 
 	aclView := b.cache.peerACLs[peerID]
 	routesView := b.cache.peerRoutes[peerID]
