@@ -136,6 +136,14 @@ checked out and set up:
    go mod tidy
    ```
 
+6. Configure Git hooks for automatic linting:
+
+   ```bash
+   make setup-hooks
+   ```
+
+   This will configure Git to run linting automatically before each push, helping catch issues early.
+
 ### Dev Container Support
 
 If you prefer using a dev container for development, NetBird now includes support for dev containers. 
