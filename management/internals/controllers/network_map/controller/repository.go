@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -14,6 +15,7 @@ type Repository interface {
 	GetAccountByPeerID(ctx context.Context, peerID string) (*types.Account, error)
 	GetPeersByIDs(ctx context.Context, accountID string, peerIDs []string) (map[string]*peer.Peer, error)
 	GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error)
+	GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error)
 }
 
 type repository struct {
@@ -46,4 +48,8 @@ func (r *repository) GetPeersByIDs(ctx context.Context, accountID string, peerID
 
 func (r *repository) GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error) {
 	return r.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+}
+
+func (r *repository) GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error) {
+	return r.store.GetAccountZones(ctx, store.LockingStrengthNone, accountID)
 }
