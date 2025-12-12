@@ -3721,6 +3721,7 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
+	require.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	userID := "test-user-123"
@@ -3746,6 +3747,7 @@ func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
 func TestSqlStore_GetUserIDByPeerKey_NotFound(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
+	require.NoError(t, err)
 
 	nonExistentPeerKey := "non-existent-peer-key"
 
@@ -3757,6 +3759,7 @@ func TestSqlStore_GetUserIDByPeerKey_NotFound(t *testing.T) {
 func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
+	require.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	peerKey := "peer-key-abc"
