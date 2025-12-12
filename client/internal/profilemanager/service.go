@@ -76,6 +76,7 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 }
 
 type ServiceManager struct {
+	profilesDir string // If set, overrides ConfigDirOverride for profile operations
 }
 
 func NewServiceManager(defaultConfigPath string) *ServiceManager {
@@ -83,6 +84,17 @@ func NewServiceManager(defaultConfigPath string) *ServiceManager {
 		DefaultConfigPath = defaultConfigPath
 	}
 	return &ServiceManager{}
+}
+
+// NewServiceManagerWithProfilesDir creates a ServiceManager with a specific profiles directory
+// This allows setting the profiles directory without modifying the global ConfigDirOverride
+func NewServiceManagerWithProfilesDir(defaultConfigPath string, profilesDir string) *ServiceManager {
+	if defaultConfigPath != "" {
+		DefaultConfigPath = defaultConfigPath
+	}
+	return &ServiceManager{
+		profilesDir: profilesDir,
+	}
 }
 
 func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
@@ -240,7 +252,7 @@ func (s *ServiceManager) DefaultProfilePath() string {
 }
 
 func (s *ServiceManager) AddProfile(profileName, username string) error {
-	configDir, err := getConfigDirForUser(username)
+	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
@@ -270,7 +282,7 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 }
 
 func (s *ServiceManager) RemoveProfile(profileName, username string) error {
-	configDir, err := getConfigDirForUser(username)
+	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
@@ -302,7 +314,7 @@ func (s *ServiceManager) RemoveProfile(profileName, username string) error {
 }
 
 func (s *ServiceManager) ListProfiles(username string) ([]Profile, error) {
-	configDir, err := getConfigDirForUser(username)
+	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
@@ -361,11 +373,20 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	configDir, err := getConfigDirForUser(activeProf.Username)
+	configDir, err := s.getConfigDir(activeProf.Username)
 	if err != nil {
 		log.Warnf("failed to get config directory for user %s: %v", activeProf.Username, err)
 		return defaultStatePath
 	}
 
 	return filepath.Join(configDir, activeProf.Name+".state.json")
+}
+
+// getConfigDir returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
+func (s *ServiceManager) getConfigDir(username string) (string, error) {
+	if s.profilesDir != "" {
+		return s.profilesDir, nil
+	}
+
+	return getConfigDirForUser(username)
 }
