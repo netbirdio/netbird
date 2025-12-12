@@ -4082,17 +4082,13 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	userID := "not found"
+	var userID string
 	result := tx.Model(&nbpeer.Peer{}).
 		Select("user_id").
-		Take(&userID, "key = ?", peerKey)
+		Take(&userID, GetKeyQueryCondition(s), peerKey)
 
 	if result.Error != nil {
 		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
-	}
-
-	if userID == "not found" {
-		return "", status.NewPeerNotFoundError(peerKey)
 	}
 
 	return userID, nil
