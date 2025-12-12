@@ -234,19 +234,13 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	err = a.withBackOff(ctx, func() error {
 		err := internal.Login(ctx, a.config, "", jwtToken)
 
-		// Check for "acceptable" errors that mean login is actually successful
-		// (e.g., peer already registered, expired token but peer exists, etc.)
-		isAcceptableError := false
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			isAcceptableError = true
-		}
-
-		// Call OnLoginSuccess if login succeeded OR if error is acceptable
-		if err == nil || isAcceptableError {
+		if err == nil {
 			go urlOpener.OnLoginSuccess()
 		}
 
-		if isAcceptableError {
+		// Treat certain errors as acceptable (peer already registered, etc.)
+		// These mean the peer exists on the server even though there's a technical error
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
 		}
 		return err
@@ -255,7 +249,12 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 		return fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	// Save the config after successful login to persist credentials
+	// Save the config after successful login to persist credentials.
+	// Note: This differs from Android which doesn't save config after login.
+	// On iOS/tvOS, we save here because:
+	// 1. The config may have been modified during login (e.g., new tokens)
+	// 2. On tvOS, the Network Extension context may be the only place with
+	//    write permissions to the App Group container
 	if a.cfgPath != "" {
 		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
 			log.Warnf("failed to save config after login: %v", err)

@@ -51,18 +51,20 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	var tunDevice tun.Device
 	var err error
 
-	// On tvOS, the file descriptor may be 0 because the low-level socket APIs
-	// (ctl_info, sockaddr_ctl, CTLIOCGINFO) are not exposed in the tvOS SDK.
-	// In this case, try to create the TUN device directly using the interface name.
+	// On tvOS, the file descriptor may be 0 if the Swift code couldn't find the
+	// utun control socket (the low-level APIs like ctl_info, sockaddr_ctl are not
+	// exposed in the tvOS SDK headers, though they exist at runtime).
+	// The Swift code in NetBirdAdapter attempts to find the FD via raw syscalls.
+	// If FD is still 0, try to create TUN directly as a last resort - this is
+	// unlikely to work on tvOS but provides a fallback for edge cases.
 	if t.tunFd == 0 {
-		log.Warnf("File descriptor is 0, attempting to create TUN directly with name: %s", t.name)
-		// Try to create TUN device directly (works on macOS/Darwin, may work on tvOS)
+		log.Warnf("Tunnel file descriptor is 0 - this usually indicates the Swift code couldn't find the utun socket. Attempting fallback...")
 		tunDevice, err = tun.CreateTUN(t.name, int(t.mtu))
 		if err != nil {
-			log.Errorf("Unable to create tun device directly: %v", err)
+			log.Errorf("Fallback TUN creation failed (expected on tvOS): %v", err)
 			return nil, err
 		}
-		log.Infof("Successfully created TUN device directly")
+		log.Infof("Fallback TUN creation succeeded")
 	} else {
 		// Normal iOS path: use the provided file descriptor
 		dupTunFd, err := unix.Dup(t.tunFd)
