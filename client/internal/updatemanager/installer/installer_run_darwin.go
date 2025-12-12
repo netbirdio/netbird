@@ -124,6 +124,7 @@ func (u *Installer) startUIAsUser() error {
 	log.Infof("launchCmd: %s", launchCmd.String())
 	// Set the user's home directory for proper macOS app behavior
 	launchCmd.Env = append(os.Environ(), "HOME="+userInfo.HomeDir)
+	log.Infof("set HOME environment variable: %s", userInfo.HomeDir)
 
 	if err := launchCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start UI process: %w", err)
