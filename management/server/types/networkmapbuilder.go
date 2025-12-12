@@ -1855,9 +1855,14 @@ func (b *NetworkMapBuilder) OnPeerDeleted(peerID string) error {
 		b.buildPeerRoutesView(account, affectedPeerID)
 	}
 
-	peerDeletionUpdates := b.findPeersAffectedByDeletedPeerACL(peerID, peerIP)
+	peersToRebuildACL := make(map[string]struct{})
+	peerDeletionUpdates := b.findPeersAffectedByDeletedPeerACL(peerID, peerIP, peerGroups, peersToRebuildACL)
 	for affectedPeerID, updates := range peerDeletionUpdates {
 		b.applyDeletionUpdates(affectedPeerID, updates)
+	}
+
+	for affectedPeerID := range peersToRebuildACL {
+		b.buildPeerACLView(account, affectedPeerID)
 	}
 
 	b.cleanupUnusedRules()
@@ -1870,6 +1875,8 @@ func (b *NetworkMapBuilder) OnPeerDeleted(peerID string) error {
 func (b *NetworkMapBuilder) findPeersAffectedByDeletedPeerACL(
 	deletedPeerID string,
 	peerIP string,
+	peerGroups []string,
+	peersToRebuildACL map[string]struct{},
 ) map[string]*PeerDeletionUpdate {
 
 	affected := make(map[string]*PeerDeletionUpdate)
@@ -1879,23 +1886,44 @@ func (b *NetworkMapBuilder) findPeersAffectedByDeletedPeerACL(
 			continue
 		}
 
-		if !slices.Contains(aclView.ConnectedPeerIDs, deletedPeerID) {
-			continue
-		}
-		if affected[peerID] == nil {
-			affected[peerID] = &PeerDeletionUpdate{
-				RemovePeerID: deletedPeerID,
-				PeerIP:       peerIP,
+		if slices.Contains(aclView.ConnectedPeerIDs, deletedPeerID) {
+			peersToRebuildACL[peerID] = struct{}{}
+			if affected[peerID] == nil {
+				affected[peerID] = &PeerDeletionUpdate{
+					RemovePeerID: deletedPeerID,
+					PeerIP:       peerIP,
+				}
 			}
 		}
+	}
 
-		for _, ruleID := range aclView.FirewallRuleIDs {
-			if rule := b.cache.globalRules[ruleID]; rule != nil && rule.PeerIP == peerIP {
-				affected[peerID].RemoveFirewallRuleIDs = append(
-					affected[peerID].RemoveFirewallRuleIDs,
-					ruleID,
-				)
+	affectedRouteOwners := make(map[string]struct{})
+
+	for _, groupID := range peerGroups {
+		if routeMap, ok := b.cache.acgToRoutes[groupID]; ok {
+			for _, info := range routeMap {
+				if info.PeerID != deletedPeerID {
+					affectedRouteOwners[info.PeerID] = struct{}{}
+				}
 			}
+		}
+	}
+
+	for _, info := range b.cache.noACGRoutes {
+		if info.PeerID != deletedPeerID {
+			affectedRouteOwners[info.PeerID] = struct{}{}
+		}
+	}
+
+	for ownerPeerID := range affectedRouteOwners {
+		if affected[ownerPeerID] == nil {
+			affected[ownerPeerID] = &PeerDeletionUpdate{
+				RemovePeerID:           deletedPeerID,
+				PeerIP:                 peerIP,
+				RemoveFromSourceRanges: true,
+			}
+		} else {
+			affected[ownerPeerID].RemoveFromSourceRanges = true
 		}
 	}
 
@@ -1911,18 +1939,6 @@ type PeerDeletionUpdate struct {
 }
 
 func (b *NetworkMapBuilder) applyDeletionUpdates(peerID string, updates *PeerDeletionUpdate) {
-	if aclView := b.cache.peerACLs[peerID]; aclView != nil {
-		aclView.ConnectedPeerIDs = slices.DeleteFunc(aclView.ConnectedPeerIDs, func(id string) bool {
-			return id == updates.RemovePeerID
-		})
-
-		if len(updates.RemoveFirewallRuleIDs) > 0 {
-			aclView.FirewallRuleIDs = slices.DeleteFunc(aclView.FirewallRuleIDs, func(ruleID string) bool {
-				return slices.Contains(updates.RemoveFirewallRuleIDs, ruleID)
-			})
-		}
-	}
-
 	if routesView := b.cache.peerRoutes[peerID]; routesView != nil {
 		if len(updates.RemoveRouteIDs) > 0 {
 			routesView.NetworkResourceIDs = slices.DeleteFunc(routesView.NetworkResourceIDs, func(routeID route.ID) bool {
