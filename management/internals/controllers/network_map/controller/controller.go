@@ -550,10 +550,6 @@ func (c *Controller) enrichAccountFromHolder(account *types.Account) {
 	if account.NetworkMapCache == nil {
 		return
 	}
-	if a.Network.CurrentSerial() >= account.Network.CurrentSerial() {
-		return
-	}
-	account.NetworkMapCache.UpdateAccountPointer(account)
 	c.holder.AddAccount(account)
 }
 
@@ -888,13 +884,10 @@ func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, p
 }
 
 func (c *Controller) compareNetworkMapComponentLengths(expMap, legacyMap *types.NetworkMap) bool {
-	if len(expMap.Peers) != len(legacyMap.Peers) {
+	if len(expMap.Peers)+len(expMap.OfflinePeers) != len(legacyMap.Peers)+len(legacyMap.OfflinePeers) {
 		return false
 	}
 	if len(expMap.Routes) != len(legacyMap.Routes) {
-		return false
-	}
-	if len(expMap.OfflinePeers) != len(legacyMap.OfflinePeers) {
 		return false
 	}
 	if len(expMap.FirewallRules) != len(legacyMap.FirewallRules) {

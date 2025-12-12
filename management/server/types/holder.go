@@ -25,6 +25,10 @@ func (h *Holder) GetAccount(id string) *Account {
 func (h *Holder) AddAccount(account *Account) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	a := h.accounts[account.Id]
+	if a != nil && a.Network.CurrentSerial() >= account.Network.CurrentSerial() {
+		return
+	}
 	h.accounts[account.Id] = account
 }
 

@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -75,7 +74,7 @@ type PeerRoutesView struct {
 }
 
 type NetworkMapBuilder struct {
-	account        atomic.Pointer[Account]
+	account        *Account
 	cache          *NetworkMapCache
 	validatedPeers map[string]struct{}
 }
@@ -102,7 +101,6 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 		},
 		validatedPeers: make(map[string]struct{}),
 	}
-	builder.account.Store(account)
 	maps.Copy(builder.validatedPeers, validatedPeers)
 
 	builder.initialBuild(account)
@@ -113,6 +111,8 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 func (b *NetworkMapBuilder) initialBuild(account *Account) {
 	b.cache.mu.Lock()
 	defer b.cache.mu.Unlock()
+
+	b.account = account
 
 	start := time.Now()
 
@@ -926,8 +926,12 @@ func (b *NetworkMapBuilder) getPeerNSGroups(account *Account, peerID string, che
 	return peerNSGroups
 }
 
-func (b *NetworkMapBuilder) UpdateAccountPointer(account *Account) {
-	b.account.Store(account)
+// should be locked
+func (b *NetworkMapBuilder) updateAccountLocked(account *Account) *Account {
+	if account.Network.CurrentSerial() > b.account.Network.CurrentSerial() {
+		b.account = account
+	}
+	return b.account
 }
 
 func (b *NetworkMapBuilder) GetPeerNetworkMap(
@@ -935,7 +939,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
-	account := b.account.Load()
+	account := b.account
 
 	peer := account.GetPeer(peerID)
 	if peer == nil {
@@ -1123,16 +1127,17 @@ type ViewDelta struct {
 	RemovedRuleIDs []string
 }
 
-func (b *NetworkMapBuilder) OnPeerAddedIncremental(peerID string) error {
+func (b *NetworkMapBuilder) OnPeerAddedIncremental(acc *Account, peerID string) error {
 	tt := time.Now()
-	account := b.account.Load()
-	peer := account.GetPeer(peerID)
+	peer := acc.GetPeer(peerID)
 	if peer == nil {
 		return fmt.Errorf("peer %s not found in account", peerID)
 	}
 
 	b.cache.mu.Lock()
 	defer b.cache.mu.Unlock()
+
+	account := b.updateAccountLocked(acc)
 
 	log.Debugf("NetworkMapBuilder: Adding peer %s (IP: %s) to cache", peerID, peer.IP.String())
 
@@ -1745,11 +1750,11 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView,
 	}
 }
 
-func (b *NetworkMapBuilder) OnPeerDeleted(peerID string) error {
+func (b *NetworkMapBuilder) OnPeerDeleted(acc *Account, peerID string) error {
 	b.cache.mu.Lock()
 	defer b.cache.mu.Unlock()
 
-	account := b.account.Load()
+	account := b.updateAccountLocked(acc)
 
 	deletedPeer := b.cache.globalPeers[peerID]
 	if deletedPeer == nil {

@@ -266,7 +266,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAdded(t *testing.T) {
 		account.Network.Serial++
 	}
 
-	err := builder.OnPeerAddedIncremental(newPeerID)
+	err := builder.OnPeerAddedIncremental(account, newPeerID)
 	require.NoError(t, err, "error adding peer to cache")
 
 	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -328,7 +328,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newPeerID)
+			_ = builder.OnPeerAddedIncremental(account, newPeerID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
@@ -473,7 +473,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter(t *testing.T) {
 		account.Network.Serial++
 	}
 
-	err := builder.OnPeerAddedIncremental(newRouterID)
+	err := builder.OnPeerAddedIncremental(account, newRouterID)
 	require.NoError(t, err, "error adding router to cache")
 
 	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -558,7 +558,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newRouterID)
+			_ = builder.OnPeerAddedIncremental(account, newRouterID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
@@ -662,7 +662,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerDeleted(t *testing.T) {
 		account.Network.Serial++
 	}
 
-	err := builder.OnPeerDeleted(deletedPeerID)
+	err := builder.OnPeerDeleted(account, deletedPeerID)
 	require.NoError(t, err, "error deleting peer from cache")
 
 	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -794,7 +794,7 @@ func TestGetPeerNetworkMap_Golden_New_WithDeletedRouterPeer(t *testing.T) {
 		account.Network.Serial++
 	}
 
-	err := builder.OnPeerDeleted(deletedRouterID)
+	err := builder.OnPeerDeleted(account, deletedRouterID)
 	require.NoError(t, err, "error deleting routing peer from cache")
 
 	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -855,7 +855,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerDeleted(deletedPeerID)
+			_ = builder.OnPeerDeleted(account, deletedPeerID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
