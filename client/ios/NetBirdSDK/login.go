@@ -210,6 +210,7 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	// Create context with device name if provided
 	ctx := a.ctx
 	if deviceName != "" {
+		//nolint:staticcheck
 		ctx = context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 	}
 
