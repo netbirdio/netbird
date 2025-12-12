@@ -3717,3 +3717,63 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	userID := "test-user-123"
+	peerKey := "peer-key-abc"
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-1",
+		Key:       peerKey,
+		AccountID: existingAccountID,
+		UserID:    userID,
+		IP:        net.IP{10, 0, 0, 1},
+		DNSLabel:  "test-peer-1",
+	}
+
+	err = store.AddPeerToAccount(context.Background(), peer)
+	require.NoError(t, err)
+
+	retrievedUserID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	assert.Equal(t, userID, retrievedUserID)
+}
+
+func TestSqlStore_GetUserIDByPeerKey_NotFound(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+
+	nonExistentPeerKey := "non-existent-peer-key"
+
+	userID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, nonExistentPeerKey)
+	require.Error(t, err)
+	assert.Equal(t, "", userID)
+}
+
+func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerKey := "peer-key-abc"
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-1",
+		Key:       peerKey,
+		AccountID: existingAccountID,
+		UserID:    "",
+		IP:        net.IP{10, 0, 0, 1},
+		DNSLabel:  "test-peer-1",
+	}
+
+	err = store.AddPeerToAccount(context.Background(), peer)
+	require.NoError(t, err)
+
+	retrievedUserID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	assert.Equal(t, "", retrievedUserID)
+}

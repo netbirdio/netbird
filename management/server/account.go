@@ -2145,3 +2145,7 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 
 	return nil
 }
+
+func (am *DefaultAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return am.Store.GetUserIDByPeerKey(ctx, store.LockingStrengthNone, peerKey)
+}
