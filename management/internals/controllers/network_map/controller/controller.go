@@ -884,7 +884,7 @@ func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, p
 }
 
 func (c *Controller) compareNetworkMapComponentLengths(expMap, legacyMap *types.NetworkMap) bool {
-	if len(expMap.Peers)+len(expMap.OfflinePeers) != len(legacyMap.Peers)+len(legacyMap.OfflinePeers) {
+	if len(expMap.Peers)+len(expMap.OfflinePeers)-len(legacyMap.Peers)+len(legacyMap.OfflinePeers) < 0 {
 		return false
 	}
 	if len(expMap.Routes) != len(legacyMap.Routes) {

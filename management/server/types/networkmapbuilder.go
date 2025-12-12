@@ -237,10 +237,6 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 		sourcePeers,
 	)
 
-	if len(finalAllPeers) > 0 && len(firewallRules) == 0 {
-		log.Debugf("NetworkMapBuilder: peer %s - no fwrules was calculated for %d potential peers", peerID, len(finalAllPeers))
-	}
-
 	view := &PeerACLView{
 		ConnectedPeerIDs: make([]string, 0, len(finalAllPeers)),
 		FirewallRuleIDs:  make([]string, 0, len(firewallRules)),
