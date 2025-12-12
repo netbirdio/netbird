@@ -298,11 +298,7 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool)
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	// Launch Open in a goroutine to avoid blocking if the Swift implementation
-	// performs UI work (e.g., presenting a Safari view controller). The Swift
-	// side is responsible for dispatching to the main thread if needed.
-	// This ensures WaitToken can start polling immediately while the UI is presented.
-	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)
