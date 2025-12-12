@@ -73,6 +73,10 @@ func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth
 // If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
 // is not supported and returns false without saving the configuration. For other errors return false.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
+	if listener == nil {
+		log.Errorf("SaveConfigIfSSOSupported: listener is nil")
+		return
+	}
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
 		if err != nil {
@@ -120,6 +124,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
+	if resultListener == nil {
+		log.Errorf("LoginWithSetupKeyAndSaveConfig: resultListener is nil")
+		return
+	}
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
 		if err != nil {
@@ -195,6 +203,15 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDevic
 // LoginWithDeviceName performs interactive login with device authentication support
 // The deviceName parameter allows specifying a custom device name (required for tvOS)
 func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	if resultListener == nil {
+		log.Errorf("LoginWithDeviceName: resultListener is nil")
+		return
+	}
+	if urlOpener == nil {
+		log.Errorf("LoginWithDeviceName: urlOpener is nil")
+		resultListener.OnError(fmt.Errorf("urlOpener is nil"))
+		return
+	}
 	go func() {
 		err := a.login(urlOpener, forceDeviceAuth, deviceName)
 		if err != nil {
@@ -245,10 +262,8 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 		return fmt.Errorf("login failed: %v", err)
 	}
 
-	// Notify caller of successful login synchronously before returning
-	urlOpener.OnLoginSuccess()
-
-	// Save the config after successful login to persist credentials.
+	// Save the config before notifying success to ensure persistence completes
+	// before the callback potentially triggers teardown on the Swift side.
 	// Note: This differs from Android which doesn't save config after login.
 	// On iOS/tvOS, we save here because:
 	// 1. The config may have been modified during login (e.g., new tokens)
@@ -259,6 +274,9 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 			log.Warnf("failed to save config after login: %v", err)
 		}
 	}
+
+	// Notify caller of successful login synchronously before returning
+	urlOpener.OnLoginSuccess()
 
 	return nil
 }
@@ -280,6 +298,10 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, forceDeviceAuth bool)
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
+	// Launch Open in a goroutine to avoid blocking if the Swift implementation
+	// performs UI work (e.g., presenting a Safari view controller). The Swift
+	// side is responsible for dispatching to the main thread if needed.
+	// This ensures WaitToken can start polling immediately while the UI is presented.
 	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second

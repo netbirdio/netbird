@@ -879,11 +879,19 @@ func ConfigToJSON(config *Config) (string, error) {
 
 // ConfigFromJSON deserializes a JSON string to a Config struct.
 // This is useful for restoring config from alternative storage mechanisms.
+// After unmarshaling, defaults are applied to ensure the config is fully initialized.
 func ConfigFromJSON(jsonStr string) (*Config, error) {
 	config := &Config{}
 	err := json.Unmarshal([]byte(jsonStr), config)
 	if err != nil {
 		return nil, err
 	}
+
+	// Apply defaults to ensure required fields are initialized.
+	// This mirrors what readConfig does after loading from file.
+	if _, err := config.apply(ConfigInput{}); err != nil {
+		return nil, fmt.Errorf("failed to apply defaults to config: %w", err)
+	}
+
 	return config, nil
 }

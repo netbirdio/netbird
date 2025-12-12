@@ -4,6 +4,7 @@
 package device
 
 import (
+	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -45,47 +46,47 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 	}
 }
 
+// ErrInvalidTunnelFD is returned when the tunnel file descriptor is invalid (0).
+// This typically means the Swift code couldn't find the utun control socket.
+var ErrInvalidTunnelFD = fmt.Errorf("invalid tunnel file descriptor: fd is 0 (Swift failed to locate utun socket)")
+
 func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Infof("create tun interface")
 
 	var tunDevice tun.Device
 	var err error
 
-	// On tvOS, the file descriptor may be 0 if the Swift code couldn't find the
-	// utun control socket (the low-level APIs like ctl_info, sockaddr_ctl are not
-	// exposed in the tvOS SDK headers, though they exist at runtime).
-	// The Swift code in NetBirdAdapter attempts to find the FD via raw syscalls.
-	// If FD is still 0, try to create TUN directly as a last resort - this is
-	// unlikely to work on tvOS but provides a fallback for edge cases.
+	// Validate the tunnel file descriptor.
+	// On iOS/tvOS, the FD must be provided by the NEPacketTunnelProvider.
+	// A value of 0 means the Swift code couldn't find the utun control socket
+	// (the low-level APIs like ctl_info, sockaddr_ctl may not be exposed in
+	// tvOS SDK headers). This is a hard error - there's no viable fallback
+	// since tun.CreateTUN() cannot work within the iOS/tvOS sandbox.
 	if t.tunFd == 0 {
-		log.Warnf("Tunnel file descriptor is 0 - this usually indicates the Swift code couldn't find the utun socket. Attempting fallback...")
-		tunDevice, err = tun.CreateTUN(t.name, int(t.mtu))
-		if err != nil {
-			log.Errorf("Fallback TUN creation failed (expected on tvOS): %v", err)
-			return nil, err
-		}
-		log.Infof("Fallback TUN creation succeeded")
-	} else {
-		// Normal iOS path: use the provided file descriptor
-		var dupTunFd int
-		dupTunFd, err = unix.Dup(t.tunFd)
-		if err != nil {
-			log.Errorf("Unable to dup tun fd: %v", err)
-			return nil, err
-		}
+		log.Errorf("Tunnel file descriptor is 0 - Swift code failed to locate the utun control socket. " +
+			"On tvOS, ensure the NEPacketTunnelProvider is properly configured and the tunnel is started.")
+		return nil, ErrInvalidTunnelFD
+	}
 
-		err = unix.SetNonblock(dupTunFd, true)
-		if err != nil {
-			log.Errorf("Unable to set tun fd as non blocking: %v", err)
-			_ = unix.Close(dupTunFd)
-			return nil, err
-		}
-		tunDevice, err = tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
-		if err != nil {
-			log.Errorf("Unable to create new tun device from fd: %v", err)
-			_ = unix.Close(dupTunFd)
-			return nil, err
-		}
+	// Normal iOS/tvOS path: use the provided file descriptor from NEPacketTunnelProvider
+	var dupTunFd int
+	dupTunFd, err = unix.Dup(t.tunFd)
+	if err != nil {
+		log.Errorf("Unable to dup tun fd: %v", err)
+		return nil, err
+	}
+
+	err = unix.SetNonblock(dupTunFd, true)
+	if err != nil {
+		log.Errorf("Unable to set tun fd as non blocking: %v", err)
+		_ = unix.Close(dupTunFd)
+		return nil, err
+	}
+	tunDevice, err = tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	if err != nil {
+		log.Errorf("Unable to create new tun device from fd: %v", err)
+		_ = unix.Close(dupTunFd)
+		return nil, err
 	}
 
 	t.filteredDevice = newDeviceFilter(tunDevice)
