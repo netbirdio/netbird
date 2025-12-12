@@ -340,7 +340,6 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		t.Fatal(err)
 	}
 
-	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
@@ -363,6 +362,8 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		AnyTimes()
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
+	peersManager := peers.NewManager(store, permissionsManager)
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)

@@ -295,7 +295,6 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	}
 	t.Cleanup(cleanUp)
 
-	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, "", err
@@ -307,6 +306,8 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	peersManager := peers.NewManager(store, permissionsManagerMock)
 	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, settingsManagerMock, eventStore)
 

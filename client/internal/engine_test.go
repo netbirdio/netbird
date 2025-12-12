@@ -1592,7 +1592,6 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 	t.Cleanup(cleanUp)
 
-	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, "", err
@@ -1600,6 +1599,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore)
 

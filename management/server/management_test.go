@@ -181,7 +181,6 @@ func startServer(
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
-	jobManager := job.NewJobManager(nil, str)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
@@ -204,6 +203,8 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
+	peersManager := peers.NewManager(str, permissionsManager)
+	jobManager := job.NewJobManager(nil, str, peersManager)
 
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)

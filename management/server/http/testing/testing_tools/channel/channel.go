@@ -52,7 +52,6 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	}
 
 	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
-	jobManager := job.NewJobManager(nil, store)
 	updMsg := peersUpdateManager.CreateChannel(context.Background(), testing_tools.TestPeerId)
 	done := make(chan struct{})
 	if validateUpdate {
@@ -73,6 +72,8 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	permissionsManager := permissions.NewManager(store)
 	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
 	peersManager := peers.NewManager(store, permissionsManager)
+
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	ctx := context.Background()
 	requestBuffer := server.NewAccountRequestBuffer(ctx, store)

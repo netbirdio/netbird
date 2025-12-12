@@ -73,7 +73,6 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 	t.Cleanup(cleanUp)
 
-	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctrl := gomock.NewController(t)
@@ -94,6 +93,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersManger := peers.NewManager(store, permissionsManagerMock)
 	settingsManagerMock := settings.NewMockManager(ctrl)
+	jobManager := job.NewJobManager(nil, store, peersManger)
 
 	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, settingsManagerMock, eventStore)
 

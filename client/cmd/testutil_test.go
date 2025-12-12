@@ -89,7 +89,6 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	}
 	t.Cleanup(cleanUp)
 
-	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, nil
@@ -101,6 +100,8 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	peersmanager := peers.NewManager(store, permissionsManagerMock)
 	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	jobManager := job.NewJobManager(nil, store, peersmanager)
 
 	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, settingsManagerMock, eventStore)
 
