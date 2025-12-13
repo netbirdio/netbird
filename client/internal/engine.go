@@ -42,14 +42,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
@@ -73,6 +72,7 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	connInitLimit            = 200
+	disableAutoUpdate        = "disabled"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -201,6 +201,9 @@ type Engine struct {
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
+	// auto-update
+	updateManager *updatemanager.Manager
+
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
 
@@ -221,17 +224,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -247,27 +240,11 @@ func NewEngine(
 		TURNs:          []*stun.URI{},
 		networkSerial:  0,
 		statusRecorder: statusRecorder,
+		stateManager:   stateManager,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
-
-	sm := profilemanager.NewServiceManager("")
-
-	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
-		if !fileExists(mobileDep.StateFilePath) {
-			err := createFile(mobileDep.StateFilePath)
-			if err != nil {
-				log.Errorf("failed to create state file: %v", err)
-				// we are not exiting as we can run without the state manager
-			}
-		}
-
-		path = mobileDep.StateFilePath
-	}
-	engine.stateManager = statemanager.New(path)
-	engine.stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -306,6 +283,10 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.updateManager != nil {
+		e.updateManager.Stop()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -541,6 +522,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	return nil
 }
 
+func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	e.handleAutoUpdateVersion(autoUpdateSettings, true)
+}
+
 func (e *Engine) createFirewall() error {
 	if e.config.DisableFirewall {
 		log.Infof("firewall is disabled")
@@ -749,6 +737,41 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
+func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings, initialCheck bool) {
+	if autoUpdateSettings == nil {
+		return
+	}
+
+	disabled := autoUpdateSettings.Version == disableAutoUpdate
+
+	// Stop and cleanup if disabled
+	if e.updateManager != nil && disabled {
+		log.Infof("auto-update is disabled, stopping update manager")
+		e.updateManager.Stop()
+		e.updateManager = nil
+		return
+	}
+
+	// Skip check unless AlwaysUpdate is enabled or this is the initial check at startup
+	if !autoUpdateSettings.AlwaysUpdate && !initialCheck {
+		log.Debugf("skipping auto-update check, AlwaysUpdate is false and this is not the initial check")
+		return
+	}
+
+	// Start manager if needed
+	if e.updateManager == nil {
+		log.Infof("starting auto-update manager")
+		updateManager, err := updatemanager.NewManager(e.statusRecorder, e.stateManager)
+		if err != nil {
+			return
+		}
+		e.updateManager = updateManager
+		e.updateManager.Start(e.ctx)
+	}
+	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
+	e.updateManager.SetVersion(autoUpdateSettings.Version)
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -756,6 +779,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	// Check context INSIDE lock to ensure atomicity with shutdown
 	if e.ctx.Err() != nil {
 		return e.ctx.Err()
+	}
+
+	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate, false)
 	}
 
 	if update.GetNetbirdConfig() != nil {

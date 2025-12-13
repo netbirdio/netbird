@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -165,19 +166,26 @@ func getConfigDir() (string, error) {
 	if ConfigDirOverride != "" {
 		return ConfigDirOverride, nil
 	}
-	configDir, err := os.UserConfigDir()
+
+	base, err := baseConfigDir()
 	if err != nil {
 		return "", err
 	}
 
-	configDir = filepath.Join(configDir, "netbird")
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return "", err
+	configDir := filepath.Join(base, "netbird")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return "", err
+	}
+	return configDir, nil
+}
+
+func baseConfigDir() (string, error) {
+	if runtime.GOOS == "darwin" {
+		if u, err := user.Current(); err == nil && u.HomeDir != "" {
+			return filepath.Join(u.HomeDir, "Library", "Application Support"), nil
 		}
 	}
-
-	return configDir, nil
+	return os.UserConfigDir()
 }
 
 func getConfigDirForUser(username string) (string, error) {

@@ -122,7 +122,7 @@ func (c *Client) Run(urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsRea
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
 }
 
@@ -149,7 +149,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
 }
 

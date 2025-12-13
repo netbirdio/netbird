@@ -267,7 +267,7 @@ func (s *serviceClient) showQuickActionsUI() {
 
 	connCmd := connectCommand{
 		connectClient: func() error {
-			return s.menuUpClick(s.ctx)
+			return s.menuUpClick(s.ctx, false)
 		},
 	}
 
