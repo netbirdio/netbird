@@ -259,6 +259,7 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
 	peerID := peer.ID
+	ctx := context.Background()
 
 	peerGroups := b.cache.peerToGroups[peerID]
 	peerGroupsMap := make(map[string]struct{}, len(peerGroups))
@@ -274,6 +275,9 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
 		for _, policy := range policies {
+			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
+				continue
+			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
 				var sourcePeers, destinationPeers []*nbpeer.Peer
