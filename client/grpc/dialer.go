@@ -44,9 +44,13 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 
 	// Check if we should fall back to WebSocket (only on non-JS platforms with a valid component)
 	if runtime.GOOS != "js" && component != "" && ShouldFallbackToWebSocket(err) {
-		log.Warnf("Native gRPC connection failed, attempting WebSocket fallback: %v", err)
+		log.Warnf("Native gRPC connection failed: %v. Attempting WebSocket fallback...", err)
 		EnableWebSocketFallback()
-		return createConnectionWithMode(ctx, addr, tlsEnabled, component, true)
+		wsConn, wsErr := createConnectionWithMode(ctx, addr, tlsEnabled, component, true)
+		if wsErr != nil {
+			return nil, fmt.Errorf("native gRPC failed: %v, websocket fallback also failed: %w", err, wsErr)
+		}
+		return wsConn, nil
 	}
 
 	return nil, err
@@ -70,7 +74,12 @@ func createConnectionWithMode(ctx context.Context, addr string, tlsEnabled bool,
 		}))
 	}
 
-	// Use shorter timeout for initial native attempt to speed up fallback
+	// Timeout configuration:
+	// - Native gRPC: 10s - shorter timeout to quickly detect ALPN/HTTP2 issues and trigger fallback.
+	//   Most successful connections complete within 2-3s; 10s allows for some network variability
+	//   while avoiding long waits when proxies block HTTP/2.
+	// - WebSocket: 30s - longer timeout since this is the fallback path and we want to give it
+	//   the best chance to succeed, especially on high-latency networks.
 	timeout := 30 * time.Second
 	if !useWebSocket {
 		timeout = 10 * time.Second

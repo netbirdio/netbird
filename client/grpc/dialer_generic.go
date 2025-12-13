@@ -52,12 +52,15 @@ func dialWebSocket(ctx context.Context, addr string, tlsEnabled bool, component 
 	return websocket.NetConn(context.Background(), c, websocket.MessageBinary), nil
 }
 
-// dialNative establishes a native TCP connection
+// dialNative establishes a native TCP connection.
+// On Linux, nbnet.NewDialer() requires root privileges to bind to specific network interfaces
+// and set socket options for the NetBird tunnel. Non-root users fall back to the standard dialer,
+// which works for management/signal connections but may not route traffic through the tunnel.
 func dialNative(ctx context.Context, addr string) (net.Conn, error) {
 	if runtime.GOOS == "linux" {
 		currentUser, err := user.Current()
 		if err != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "failed to get current user: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to get current user: %v", err)
 		}
 
 		if currentUser.Uid != "0" {

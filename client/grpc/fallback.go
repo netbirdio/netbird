@@ -34,13 +34,15 @@ func IsWebSocketFallbackEnabled() bool {
 	return webSocketFallbackEnabled
 }
 
-// ShouldFallbackToWebSocket checks if the error indicates we should try WebSocket
+// ShouldFallbackToWebSocket checks if the error indicates we should try WebSocket.
+// This detects connection-layer failures typically caused by ALPN stripping or HTTP/2 blocking proxies.
 func ShouldFallbackToWebSocket(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	// Check for context deadline exceeded (wrapped or unwrapped)
+	// This catches timeouts that occur when proxies silently drop HTTP/2 traffic
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
@@ -50,7 +52,12 @@ func ShouldFallbackToWebSocket(err error) bool {
 	for currentErr != nil {
 		if s, ok := status.FromError(currentErr); ok {
 			switch s.Code() {
-			case codes.Unavailable, codes.Internal, codes.DeadlineExceeded:
+			// Unavailable: connection refused, DNS failures, or transport-layer issues
+			// including ALPN negotiation failures from restrictive proxies
+			case codes.Unavailable:
+				return true
+			// DeadlineExceeded: gRPC-level timeout, complementing context.DeadlineExceeded check above
+			case codes.DeadlineExceeded:
 				return true
 			}
 		}
