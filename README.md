@@ -113,7 +113,7 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
 <p float="left" align="middle">
-  <img src="https://docs.netbird.io/docs-static/img/architecture/high-level-dia.png" width="700"/>
+  <img src="https://docs.netbird.io/docs-static/img/about-netbird/high-level-dia.png" width="700"/>
 </p>
 
 See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.
