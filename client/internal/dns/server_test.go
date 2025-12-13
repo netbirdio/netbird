@@ -1602,7 +1602,10 @@ func TestExtraDomains(t *testing.T) {
 				"other.example.com.",
 				"duplicate.example.com.",
 			},
-			applyHostConfigCall: 4,
+			// Expect 3 calls instead of 4 because when deregistering duplicate.example.com,
+			// the domain remains in the config (ref count goes from 2 to 1), so the host
+			// config hash doesn't change and applyDNSConfig is not called.
+			applyHostConfigCall: 3,
 		},
 		{
 			name: "Config update with new domains after registration",
@@ -1657,7 +1660,10 @@ func TestExtraDomains(t *testing.T) {
 			expectedMatchOnly: []string{
 				"extra.example.com.",
 			},
-			applyHostConfigCall: 3,
+			// Expect 2 calls instead of 3 because when deregistering protected.example.com,
+			// it's removed from extraDomains but still remains in the config (from customZones),
+			// so the host config hash doesn't change and applyDNSConfig is not called.
+			applyHostConfigCall: 2,
 		},
 		{
 			name: "Register domain that is part of nameserver group",
