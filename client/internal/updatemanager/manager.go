@@ -142,6 +142,14 @@ func (m *Manager) SetVersion(expectedVersion string) {
 
 	m.updateMutex.Lock()
 	defer m.updateMutex.Unlock()
+
+	if expectedVersion == "" {
+		log.Errorf("empty expected version provided")
+		m.expectedVersion = nil
+		m.updateToLatestVersion = false
+		return
+	}
+
 	if expectedVersion == latestVersion {
 		m.updateToLatestVersion = true
 		m.expectedVersion = nil
