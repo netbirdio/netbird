@@ -55,7 +55,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 	}
 
 	opts = append(opts,
-		nbgrpc.WithCustomDialer(tlsEnabled, wsproxy.FlowComponent),
+		nbgrpc.WithCustomDialer(tlsEnabled, wsproxy.FlowComponent, nbgrpc.IsWebSocketFallbackEnabled()),
 		grpc.WithIdleTimeout(interval*2),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
