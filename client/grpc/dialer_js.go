@@ -16,7 +16,9 @@ func WithCustomDialer(tlsEnabled bool, component string, _ bool) grpc.DialOption
 // Fallback functions are no-ops for JS builds since WebSocket is always used
 
 // EnableWebSocketFallback is a no-op for JS builds
-func EnableWebSocketFallback() {}
+func EnableWebSocketFallback() {
+	// No-op: JS/WASM builds always use WebSocket transport
+}
 
 // IsWebSocketFallbackEnabled always returns true for JS builds
 func IsWebSocketFallbackEnabled() bool { return true }
