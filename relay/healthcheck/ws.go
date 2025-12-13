@@ -7,8 +7,10 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 func dialWS(ctx context.Context, address url.URL) error {
@@ -30,7 +32,18 @@ func dialWS(ctx context.Context, address url.URL) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to websocket: %w", err)
 	}
+	defer func() {
+		_ = conn.CloseNow()
+	}()
 
-	_ = conn.Close(websocket.StatusNormalClosure, "availability check complete")
+	authMsg, err := messages.MarshalAuthMsg(peerid.HealthCheckPeerID, peerid.DummyAuthToken)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth message: %w", err)
+	}
+
+	if err := conn.Write(ctx, websocket.MessageBinary, authMsg); err != nil {
+		return fmt.Errorf("failed to write auth message: %w", err)
+	}
+
 	return nil
 }
