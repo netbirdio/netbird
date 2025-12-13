@@ -12,6 +12,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// fallbackCodes are gRPC status codes that indicate connection-layer failures
+// typically caused by ALPN stripping or HTTP/2 blocking proxies.
+var fallbackCodes = map[codes.Code]bool{
+	// Unavailable: connection refused, DNS failures, or transport-layer issues
+	// including ALPN negotiation failures from restrictive proxies
+	codes.Unavailable: true,
+	// DeadlineExceeded: gRPC-level timeout, complementing context.DeadlineExceeded check
+	codes.DeadlineExceeded: true,
+}
+
 var (
 	webSocketFallbackEnabled     bool
 	webSocketFallbackEnabledLock sync.RWMutex
@@ -47,21 +57,9 @@ func ShouldFallbackToWebSocket(err error) bool {
 		return true
 	}
 
-	// Unwrap to find the gRPC status error
-	var currentErr error = err
-	for currentErr != nil {
-		if s, ok := status.FromError(currentErr); ok {
-			switch s.Code() {
-			// Unavailable: connection refused, DNS failures, or transport-layer issues
-			// including ALPN negotiation failures from restrictive proxies
-			case codes.Unavailable:
-				return true
-			// DeadlineExceeded: gRPC-level timeout, complementing context.DeadlineExceeded check above
-			case codes.DeadlineExceeded:
-				return true
-			}
-		}
-		currentErr = errors.Unwrap(currentErr)
+	// status.FromError traverses the error chain internally, so no manual unwrapping needed
+	if s, ok := status.FromError(err); ok {
+		return fallbackCodes[s.Code()]
 	}
 
 	return false

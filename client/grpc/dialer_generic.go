@@ -12,8 +12,6 @@ import (
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/util/wsproxy"
@@ -60,7 +58,7 @@ func dialNative(ctx context.Context, addr string) (net.Conn, error) {
 	if runtime.GOOS == "linux" {
 		currentUser, err := user.Current()
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get current user: %v", err)
+			return nil, fmt.Errorf("failed to get current user: %w", err)
 		}
 
 		if currentUser.Uid != "0" {
