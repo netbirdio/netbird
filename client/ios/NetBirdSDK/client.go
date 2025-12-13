@@ -1,9 +1,12 @@
+//go:build ios
+
 package NetBirdSDK
 
 import (
 	"context"
 	"fmt"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -90,7 +93,8 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32, interfaceName string) error {
+func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
+	exportEnvList(envList)
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
@@ -432,4 +436,20 @@ func toNetIDs(routes []string) []route.NetID {
 		netIDs = append(netIDs, route.NetID(rt))
 	}
 	return netIDs
+}
+
+func exportEnvList(list *EnvList) {
+	if list == nil {
+		return
+	}
+	for k, v := range list.AllItems() {
+		log.Debugf("Env variable %s's value is currently: %s", k, os.Getenv(k))
+		log.Debugf("Setting env variable %s: %s", k, v)
+
+		if err := os.Setenv(k, v); err != nil {
+			log.Errorf("could not set env variable %s: %v", k, err)
+		} else {
+			log.Debugf("Env variable %s was set successfully", k)
+		}
+	}
 }
