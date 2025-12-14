@@ -240,6 +240,10 @@ storage:
 web:
   http: 0.0.0.0:5556
 
+# gRPC API for user management (used by NetBird IDP manager)
+grpc:
+  addr: 0.0.0.0:5557
+
 oauth2:
   skipApprovalScreen: true
 
@@ -343,7 +347,13 @@ renderManagementJson() {
         "OIDCConfigEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/.well-known/openid-configuration"
     },
     "IdpManagerConfig": {
-        "ManagerType": "none"
+        "ManagerType": "dex",
+        "ClientConfig": {
+            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex"
+        },
+        "ExtraConfig": {
+            "GRPCAddr": "dex:5557"
+        }
     },
     "DeviceAuthorizationFlow": {
         "Provider": "hosted",

@@ -207,6 +207,12 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 			ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
 		}
 		return NewPocketIdManager(pocketidConfig, appMetrics)
+	case "dex":
+		dexConfig := DexClientConfig{
+			GRPCAddr: config.ExtraConfig["GRPCAddr"],
+			Issuer:   config.ClientConfig.Issuer,
+		}
+		return NewDexManager(dexConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
