@@ -92,3 +92,45 @@ func TestDexManagerInviteUserByID(t *testing.T) {
 	require.Error(t, err, "InviteUserByID should return error")
 	require.Contains(t, err.Error(), "not implemented", "error should mention not implemented")
 }
+
+func TestParseDexUserID(t *testing.T) {
+	tests := []struct {
+		name        string
+		compositeID string
+		expectedID  string
+	}{
+		{
+			name: "Parse base64-encoded protobuf composite ID",
+			// This is a real Dex composite ID: contains user ID "cf5db180-d360-484d-9b78-c5db92146420" and connector "local"
+			compositeID: "CiRjZjVkYjE4MC1kMzYwLTQ4NGQtOWI3OC1jNWRiOTIxNDY0MjASBWxvY2Fs",
+			expectedID:  "cf5db180-d360-484d-9b78-c5db92146420",
+		},
+		{
+			name:        "Return plain ID unchanged",
+			compositeID: "simple-user-id",
+			expectedID:  "simple-user-id",
+		},
+		{
+			name:        "Return UUID unchanged",
+			compositeID: "cf5db180-d360-484d-9b78-c5db92146420",
+			expectedID:  "cf5db180-d360-484d-9b78-c5db92146420",
+		},
+		{
+			name:        "Handle empty string",
+			compositeID: "",
+			expectedID:  "",
+		},
+		{
+			name:        "Handle invalid base64",
+			compositeID: "not-valid-base64!!!",
+			expectedID:  "not-valid-base64!!!",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDexUserID(tt.compositeID)
+			require.Equal(t, tt.expectedID, result, "parsed user ID should match expected")
+		})
+	}
+}
