@@ -811,6 +811,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
 		dataMap[datum.ID] = datum
+		log.WithContext(ctx).Debugf("user %s found in IDP", datum.ID)
 	}
 
 	matchedUserData := make([]*idp.UserData, 0)

@@ -409,6 +409,7 @@ func (dm *DexManager) getAllUsers(ctx context.Context) ([]*UserData, error) {
 			Name:  p.Username,
 			ID:    p.UserId,
 		})
+		log.WithContext(ctx).Debugf("found user %s in Dex", p.Email)
 	}
 
 	return users, nil
