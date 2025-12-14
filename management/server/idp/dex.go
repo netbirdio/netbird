@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -98,6 +99,46 @@ func (dm *DexManager) getDexClient(ctx context.Context) (api.DexClient, error) {
 	return api.NewDexClient(conn), nil
 }
 
+// parseDexUserID extracts the actual user ID from Dex's composite user ID.
+// Dex encodes user IDs in JWT tokens as base64-encoded protobuf with format:
+// - Field 1 (string): actual user ID
+// - Field 2 (string): connector ID (e.g., "local")
+// If the ID is not in this format, it returns the original ID.
+func parseDexUserID(compositeID string) string {
+	// Try to decode as standard base64
+	decoded, err := base64.StdEncoding.DecodeString(compositeID)
+	if err != nil {
+		// Try URL-safe base64
+		decoded, err = base64.RawURLEncoding.DecodeString(compositeID)
+		if err != nil {
+			// Not base64 encoded, return as-is
+			return compositeID
+		}
+	}
+
+	// Parse the simple protobuf structure
+	// Field 1 (tag 0x0a): user ID string
+	// Field 2 (tag 0x12): connector ID string
+	if len(decoded) < 2 {
+		return compositeID
+	}
+
+	// Check for field 1 tag (0x0a = field 1, wire type 2/length-delimited)
+	if decoded[0] != 0x0a {
+		return compositeID
+	}
+
+	// Read the length of the user ID string
+	length := int(decoded[1])
+	if len(decoded) < 2+length {
+		return compositeID
+	}
+
+	// Extract the user ID
+	userID := string(decoded[2 : 2+length])
+	return userID
+}
+
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 // Dex doesn't support app metadata, so this is a no-op.
 func (dm *DexManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
@@ -126,12 +167,16 @@ func (dm *DexManager) GetUserDataByID(ctx context.Context, userID string, _ AppM
 		return nil, fmt.Errorf("failed to list passwords from Dex: %w", err)
 	}
 
+	// Try to parse the composite user ID from Dex JWT token
+	actualUserID := parseDexUserID(userID)
+
 	for _, p := range resp.Passwords {
-		if p.UserId == userID {
+		// Match against both the raw userID and the parsed actualUserID
+		if p.UserId == userID || p.UserId == actualUserID {
 			return &UserData{
 				Email: p.Email,
 				Name:  p.Username,
-				ID:    p.UserId,
+				ID:    userID, // Return the original ID for consistency
 			}, nil
 		}
 	}
@@ -304,9 +349,12 @@ func (dm *DexManager) DeleteUser(ctx context.Context, userID string) error {
 		return fmt.Errorf("failed to list passwords from Dex: %w", err)
 	}
 
+	// Try to parse the composite user ID from Dex JWT token
+	actualUserID := parseDexUserID(userID)
+
 	var email string
 	for _, p := range resp.Passwords {
-		if p.UserId == userID {
+		if p.UserId == userID || p.UserId == actualUserID {
 			email = p.Email
 			break
 		}
