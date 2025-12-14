@@ -99,6 +99,28 @@ func (dm *DexManager) getDexClient(ctx context.Context) (api.DexClient, error) {
 	return api.NewDexClient(conn), nil
 }
 
+// encodeDexUserID encodes a user ID and connector ID into Dex's composite format.
+// This is the reverse of parseDexUserID - it creates the base64-encoded protobuf
+// format that Dex uses in JWT tokens.
+func encodeDexUserID(userID, connectorID string) string {
+	// Build simple protobuf structure:
+	// Field 1 (tag 0x0a): user ID string
+	// Field 2 (tag 0x12): connector ID string
+	buf := make([]byte, 0, 2+len(userID)+2+len(connectorID))
+
+	// Field 1: user ID
+	buf = append(buf, 0x0a)              // tag for field 1, wire type 2 (length-delimited)
+	buf = append(buf, byte(len(userID))) // length
+	buf = append(buf, []byte(userID)...) // value
+
+	// Field 2: connector ID
+	buf = append(buf, 0x12)                   // tag for field 2, wire type 2 (length-delimited)
+	buf = append(buf, byte(len(connectorID))) // length
+	buf = append(buf, []byte(connectorID)...) // value
+
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
 // parseDexUserID extracts the actual user ID from Dex's composite user ID.
 // Dex encodes user IDs in JWT tokens as base64-encoded protobuf with format:
 // - Field 1 (string): actual user ID
@@ -309,10 +331,12 @@ func (dm *DexManager) GetUserByEmail(ctx context.Context, email string) ([]*User
 	users := make([]*UserData, 0)
 	for _, p := range resp.Passwords {
 		if strings.EqualFold(p.Email, email) {
+			// Encode the user ID in Dex's composite format to match stored IDs
+			encodedID := encodeDexUserID(p.UserId, "local")
 			users = append(users, &UserData{
 				Email: p.Email,
 				Name:  p.Username,
-				ID:    p.UserId,
+				ID:    encodedID,
 			})
 		}
 	}
@@ -404,12 +428,15 @@ func (dm *DexManager) getAllUsers(ctx context.Context) ([]*UserData, error) {
 
 	users := make([]*UserData, 0, len(resp.Passwords))
 	for _, p := range resp.Passwords {
+		// Encode the user ID in Dex's composite format (base64-encoded protobuf)
+		// to match how NetBird stores user IDs from Dex JWT tokens.
+		// The connector ID "local" is used for Dex's password database.
+		encodedID := encodeDexUserID(p.UserId, "local")
 		users = append(users, &UserData{
 			Email: p.Email,
 			Name:  p.Username,
-			ID:    p.UserId,
+			ID:    encodedID,
 		})
-		log.WithContext(ctx).Debugf("found user %s in Dex", p.Email)
 	}
 
 	return users, nil
