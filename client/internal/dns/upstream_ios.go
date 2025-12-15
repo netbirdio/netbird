@@ -26,9 +26,7 @@ type upstreamResolverIOS struct {
 
 func newUpstreamResolver(
 	ctx context.Context,
-	interfaceName string,
-	ip netip.Addr,
-	net netip.Prefix,
+	wgIface WGIface,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
 	domain string,
@@ -37,9 +35,9 @@ func newUpstreamResolver(
 
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
-		lIP:                  ip,
-		lNet:                 net,
-		interfaceName:        interfaceName,
+		lIP:                  wgIface.Address().IP,
+		lNet:                 wgIface.Address().Network,
+		interfaceName:        wgIface.Name(),
 	}
 	ios.upstreamClient = ios
 
