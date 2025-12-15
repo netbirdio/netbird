@@ -339,6 +339,14 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // Groups contains the NetBird group names this peer belongs to.
+  // Used by K8s Auth Proxy to map NetBird groups to Kubernetes RBAC groups.
+  repeated string groups = 6;
+
+  // UserId is the user identifier (typically email) of the peer's owner.
+  // Used by K8s Auth Proxy to impersonate the user in Kubernetes API requests.
+  string userId = 7;
 }
 
 // SSHConfig represents SSH configurations of a peer.

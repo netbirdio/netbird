@@ -104,7 +104,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, remotePeerGroupsLookup PeerGroupsLookup) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
 		NetworkMap: &proto.NetworkMap{
@@ -122,13 +122,13 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, remotePeerGroupsLookup)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, remotePeerGroupsLookup)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -149,14 +149,55 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	return response
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+// PeerGroupsLookup provides group names for a peer ID
+type PeerGroupsLookup interface {
+	GetPeerGroupNames(peerID string) []string
+}
+
+// AccountPeerGroupsLookup implements PeerGroupsLookup using an Account's Groups map
+type AccountPeerGroupsLookup struct {
+	groups map[string]*types.Group
+}
+
+// NewAccountPeerGroupsLookup creates a new AccountPeerGroupsLookup from an Account
+func NewAccountPeerGroupsLookup(account *types.Account) *AccountPeerGroupsLookup {
+	if account == nil {
+		return nil
+	}
+	return &AccountPeerGroupsLookup{groups: account.Groups}
+}
+
+// GetPeerGroupNames returns the group names for a given peer ID
+func (a *AccountPeerGroupsLookup) GetPeerGroupNames(peerID string) []string {
+	if a == nil || a.groups == nil {
+		return nil
+	}
+	var groupNames []string
+	for _, group := range a.groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				groupNames = append(groupNames, group.Name)
+				break
+			}
+		}
+	}
+	return groupNames
+}
+
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, groupsLookup PeerGroupsLookup) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
+		var groups []string
+		if groupsLookup != nil {
+			groups = groupsLookup.GetPeerGroupNames(rPeer.ID)
+		}
 		dst = append(dst, &proto.RemotePeerConfig{
 			WgPubKey:     rPeer.Key,
 			AllowedIps:   []string{rPeer.IP.String() + "/32"},
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.Meta.WtVersion,
+			Groups:       groups,
+			UserId:       rPeer.UserID,
 		})
 	}
 	return dst

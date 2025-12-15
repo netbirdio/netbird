@@ -1267,6 +1267,8 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 			ConnStatus:       peer.StatusIdle,
 			ConnStatusUpdate: time.Now(),
 			Mux:              new(sync.RWMutex),
+			Groups:           offlinePeer.GetGroups(),
+			UserId:           offlinePeer.GetUserId(),
 		}
 	}
 	e.statusRecorder.ReplaceOfflinePeers(replacement)
@@ -1305,7 +1307,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
-	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String(), peerConfig.GetGroups(), peerConfig.GetUserId())
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}

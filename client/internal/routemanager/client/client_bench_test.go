@@ -46,7 +46,7 @@ func generateBenchmarkData(tier benchmarkTier) (*peer.Status, map[route.ID]*rout
 		fqdn := fmt.Sprintf("peer-%d.example.com", i)
 		ip := fmt.Sprintf("10.0.%d.%d", i/256, i%256)
 
-		err := statusRecorder.AddPeer(peerKey, fqdn, ip)
+		err := statusRecorder.AddPeer(peerKey, fqdn, ip, nil, "")
 		if err != nil {
 			panic(fmt.Sprintf("failed to add peer: %v", err))
 		}
