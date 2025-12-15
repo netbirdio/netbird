@@ -43,7 +43,7 @@ func init() {
 	kubeconfigCmd.Flags().StringVar(&kubeconfigContext, "context", "netbird", "Context name in kubeconfig")
 	kubeconfigCmd.Flags().StringVar(&kubeconfigUser, "user", "netbird-user", "User name in kubeconfig")
 	kubeconfigCmd.Flags().StringVar(&kubeconfigServer, "server", "", "Kubernetes API server URL (required)")
-	kubeconfigCmd.Flags().StringVarP(&kubeconfigNamespace, "namespace", "n", "default", "Default namespace")
+	kubeconfigCmd.Flags().StringVar(&kubeconfigNamespace, "namespace", "default", "Default namespace")
 	_ = kubeconfigCmd.MarkFlagRequired("server")
 }
 
