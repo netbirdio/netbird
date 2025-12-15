@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 
 	goversion "github.com/hashicorp/go-version"
+
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -248,6 +249,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.updateAccountRequestSettings(req)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
+		return
 	}
 	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
 		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
