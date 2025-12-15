@@ -141,6 +141,7 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(kubeconfigCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
