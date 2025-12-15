@@ -122,4 +122,3 @@ users:
     token: netbird-auth-proxy
 `, server, cluster, cluster, namespace, user, context, context, user)
 }
-
