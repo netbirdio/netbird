@@ -67,7 +67,10 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 			return nil, fmt.Errorf("auto-update not supported on Home Brew installation yet")
 		}
 	}
+	return newManager(statusRecorder, stateManager)
+}
 
+func newManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) (*Manager, error) {
 	manager := &Manager{
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
