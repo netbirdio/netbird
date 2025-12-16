@@ -60,14 +60,7 @@ func (hook ContextHook) Fire(entry *logrus.Entry) error {
 
 	entry.Data["context"] = source
 
-	switch source {
-	case HTTPSource:
-		addHTTPFields(entry)
-	case GRPCSource:
-		addGRPCFields(entry)
-	case SystemSource:
-		addSystemFields(entry)
-	}
+	addFields(entry)
 
 	return nil
 }
@@ -99,7 +92,7 @@ func (hook ContextHook) parseSrc(filePath string) string {
 	return fmt.Sprintf("%s/%s", pkg, file)
 }
 
-func addHTTPFields(entry *logrus.Entry) {
+func addFields(entry *logrus.Entry) {
 	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
 		entry.Data[context.RequestIDKey] = ctxReqID
 	}
@@ -108,30 +101,6 @@ func addHTTPFields(entry *logrus.Entry) {
 	}
 	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
 		entry.Data[context.UserIDKey] = ctxInitiatorID
-	}
-}
-
-func addGRPCFields(entry *logrus.Entry) {
-	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
-		entry.Data[context.RequestIDKey] = ctxReqID
-	}
-	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
-		entry.Data[context.AccountIDKey] = ctxAccountID
-	}
-	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
-		entry.Data[context.PeerIDKey] = ctxDeviceID
-	}
-}
-
-func addSystemFields(entry *logrus.Entry) {
-	if ctxReqID, ok := entry.Context.Value(context.RequestIDKey).(string); ok {
-		entry.Data[context.RequestIDKey] = ctxReqID
-	}
-	if ctxInitiatorID, ok := entry.Context.Value(context.UserIDKey).(string); ok {
-		entry.Data[context.UserIDKey] = ctxInitiatorID
-	}
-	if ctxAccountID, ok := entry.Context.Value(context.AccountIDKey).(string); ok {
-		entry.Data[context.AccountIDKey] = ctxAccountID
 	}
 	if ctxDeviceID, ok := entry.Context.Value(context.PeerIDKey).(string); ok {
 		entry.Data[context.PeerIDKey] = ctxDeviceID
