@@ -203,6 +203,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
+	} else {
+		util.WriteErrorResponse("missing required field: extra settings", http.StatusBadRequest, w)
+		return
 	}
 
 	if req.Settings.JwtGroupsEnabled != nil {
