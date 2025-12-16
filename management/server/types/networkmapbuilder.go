@@ -114,6 +114,7 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 	}
 	builder.apb.sg = sync.NewCond(&builder.apb.mu)
 	builder.apb.ids = make([]string, 0, szAddPeerBatch)
+	builder.apb.la = account
 
 	maps.Copy(builder.validatedPeers, validatedPeers)
 
@@ -1163,6 +1164,8 @@ func (b *NetworkMapBuilder) addPeersIncrementally() {
 
 	log.Debugf("NetworkMapBuilder: Starting incremental add of %d peers", len(peers))
 
+	allUpdates := make(map[string]*PeerUpdateDelta)
+
 	for _, peerID := range peers {
 		peer := account.GetPeer(peerID)
 		if peer == nil {
@@ -1179,10 +1182,21 @@ func (b *NetworkMapBuilder) addPeersIncrementally() {
 		b.buildPeerRoutesView(account, peerID)
 		b.buildPeerDNSView(account, peerID)
 
-		b.incrementalUpdateAffectedPeers(account, peerID, peerGroups)
+		peerDeltas := b.collectDeltasForNewPeer(account, peerID, peerGroups)
+		for affectedPeerID, delta := range peerDeltas {
+			if existing, ok := allUpdates[affectedPeerID]; ok {
+				existing.mergeFrom(delta)
+				continue
+			}
+			allUpdates[affectedPeerID] = delta
+		}
 	}
 
-	log.Debugf("NetworkMapBuilder: Added %d peers to cache, took %s", len(peers), time.Since(tt))
+	for affectedPeerID, delta := range allUpdates {
+		b.applyDeltaToPeer(account, affectedPeerID, delta)
+	}
+
+	log.Debugf("NetworkMapBuilder: Added %d peers to cache, affected %d peers, took %s", len(peers), len(allUpdates), time.Since(tt))
 
 	b.apb.mu.Lock()
 	if len(b.apb.ids) > 0 {
@@ -1281,6 +1295,13 @@ func (b *NetworkMapBuilder) updateIndexesForNewPeer(account *Account, peerID str
 }
 
 func (b *NetworkMapBuilder) incrementalUpdateAffectedPeers(account *Account, newPeerID string, peerGroups []string) {
+	updates := b.collectDeltasForNewPeer(account, newPeerID, peerGroups)
+	for affectedPeerID, delta := range updates {
+		b.applyDeltaToPeer(account, affectedPeerID, delta)
+	}
+}
+
+func (b *NetworkMapBuilder) collectDeltasForNewPeer(account *Account, newPeerID string, peerGroups []string) map[string]*PeerUpdateDelta {
 	updates := b.calculateIncrementalUpdates(account, newPeerID, peerGroups)
 
 	if b.isPeerRouter(account, newPeerID) {
@@ -1300,9 +1321,7 @@ func (b *NetworkMapBuilder) incrementalUpdateAffectedPeers(account *Account, new
 		}
 	}
 
-	for affectedPeerID, delta := range updates {
-		b.applyDeltaToPeer(account, affectedPeerID, delta)
-	}
+	return updates
 }
 
 func (b *NetworkMapBuilder) findPeersAffectedByNewRouter(account *Account, newRouterID string, routerGroups []string) map[string]struct{} {
@@ -1496,8 +1515,8 @@ func (b *NetworkMapBuilder) calculateNewRouterNetworkResourceUpdates(
 					updates[peerID] = delta
 				}
 
-				if delta.AddConnectedPeer == "" {
-					delta.AddConnectedPeer = newPeerID
+				if !slices.Contains(delta.AddConnectedPeers, newPeerID) {
+					delta.AddConnectedPeers = append(delta.AddConnectedPeers, newPeerID)
 				}
 
 				delta.RebuildRoutesView = true
@@ -1626,8 +1645,8 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 				updates[routerPeerID] = delta
 			}
 
-			if delta.AddConnectedPeer == "" {
-				delta.AddConnectedPeer = newPeerID
+			if !slices.Contains(delta.AddConnectedPeers, newPeerID) {
+				delta.AddConnectedPeers = append(delta.AddConnectedPeers, newPeerID)
 			}
 
 			delta.RebuildRoutesView = true
@@ -1637,13 +1656,63 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 
 type PeerUpdateDelta struct {
 	PeerID                   string
-	AddConnectedPeer         string
+	AddConnectedPeers        []string
 	AddFirewallRules         []*FirewallRuleDelta
 	AddRoutes                []route.ID
 	UpdateRouteFirewallRules []*RouteFirewallRuleUpdate
 	UpdateDNS                bool
 	RebuildRoutesView        bool
 }
+
+func (d *PeerUpdateDelta) mergeFrom(other *PeerUpdateDelta) {
+	for _, peerID := range other.AddConnectedPeers {
+		if !slices.Contains(d.AddConnectedPeers, peerID) {
+			d.AddConnectedPeers = append(d.AddConnectedPeers, peerID)
+		}
+	}
+
+	existingRuleIDs := make(map[string]struct{}, len(d.AddFirewallRules))
+	for _, rule := range d.AddFirewallRules {
+		existingRuleIDs[rule.RuleID] = struct{}{}
+	}
+	for _, rule := range other.AddFirewallRules {
+		if _, exists := existingRuleIDs[rule.RuleID]; !exists {
+			d.AddFirewallRules = append(d.AddFirewallRules, rule)
+			existingRuleIDs[rule.RuleID] = struct{}{}
+		}
+	}
+
+	for _, routeID := range other.AddRoutes {
+		if !slices.Contains(d.AddRoutes, routeID) {
+			d.AddRoutes = append(d.AddRoutes, routeID)
+		}
+	}
+
+	existingRouteUpdates := make(map[string]map[string]struct{})
+	for _, update := range d.UpdateRouteFirewallRules {
+		if existingRouteUpdates[update.RuleID] == nil {
+			existingRouteUpdates[update.RuleID] = make(map[string]struct{})
+		}
+		existingRouteUpdates[update.RuleID][update.AddSourceIP] = struct{}{}
+	}
+	for _, update := range other.UpdateRouteFirewallRules {
+		if existingRouteUpdates[update.RuleID] == nil {
+			existingRouteUpdates[update.RuleID] = make(map[string]struct{})
+		}
+		if _, exists := existingRouteUpdates[update.RuleID][update.AddSourceIP]; !exists {
+			d.UpdateRouteFirewallRules = append(d.UpdateRouteFirewallRules, update)
+			existingRouteUpdates[update.RuleID][update.AddSourceIP] = struct{}{}
+		}
+	}
+
+	if other.UpdateDNS {
+		d.UpdateDNS = true
+	}
+	if other.RebuildRoutesView {
+		d.RebuildRoutesView = true
+	}
+}
+
 type FirewallRuleDelta struct {
 	Rule      *FirewallRule
 	RuleID    string
@@ -1745,11 +1814,13 @@ func (b *NetworkMapBuilder) addOrUpdateFirewallRuleInDelta(
 	delta := updates[targetPeerID]
 	if delta == nil {
 		delta = &PeerUpdateDelta{
-			PeerID:           targetPeerID,
-			AddConnectedPeer: newPeerID,
-			AddFirewallRules: make([]*FirewallRuleDelta, 0),
+			PeerID:            targetPeerID,
+			AddConnectedPeers: []string{newPeerID},
+			AddFirewallRules:  make([]*FirewallRuleDelta, 0),
 		}
 		updates[targetPeerID] = delta
+	} else if !slices.Contains(delta.AddConnectedPeers, newPeerID) {
+		delta.AddConnectedPeers = append(delta.AddConnectedPeers, newPeerID)
 	}
 
 	baseRule.PeerIP = peerIP
@@ -1775,10 +1846,12 @@ func (b *NetworkMapBuilder) addOrUpdateFirewallRuleInDelta(
 }
 
 func (b *NetworkMapBuilder) applyDeltaToPeer(account *Account, peerID string, delta *PeerUpdateDelta) {
-	if delta.AddConnectedPeer != "" || len(delta.AddFirewallRules) > 0 {
+	if len(delta.AddConnectedPeers) > 0 || len(delta.AddFirewallRules) > 0 {
 		if aclView := b.cache.peerACLs[peerID]; aclView != nil {
-			if delta.AddConnectedPeer != "" && !slices.Contains(aclView.ConnectedPeerIDs, delta.AddConnectedPeer) {
-				aclView.ConnectedPeerIDs = append(aclView.ConnectedPeerIDs, delta.AddConnectedPeer)
+			for _, connectedPeerID := range delta.AddConnectedPeers {
+				if !slices.Contains(aclView.ConnectedPeerIDs, connectedPeerID) {
+					aclView.ConnectedPeerIDs = append(aclView.ConnectedPeerIDs, connectedPeerID)
+				}
 			}
 
 			for _, ruleDelta := range delta.AddFirewallRules {
