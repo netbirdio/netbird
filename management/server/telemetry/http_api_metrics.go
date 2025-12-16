@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -169,7 +169,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		//nolint
 		ctx := context.WithValue(r.Context(), hook.ExecutionContextKey, hook.HTTPSource)
 
-		reqID := uuid.New().String()
+		reqID := xid.New().String()
 		//nolint
 		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 
