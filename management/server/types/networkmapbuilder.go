@@ -26,6 +26,8 @@ const (
 	v6AllWildcard = "::/0"
 	fw            = "fw:"
 	rfw           = "route-fw:"
+
+	szAddPeerBatch = 10
 )
 
 type NetworkMapCache struct {
@@ -77,6 +79,15 @@ type NetworkMapBuilder struct {
 	account        *Account
 	cache          *NetworkMapCache
 	validatedPeers map[string]struct{}
+
+	apb addPeerBatch
+}
+
+type addPeerBatch struct {
+	mu  sync.Mutex
+	sg  *sync.Cond
+	ids []string
+	la  *Account
 }
 
 func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) *NetworkMapBuilder {
@@ -101,10 +112,14 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 		},
 		validatedPeers: make(map[string]struct{}),
 	}
+	builder.apb.sg = sync.NewCond(&builder.apb.mu)
+	builder.apb.ids = make([]string, 0, szAddPeerBatch)
+
 	maps.Copy(builder.validatedPeers, validatedPeers)
 
 	builder.initialBuild(account)
 
+	go builder.incAddPeerLoop()
 	return builder
 }
 
@@ -926,7 +941,7 @@ func (b *NetworkMapBuilder) getPeerNSGroups(account *Account, peerID string, che
 	return peerNSGroups
 }
 
-// should be locked
+// lock should be held
 func (b *NetworkMapBuilder) updateAccountLocked(account *Account) *Account {
 	if account.Network.CurrentSerial() > b.account.Network.CurrentSerial() {
 		b.account = account
@@ -1121,6 +1136,74 @@ func (b *NetworkMapBuilder) isPeerRouter(account *Account, peerID string) bool {
 	return false
 }
 
+func (b *NetworkMapBuilder) incAddPeerLoop() {
+	for {
+		b.apb.mu.Lock()
+		if len(b.apb.ids) == 0 {
+			b.apb.sg.Wait()
+		}
+		b.addPeersIncrementally()
+		b.apb.mu.Unlock()
+	}
+}
+
+// lock on b.apb level should be held
+func (b *NetworkMapBuilder) addPeersIncrementally() {
+	peers := slices.Clone(b.apb.ids)
+	clear(b.apb.ids)
+	b.apb.ids = b.apb.ids[:0]
+	latestAcc := b.apb.la
+	b.apb.mu.Unlock()
+
+	tt := time.Now()
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+
+	account := b.updateAccountLocked(latestAcc)
+
+	log.Debugf("NetworkMapBuilder: Starting incremental add of %d peers", len(peers))
+
+	for _, peerID := range peers {
+		peer := account.GetPeer(peerID)
+		if peer == nil {
+			log.Warnf("NetworkMapBuilder: peer %s not found in account %s", peerID, account.Id)
+			b.enqueuePeersForIncrementalAdd(latestAcc, peerID)
+			continue
+		}
+
+		b.validatedPeers[peerID] = struct{}{}
+		b.cache.globalPeers[peerID] = peer
+
+		peerGroups := b.updateIndexesForNewPeer(account, peerID)
+		b.buildPeerACLView(account, peerID)
+		b.buildPeerRoutesView(account, peerID)
+		b.buildPeerDNSView(account, peerID)
+
+		b.incrementalUpdateAffectedPeers(account, peerID, peerGroups)
+	}
+
+	log.Debugf("NetworkMapBuilder: Added %d peers to cache, took %s", len(peers), time.Since(tt))
+
+	b.apb.mu.Lock()
+	if len(b.apb.ids) > 0 {
+		b.apb.sg.Signal()
+	}
+}
+
+func (b *NetworkMapBuilder) enqueuePeersForIncrementalAdd(acc *Account, peerIDs ...string) {
+	b.apb.mu.Lock()
+	b.apb.ids = append(b.apb.ids, peerIDs...)
+	if b.apb.la != nil && acc.Network.CurrentSerial() > b.apb.la.Network.CurrentSerial() {
+		b.apb.la = acc
+	}
+	b.apb.sg.Signal()
+	b.apb.mu.Unlock()
+}
+
+func (b *NetworkMapBuilder) EnqueuePeersForIncrementalAdd(acc *Account, peerIDs ...string) {
+	b.enqueuePeersForIncrementalAdd(acc, peerIDs...)
+}
+
 type ViewDelta struct {
 	AddedPeerIDs   []string
 	RemovedPeerIDs []string
@@ -1132,7 +1215,7 @@ func (b *NetworkMapBuilder) OnPeerAddedIncremental(acc *Account, peerID string) 
 	tt := time.Now()
 	peer := acc.GetPeer(peerID)
 	if peer == nil {
-		return fmt.Errorf("peer %s not found in account", peerID)
+		return fmt.Errorf("NetworkMapBuilder: peer %s not found in account", peerID)
 	}
 
 	b.cache.mu.Lock()

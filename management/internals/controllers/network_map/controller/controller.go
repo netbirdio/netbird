@@ -496,9 +496,9 @@ func (c *Controller) getPeerNetworkMapExp(
 	return legacyMap
 }
 
-func (c *Controller) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string) error {
+func (c *Controller) onPeersAddedUpdNetworkMapCache(account *types.Account, peerIds ...string) {
 	c.enrichAccountFromHolder(account)
-	return account.OnPeerAddedUpdNetworkMapCache(peerId)
+	account.OnPeersAddedUpdNetworkMapCache(peerIds...)
 }
 
 func (c *Controller) onPeerDeletedUpdNetworkMapCache(account *types.Account, peerId string) error {
@@ -732,12 +732,7 @@ func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs
 		if err != nil {
 			return err
 		}
-		for _, peerID := range peerIDs {
-			err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
-			if err != nil {
-				return err
-			}
-		}
+		c.onPeersAddedUpdNetworkMapCache(account, peerIDs...)
 	}
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
 }
