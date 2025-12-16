@@ -66,7 +66,7 @@ func Test_LatestVersion(t *testing.T) {
 	for idx, c := range testMatrix {
 		mockUpdate := &versionUpdateMock{latestVersion: c.initialLatestVersion}
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m, _ := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile))
+		m, _ := newManager(peer.NewRecorder(""), statemanager.New(tmpFile))
 		m.update = mockUpdate
 
 		targetVersionChan := make(chan string, 1)
@@ -180,7 +180,7 @@ func Test_HandleUpdate(t *testing.T) {
 	}
 	for idx, c := range testMatrix {
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m, _ := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile))
+		m, _ := newManager(peer.NewRecorder(""), statemanager.New(tmpFile))
 		m.update = &versionUpdateMock{latestVersion: c.latestVersion}
 		targetVersionChan := make(chan string, 1)
 
