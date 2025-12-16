@@ -26,6 +26,11 @@ const (
 type installerType string
 
 func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+	// Use test function if set (for testing purposes)
+	if u.updateFunc != nil {
+		return u.updateFunc(ctx, targetVersion)
+	}
+
 	method := installation()
 	return install(ctx, method, targetVersion)
 }
