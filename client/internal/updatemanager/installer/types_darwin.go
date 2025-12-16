@@ -10,7 +10,7 @@ var (
 	TypePKG      = Type{name: "pkg", downloadable: true}
 )
 
-func typeOfInstaller(ctx context.Context) Type {
+func TypeOfInstaller(ctx context.Context) Type {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	_, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {

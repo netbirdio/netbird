@@ -61,7 +61,7 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) (
 
 	var installerFile string
 	// Download files only when not using any third-party store
-	if installerType := typeOfInstaller(ctx); installerType.Downloadable() {
+	if installerType := TypeOfInstaller(ctx); installerType.Downloadable() {
 		log.Infof("download installer")
 		var err error
 		installerFile, err = u.downloadInstaller(ctx, installerType, targetVersion)

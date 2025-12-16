@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -59,6 +60,14 @@ type Manager struct {
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) (*Manager, error) {
+	if runtime.GOOS == "darwin" {
+		isBrew := !installer.TypeOfInstaller(context.Background()).Downloadable()
+		if isBrew {
+			log.Warnf("auto-update disabled on Home Brew installation")
+			return nil, fmt.Errorf("auto-update not supported on Home Brew installation yet")
+		}
+	}
+
 	manager := &Manager{
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
@@ -136,7 +145,7 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) SetVersion(expectedVersion string) {
 	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
 	if m.cancel == nil {
-		log.Errorf("Manager not started")
+		log.Errorf("manager not started")
 		return
 	}
 
@@ -156,7 +165,7 @@ func (m *Manager) SetVersion(expectedVersion string) {
 	} else {
 		expectedSemVer, err := v.NewVersion(expectedVersion)
 		if err != nil {
-			log.Errorf("Error parsing version: %v", err)
+			log.Errorf("error parsing version: %v", err)
 			return
 		}
 		if m.expectedVersion != nil && m.expectedVersion.Equal(expectedSemVer) {
@@ -252,13 +261,6 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	if !m.shouldUpdate(updateVersion) {
 		return
 	}
-
-	// todo: review the usage of this context
-	/*
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-
-	*/
 
 	m.lastTrigger = time.Now()
 	log.Infof("Auto-update triggered, current version: %s, target version: %s", m.currentVersion, updateVersion)

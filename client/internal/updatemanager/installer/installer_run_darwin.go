@@ -71,7 +71,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 		return
 	}
 
-	switch typeOfInstaller(ctx) {
+	switch TypeOfInstaller(ctx) {
 	case TypePKG:
 		resultErr = u.installPkgFile(ctx, installerFile)
 	case TypeHomebrew:

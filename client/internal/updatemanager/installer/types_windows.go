@@ -19,7 +19,7 @@ var (
 	TypeMSI = Type{name: "MSI", downloadable: true}
 )
 
-func typeOfInstaller(_ context.Context) Type {
+func TypeOfInstaller(_ context.Context) Type {
 	paths := []string{uninstallKeyPath64, uninstallKeyPath32}
 
 	for _, path := range paths {
