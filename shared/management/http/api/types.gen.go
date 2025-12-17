@@ -130,10 +130,11 @@ const (
 
 // Defines values for PolicyRuleProtocol.
 const (
-	PolicyRuleProtocolAll  PolicyRuleProtocol = "all"
-	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
-	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
-	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
+	PolicyRuleProtocolAll        PolicyRuleProtocol = "all"
+	PolicyRuleProtocolIcmp       PolicyRuleProtocol = "icmp"
+	PolicyRuleProtocolNetbirdSsh PolicyRuleProtocol = "netbird-ssh"
+	PolicyRuleProtocolTcp        PolicyRuleProtocol = "tcp"
+	PolicyRuleProtocolUdp        PolicyRuleProtocol = "udp"
 )
 
 // Defines values for PolicyRuleMinimumAction.
@@ -144,10 +145,11 @@ const (
 
 // Defines values for PolicyRuleMinimumProtocol.
 const (
-	PolicyRuleMinimumProtocolAll  PolicyRuleMinimumProtocol = "all"
-	PolicyRuleMinimumProtocolIcmp PolicyRuleMinimumProtocol = "icmp"
-	PolicyRuleMinimumProtocolTcp  PolicyRuleMinimumProtocol = "tcp"
-	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
+	PolicyRuleMinimumProtocolAll        PolicyRuleMinimumProtocol = "all"
+	PolicyRuleMinimumProtocolIcmp       PolicyRuleMinimumProtocol = "icmp"
+	PolicyRuleMinimumProtocolNetbirdSsh PolicyRuleMinimumProtocol = "netbird-ssh"
+	PolicyRuleMinimumProtocolTcp        PolicyRuleMinimumProtocol = "tcp"
+	PolicyRuleMinimumProtocolUdp        PolicyRuleMinimumProtocol = "udp"
 )
 
 // Defines values for PolicyRuleUpdateAction.
@@ -158,10 +160,11 @@ const (
 
 // Defines values for PolicyRuleUpdateProtocol.
 const (
-	PolicyRuleUpdateProtocolAll  PolicyRuleUpdateProtocol = "all"
-	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
-	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
-	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
+	PolicyRuleUpdateProtocolAll        PolicyRuleUpdateProtocol = "all"
+	PolicyRuleUpdateProtocolIcmp       PolicyRuleUpdateProtocol = "icmp"
+	PolicyRuleUpdateProtocolNetbirdSsh PolicyRuleUpdateProtocol = "netbird-ssh"
+	PolicyRuleUpdateProtocolTcp        PolicyRuleUpdateProtocol = "tcp"
+	PolicyRuleUpdateProtocolUdp        PolicyRuleUpdateProtocol = "udp"
 )
 
 // Defines values for ResourceType.
@@ -1346,6 +1349,9 @@ type PolicyRule struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1390,6 +1396,9 @@ type PolicyRuleMinimum struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleMinimumAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1422,6 +1431,9 @@ type PolicyRuleMinimumProtocol string
 type PolicyRuleUpdate struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleUpdateAction `json:"action"`
+
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
 
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
