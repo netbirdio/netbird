@@ -320,6 +320,24 @@ message NetworkMap {
   bool routesFirewallRulesIsEmpty = 11;
 
   repeated ForwardingRule forwardingRules = 12;
+
+  // SSHAuth represents SSH authorization configuration
+  SSHAuth sshAuth = 13;
+}
+
+message SSHAuth {
+  // UserIDClaim is the JWT claim to be used to get the users ID
+  string UserIDClaim = 1;
+
+  // AuthorizedUsers is a list of users that are authorized to access this peer via SSH
+  repeated string AuthorizedUsers = 2;
+
+  // MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
+  map<string, MachineUserIndexes> machine_users = 3;
+}
+
+message MachineUserIndexes {
+  repeated int32 indexes = 1;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
