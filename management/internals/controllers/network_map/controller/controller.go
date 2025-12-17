@@ -144,7 +144,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	if c.experimentalNetworkMap(accountID) {
 		account = c.getAccountFromHolderOrInit(accountID)
 	} else {
-		account, err = c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		account, err = c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account: %v", err)
 		}
@@ -300,7 +300,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("peer %s doesn't have a channel, skipping network map update", peerId)
 	}
 
-	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
+	account, err := c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountId)
 	if err != nil {
 		return fmt.Errorf("failed to send out updates to peer %s: %v", peerId, err)
 	}
@@ -414,7 +414,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	if c.experimentalNetworkMap(accountID) {
 		account = c.getAccountFromHolderOrInit(accountID)
 	} else {
-		account, err = c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		account, err = c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountID)
 		if err != nil {
 			return nil, nil, nil, 0, err
 		}
@@ -506,7 +506,7 @@ func (c *Controller) recalculateNetworkMapCache(account *types.Account, validate
 
 func (c *Controller) RecalculateNetworkMapCache(ctx context.Context, accountId string) error {
 	if c.experimentalNetworkMap(accountId) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
+		account, err := c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountId)
 		if err != nil {
 			return err
 		}
@@ -548,7 +548,7 @@ func (c *Controller) getAccountFromHolderOrInit(accountID string) *types.Account
 	if a != nil {
 		return a
 	}
-	account, err := c.holder.LoadOrStoreFunc(accountID, c.requestBuffer.GetAccountWithBackpressure)
+	account, err := c.holder.LoadOrStoreFunc(accountID, c.requestBuffer.GetAccountWithoutUsersWithBackpressure)
 	if err != nil {
 		return nil
 	}
@@ -715,7 +715,7 @@ func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerI
 func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
 	for _, peerID := range peerIDs {
 		if c.experimentalNetworkMap(accountID) {
-			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			account, err := c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountID)
 			if err != nil {
 				return err
 			}
@@ -761,7 +761,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 		c.peersUpdateManager.CloseChannel(ctx, peerID)
 
 		if c.experimentalNetworkMap(accountID) {
-			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			account, err := c.requestBuffer.GetAccountWithoutUsersWithBackpressure(ctx, accountID)
 			if err != nil {
 				log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
 				continue

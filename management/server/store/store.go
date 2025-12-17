@@ -51,6 +51,7 @@ type Store interface {
 	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountWithoutUsers(ctx context.Context, accountID string) (*types.Account, error)
 	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
 	GetAccountOnboarding(ctx context.Context, accountID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)

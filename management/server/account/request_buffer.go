@@ -7,5 +7,5 @@ import (
 )
 
 type RequestBuffer interface {
-	GetAccountWithBackpressure(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountWithoutUsersWithBackpressure(ctx context.Context, accountID string) (*types.Account, error)
 }
