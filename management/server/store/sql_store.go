@@ -796,11 +796,12 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	return s.getAccountGorm(ctx, accountID)
 }
 
-func (s *SqlStore) GetAccountWithoutUsers(ctx context.Context, accountID string) (*types.Account, error) {
+// GetAccountLight returns account without users, setup keys, and onboarding data
+func (s *SqlStore) GetAccountLight(ctx context.Context, accountID string) (*types.Account, error) {
 	if s.pool != nil {
-		return s.getAccountWithoutUsersPgx(ctx, accountID)
+		return s.getAccountLightPgx(ctx, accountID)
 	}
-	return s.getAccountWithoutUsersGorm(ctx, accountID)
+	return s.getAccountLightGorm(ctx, accountID)
 }
 
 func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
@@ -904,19 +905,18 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 	return &account, nil
 }
 
-func (s *SqlStore) getAccountWithoutUsersGorm(ctx context.Context, accountID string) (*types.Account, error) {
+func (s *SqlStore) getAccountLightGorm(ctx context.Context, accountID string) (*types.Account, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		if elapsed > 1*time.Second {
-			log.WithContext(ctx).Tracef("GetAccountWithoutUsers for account %s exceeded 1s, took: %v", accountID, elapsed)
+			log.WithContext(ctx).Tracef("GetAccountLight for account %s exceeded 1s, took: %v", accountID, elapsed)
 		}
 	}()
 
 	var account types.Account
 	result := s.db.Model(&account).
 		Preload("Policies.Rules").
-		Preload("SetupKeysG").
 		Preload("PeersG").
 		Preload("GroupsG.GroupPeers").
 		Preload("RoutesG").
@@ -925,7 +925,6 @@ func (s *SqlStore) getAccountWithoutUsersGorm(ctx context.Context, accountID str
 		Preload("Networks").
 		Preload("NetworkRouters").
 		Preload("NetworkResources").
-		Preload("Onboarding").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
@@ -935,17 +934,7 @@ func (s *SqlStore) getAccountWithoutUsersGorm(ctx context.Context, accountID str
 		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
-	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
-	for _, key := range account.SetupKeysG {
-		if key.UpdatedAt.IsZero() {
-			key.UpdatedAt = key.CreatedAt
-		}
-		if key.AutoGroups == nil {
-			key.AutoGroups = []string{}
-		}
-		account.SetupKeys[key.Key] = &key
-	}
-	account.SetupKeysG = nil
+	account.SetupKeys = make(map[string]*types.SetupKey)
 
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for _, peer := range account.PeersG {
@@ -1275,25 +1264,14 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	return account, nil
 }
 
-func (s *SqlStore) getAccountWithoutUsersPgx(ctx context.Context, accountID string) (*types.Account, error) {
+func (s *SqlStore) getAccountLightPgx(ctx context.Context, accountID string) (*types.Account, error) {
 	account, err := s.getAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, 11)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		keys, err := s.getSetupKeys(ctx, accountID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		account.SetupKeysG = keys
-	}()
+	errChan := make(chan error, 9)
 
 	wg.Add(1)
 	go func() {
@@ -1394,16 +1372,6 @@ func (s *SqlStore) getAccountWithoutUsersPgx(ctx context.Context, accountID stri
 		account.NetworkResources = resources
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := s.getAccountOnboarding(ctx, accountID, account)
-		if err != nil {
-			errChan <- err
-			return
-		}
-	}()
-
 	wg.Wait()
 	close(errChan)
 	for e := range errChan {
@@ -1462,11 +1430,7 @@ func (s *SqlStore) getAccountWithoutUsersPgx(ctx context.Context, accountID stri
 		peersByGroupID[gp.GroupID] = append(peersByGroupID[gp.GroupID], gp.PeerID)
 	}
 
-	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
-	for i := range account.SetupKeysG {
-		key := &account.SetupKeysG[i]
-		account.SetupKeys[key.Key] = key
-	}
+	account.SetupKeys = make(map[string]*types.SetupKey)
 
 	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
 	for i := range account.PeersG {

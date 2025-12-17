@@ -25,13 +25,13 @@ type AccountResult struct {
 }
 
 type AccountRequestBuffer struct {
-	store                         store.Store
-	getAccountRequests            map[string][]*AccountRequest
-	getAccountWithoutUsersRequests map[string][]*AccountRequest
-	mu                            sync.Mutex
-	getAccountRequestCh           chan *AccountRequest
-	getAccountWithoutUsersRequestCh chan *AccountRequest
-	bufferInterval                time.Duration
+	store                     store.Store
+	getAccountRequests        map[string][]*AccountRequest
+	getAccountLightRequests   map[string][]*AccountRequest
+	mu                        sync.Mutex
+	getAccountRequestCh       chan *AccountRequest
+	getAccountLightRequestCh  chan *AccountRequest
+	bufferInterval            time.Duration
 }
 
 func NewAccountRequestBuffer(ctx context.Context, store store.Store) *AccountRequestBuffer {
@@ -47,16 +47,16 @@ func NewAccountRequestBuffer(ctx context.Context, store store.Store) *AccountReq
 	log.WithContext(ctx).Infof("set account request buffer interval to %s", bufferInterval)
 
 	ac := AccountRequestBuffer{
-		store:                         store,
-		getAccountRequests:            make(map[string][]*AccountRequest),
-		getAccountWithoutUsersRequests: make(map[string][]*AccountRequest),
-		getAccountRequestCh:           make(chan *AccountRequest),
-		getAccountWithoutUsersRequestCh: make(chan *AccountRequest),
-		bufferInterval:                bufferInterval,
+		store:                    store,
+		getAccountRequests:       make(map[string][]*AccountRequest),
+		getAccountLightRequests:  make(map[string][]*AccountRequest),
+		getAccountRequestCh:      make(chan *AccountRequest),
+		getAccountLightRequestCh: make(chan *AccountRequest),
+		bufferInterval:           bufferInterval,
 	}
 
 	go ac.processGetAccountRequests(ctx)
-	go ac.processGetAccountWithoutUsersRequests(ctx)
+	go ac.processGetAccountLightRequests(ctx)
 
 	return &ac
 }
@@ -75,18 +75,19 @@ func (ac *AccountRequestBuffer) GetAccountWithBackpressure(ctx context.Context, 
 	return result.Account, result.Err
 }
 
-func (ac *AccountRequestBuffer) GetAccountWithoutUsersWithBackpressure(ctx context.Context, accountID string) (*types.Account, error) {
+// GetAccountLightWithBackpressure returns account without users, setup keys, and onboarding data with request buffering
+func (ac *AccountRequestBuffer) GetAccountLightWithBackpressure(ctx context.Context, accountID string) (*types.Account, error) {
 	req := &AccountRequest{
 		AccountID:  accountID,
 		ResultChan: make(chan *AccountResult, 1),
 	}
 
-	log.WithContext(ctx).Tracef("requesting account without users %s with backpressure", accountID)
+	log.WithContext(ctx).Tracef("requesting account light %s with backpressure", accountID)
 	startTime := time.Now()
-	ac.getAccountWithoutUsersRequestCh <- req
+	ac.getAccountLightRequestCh <- req
 
 	result := <-req.ResultChan
-	log.WithContext(ctx).Tracef("got account without users with backpressure after %s", time.Since(startTime))
+	log.WithContext(ctx).Tracef("got account light with backpressure after %s", time.Since(startTime))
 	return result.Account, result.Err
 }
 
@@ -130,10 +131,10 @@ func (ac *AccountRequestBuffer) processGetAccountRequests(ctx context.Context) {
 	}
 }
 
-func (ac *AccountRequestBuffer) processGetAccountWithoutUsersBatch(ctx context.Context, accountID string) {
+func (ac *AccountRequestBuffer) processGetAccountLightBatch(ctx context.Context, accountID string) {
 	ac.mu.Lock()
-	requests := ac.getAccountWithoutUsersRequests[accountID]
-	delete(ac.getAccountWithoutUsersRequests, accountID)
+	requests := ac.getAccountLightRequests[accountID]
+	delete(ac.getAccountLightRequests, accountID)
 	ac.mu.Unlock()
 
 	if len(requests) == 0 {
@@ -141,8 +142,8 @@ func (ac *AccountRequestBuffer) processGetAccountWithoutUsersBatch(ctx context.C
 	}
 
 	startTime := time.Now()
-	account, err := ac.store.GetAccountWithoutUsers(ctx, accountID)
-	log.WithContext(ctx).Tracef("getting account without users %s in batch took %s", accountID, time.Since(startTime))
+	account, err := ac.store.GetAccountLight(ctx, accountID)
+	log.WithContext(ctx).Tracef("getting account light %s in batch took %s", accountID, time.Since(startTime))
 	result := &AccountResult{Account: account, Err: err}
 
 	for _, req := range requests {
@@ -151,16 +152,16 @@ func (ac *AccountRequestBuffer) processGetAccountWithoutUsersBatch(ctx context.C
 	}
 }
 
-func (ac *AccountRequestBuffer) processGetAccountWithoutUsersRequests(ctx context.Context) {
+func (ac *AccountRequestBuffer) processGetAccountLightRequests(ctx context.Context) {
 	for {
 		select {
-		case req := <-ac.getAccountWithoutUsersRequestCh:
+		case req := <-ac.getAccountLightRequestCh:
 			ac.mu.Lock()
-			ac.getAccountWithoutUsersRequests[req.AccountID] = append(ac.getAccountWithoutUsersRequests[req.AccountID], req)
-			if len(ac.getAccountWithoutUsersRequests[req.AccountID]) == 1 {
+			ac.getAccountLightRequests[req.AccountID] = append(ac.getAccountLightRequests[req.AccountID], req)
+			if len(ac.getAccountLightRequests[req.AccountID]) == 1 {
 				go func(ctx context.Context, accountID string) {
 					time.Sleep(ac.bufferInterval)
-					ac.processGetAccountWithoutUsersBatch(ctx, accountID)
+					ac.processGetAccountLightBatch(ctx, accountID)
 				}(ctx, req.AccountID)
 			}
 			ac.mu.Unlock()

@@ -7,5 +7,6 @@ import (
 )
 
 type RequestBuffer interface {
-	GetAccountWithoutUsersWithBackpressure(ctx context.Context, accountID string) (*types.Account, error)
+	// GetAccountLightWithBackpressure returns account without users, setup keys, and onboarding data with request buffering
+	GetAccountLightWithBackpressure(ctx context.Context, accountID string) (*types.Account, error)
 }
