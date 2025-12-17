@@ -56,6 +56,7 @@ block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
 
 
 Anonymization Process
@@ -108,6 +109,9 @@ For example, to view the heap profile:
 go tool pprof -http=:8088 heap.prof
 
 This will open a web browser tab with the profiling information.
+
+Stack Trace
+The stack_trace.txt file contains a complete snapshot of all goroutine stack traces at the time the debug bundle was created.
 
 Routes
 The routes.txt file contains detailed routing table information in a tabular format:
@@ -327,6 +331,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
 	}
 
+	if err := g.addStackTrace(); err != nil {
+		log.Errorf("failed to add stack trace to debug bundle: %v", err)
+	}
+
 	if err := g.addSyncResponse(); err != nil {
 		return fmt.Errorf("add sync response: %w", err)
 	}
@@ -519,6 +527,18 @@ func (g *BundleGenerator) addProf() (err error) {
 			return fmt.Errorf("add %s file to zip: %w", profile, err)
 		}
 	}
+	return nil
+}
+
+func (g *BundleGenerator) addStackTrace() error {
+	buf := make([]byte, 5242880) // 5 MB buffer
+	n := runtime.Stack(buf, true)
+
+	stackTrace := bytes.NewReader(buf[:n])
+	if err := g.addFileToZip(stackTrace, "stack_trace.txt"); err != nil {
+		return fmt.Errorf("add stack trace file to zip: %w", err)
+	}
+
 	return nil
 }
 
