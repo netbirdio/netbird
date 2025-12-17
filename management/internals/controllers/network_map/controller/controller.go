@@ -727,11 +727,13 @@ func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerI
 }
 
 func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
+	log.WithContext(ctx).Debugf("OnPeersAdded call to add peers: %v", peerIDs)
 	if c.experimentalNetworkMap(accountID) {
 		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
 			return err
 		}
+		log.WithContext(ctx).Debugf("peers are ready to be added to networkmap cache: %v", peerIDs)
 		c.onPeersAddedUpdNetworkMapCache(account, peerIDs...)
 	}
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
