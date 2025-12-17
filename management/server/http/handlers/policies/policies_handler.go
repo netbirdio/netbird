@@ -395,7 +395,11 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 			Action:              api.PolicyRuleAction(r.Action),
 			SourceResource:      r.SourceResource.ToAPIResponse(),
 			DestinationResource: r.DestinationResource.ToAPIResponse(),
-			AuthorizedGroups:    &r.AuthorizedGroups,
+		}
+
+		if len(r.AuthorizedGroups) != 0 {
+			authorizedGroupsCopy := r.AuthorizedGroups
+			rule.AuthorizedGroups = &authorizedGroupsCopy
 		}
 
 		if len(r.Ports) != 0 {
