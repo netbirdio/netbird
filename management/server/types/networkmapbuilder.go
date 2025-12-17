@@ -27,7 +27,8 @@ const (
 	fw            = "fw:"
 	rfw           = "route-fw:"
 
-	szAddPeerBatch = 10
+	szAddPeerBatch    = 10
+	maxPeerAddRetries = 20
 )
 
 type NetworkMapCache struct {
@@ -84,10 +85,11 @@ type NetworkMapBuilder struct {
 }
 
 type addPeerBatch struct {
-	mu  sync.Mutex
-	sg  *sync.Cond
-	ids []string
-	la  *Account
+	mu         sync.Mutex
+	sg         *sync.Cond
+	ids        []string
+	la         *Account
+	retryCount map[string]int
 }
 
 func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) *NetworkMapBuilder {
@@ -115,6 +117,7 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 	builder.apb.sg = sync.NewCond(&builder.apb.mu)
 	builder.apb.ids = make([]string, 0, szAddPeerBatch)
 	builder.apb.la = account
+	builder.apb.retryCount = make(map[string]int)
 
 	maps.Copy(builder.validatedPeers, validatedPeers)
 
@@ -1169,10 +1172,29 @@ func (b *NetworkMapBuilder) addPeersIncrementally() {
 	for _, peerID := range peers {
 		peer := account.GetPeer(peerID)
 		if peer == nil {
-			log.Warnf("NetworkMapBuilder: peer %s not found in account %s", peerID, account.Id)
+			b.apb.mu.Lock()
+			retries := b.apb.retryCount[peerID]
+			b.apb.mu.Unlock()
+
+			if retries >= maxPeerAddRetries {
+				log.Errorf("NetworkMapBuilder: peer %s not found in account %s after %d retries, giving up", peerID, account.Id, retries)
+				b.apb.mu.Lock()
+				delete(b.apb.retryCount, peerID)
+				b.apb.mu.Unlock()
+				continue
+			}
+
+			log.Warnf("NetworkMapBuilder: peer %s not found in account %s, retry %d/%d", peerID, account.Id, retries+1, maxPeerAddRetries)
+			b.apb.mu.Lock()
+			b.apb.retryCount[peerID] = retries + 1
+			b.apb.mu.Unlock()
 			b.enqueuePeersForIncrementalAdd(latestAcc, peerID)
 			continue
 		}
+
+		b.apb.mu.Lock()
+		delete(b.apb.retryCount, peerID)
+		b.apb.mu.Unlock()
 
 		b.validatedPeers[peerID] = struct{}{}
 		b.cache.globalPeers[peerID] = peer
