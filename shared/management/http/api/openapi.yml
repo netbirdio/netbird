@@ -932,7 +932,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp"]
+          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -945,6 +945,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
+        authorized_groups:
+          description: Map of user group ids to a list of local users
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              example: "group1"
       required:
         - name
         - enabled
