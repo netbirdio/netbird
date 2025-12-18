@@ -332,6 +332,40 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
 }
 
+// PeerIdentity contains identity information for a peer.
+type PeerIdentity struct {
+	FQDN   string
+	UserId string
+	Groups []string
+}
+
+// WhoIs returns the identity of the peer with the given IP address.
+func (c *Client) WhoIs(ip string) (PeerIdentity, error) {
+	c.mu.Lock()
+	connect := c.connect
+	c.mu.Unlock()
+
+	if connect == nil {
+		return PeerIdentity{}, ErrClientNotStarted
+	}
+
+	statusRecorder := connect.StatusRecorder()
+	if statusRecorder == nil {
+		return PeerIdentity{}, fmt.Errorf("status recorder not initialized")
+	}
+
+	identity, found := statusRecorder.GetPeerIdentityByIP(ip)
+	if !found {
+		return PeerIdentity{}, fmt.Errorf("peer not found")
+	}
+
+	return PeerIdentity{
+		FQDN:   identity.FQDN,
+		UserId: identity.UserId,
+		Groups: identity.Groups,
+	}, nil
+}
+
 // getEngine safely retrieves the engine from the client with proper locking.
 // Returns ErrClientNotStarted if the client is not started.
 // Returns ErrEngineNotStarted if the engine is not available.

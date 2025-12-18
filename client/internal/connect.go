@@ -376,6 +376,11 @@ func (c *ConnectClient) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) 
 	return syncResponse, nil
 }
 
+// StatusRecorder returns the status recorder
+func (c *ConnectClient) StatusRecorder() *peer.Status {
+	return c.statusRecorder
+}
+
 // Status returns the current client status
 func (c *ConnectClient) Status() StatusType {
 	if c == nil {

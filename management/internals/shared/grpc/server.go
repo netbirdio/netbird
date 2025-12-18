@@ -702,7 +702,17 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort, nil)
+	// Get account for remote peer groups lookup (needed for K8s Auth Proxy impersonation)
+	account, err := s.accountManager.GetStore().GetAccount(ctx, peer.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get account for peer groups lookup: %v", err)
+	}
+	var remotePeerGroupsLookup PeerGroupsLookup
+	if account != nil {
+		remotePeerGroupsLookup = NewAccountPeerGroupsLookup(account)
+	}
+
+	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort, remotePeerGroupsLookup)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
