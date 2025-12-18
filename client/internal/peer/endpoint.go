@@ -20,7 +20,7 @@ type EndpointUpdater struct {
 	wgConfig  WgConfig
 	initiator bool
 
-	// mu protects updateWireGuardPeer and cancelFunc
+	// mu protects cancelFunc
 	mu         sync.Mutex
 	cancelFunc func()
 	updateWg   sync.WaitGroup
@@ -86,11 +86,9 @@ func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.U
 	case <-ctx.Done():
 		return
 	case <-t.C:
-		e.mu.Lock()
 		if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
 			e.log.Errorf("failed to update WireGuard peer, address: %s, error: %v", addr, err)
 		}
-		e.mu.Unlock()
 	}
 }
 
