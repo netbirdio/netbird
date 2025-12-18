@@ -44,9 +44,6 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
-	// lastNetworkMapSerial stores last seen network map serial to optimize sync
-	lastNetworkMapSerial   uint64
-	lastNetworkMapSerialMu sync.Mutex
 }
 
 // NewClient creates a new client to Management service
@@ -113,7 +110,7 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, networkSerial uint64, msgHandler func(msg *proto.SyncResponse) error) error {
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -131,7 +128,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		return c.handleStream(ctx, *serverPubKey, sysInfo, networkSerial, msgHandler)
 	}
 
 	err := backoff.Retry(operation, defaultBackoff(ctx))
@@ -143,11 +140,11 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 }
 
 func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
-	msgHandler func(msg *proto.SyncResponse) error) error {
+	networkSerial uint64, msgHandler func(msg *proto.SyncResponse) error) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo, networkSerial)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -189,7 +186,8 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
+	// GetNetworkMap doesn't have a serial to send, so we pass 0
+	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo, 0)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -219,13 +217,10 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 		return nil, fmt.Errorf("invalid msg, required network map")
 	}
 
-	// update last seen serial
-	c.setLastNetworkMapSerial(decryptedResp.GetNetworkMap().GetSerial())
-
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, networkSerial uint64) (proto.ManagementService_SyncClient, error) {
 	// Always compute latest system info to ensure up-to-date PeerSystemMeta on first and subsequent syncs
 	recomputed := system.GetInfo(c.ctx)
 	if sysInfo != nil {
@@ -235,7 +230,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 			recomputed.Files = sysInfo.Files
 		}
 	}
-	req := &proto.SyncRequest{Meta: infoToMetaData(recomputed), NetworkMapSerial: c.getLastNetworkMapSerial()}
+	req := &proto.SyncRequest{Meta: infoToMetaData(recomputed), NetworkMapSerial: networkSerial}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -271,11 +266,6 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
-		}
-
-		// track latest network map serial if present
-		if decryptedResp.GetNetworkMap() != nil {
-			c.setLastNetworkMapSerial(decryptedResp.GetNetworkMap().GetSerial())
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {
@@ -601,19 +591,4 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
-}
-
-// setLastNetworkMapSerial updates the cached last seen network map serial in a 32-bit safe manner
-func (c *GrpcClient) setLastNetworkMapSerial(serial uint64) {
-	c.lastNetworkMapSerialMu.Lock()
-	c.lastNetworkMapSerial = serial
-	c.lastNetworkMapSerialMu.Unlock()
-}
-
-// getLastNetworkMapSerial returns the cached last seen network map serial in a 32-bit safe manner
-func (c *GrpcClient) getLastNetworkMapSerial() uint64 {
-	c.lastNetworkMapSerialMu.Lock()
-	v := c.lastNetworkMapSerial
-	c.lastNetworkMapSerialMu.Unlock()
-	return v
 }

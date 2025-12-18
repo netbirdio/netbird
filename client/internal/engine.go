@@ -972,7 +972,7 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
-		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err = e.mgmClient.Sync(e.ctx, info, e.networkSerial, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
