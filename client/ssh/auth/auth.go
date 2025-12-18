@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
@@ -11,6 +12,13 @@ import (
 const (
 	// DefaultUserIDClaim is the default JWT claim used to extract user IDs
 	DefaultUserIDClaim = "sub"
+)
+
+var (
+	ErrEmptyUserID           = errors.New("JWT user ID is empty")
+	ErrUserNotAuthorized     = errors.New("user is not authorized to access this peer")
+	ErrNoMachineUserMapping  = errors.New("no authorization mapping for OS user")
+	ErrUserNotMappedToOSUser = errors.New("user is not authorized to login as OS user")
 )
 
 // Authorizer handles SSH fine-grained access control authorization
@@ -86,7 +94,7 @@ func (a *Authorizer) Update(config *Config) {
 func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 	if jwtUserID == "" {
 		log.Warnf("SSH auth denied: JWT user ID is empty for OS user '%s'", osUsername)
-		return fmt.Errorf("JWT user ID is empty")
+		return ErrEmptyUserID
 	}
 
 	// Hash the JWT user ID for comparison
@@ -100,13 +108,7 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 	userIndex, found := a.findUserIndex(hashedUserID)
 	if !found {
 		log.Warnf("SSH auth denied: user '%s' (hash: %s) not in authorized list for OS user '%s'", jwtUserID, hashedUserID, osUsername)
-		return fmt.Errorf("user '%s' is not authorized to access this peer", jwtUserID)
-	}
-
-	// If no machine users mapping exists, any authorized user can login as any OS user
-	if len(a.machineUsers) == 0 {
-		log.Infof("SSH auth granted: user '%s' authorized for OS user '%s', no machine user restrictions", jwtUserID, osUsername)
-		return nil
+		return ErrUserNotAuthorized
 	}
 
 	// Check machine user mapping
@@ -114,13 +116,13 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 	if !hasMachineUserMapping {
 		// No mapping for this OS user - deny by default (fail closed)
 		log.Warnf("SSH auth denied: no machine user mapping for OS user '%s' (JWT user: %s)", osUsername, jwtUserID)
-		return fmt.Errorf("no authorization mapping for OS user '%s'", osUsername)
+		return ErrNoMachineUserMapping
 	}
 
 	// Check if user's index is in the allowed indexes for this OS user
 	if !a.isIndexInList(uint32(userIndex), allowedIndexes) {
 		log.Warnf("SSH auth denied: user '%s' not mapped to OS user '%s' (user index: %d)", jwtUserID, osUsername, userIndex)
-		return fmt.Errorf("user '%s' is not authorized to login as OS user '%s'", jwtUserID, osUsername)
+		return ErrUserNotMappedToOSUser
 	}
 
 	log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' (index: %d)", jwtUserID, osUsername, userIndex)

@@ -583,10 +583,15 @@ func TestJWTAuthentication(t *testing.T) {
 			testUserHash, err := sshuserhash.HashUserID("test-user")
 			require.NoError(t, err)
 
+			// Get current OS username for machine user mapping
+			currentUser := testutil.GetTestUsername(t)
+
 			authConfig := &sshauth.Config{
 				UserIDClaim:     sshauth.DefaultUserIDClaim,
 				AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
-				MachineUsers:    map[string][]uint32{},
+				MachineUsers: map[string][]uint32{
+					currentUser: {0}, // Allow test-user (index 0) to access current OS user
+				},
 			}
 			server.UpdateSSHAuth(authConfig)
 
