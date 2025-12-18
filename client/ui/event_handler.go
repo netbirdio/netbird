@@ -90,9 +90,7 @@ func (h *eventHandler) handleConnectClick() {
 			}
 		}
 
-		if err := h.client.updateStatus(); err != nil {
-			log.Debugf("failed to update status after connect: %v", err)
-		}
+		h.client.triggerStatusUpdate()
 	}()
 }
 
@@ -116,9 +114,7 @@ func (h *eventHandler) handleDisconnectClick() {
 			}
 		}
 
-		if err := h.client.updateStatus(); err != nil {
-			log.Debugf("failed to update status after disconnect: %v", err)
-		}
+		h.client.triggerStatusUpdate()
 	}()
 }
 
