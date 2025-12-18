@@ -37,14 +37,6 @@ type DexClientConfig struct {
 	Issuer string
 }
 
-// dexPassword represents a Dex password entry.
-type dexPassword struct {
-	Email    string
-	Username string
-	UserID   string
-	Hash     []byte
-}
-
 // NewDexManager creates a new instance of DexManager.
 func NewDexManager(config DexClientConfig, appMetrics telemetry.AppMetrics) (*DexManager, error) {
 	if config.GRPCAddr == "" {

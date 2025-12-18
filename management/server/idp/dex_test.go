@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,7 @@ func TestDexManagerUpdateUserAppMetadata(t *testing.T) {
 	require.NoError(t, err, "should create manager without error")
 
 	// UpdateUserAppMetadata should be a no-op for Dex
-	err = manager.UpdateUserAppMetadata(nil, "test-user-id", AppMetadata{
+	err = manager.UpdateUserAppMetadata(context.Background(), "test-user-id", AppMetadata{
 		WTAccountID: "test-account",
 	})
 	require.NoError(t, err, "UpdateUserAppMetadata should not return error")
@@ -88,7 +89,7 @@ func TestDexManagerInviteUserByID(t *testing.T) {
 	require.NoError(t, err, "should create manager without error")
 
 	// InviteUserByID should return an error for Dex
-	err = manager.InviteUserByID(nil, "test-user-id")
+	err = manager.InviteUserByID(context.Background(), "test-user-id")
 	require.Error(t, err, "InviteUserByID should return error")
 	require.Contains(t, err.Error(), "not implemented", "error should mention not implemented")
 }
