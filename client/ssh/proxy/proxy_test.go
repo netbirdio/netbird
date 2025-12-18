@@ -153,7 +153,7 @@ func TestSSHProxy_Connect(t *testing.T) {
 	validToken := generateValidJWT(t, privateKey, issuer, audience)
 	mockDaemon.setJWTToken(validToken)
 
-	proxyInstance, err := New(mockDaemon.addr, host, port, nil, nil)
+	proxyInstance, err := New(mockDaemon.addr, host, port, io.Discard, nil)
 	require.NoError(t, err)
 
 	clientConn, proxyConn := net.Pipe()
