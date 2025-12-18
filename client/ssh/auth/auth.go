@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -31,6 +32,9 @@ type Authorizer struct {
 
 	// machineUsers maps OS login usernames to lists of authorized user indexes
 	machineUsers map[string][]uint32
+
+	// mu protects the list of users
+	mu sync.RWMutex
 }
 
 // Config contains configuration for the SSH authorizer
@@ -58,6 +62,9 @@ func NewAuthorizer() *Authorizer {
 
 // Update updates the authorizer configuration with new values
 func (a *Authorizer) Update(config *Config) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if config == nil {
 		// Clear authorization
 		a.userIDClaim = DefaultUserIDClaim
@@ -104,6 +111,9 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 		return fmt.Errorf("failed to hash user ID: %w", err)
 	}
 
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	// Find the index of this user in the authorized list
 	userIndex, found := a.findUserIndex(hashedUserID)
 	if !found {
@@ -131,6 +141,8 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 
 // GetUserIDClaim returns the JWT claim name used to extract user IDs
 func (a *Authorizer) GetUserIDClaim() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.userIDClaim
 }
 
