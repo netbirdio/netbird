@@ -493,8 +493,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed to populate DNS cache after %d attempts: %v", populateAttempts, lastErr)
 	}()
 
-	log.Info("populated DNS cache with NetbirdConfig and management URL")
-
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
 		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
