@@ -1065,7 +1065,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 							users[nbUser.Id] = struct{}{}
 						}
 					}
-					authorizedUsers[""] = users
+					authorizedUsers["*"] = users
 				} else {
 					for groupID, localUsers := range rule.AuthorizedGroups {
 						userIDs, ok := groupIDToUserIDs[groupID]
@@ -1075,7 +1075,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 						}
 
 						if len(localUsers) == 0 {
-							localUsers = []string{""}
+							localUsers = []string{"*"}
 						}
 
 						for _, localUser := range localUsers {
