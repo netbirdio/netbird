@@ -1058,20 +1058,33 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 			}
 
 			if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
-				for groupID, localUsers := range rule.AuthorizedGroups {
-					userIDs, ok := groupIDToUserIDs[groupID]
-					if !ok {
-						log.WithContext(ctx).Tracef("no user IDs found for group ID %s", groupID)
-						continue
-					}
-					for _, localUser := range localUsers {
-						users, ok := authorizedUsers[localUser]
-						if !ok {
-							users = make(map[string]struct{})
-							authorizedUsers[localUser] = users
+				if len(rule.AuthorizedGroups) == 0 {
+					users := make(map[string]struct{})
+					for _, nbUser := range a.Users {
+						if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
+							users[nbUser.Id] = struct{}{}
 						}
-						for _, userID := range userIDs {
-							users[userID] = struct{}{}
+					}
+					authorizedUsers[""] = users
+				} else {
+					for groupID, localUsers := range rule.AuthorizedGroups {
+						userIDs, ok := groupIDToUserIDs[groupID]
+						if !ok {
+							log.WithContext(ctx).Tracef("no user IDs found for group ID %s", groupID)
+							continue
+						}
+
+						if len(localUsers) == 0 {
+							localUsers = []string{""}
+						}
+
+						for _, localUser := range localUsers {
+							if authorizedUsers[localUser] == nil {
+								authorizedUsers[localUser] = make(map[string]struct{})
+							}
+							for _, userID := range userIDs {
+								authorizedUsers[localUser][userID] = struct{}{}
+							}
 						}
 					}
 				}
@@ -1687,7 +1700,7 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 func (a *Account) GetActiveGroupUsers() map[string][]string {
 	groups := make(map[string][]string, len(a.GroupsG))
 	for _, user := range a.Users {
-		if !user.IsBlocked() {
+		if !user.IsBlocked() && !user.IsServiceUser {
 			for _, groupID := range user.AutoGroups {
 				groups[groupID] = append(groups[groupID], user.Id)
 			}

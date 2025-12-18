@@ -164,27 +164,23 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([]uint64, map[string]*proto.MachineUserIndexes) {
 	userIDToIndex := make(map[string]uint32)
 	var hashedUsers []uint64
-
-	for _, users := range authorizedUsers {
-		for userID := range users {
-			if _, exists := userIDToIndex[userID]; exists {
-				continue
-			}
-			userIDToIndex[userID] = uint32(len(hashedUsers))
-			hash, err := sshauth.HashUserID(userID)
-			if err != nil {
-				log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
-				continue
-			}
-			hashedUsers = append(hashedUsers, uint64(hash))
-		}
-	}
-
 	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
+
 	for machineUser, users := range authorizedUsers {
 		indexes := make([]uint32, 0, len(users))
 		for userID := range users {
-			indexes = append(indexes, userIDToIndex[userID])
+			idx, exists := userIDToIndex[userID]
+			if !exists {
+				hash, err := sshauth.HashUserID(userID)
+				if err != nil {
+					log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
+					continue
+				}
+				idx = uint32(len(hashedUsers))
+				userIDToIndex[userID] = idx
+				hashedUsers = append(hashedUsers, uint64(hash))
+			}
+			indexes = append(indexes, idx)
 		}
 		machineUsers[machineUser] = &proto.MachineUserIndexes{Indexes: indexes}
 	}
