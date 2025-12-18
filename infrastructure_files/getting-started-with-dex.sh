@@ -428,6 +428,7 @@ services:
   # Caddy reverse proxy
   caddy:
     image: caddy
+    container_name: netbird-caddy
     restart: unless-stopped
     networks: [netbird]
     ports:
@@ -446,6 +447,7 @@ services:
   # Dex - identity provider
   dex:
     image: ghcr.io/dexidp/dex:v2.38.0
+    container_name: netbird-dex
     restart: unless-stopped
     networks: [netbird]
     volumes:
@@ -461,6 +463,7 @@ services:
   # UI dashboard
   dashboard:
     image: netbirdio/dashboard:latest
+    container_name: netbird-dashboard
     restart: unless-stopped
     networks: [netbird]
     env_file:
@@ -474,6 +477,7 @@ services:
   # Signal
   signal:
     image: netbirdio/signal:latest
+    container_name: netbird-signal
     restart: unless-stopped
     networks: [netbird]
     logging:
@@ -485,6 +489,7 @@ services:
   # Relay
   relay:
     image: netbirdio/relay:latest
+    container_name: netbird-relay
     restart: unless-stopped
     networks: [netbird]
     env_file:
@@ -498,6 +503,7 @@ services:
   # Management
   management:
     image: netbirdio/management:latest
+    container_name: netbird-management
     restart: unless-stopped
     networks: [netbird]
     volumes:
@@ -521,6 +527,7 @@ services:
   # Coturn, AKA TURN server
   coturn:
     image: coturn/coturn
+    container_name: netbird-coturn
     restart: unless-stopped
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
