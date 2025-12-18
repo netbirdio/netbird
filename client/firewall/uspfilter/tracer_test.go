@@ -10,6 +10,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
@@ -44,7 +45,7 @@ func TestTracePacket(t *testing.T) {
 			},
 		}
 
-		m, err := Create(ifaceMock, false, flowLogger)
+		m, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 		require.NoError(t, err)
 
 		if !statefulMode {
@@ -104,6 +105,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -126,6 +129,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -153,6 +158,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -179,6 +186,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -204,6 +213,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -228,6 +239,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -246,6 +259,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -264,6 +279,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageCompleted,
@@ -287,6 +304,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageCompleted,
 			},
@@ -301,6 +320,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageOutbound1to1NAT,
+				StageOutboundPortReverse,
 				StageCompleted,
 			},
 			expectedAllow: true,
@@ -319,6 +340,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -340,6 +363,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -362,6 +387,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -382,6 +409,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -406,6 +435,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageRouting,
 				StagePeerACL,
 				StageCompleted,

@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/auth"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
@@ -131,7 +131,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	}
 
 	// this has been validated and parsed by ValidateAndParseToken
-	userAuth := nbcontext.UserAuth{
+	userAuth := nbauth.UserAuth{
 		AccountId:      account.Id,
 		Domain:         domain,
 		UserId:         userId,
@@ -236,7 +236,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	tests := []struct {
 		name      string
 		tokenFunc func() string
-		expected  *nbcontext.UserAuth // nil indicates expected error
+		expected  *nbauth.UserAuth // nil indicates expected error
 	}{
 		{
 			name: "Valid with custom claims",
@@ -258,7 +258,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId:         "user-id|123",
 				AccountId:      "account-id|567",
 				Domain:         "http://localhost",
@@ -282,7 +282,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId: "user-id|123",
 			},
 		},

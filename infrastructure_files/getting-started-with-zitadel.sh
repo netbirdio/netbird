@@ -621,9 +621,11 @@ renderCaddyfile() {
     # relay
     reverse_proxy /relay* relay:80
     # Signal
+    reverse_proxy /ws-proxy/signal* signal:80
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
     reverse_proxy /api/* management:80
+    reverse_proxy /ws-proxy/management* management:80
     reverse_proxy /management.ManagementService/* h2c://management:80
     # Zitadel
     reverse_proxy /zitadel.admin.v1.AdminService/* h2c://zitadel:8080
@@ -680,17 +682,6 @@ renderManagementJson() {
             "URI": "stun:$NETBIRD_DOMAIN:3478"
         }
     ],
-    "TURNConfig": {
-        "Turns": [
-            {
-                "Proto": "udp",
-                "URI": "turn:$NETBIRD_DOMAIN:3478",
-                "Username": "$TURN_USER",
-                "Password": "$TURN_PASSWORD"
-            }
-        ],
-        "TimeBasedCredentials": false
-    },
     "Relay": {
         "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
         "CredentialsTTL": "24h",

@@ -179,6 +179,7 @@ const (
 	PeerIPUpdated              Activity = 88
 	UserApproved               Activity = 89
 	UserRejected               Activity = 90
+	UserCreated                Activity = 91
 
 	AccountDeleted Activity = 99999
 )
@@ -288,6 +289,7 @@ var activityMap = map[Activity]Code{
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
 	UserApproved:  {"User approved", "user.approve"},
 	UserRejected:  {"User rejected", "user.reject"},
+	UserCreated:   {"User created", "user.create"},
 }
 
 // StringCode returns a string code of the activity

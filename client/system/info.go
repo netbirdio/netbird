@@ -72,6 +72,12 @@ type Info struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
+
+	EnableSSHRoot                 bool
+	EnableSSHSFTP                 bool
+	EnableSSHLocalPortForwarding  bool
+	EnableSSHRemotePortForwarding bool
+	DisableSSHAuth                bool
 }
 
 func (i *Info) SetFlags(
@@ -79,6 +85,8 @@ func (i *Info) SetFlags(
 	serverSSHAllowed *bool,
 	disableClientRoutes, disableServerRoutes,
 	disableDNS, disableFirewall, blockLANAccess, blockInbound, lazyConnectionEnabled bool,
+	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
+	disableSSHAuth *bool,
 ) {
 	i.RosenpassEnabled = rosenpassEnabled
 	i.RosenpassPermissive = rosenpassPermissive
@@ -94,6 +102,22 @@ func (i *Info) SetFlags(
 	i.BlockInbound = blockInbound
 
 	i.LazyConnectionEnabled = lazyConnectionEnabled
+
+	if enableSSHRoot != nil {
+		i.EnableSSHRoot = *enableSSHRoot
+	}
+	if enableSSHSFTP != nil {
+		i.EnableSSHSFTP = *enableSSHSFTP
+	}
+	if enableSSHLocalPortForwarding != nil {
+		i.EnableSSHLocalPortForwarding = *enableSSHLocalPortForwarding
+	}
+	if enableSSHRemotePortForwarding != nil {
+		i.EnableSSHRemotePortForwarding = *enableSSHRemotePortForwarding
+	}
+	if disableSSHAuth != nil {
+		i.DisableSSHAuth = *disableSSHAuth
+	}
 }
 
 func (i *Info) CopyFlagsFrom(other *Info) {
@@ -108,6 +132,11 @@ func (i *Info) CopyFlagsFrom(other *Info) {
 		other.BlockLANAccess,
 		other.BlockInbound,
 		other.LazyConnectionEnabled,
+		&other.EnableSSHRoot,
+		&other.EnableSSHSFTP,
+		&other.EnableSSHLocalPortForwarding,
+		&other.EnableSSHRemotePortForwarding,
+		&other.DisableSSHAuth,
 	)
 }
 

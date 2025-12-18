@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
 const ConnectTimeout = 10 * time.Second
@@ -52,10 +53,9 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent)
 		if err != nil {
-			log.Printf("createConnection error: %v", err)
-			return err
+			return fmt.Errorf("create connection: %w", err)
 		}
 		return nil
 	}

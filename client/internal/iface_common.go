@@ -20,6 +20,7 @@ import (
 type wgIfaceBase interface {
 	Create() error
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
+	RenewTun(fd int) error
 	IsUserspaceBind() bool
 	Name() string
 	Address() wgaddr.Address
@@ -28,6 +29,7 @@ type wgIfaceBase interface {
 	UpdateAddr(newAddr string) error
 	GetProxy() wgproxy.Proxy
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemoveEndpointAddress(key string) error
 	RemovePeer(peerKey string) error
 	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error

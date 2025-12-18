@@ -40,13 +40,21 @@ services:
   signal:
     <<: *default
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
+    depends_on:
+          - dashboard
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
+      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
     ports:
       - $NETBIRD_SIGNAL_PORT:80
   #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
+    command: [
+      "--cert-file", "$NETBIRD_MGMT_API_CERT_FILE",
+      "--cert-key", "$NETBIRD_MGMT_API_CERT_KEY_FILE",
+      "--log-file", "console"
+    ]
 
   # Relay
   relay:

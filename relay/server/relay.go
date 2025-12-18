@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
@@ -22,7 +24,7 @@ type Config struct {
 	TLSSupport     bool
 	AuthValidator  Validator
 
-	instanceURL string
+	instanceURL url.URL
 }
 
 func (c *Config) validate() error {
@@ -37,7 +39,7 @@ func (c *Config) validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid url: %v", err)
 	}
-	c.instanceURL = instanceURL
+	c.instanceURL = *instanceURL
 
 	if c.AuthValidator == nil {
 		return fmt.Errorf("auth validator is required")
@@ -51,10 +53,11 @@ type Relay struct {
 	metricsCancel context.CancelFunc
 	validator     Validator
 
-	store       *store.Store
-	notifier    *store.PeerNotifier
-	instanceURL string
-	preparedMsg *preparedMsg
+	store          *store.Store
+	notifier       *store.PeerNotifier
+	instanceURL    url.URL
+	exposedAddress string
+	preparedMsg    *preparedMsg
 
 	closed  bool
 	closeMu sync.RWMutex
@@ -87,15 +90,16 @@ func NewRelay(config Config) (*Relay, error) {
 	}
 
 	r := &Relay{
-		metrics:       m,
-		metricsCancel: metricsCancel,
-		validator:     config.AuthValidator,
-		instanceURL:   config.instanceURL,
-		store:         store.NewStore(),
-		notifier:      store.NewPeerNotifier(),
+		metrics:        m,
+		metricsCancel:  metricsCancel,
+		validator:      config.AuthValidator,
+		instanceURL:    config.instanceURL,
+		exposedAddress: config.ExposedAddress,
+		store:          store.NewStore(),
+		notifier:       store.NewPeerNotifier(),
 	}
 
-	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
+	r.preparedMsg, err = newPreparedMsg(r.instanceURL.String())
 	if err != nil {
 		metricsCancel()
 		return nil, fmt.Errorf("prepare message: %v", err)
@@ -120,7 +124,11 @@ func (r *Relay) Accept(conn net.Conn) {
 	}
 	peerID, err := h.handshakeReceive()
 	if err != nil {
-		log.Errorf("failed to handshake: %s", err)
+		if peerid.IsHealthCheck(peerID) {
+			log.Debugf("health check connection from %s", conn.RemoteAddr())
+		} else {
+			log.Errorf("failed to handshake: %s", err)
+		}
 		if cErr := conn.Close(); cErr != nil {
 			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
@@ -175,6 +183,6 @@ func (r *Relay) Shutdown(ctx context.Context) {
 }
 
 // InstanceURL returns the instance URL of the relay server
-func (r *Relay) InstanceURL() string {
+func (r *Relay) InstanceURL() url.URL {
 	return r.instanceURL
 }

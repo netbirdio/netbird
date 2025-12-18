@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -23,35 +24,25 @@ import (
 
 // Handler is a handler that returns peers of the account
 type Handler struct {
-	accountManager account.Manager
+	accountManager       account.Manager
+	networkMapController network_map.Controller
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
-	peersHandler := NewHandler(accountManager)
+func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
+	peersHandler := NewHandler(accountManager, networkMapController)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/temporary-access", peersHandler.CreateTemporaryAccess).Methods("POST", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager) *Handler {
+func NewHandler(accountManager account.Manager, networkMapController network_map.Controller) *Handler {
 	return &Handler{
-		accountManager: accountManager,
+		accountManager:       accountManager,
+		networkMapController: networkMapController,
 	}
-}
-
-func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
-	peerToReturn := peer.Copy()
-	if peer.Status.Connected {
-		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
-		// This may happen after server restart when not all peers are yet connected
-		if !h.accountManager.HasConnectedChannel(peer.ID) {
-			peerToReturn.Status.Connected = false
-		}
-	}
-
-	return peerToReturn, nil
 }
 
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
@@ -61,23 +52,18 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		return
 	}
 
-	peerToReturn, err := h.checkPeerStatus(peer)
-	if err != nil {
-		util.WriteError(ctx, err, w)
-		return
-	}
 	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
+	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
@@ -85,7 +71,9 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	}
 
 	_, valid := validPeers[peer.ID]
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, grpsInfoMap[peerID], dnsDomain, valid))
+	reason := invalidPeers[peer.ID]
+
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -136,7 +124,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
 	if err != nil {
@@ -146,16 +134,17 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 
 	grpsInfoMap := groups.ToGroupsInfoMap(peerGroups, 0)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
+	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to get validated peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
 
 	_, valid := validPeers[peer.ID]
+	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
 }
 
 func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -223,38 +212,35 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
-		peerToReturn, err := h.checkPeerStatus(peer)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-
-		respBody = append(respBody, toPeerListItemResponse(peerToReturn, grpsInfoMap[peer.ID], dnsDomain, 0))
+		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
-	validPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
-		log.WithContext(r.Context()).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(r.Context()).Errorf("failed to get validated peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
-	h.setApprovalRequiredFlag(respBody, validPeersMap)
+	h.setApprovalRequiredFlag(respBody, validPeersMap, invalidPeersMap)
 
 	util.WriteJSONObject(r.Context(), w, respBody)
 }
 
-func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
+func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, validPeersMap map[string]struct{}, invalidPeersMap map[string]string) {
 	for _, peer := range respBody {
-		_, ok := approvedPeersMap[peer.Id]
+		_, ok := validPeersMap[peer.Id]
 		if !ok {
 			peer.ApprovalRequired = true
+
+			reason := invalidPeersMap[peer.Id]
+			peer.DisapprovalReason = &reason
 		}
 	}
 }
@@ -303,19 +289,101 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	validPeers, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain(account.Settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
 	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+}
+
+func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	var req api.PeerTemporaryAccessRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	newPeer := &nbpeer.Peer{}
+	newPeer.FromAPITemporaryAccessRequest(&req)
+
+	targetPeer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	for _, rule := range req.Rules {
+		protocol, portRange, err := types.ParseRuleString(rule)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		policy := &types.Policy{
+			AccountID:   userAuth.AccountId,
+			Description: "Temporary access policy for peer " + peer.Name,
+			Name:        "Temporary access policy for peer " + peer.Name,
+			Enabled:     true,
+			Rules: []*types.PolicyRule{{
+				Name:        "Temporary access rule",
+				Description: "Temporary access rule",
+				Enabled:     true,
+				Action:      types.PolicyTrafficActionAccept,
+				SourceResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   peer.ID,
+				},
+				DestinationResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   targetPeer.ID,
+				},
+				Bidirectional: false,
+				Protocol:      protocol,
+				PortRanges:    []types.RulePortRange{portRange},
+			}},
+		}
+
+		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
+	resp := &api.PeerTemporaryAccessResponse{
+		Id:    peer.ID,
+		Name:  peer.Name,
+		Rules: req.Rules,
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
 }
 
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
@@ -347,13 +415,13 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool, reason string) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
 
-	return &api.Peer{
+	apiPeer := &api.Peer{
 		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
@@ -382,6 +450,12 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
 	}
+
+	if !approved {
+		apiPeer.DisapprovalReason = &reason
+	}
+
+	return apiPeer
 }
 
 func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {

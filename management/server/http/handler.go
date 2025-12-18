@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -16,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
+	nbpeers "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -34,11 +40,15 @@ import (
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
-const apiPrefix = "/api"
+const (
+	apiPrefix              = "/api"
+	rateLimitingEnabledKey = "NB_API_RATE_LIMITING_ENABLED"
+	rateLimitingBurstKey   = "NB_API_RATE_LIMITING_BURST"
+	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
+)
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(
@@ -56,13 +66,46 @@ func NewAPIHandler(
 	permissionsManager permissions.Manager,
 	peersManager nbpeers.Manager,
 	settingsManager settings.Manager,
+	networkMapController network_map.Controller,
 ) (http.Handler, error) {
+
+	var rateLimitingConfig *middleware.RateLimiterConfig
+	if os.Getenv(rateLimitingEnabledKey) == "true" {
+		rpm := 6
+		if v := os.Getenv(rateLimitingRPMKey); v != "" {
+			value, err := strconv.Atoi(v)
+			if err != nil {
+				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingRPMKey, err, rpm)
+			} else {
+				rpm = value
+			}
+		}
+
+		burst := 500
+		if v := os.Getenv(rateLimitingBurstKey); v != "" {
+			value, err := strconv.Atoi(v)
+			if err != nil {
+				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingBurstKey, err, burst)
+			} else {
+				burst = value
+			}
+		}
+
+		rateLimitingConfig = &middleware.RateLimiterConfig{
+			RequestsPerMinute: float64(rpm),
+			Burst:             burst,
+			CleanupInterval:   6 * time.Hour,
+			LimiterTTL:        24 * time.Hour,
+		}
+	}
 
 	authMiddleware := middleware.NewAuthMiddleware(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
 		accountManager.GetUserFromUserAuth,
+		rateLimitingConfig,
+		appMetrics.GetMeter(),
 	)
 
 	corsMiddleware := cors.AllowAll()
@@ -80,7 +123,7 @@ func NewAPIHandler(
 	}
 
 	accounts.AddEndpoints(accountManager, settingsManager, router)
-	peers.AddEndpoints(accountManager, router)
+	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)

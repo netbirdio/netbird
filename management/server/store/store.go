@@ -143,6 +143,7 @@ type Store interface {
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)
@@ -202,6 +203,7 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 }
 
 const (
@@ -467,6 +469,9 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
+		if store.pool != nil {
+			store.pool.Close()
+		}
 	}
 
 	return store, closeConnection, nil
@@ -486,12 +491,18 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := openDBWithRetry(dsn, kind, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 	}
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+
+	sqlDB, _ := db.DB()
+	if sqlDB != nil {
+		sqlDB.Close()
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -518,12 +529,22 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
 
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	db, err := openDBWithRetry(dsn, kind, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
 	}
 
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get underlying sql.DB: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+
+	sqlDB.Close()
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -536,6 +557,31 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 	return store, cleanup, nil
 }
 
+func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
+	var db *gorm.DB
+	var err error
+
+	for i := range maxRetries {
+		switch engine {
+		case types.PostgresStoreEngine:
+			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		case types.MysqlStoreEngine:
+			db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+		}
+
+		if err == nil {
+			return db, nil
+		}
+
+		if i < maxRetries-1 {
+			waitTime := time.Duration(100*(i+1)) * time.Millisecond
+			time.Sleep(waitTime)
+		}
+	}
+
+	return nil, err
+}
+
 func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 
@@ -543,21 +589,63 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
-	var err error
+	originalDSN := dsn
+
 	cleanup := func() {
+		var dropDB *gorm.DB
+		var err error
+
 		switch engine {
 		case types.PostgresStoreEngine:
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
+			dropDB, err = gorm.Open(postgres.Open(originalDSN), &gorm.Config{
+				SkipDefaultTransaction: true,
+				PrepareStmt:            false,
+			})
+			if err != nil {
+				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
+				return
+			}
+			defer func() {
+				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+					sqlDB.Close()
+				}
+			}()
+
+			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+				sqlDB.SetMaxOpenConns(1)
+				sqlDB.SetMaxIdleConns(0)
+				sqlDB.SetConnMaxLifetime(time.Second)
+			}
+
+			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
+
 		case types.MysqlStoreEngine:
-			// err = killMySQLConnections(dsn, dbName)
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
+			dropDB, err = gorm.Open(mysql.Open(originalDSN+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{
+				SkipDefaultTransaction: true,
+				PrepareStmt:            false,
+			})
+			if err != nil {
+				log.Errorf("failed to connect for dropping database %s: %v", dbName, err)
+				return
+			}
+			defer func() {
+				if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+					sqlDB.Close()
+				}
+			}()
+
+			if sqlDB, _ := dropDB.DB(); sqlDB != nil {
+				sqlDB.SetMaxOpenConns(1)
+				sqlDB.SetMaxIdleConns(0)
+				sqlDB.SetConnMaxLifetime(time.Second)
+			}
+
+			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)).Error
 		}
+
 		if err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
-			panic(err)
 		}
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
 	}
 
 	return replaceDBName(dsn, dbName), cleanup, nil

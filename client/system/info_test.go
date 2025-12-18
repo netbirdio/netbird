@@ -1,19 +1,24 @@
 package system
 
 import (
-    "context"
-    "testing"
+	"context"
+	"testing"
 
-    "github.com/stretchr/testify/assert"
-    "google.golang.org/grpc/metadata"
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestInfo_CopyFlagsFrom(t *testing.T) {
 	origin := &Info{}
 	serverSSHAllowed := true
+	enableSSHRoot := true
+	enableSSHSFTP := false
+	enableSSHLocalPortForwarding := true
+	enableSSHRemotePortForwarding := false
+	disableSSHAuth := true
 	origin.SetFlags(
-		true,   // RosenpassEnabled
-		false,  // RosenpassPermissive
+		true,  // RosenpassEnabled
+		false, // RosenpassPermissive
 		&serverSSHAllowed,
 		true,  // DisableClientRoutes
 		false, // DisableServerRoutes
@@ -22,6 +27,11 @@ func TestInfo_CopyFlagsFrom(t *testing.T) {
 		true,  // BlockLANAccess
 		false, // BlockInbound
 		true,  // LazyConnectionEnabled
+		&enableSSHRoot,
+		&enableSSHSFTP,
+		&enableSSHLocalPortForwarding,
+		&enableSSHRemotePortForwarding,
+		&disableSSHAuth,
 	)
 
 	got := &Info{}
@@ -56,6 +66,21 @@ func TestInfo_CopyFlagsFrom(t *testing.T) {
 	}
 	if got.LazyConnectionEnabled != true {
 		t.Fatalf("LazyConnectionEnabled not copied: got %v", got.LazyConnectionEnabled)
+	}
+	if got.EnableSSHRoot != true {
+		t.Fatalf("EnableSSHRoot not copied: got %v", got.EnableSSHRoot)
+	}
+	if got.EnableSSHSFTP != false {
+		t.Fatalf("EnableSSHSFTP not copied: got %v", got.EnableSSHSFTP)
+	}
+	if got.EnableSSHLocalPortForwarding != true {
+		t.Fatalf("EnableSSHLocalPortForwarding not copied: got %v", got.EnableSSHLocalPortForwarding)
+	}
+	if got.EnableSSHRemotePortForwarding != false {
+		t.Fatalf("EnableSSHRemotePortForwarding not copied: got %v", got.EnableSSHRemotePortForwarding)
+	}
+	if got.DisableSSHAuth != true {
+		t.Fatalf("DisableSSHAuth not copied: got %v", got.DisableSSHAuth)
 	}
 
 	// ensure CopyFlagsFrom does not touch unrelated fields

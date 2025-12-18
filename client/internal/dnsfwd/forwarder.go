@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -33,7 +34,7 @@ type firewaller interface {
 }
 
 type DNSForwarder struct {
-	listenAddress  string
+	listenAddress  netip.AddrPort
 	ttl            uint32
 	statusRecorder *peer.Status
 
@@ -46,9 +47,12 @@ type DNSForwarder struct {
 	fwdEntries []*ForwarderEntry
 	firewall   firewaller
 	resolver   resolver
+	cache      *cache
+
+	wgIface wgIface
 }
 
-func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, statusRecorder *peer.Status) *DNSForwarder {
+func NewDNSForwarder(listenAddress netip.AddrPort, ttl uint32, firewall firewaller, statusRecorder *peer.Status, wgIface wgIface) *DNSForwarder {
 	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d", listenAddress, ttl)
 	return &DNSForwarder{
 		listenAddress:  listenAddress,
@@ -56,30 +60,47 @@ func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, stat
 		firewall:       firewall,
 		statusRecorder: statusRecorder,
 		resolver:       net.DefaultResolver,
+		cache:          newCache(),
+		wgIface:        wgIface,
 	}
 }
 
 func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
-	log.Infof("starting DNS forwarder on address=%s", f.listenAddress)
+	var netstackNet *netstack.Net
+	if f.wgIface != nil {
+		netstackNet = f.wgIface.GetNet()
+	}
 
-	// UDP server
+	addrDesc := f.listenAddress.String()
+	if netstackNet != nil {
+		addrDesc = fmt.Sprintf("netstack %s", f.listenAddress)
+	}
+	log.Infof("starting DNS forwarder on address=%s", addrDesc)
+
+	udpLn, err := f.createUDPListener(netstackNet)
+	if err != nil {
+		return fmt.Errorf("create UDP listener: %w", err)
+	}
+
+	tcpLn, err := f.createTCPListener(netstackNet)
+	if err != nil {
+		return fmt.Errorf("create TCP listener: %w", err)
+	}
+
 	mux := dns.NewServeMux()
 	f.mux = mux
 	mux.HandleFunc(".", f.handleDNSQueryUDP)
 	f.dnsServer = &dns.Server{
-		Addr:    f.listenAddress,
-		Net:     "udp",
-		Handler: mux,
+		PacketConn: udpLn,
+		Handler:    mux,
 	}
 
-	// TCP server
 	tcpMux := dns.NewServeMux()
 	f.tcpMux = tcpMux
 	tcpMux.HandleFunc(".", f.handleDNSQueryTCP)
 	f.tcpServer = &dns.Server{
-		Addr:    f.listenAddress,
-		Net:     "tcp",
-		Handler: tcpMux,
+		Listener: tcpLn,
+		Handler:  tcpMux,
 	}
 
 	f.UpdateDomains(entries)
@@ -87,24 +108,68 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	errCh := make(chan error, 2)
 
 	go func() {
-		log.Infof("DNS UDP listener running on %s", f.listenAddress)
-		errCh <- f.dnsServer.ListenAndServe()
+		log.Infof("DNS UDP listener running on %s", addrDesc)
+		errCh <- f.dnsServer.ActivateAndServe()
 	}()
 	go func() {
-		log.Infof("DNS TCP listener running on %s", f.listenAddress)
-		errCh <- f.tcpServer.ListenAndServe()
+		log.Infof("DNS TCP listener running on %s", addrDesc)
+		errCh <- f.tcpServer.ActivateAndServe()
 	}()
 
-	// return the first error we get (e.g. bind failure or shutdown)
 	return <-errCh
+}
+
+func (f *DNSForwarder) createUDPListener(netstackNet *netstack.Net) (net.PacketConn, error) {
+	if netstackNet != nil {
+		return netstackNet.ListenUDPAddrPort(f.listenAddress)
+	}
+
+	return net.ListenUDP("udp", net.UDPAddrFromAddrPort(f.listenAddress))
+}
+
+func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listener, error) {
+	if netstackNet != nil {
+		return netstackNet.ListenTCPAddrPort(f.listenAddress)
+	}
+
+	return net.ListenTCP("tcp", net.TCPAddrFromAddrPort(f.listenAddress))
 }
 
 func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
+	// remove cache entries for domains that no longer appear
+	f.removeStaleCacheEntries(f.fwdEntries, entries)
+
 	f.fwdEntries = entries
 	log.Debugf("Updated DNS forwarder with %d domains", len(entries))
+}
+
+// removeStaleCacheEntries unsets cache items for domains that were present
+// in the old list but not present in the new list.
+func (f *DNSForwarder) removeStaleCacheEntries(oldEntries, newEntries []*ForwarderEntry) {
+	if f.cache == nil {
+		return
+	}
+
+	newSet := make(map[string]struct{}, len(newEntries))
+	for _, e := range newEntries {
+		if e == nil {
+			continue
+		}
+		newSet[e.Domain.PunycodeString()] = struct{}{}
+	}
+
+	for _, e := range oldEntries {
+		if e == nil {
+			continue
+		}
+		pattern := e.Domain.PunycodeString()
+		if _, ok := newSet[pattern]; !ok {
+			f.cache.unset(pattern)
+		}
+	}
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {
@@ -169,8 +234,14 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 		return nil
 	}
 
+	// Unmap IPv4-mapped IPv6 addresses that some resolvers may return
+	for i, ip := range ips {
+		ips[i] = ip.Unmap()
+	}
+
 	f.updateInternalState(ips, mostSpecificResId, matchingEntries)
 	f.addIPsToResponse(resp, domain, ips)
+	f.cache.set(domain, question.Qtype, ips)
 
 	return resp
 }
@@ -282,29 +353,69 @@ func (f *DNSForwarder) setResponseCodeForNotFound(ctx context.Context, resp *dns
 	resp.Rcode = dns.RcodeSuccess
 }
 
-// handleDNSError processes DNS lookup errors and sends an appropriate error response
-func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter, question dns.Question, resp *dns.Msg, domain string, err error) {
+// handleDNSError processes DNS lookup errors and sends an appropriate error response.
+func (f *DNSForwarder) handleDNSError(
+	ctx context.Context,
+	w dns.ResponseWriter,
+	question dns.Question,
+	resp *dns.Msg,
+	domain string,
+	err error,
+) {
+	// Default to SERVFAIL; override below when appropriate.
+	resp.Rcode = dns.RcodeServerFailure
+
+	qType := question.Qtype
+	qTypeName := dns.TypeToString[qType]
+
+	// Prefer typed DNS errors; fall back to generic logging otherwise.
 	var dnsErr *net.DNSError
-
-	switch {
-	case errors.As(err, &dnsErr):
-		resp.Rcode = dns.RcodeServerFailure
-		if dnsErr.IsNotFound {
-			f.setResponseCodeForNotFound(ctx, resp, domain, question.Qtype)
+	if !errors.As(err, &dnsErr) {
+		log.Warnf(errResolveFailed, domain, err)
+		if writeErr := w.WriteMsg(resp); writeErr != nil {
+			log.Errorf("failed to write failure DNS response: %v", writeErr)
 		}
+		return
+	}
 
-		if dnsErr.Server != "" {
-			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[question.Qtype], domain, dnsErr.Server, err)
-		} else {
-			log.Warnf(errResolveFailed, domain, err)
+	// NotFound: set NXDOMAIN / appropriate code via helper.
+	if dnsErr.IsNotFound {
+		f.setResponseCodeForNotFound(ctx, resp, domain, qType)
+		if writeErr := w.WriteMsg(resp); writeErr != nil {
+			log.Errorf("failed to write failure DNS response: %v", writeErr)
 		}
-	default:
-		resp.Rcode = dns.RcodeServerFailure
+		f.cache.set(domain, question.Qtype, nil)
+		return
+	}
+
+	// Upstream failed but we might have a cached answer—serve it if present.
+	if ips, ok := f.cache.get(domain, qType); ok {
+		if len(ips) > 0 {
+			log.Debugf("serving cached DNS response after upstream failure: domain=%s type=%s", domain, qTypeName)
+			f.addIPsToResponse(resp, domain, ips)
+			resp.Rcode = dns.RcodeSuccess
+			if writeErr := w.WriteMsg(resp); writeErr != nil {
+				log.Errorf("failed to write cached DNS response: %v", writeErr)
+			}
+		} else { // send NXDOMAIN / appropriate code if cache is empty
+			f.setResponseCodeForNotFound(ctx, resp, domain, qType)
+			if writeErr := w.WriteMsg(resp); writeErr != nil {
+				log.Errorf("failed to write failure DNS response: %v", writeErr)
+			}
+		}
+		return
+	}
+
+	// No cache. Log with or without the server field for more context.
+	if dnsErr.Server != "" {
+		log.Warnf("failed to resolve: type=%s domain=%s server=%s: %v", qTypeName, domain, dnsErr.Server, err)
+	} else {
 		log.Warnf(errResolveFailed, domain, err)
 	}
 
-	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed to write failure DNS response: %v", err)
+	// Write final failure response.
+	if writeErr := w.WriteMsg(resp); writeErr != nil {
+		log.Errorf("failed to write failure DNS response: %v", writeErr)
 	}
 }
 
