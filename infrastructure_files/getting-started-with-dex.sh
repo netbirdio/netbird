@@ -223,7 +223,7 @@ renderDexConfig() {
     # This is hash of "password" - user should change it
     ADMIN_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
     NETBIRD_ADMIN_PASSWORD="password"
-    echo "Warning: Could not generate password hash. Using default password: password" > /dev/stderr
+    echo "Warning: Could not generate password hash. Using default password: password. Please change it in dex.yaml" > /dev/stderr
   fi
 
   cat <<EOF
