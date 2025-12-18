@@ -23,10 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/client"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func TestJWTEnforcement(t *testing.T) {
@@ -576,6 +578,17 @@ func TestJWTAuthentication(t *testing.T) {
 			if tc.setupServer != nil {
 				tc.setupServer(server)
 			}
+
+			// Always set up authorization for test-user to ensure tests fail at JWT validation stage
+			testUserHash, err := sshuserhash.HashUserID("test-user")
+			require.NoError(t, err)
+
+			authConfig := &sshauth.Config{
+				UserIDClaim:     sshauth.DefaultUserIDClaim,
+				AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+				MachineUsers:    map[string][]uint32{},
+			}
+			server.UpdateSSHAuth(authConfig)
 
 			serverAddr := StartTestServer(t, server)
 			defer require.NoError(t, server.Stop())
