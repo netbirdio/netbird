@@ -464,11 +464,33 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// Populate DNS cache with NetbirdConfig and management URL for early resolution
 	go func() {
-		if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
-			log.Warnf("failed to populate DNS cache: %v", err)
-		} else {
-			log.Info("populated DNS cache successfully")
+		backoff := time.Second
+		var lastErr error
+		const populateAttempts = 5
+
+		for attempts := 0; attempts < populateAttempts; attempts++ {
+			if pErr := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); pErr == nil {
+				log.Info("populated DNS cache successfully")
+				return
+			} else {
+				lastErr = pErr
+				log.Debugf("populate DNS cache attempt %d failed: %v", attempts+1, pErr)
+			}
+
+			d := backoff + time.Duration(rand.Intn(500))*time.Millisecond
+			log.WithFields(log.Fields{"attempt": attempts + 1, "sleep": d}).Debug("populate DNS cache retrying")
+
+			select {
+			case <-time.After(d):
+			case <-e.ctx.Done():
+				return
+			}
+
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
 		}
+		log.Errorf("failed to populate DNS cache after %d attempts: %v", populateAttempts, lastErr)
 	}()
 
 	log.Info("populated DNS cache with NetbirdConfig and management URL")
