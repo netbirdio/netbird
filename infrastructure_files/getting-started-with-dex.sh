@@ -27,6 +27,7 @@ check_jq() {
     echo "jq is not installed or not in PATH, please install with your package manager. e.g. sudo apt install jq" > /dev/stderr
     exit 1
   fi
+  return 0
 }
 
 get_main_ip_address() {
@@ -39,16 +40,17 @@ get_main_ip_address() {
   fi
 
   echo "$ip_address"
+  return 0
 }
 
 check_nb_domain() {
   DOMAIN=$1
-  if [ "$DOMAIN-x" == "-x" ]; then
+  if [[ "$DOMAIN-x" == "-x" ]]; then
     echo "The NETBIRD_DOMAIN variable cannot be empty." > /dev/stderr
     return 1
   fi
 
-  if [ "$DOMAIN" == "netbird.example.com" ]; then
+  if [[ "$DOMAIN" == "netbird.example.com" ]]; then
     echo "The NETBIRD_DOMAIN cannot be netbird.example.com" > /dev/stderr
     return 1
   fi
@@ -63,6 +65,7 @@ read_nb_domain() {
     read_nb_domain
   fi
   echo "$READ_NETBIRD_DOMAIN"
+  return 0
 }
 
 get_turn_external_ip() {
@@ -72,6 +75,7 @@ get_turn_external_ip() {
     TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
   fi
   echo "$TURN_EXTERNAL_IP_CONFIG"
+  return 0
 }
 
 wait_dex() {
@@ -95,9 +99,10 @@ wait_dex() {
   done
   echo " done"
   set -e
+  return 0
 }
 
-initEnvironment() {
+init_environment() {
   CADDY_SECURE_DOMAIN=""
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
@@ -119,7 +124,7 @@ initEnvironment() {
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
 
-  if [ "$NETBIRD_DOMAIN" == "use-ip" ]; then
+  if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
   else
     NETBIRD_PORT=443
@@ -132,7 +137,7 @@ initEnvironment() {
 
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
-  if [ -f dex.yaml ]; then
+  if [[ -f dex.yaml ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
@@ -142,13 +147,13 @@ initEnvironment() {
   fi
 
   echo Rendering initial files...
-  renderDockerCompose > docker-compose.yml
-  renderCaddyfile > Caddyfile
-  renderDexConfig > dex.yaml
-  renderDashboardEnv > dashboard.env
-  renderManagementJson > management.json
-  renderTurnServerConf > turnserver.conf
-  renderRelayEnv > relay.env
+  render_docker_compose > docker-compose.yml
+  render_caddyfile > Caddyfile
+  render_dex_config > dex.yaml
+  render_dashboard_env > dashboard.env
+  render_management_json > management.json
+  render_turn_server_conf > turnserver.conf
+  render_relay_env > relay.env
 
   echo -e "\nStarting Dex IDP\n"
   $DOCKER_COMPOSE_COMMAND up -d caddy dex
@@ -169,9 +174,10 @@ initEnvironment() {
   echo ""
   echo "Dex admin UI is not available (Dex has no built-in UI)."
   echo "To add more users, edit dex.yaml and restart: $DOCKER_COMPOSE_COMMAND restart dex"
+  return 0
 }
 
-renderCaddyfile() {
+render_caddyfile() {
   cat <<EOF
 {
   debug
@@ -206,9 +212,10 @@ renderCaddyfile() {
     reverse_proxy /* dashboard:80
 }
 EOF
+  return 0
 }
 
-renderDexConfig() {
+render_dex_config() {
   # Generate bcrypt hash of the admin password
   # Using a simple approach - htpasswd or python if available
   ADMIN_PASSWORD_HASH=""
@@ -219,7 +226,7 @@ renderDexConfig() {
   fi
 
   # Fallback to a known hash if we can't generate one
-  if [ -z "$ADMIN_PASSWORD_HASH" ]; then
+  if [[ -z "$ADMIN_PASSWORD_HASH" ]]; then
     # This is hash of "password" - user should change it
     ADMIN_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
     NETBIRD_ADMIN_PASSWORD="password"
@@ -301,9 +308,10 @@ staticPasswords:
 #         emailAttr: mail
 #         nameAttr: cn
 EOF
+  return 0
 }
 
-renderTurnServerConf() {
+render_turn_server_conf() {
   cat <<EOF
 listening-port=3478
 $TURN_EXTERNAL_IP_CONFIG
@@ -321,9 +329,10 @@ no-software-attribute
 pidfile="/var/tmp/turnserver.pid"
 no-cli
 EOF
+  return 0
 }
 
-renderManagementJson() {
+render_management_json() {
   cat <<EOF
 {
     "Stuns": [
@@ -375,9 +384,10 @@ renderManagementJson() {
     }
 }
 EOF
+  return 0
 }
 
-renderDashboardEnv() {
+render_dashboard_env() {
   cat <<EOF
 # Endpoints
 NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
@@ -396,18 +406,20 @@ NGINX_SSL_PORT=443
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
+  return 0
 }
 
-renderRelayEnv() {
+render_relay_env() {
   cat <<EOF
 NB_LOG_LEVEL=info
 NB_LISTEN_ADDRESS=:80
 NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
 NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
 EOF
+  return 0
 }
 
-renderDockerCompose() {
+render_docker_compose() {
   cat <<EOF
 services:
   # Caddy reverse proxy
@@ -526,6 +538,7 @@ volumes:
 networks:
   netbird:
 EOF
+  return 0
 }
 
-initEnvironment
+init_environment
