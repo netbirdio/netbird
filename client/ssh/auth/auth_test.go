@@ -385,7 +385,7 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 
 	// Test concurrent authorization calls (should be safe to read concurrently)
 	const numGoroutines = 100
-	done := make(chan bool, numGoroutines)
+	errChan := make(chan error, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(idx int) {
@@ -394,13 +394,13 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 				user = "user2"
 			}
 			err := authorizer.Authorize(user, "root")
-			assert.NoError(t, err)
-			done <- true
+			errChan <- err
 		}(i)
 	}
 
-	// Wait for all goroutines to complete
+	// Wait for all goroutines to complete and collect errors
 	for i := 0; i < numGoroutines; i++ {
-		<-done
+		err := <-errChan
+		assert.NoError(t, err)
 	}
 }
