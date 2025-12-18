@@ -5,6 +5,9 @@ set -e
 # NetBird Getting Started with Dex IDP
 # This script sets up NetBird with Dex as the identity provider
 
+# Sed pattern to strip base64 padding characters
+SED_STRIP_PADDING='s/=//g'
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
@@ -108,17 +111,17 @@ init_environment() {
   NETBIRD_HTTP_PROTOCOL="http"
   NETBIRD_RELAY_PROTO="rel"
   TURN_USER="self"
-  TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
-  NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
+  TURN_PASSWORD=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
+  NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
   # Generate secrets for Dex
-  DEX_DASHBOARD_CLIENT_SECRET=$(openssl rand -base64 32 | sed 's/=//g')
+  DEX_DASHBOARD_CLIENT_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
 
   # Generate admin password
-  NETBIRD_ADMIN_PASSWORD=$(openssl rand -base64 16 | sed 's/=//g')
+  NETBIRD_ADMIN_PASSWORD=$(openssl rand -base64 16 | sed "$SED_STRIP_PADDING")
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
