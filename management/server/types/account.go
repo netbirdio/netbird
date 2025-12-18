@@ -275,6 +275,7 @@ func (a *Account) GetPeerNetworkMap(
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
+	groupIDToUserIDs map[string][]string,
 ) *NetworkMap {
 	start := time.Now()
 	peer := a.Peers[peerID]
@@ -290,7 +291,7 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
-	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
+	aclPeers, firewallRules, authorizedUsers := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap, groupIDToUserIDs)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -338,6 +339,7 @@ func (a *Account) GetPeerNetworkMap(
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+		AuthorizedUsers:     authorizedUsers,
 	}
 
 	if metrics != nil {
@@ -1009,8 +1011,9 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map
 // GetPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, groupIDToUserIDs map[string][]string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx, peer)
+	authorizedUsers := make(map[string]map[string]struct{}) // machine user to list of userIDs
 
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -1053,10 +1056,31 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 			if peerInDestinations {
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
+
+			if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+				for groupID, localUsers := range rule.AuthorizedGroups {
+					userIDs, ok := groupIDToUserIDs[groupID]
+					if !ok {
+						log.WithContext(ctx).Tracef("no user IDs found for group ID %s", groupID)
+						continue
+					}
+					for _, localUser := range localUsers {
+						users, ok := authorizedUsers[localUser]
+						if !ok {
+							users = make(map[string]struct{})
+							authorizedUsers[localUser] = users
+						}
+						for _, userID := range userIDs {
+							users[userID] = struct{}{}
+						}
+					}
+				}
+			}
 		}
 	}
 
-	return getAccumulatedResources()
+	peers, fwRules := getAccumulatedResources()
+	return peers, fwRules, authorizedUsers
 }
 
 // connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
@@ -1658,6 +1682,18 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 		a.Policies = []*Policy{defaultPolicy}
 	}
 	return nil
+}
+
+func (a *Account) GetActiveGroupUsers() map[string][]string {
+	groups := make(map[string][]string, len(a.GroupsG))
+	for _, user := range a.Users {
+		if !user.IsBlocked() {
+			for _, groupID := range user.AutoGroups {
+				groups[groupID] = append(groups[groupID], user.Id)
+			}
+		}
+	}
+	return groups
 }
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules

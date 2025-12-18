@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
@@ -15,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
@@ -146,7 +149,47 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.ForwardingRules = forwardingRules
 	}
 
+	if networkMap.AuthorizedUsers != nil {
+		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
+		userIDClaim := "sub"
+		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+			userIDClaim = httpConfig.AuthUserIDClaim
+		}
+		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+	}
+
 	return response
+}
+
+func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([]uint64, map[string]*proto.MachineUserIndexes) {
+	userIDToIndex := make(map[string]uint32)
+	var hashedUsers []uint64
+
+	for _, users := range authorizedUsers {
+		for userID := range users {
+			if _, exists := userIDToIndex[userID]; exists {
+				continue
+			}
+			userIDToIndex[userID] = uint32(len(hashedUsers))
+			hash, err := sshauth.HashUserID(userID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
+				continue
+			}
+			hashedUsers = append(hashedUsers, uint64(hash))
+		}
+	}
+
+	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
+	for machineUser, users := range authorizedUsers {
+		indexes := make([]uint32, 0, len(users))
+		for userID := range users {
+			indexes = append(indexes, userIDToIndex[userID])
+		}
+		machineUsers[machineUser] = &proto.MachineUserIndexes{Indexes: indexes}
+	}
+
+	return hashedUsers, machineUsers
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {

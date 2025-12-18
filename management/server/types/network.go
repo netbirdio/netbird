@@ -38,6 +38,7 @@ type NetworkMap struct {
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
 	ForwardingRules     []*ForwardingRule
+	AuthorizedUsers     map[string]map[string]struct{}
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {
