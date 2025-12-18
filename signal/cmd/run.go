@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	// nolint:gosec
-	_ "net/http/pprof"
+
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -91,8 +90,6 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
-
-			startPprof()
 
 			opts, certManager, tlsConfig, err := getTLSConfigurations()
 			if err != nil {
@@ -193,15 +190,6 @@ var (
 		},
 	}
 )
-
-func startPprof() {
-	go func() {
-		log.Debugf("Starting pprof server on 127.0.0.1:6060")
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			log.Fatalf("pprof server failed: %v", err)
-		}
-	}()
-}
 
 func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {
 	var (
