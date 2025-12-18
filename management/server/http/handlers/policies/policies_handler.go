@@ -257,8 +257,9 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		}
 
 		if pr.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+			hasAuthorizedGroups := rule.AuthorizedGroups != nil && len(*rule.AuthorizedGroups) != 0
 			for _, sourceGroupID := range pr.Sources {
-				if rule.AuthorizedGroups != nil && len(*rule.AuthorizedGroups) != 0 {
+				if hasAuthorizedGroups {
 					_, ok := (*rule.AuthorizedGroups)[sourceGroupID]
 					if !ok {
 						util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "authorized group for netbird-ssh protocol should be specified for each source group"), w)
@@ -266,7 +267,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 					}
 				}
 			}
-			if rule.AuthorizedGroups != nil {
+			if hasAuthorizedGroups {
 				pr.AuthorizedGroups = *rule.AuthorizedGroups
 			}
 		}
