@@ -463,9 +463,15 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	log.Info("created dns server")
 
 	// Populate DNS cache with NetbirdConfig and management URL for early resolution
-	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
-		log.Warnf("failed to populate DNS cache: %v", err)
-	}
+	go func() {
+		if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
+			log.Warnf("failed to populate DNS cache: %v", err)
+		} else {
+			log.Info("populated DNS cache successfully")
+		}
+	}()
+
+	log.Info("populated DNS cache with NetbirdConfig and management URL")
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
