@@ -96,10 +96,15 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 
+	log.Infof("AddDomain: starting DNS lookup for %s", d.SafeString())
+
 	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
+
+	log.Infof("AddDomain: DNS lookup completed for %s, err=%v, ips=%d", d.SafeString(), err, len(ips))
+
 	if err != nil {
 		return fmt.Errorf("resolve domain %s: %w", d.SafeString(), err)
 	}
