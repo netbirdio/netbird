@@ -401,9 +401,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.wgInterface = wgIface
 	e.statusRecorder.SetWgIface(wgIface)
 
+	log.Info("set wg interface to statusRecorder")
+
 	// start flow manager right after interface creation
 	publicKey := e.config.WgPrivateKey.PublicKey()
 	e.flowManager = netflow.NewManager(e.wgInterface, publicKey[:], e.statusRecorder)
+
+	log.Info("created flow manager")
 
 	if e.config.RosenpassEnabled {
 		log.Infof("rosenpass is enabled")
@@ -422,6 +426,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.stateManager.Start()
 
+	log.Info("started state manager")
+
 	initialRoutes, dnsConfig, dnsFeatureFlag, err := e.readInitialSettings()
 	if err != nil {
 		e.close()
@@ -435,10 +441,40 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.dnsServer = dnsServer
 
+	log.Info("created dns server")
+
 	// Populate DNS cache with NetbirdConfig and management URL for early resolution
-	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
-		log.Warnf("failed to populate DNS cache: %v", err)
-	}
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+		backoff := time.Second
+		var lastErr error
+		const populateAttempts = 5
+
+		for attempts := 0; attempts < populateAttempts; attempts++ {
+			if pErr := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); pErr == nil {
+				log.Info("populated DNS cache successfully")
+				return
+			} else {
+				lastErr = pErr
+				log.Infof("populate DNS cache attempt %d failed: %v", attempts+1, pErr)
+			}
+
+			d := backoff + time.Duration(rand.Intn(500))*time.Millisecond
+			log.WithFields(log.Fields{"attempt": attempts + 1, "sleep": d}).Info("populate DNS cache retrying")
+
+			select {
+			case <-time.After(d):
+			case <-e.ctx.Done():
+				return
+			}
+
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
+		}
+		log.Errorf("failed to populate DNS cache after %d attempts: %v", populateAttempts, lastErr)
+	}()
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
@@ -459,7 +495,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("Failed to initialize route manager: %s", err)
 	}
 
+	log.Info("set route manager")
+
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
+
+	log.Info("set route change listener to route manager")
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
@@ -467,10 +507,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("create wg interface: %w", err)
 	}
 
+	log.Info("created tunnel interface")
+
 	if err := e.createFirewall(); err != nil {
 		e.close()
 		return err
 	}
+
+	log.Info("created firewall")
 
 	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
@@ -478,6 +522,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.close()
 		return fmt.Errorf("up wg interface: %w", err)
 	}
+
+	log.Info("pulled up tunnel interface")
 
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
@@ -490,23 +536,37 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
 
+	log.Info("initialized dns server")
+
 	iceCfg := e.createICEConfig()
+
+	log.Infof("created ICE config: %v", iceCfg)
 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
+	log.Info("started connection manager")
+
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
 	e.srWatcher.Start()
+
+	log.Info("started SR watcher")
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 
+	log.Info("started receiving events from Signal and Management services")
+
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	log.Info("started network monitor")
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
+
+	log.Infof("starting WireGuard interface monitor")
 
 	go func() {
 		defer e.shutdownWg.Done()
@@ -518,6 +578,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			log.Warnf("WireGuard interface monitor: %s", err)
 		}
 	}()
+
+	log.Info("engine started successfully")
 
 	return nil
 }
@@ -719,21 +781,28 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 		return nil
 	}
 
+	log.Info("PopulateNetbirdConfig: starting")
+
 	// Populate management URL if provided
 	if mgmtURL != nil {
+		log.Infof("PopulateNetbirdConfig: calling PopulateManagementDomain for %s", mgmtURL.Host)
 		if err := e.dnsServer.PopulateManagementDomain(mgmtURL); err != nil {
 			log.Warnf("failed to populate DNS cache with management URL: %v", err)
 		}
+		log.Info("PopulateNetbirdConfig: PopulateManagementDomain completed")
 	}
 
 	// Populate NetbirdConfig domains if provided
 	if netbirdConfig != nil {
+		log.Info("PopulateNetbirdConfig: calling UpdateServerConfig")
 		serverDomains := dnsconfig.ExtractFromNetbirdConfig(netbirdConfig)
 		if err := e.dnsServer.UpdateServerConfig(serverDomains); err != nil {
 			return fmt.Errorf("update DNS server config from NetbirdConfig: %w", err)
 		}
+		log.Info("PopulateNetbirdConfig: UpdateServerConfig completed")
 	}
 
+	log.Info("PopulateNetbirdConfig: done")
 	return nil
 }
 
