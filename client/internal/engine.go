@@ -662,6 +662,11 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
 			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
+
+		// Update peer identity (groups/userId) for K8s Auth Proxy impersonation
+		if err := e.statusRecorder.UpdatePeerIdentity(peerPubKey, p.GetGroups(), p.GetUserId()); err != nil {
+			log.Warnf("error updating peer's %s identity in the status recorder, got error: %v", peerPubKey, err)
+		}
 	}
 
 	// second, close all modified connections and remove them from the state map

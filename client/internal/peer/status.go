@@ -606,6 +606,24 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	return nil
 }
 
+// UpdatePeerIdentity updates peer's groups and userId for K8s Auth Proxy impersonation.
+// This is called when the management server sends updated peer config.
+func (d *Status) UpdatePeerIdentity(peerPubKey string, groups []string, userId string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.Groups = groups
+	peerState.UserId = userId
+	d.peers[peerPubKey] = peerState
+
+	return nil
+}
+
 // UpdatePeerSSHHostKey updates peer's SSH host key
 func (d *Status) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) error {
 	d.mux.Lock()
