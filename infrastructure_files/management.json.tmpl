@@ -45,18 +45,18 @@
         "Engine": "$NETBIRD_STORE_CONFIG_ENGINE"
     },
     "HttpConfig": {
-        "Address": "0.0.0.0:$NETBIRD_MGMT_API_PORT",
+        "Address": "0.0.0.0:80",
         "AuthIssuer": "$NETBIRD_AUTH_AUTHORITY",
-        "AuthAudience": "$NETBIRD_AUTH_AUDIENCE",
+        "AuthAudience": "$NETBIRD_AUTH_CLIENT_ID",
         "AuthKeysLocation": "$NETBIRD_AUTH_JWT_CERTS",
         "AuthUserIDClaim": "$NETBIRD_AUTH_USER_ID_CLAIM",
-        "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
-        "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE",
-        "IdpSignKeyRefreshEnabled": $NETBIRD_MGMT_IDP_SIGNKEY_REFRESH,
-        "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
+        "CertFile": "",
+        "CertKey": "",
+        "IdpSignKeyRefreshEnabled": true,
+        "OIDCConfigEndpoint": "$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
     },
     "IdpManagerConfig": {
-        "ManagerType": "$NETBIRD_MGMT_IDP",
+        "ManagerType": "zitadel",
         "ClientConfig": {
             "Issuer": "$NETBIRD_AUTH_AUTHORITY",
             "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
@@ -64,40 +64,28 @@
             "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
             "GrantType": "client_credentials"
         },
-        "ExtraConfig": $NETBIRD_IDP_MGMT_EXTRA_CONFIG,
-        "Auth0ClientCredentials": null,
-        "AzureClientCredentials": null,
-        "KeycloakClientCredentials": null,
-        "ZitadelClientCredentials": null
-     },
+        "ExtraConfig": {
+            "ManagementEndpoint": "$ZITADEL_MANAGEMENT_ENDPOINT"
+        }
+    },
     "DeviceAuthorizationFlow": {
-        "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",
+        "Provider": "hosted",
         "ProviderConfig": {
-          "Audience": "$NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE",
-          "AuthorizationEndpoint": "",
-          "Domain": "$NETBIRD_AUTH0_DOMAIN",
-          "ClientID": "$NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID",
-          "ClientSecret": "",
-          "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
-          "DeviceAuthEndpoint": "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT",
-          "Scope": "$NETBIRD_AUTH_DEVICE_AUTH_SCOPE",
-          "UseIDToken": $NETBIRD_AUTH_DEVICE_AUTH_USE_ID_TOKEN,
-          "RedirectURLs": null
-         }
+            "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+            "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "DeviceAuthEndpoint": "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT",
+            "Scope": "openid"
+        }
     },
     "PKCEAuthorizationFlow": {
         "ProviderConfig": {
-            "Audience": "$NETBIRD_AUTH_PKCE_AUDIENCE",
-            "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
-            "ClientSecret": "$NETBIRD_AUTH_CLIENT_SECRET",
-            "Domain": "",
+            "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+            "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
             "AuthorizationEndpoint": "$NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT",
             "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
-            "Scope": "$NETBIRD_AUTH_SUPPORTED_SCOPES",
-            "RedirectURLs": [$NETBIRD_AUTH_PKCE_REDIRECT_URLS],
-            "UseIDToken": $NETBIRD_AUTH_PKCE_USE_ID_TOKEN,
-            "DisablePromptLogin": $NETBIRD_AUTH_PKCE_DISABLE_PROMPT_LOGIN,
-            "LoginFlag": $NETBIRD_AUTH_PKCE_LOGIN_FLAG
+            "Scope": "openid profile email offline_access",
+            "RedirectURLs": ["http://localhost:53000/", "http://localhost:54000/"]
         }
     }
 }

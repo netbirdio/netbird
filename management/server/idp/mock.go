@@ -4,52 +4,26 @@ import "context"
 
 // MockIDP is a mock implementation of the IDP interface
 type MockIDP struct {
-	UpdateUserAppMetadataFunc func(ctx context.Context, userId string, appMetadata AppMetadata) error
-	GetUserDataByIDFunc       func(ctx context.Context, userId string, appMetadata AppMetadata) (*UserData, error)
-	GetAccountFunc            func(ctx context.Context, accountId string) ([]*UserData, error)
-	GetAllAccountsFunc        func(ctx context.Context) (map[string][]*UserData, error)
-	CreateUserFunc            func(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error)
-	GetUserByEmailFunc        func(ctx context.Context, email string) ([]*UserData, error)
-	InviteUserByIDFunc        func(ctx context.Context, userID string) error
-	DeleteUserFunc            func(ctx context.Context, userID string) error
-}
-
-// UpdateUserAppMetadata is a mock implementation of the IDP interface UpdateUserAppMetadata method
-func (m *MockIDP) UpdateUserAppMetadata(ctx context.Context, userId string, appMetadata AppMetadata) error {
-	if m.UpdateUserAppMetadataFunc != nil {
-		return m.UpdateUserAppMetadataFunc(ctx, userId, appMetadata)
-	}
-	return nil
-}
-
-// GetUserDataByID is a mock implementation of the IDP interface GetUserDataByID method
-func (m *MockIDP) GetUserDataByID(ctx context.Context, userId string, appMetadata AppMetadata) (*UserData, error) {
-	if m.GetUserDataByIDFunc != nil {
-		return m.GetUserDataByIDFunc(ctx, userId, appMetadata)
-	}
-	return nil, nil
-}
-
-// GetAccount is a mock implementation of the IDP interface GetAccount method
-func (m *MockIDP) GetAccount(ctx context.Context, accountId string) ([]*UserData, error) {
-	if m.GetAccountFunc != nil {
-		return m.GetAccountFunc(ctx, accountId)
-	}
-	return nil, nil
-}
-
-// GetAllAccounts is a mock implementation of the IDP interface GetAllAccounts method
-func (m *MockIDP) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
-	if m.GetAllAccountsFunc != nil {
-		return m.GetAllAccountsFunc(ctx)
-	}
-	return nil, nil
+	CreateUserFunc      func(ctx context.Context, email, name string) (*UserData, error)
+	GetUserDataByIDFunc func(ctx context.Context, userId string) (*UserData, error)
+	GetUserByEmailFunc  func(ctx context.Context, email string) ([]*UserData, error)
+	GetAllUsersFunc     func(ctx context.Context) ([]*UserData, error)
+	InviteUserByIDFunc  func(ctx context.Context, userID string) error
+	DeleteUserFunc      func(ctx context.Context, userID string) error
 }
 
 // CreateUser is a mock implementation of the IDP interface CreateUser method
-func (m *MockIDP) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
+func (m *MockIDP) CreateUser(ctx context.Context, email, name string) (*UserData, error) {
 	if m.CreateUserFunc != nil {
-		return m.CreateUserFunc(ctx, email, name, accountID, invitedByEmail)
+		return m.CreateUserFunc(ctx, email, name)
+	}
+	return nil, nil
+}
+
+// GetUserDataByID is a mock implementation of the IDP interface GetUserDataByID method
+func (m *MockIDP) GetUserDataByID(ctx context.Context, userId string) (*UserData, error) {
+	if m.GetUserDataByIDFunc != nil {
+		return m.GetUserDataByIDFunc(ctx, userId)
 	}
 	return nil, nil
 }
@@ -58,6 +32,14 @@ func (m *MockIDP) CreateUser(ctx context.Context, email, name, accountID, invite
 func (m *MockIDP) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
 	if m.GetUserByEmailFunc != nil {
 		return m.GetUserByEmailFunc(ctx, email)
+	}
+	return nil, nil
+}
+
+// GetAllUsers is a mock implementation of the IDP interface GetAllUsers method
+func (m *MockIDP) GetAllUsers(ctx context.Context) ([]*UserData, error) {
+	if m.GetAllUsersFunc != nil {
+		return m.GetAllUsersFunc(ctx)
 	}
 	return nil, nil
 }

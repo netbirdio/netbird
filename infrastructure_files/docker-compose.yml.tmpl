@@ -7,108 +7,137 @@ x-default: &default
       max-file: '2'
 
 services:
+  # Caddy reverse proxy
+  caddy:
+    <<: *default
+    image: caddy:2
+    networks: [netbird]
+    ports:
+      - '443:443'
+      - '443:443/udp'
+      - '80:80'
+    volumes:
+      - netbird-caddy-data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      zitadel:
+        condition: service_healthy
+
   # UI dashboard
   dashboard:
     <<: *default
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
-    ports:
-      - 80:80
-      - 443:443
+    networks: [netbird]
     environment:
-      # Endpoints
       - NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
       - NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
-      # OIDC
-      - AUTH_AUDIENCE=$NETBIRD_DASH_AUTH_AUDIENCE
+      - AUTH_AUDIENCE=$NETBIRD_AUTH_CLIENT_ID
       - AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
-      - AUTH_CLIENT_SECRET=$NETBIRD_AUTH_CLIENT_SECRET
+      - AUTH_CLIENT_SECRET=
       - AUTH_AUTHORITY=$NETBIRD_AUTH_AUTHORITY
-      - USE_AUTH0=$NETBIRD_USE_AUTH0
+      - USE_AUTH0=false
       - AUTH_SUPPORTED_SCOPES=$NETBIRD_AUTH_SUPPORTED_SCOPES
-      - AUTH_REDIRECT_URI=$NETBIRD_AUTH_REDIRECT_URI
-      - AUTH_SILENT_REDIRECT_URI=$NETBIRD_AUTH_SILENT_REDIRECT_URI
+      - AUTH_REDIRECT_URI=/nb-auth
+      - AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
       - NETBIRD_TOKEN_SOURCE=$NETBIRD_TOKEN_SOURCE
-      # SSL
       - NGINX_SSL_PORT=443
-      # Letsencrypt
-      - LETSENCRYPT_DOMAIN=$NETBIRD_LETSENCRYPT_DOMAIN
-      - LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
-    volumes:
-      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
+      - LETSENCRYPT_DOMAIN=none
+    depends_on:
+      zitadel:
+        condition: service_healthy
 
   # Signal
   signal:
     <<: *default
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
-    depends_on:
-          - dashboard
+    networks: [netbird]
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
-      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
-    ports:
-      - $NETBIRD_SIGNAL_PORT:80
-  #      # port and command for Let's Encrypt validation
-  #      - 443:443
-  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
-    command: [
-      "--cert-file", "$NETBIRD_MGMT_API_CERT_FILE",
-      "--cert-key", "$NETBIRD_MGMT_API_CERT_KEY_FILE",
-      "--log-file", "console"
-    ]
+    command: ["--log-file", "console"]
 
   # Relay
   relay:
     <<: *default
     image: netbirdio/relay:$NETBIRD_RELAY_TAG
+    networks: [netbird]
     environment:
-    - NB_LOG_LEVEL=info
-    - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
-    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_ENDPOINT
-    # todo: change to a secure secret
-    - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
-    ports:
-      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+      - NB_LOG_LEVEL=info
+      - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_INTERNAL_PORT
+      - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_ENDPOINT
+      - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
 
   # Management
   management:
     <<: *default
     image: netbirdio/management:$NETBIRD_MANAGEMENT_TAG
-    depends_on:
-      - dashboard
+    networks: [netbird]
     volumes:
       - $MGMT_VOLUMENAME:/var/lib/netbird
-      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
       - ./management.json:/etc/netbird/management.json
-    ports:
-      - $NETBIRD_MGMT_API_PORT:443 #API port
-  #    # command for Let's Encrypt validation without dashboard container
-  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     command: [
-      "--port", "443",
+      "--port", "80",
       "--log-file", "console",
       "--log-level", "info",
       "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
       "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
-      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
-      ]
+      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN",
+      "--idp-sign-key-refresh-enabled"
+    ]
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
-      
+    depends_on:
+      zitadel:
+        condition: service_healthy
+
   # Coturn
   coturn:
     <<: *default
     image: coturn/coturn:$COTURN_TAG
-    #domainname: $TURN_DOMAIN # only needed when TLS is enabled
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
-    #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
-    #      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
     network_mode: host
     command:
       - -c /etc/turnserver.conf
 
+  # Zitadel Identity Provider (single container with SQLite)
+  zitadel:
+    <<: *default
+    image: ghcr.io/zitadel/zitadel:$ZITADEL_TAG
+    networks: [netbird]
+    command: 'start-from-init --masterkeyFromEnv --tlsMode $ZITADEL_TLS_MODE'
+    environment:
+      - ZITADEL_LOG_LEVEL=info
+      - ZITADEL_MASTERKEY=$ZITADEL_MASTERKEY
+      - ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
+      - ZITADEL_TLS_ENABLED=false
+      - ZITADEL_EXTERNALPORT=$ZITADEL_EXTERNALPORT
+      - ZITADEL_EXTERNALDOMAIN=$NETBIRD_DOMAIN
+      # SQLite database (no separate PostgreSQL container needed)
+      - ZITADEL_DATABASE_SQLITE_PATH=/data/zitadel.db
+      # First instance: Admin user
+      - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=$ZITADEL_ADMIN_USERNAME
+      - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD=$ZITADEL_ADMIN_PASSWORD
+      - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED=true
+      # First instance: Service account for NetBird management
+      - ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME=netbird-service
+      - ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME=NetBird Service Account
+      - ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINEKEY_TYPE=1
+      - ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE=$ZITADEL_PAT_EXPIRATION
+    volumes:
+      - netbird-zitadel-data:/data
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
-  $LETSENCRYPT_VOLUMENAME:
+  netbird-caddy-data:
+  netbird-zitadel-data:
+
+networks:
+  netbird:

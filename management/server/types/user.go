@@ -85,6 +85,8 @@ type User struct {
 	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// PendingInvite indicates whether the user has accepted their invite and logged in
+	PendingInvite bool
 	// PendingApproval indicates whether the user requires approval before being activated
 	PendingApproval bool
 	// LastLogin is the last time the user logged in to IdP
@@ -162,7 +164,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	userStatus := UserStatusActive
-	if userData.AppMetadata.WTPendingInvite != nil && *userData.AppMetadata.WTPendingInvite {
+	if u.PendingInvite {
 		userStatus = UserStatusInvited
 	}
 
@@ -199,6 +201,7 @@ func (u *User) Copy() *User {
 		ServiceUserName:      u.ServiceUserName,
 		PATs:                 pats,
 		Blocked:              u.Blocked,
+		PendingInvite:        u.PendingInvite,
 		PendingApproval:      u.PendingApproval,
 		LastLogin:            u.LastLogin,
 		CreatedAt:            u.CreatedAt,

@@ -587,42 +587,40 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cache
 		time.Sleep(delay)
 	}
 
-	userData, err := am.idpManager.GetAllAccounts(ctx)
+	// Get all users from IdP
+	idpUsers, err := am.idpManager.GetAllUsers(ctx)
 	if err != nil {
 		return err
 	}
-	log.WithContext(ctx).Infof("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Infof("%d users received from IdP management", len(idpUsers))
 
-	// If the Identity Provider does not support writing AppMetadata,
-	// in cases like this, we expect it to return all users in an "unset" field.
-	// We iterate over the users in the "unset" field, look up their AccountID in our store, and
-	// update their AppMetadata with the AccountID.
-	if unsetData, ok := userData[idp.UnsetAccountID]; ok {
-		for _, user := range unsetData {
-			accountID, err := am.Store.GetAccountByUser(ctx, user.ID)
-			if err == nil {
-				data := userData[accountID.Id]
-				if data == nil {
-					data = make([]*idp.UserData, 0, 1)
-				}
-
-				user.AppMetadata.WTAccountID = accountID.Id
-
-				userData[accountID.Id] = append(data, user)
-			}
-		}
+	// Create a map for quick lookup of IdP users by ID
+	idpUserMap := make(map[string]*idp.UserData, len(idpUsers))
+	for _, user := range idpUsers {
+		idpUserMap[user.ID] = user
 	}
-	delete(userData, idp.UnsetAccountID)
+
+	// Group IdP users by their account ID from NetBird's database
+	// NetBird DB is the source of truth for account membership
+	accountUsers := make(map[string][]*idp.UserData)
+	for _, idpUser := range idpUsers {
+		account, err := am.Store.GetAccountByUser(ctx, idpUser.ID)
+		if err != nil {
+			// User exists in IdP but not in NetBird - skip
+			continue
+		}
+		accountUsers[account.Id] = append(accountUsers[account.Id], idpUser)
+	}
 
 	rcvdUsers := 0
-	for accountID, users := range userData {
+	for accountID, users := range accountUsers {
 		rcvdUsers += len(users)
 		err = am.cacheManager.Set(am.ctx, accountID, users, cacheEntryExpiration())
 		if err != nil {
 			return err
 		}
 	}
-	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
+	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(accountUsers))
 	return nil
 }
 
@@ -742,10 +740,6 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 			if err != nil {
 				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
 			}
-
-			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account.Id); err != nil {
-				return "", err
-			}
 			return account.Id, nil
 		}
 		return "", err
@@ -755,35 +749,6 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 
 func isNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
-}
-
-// addAccountIDToIDPAppMeta update user's  app metadata in idp manager
-func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
-	if !isNil(am.idpManager) {
-		// user can be nil if it wasn't found (e.g., just created)
-		user, err := am.lookupUserInCache(ctx, userID, accountID)
-		if err != nil {
-			return err
-		}
-
-		if user != nil && user.AppMetadata.WTAccountID == accountID {
-			// it was already set, so we skip the unnecessary update
-			log.WithContext(ctx).Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
-				accountID, userID)
-			return nil
-		}
-
-		err = am.idpManager.UpdateUserAppMetadata(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
-		if err != nil {
-			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
-		}
-		// refresh cache to reflect the update
-		_, err = am.refreshCache(ctx, accountID)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any) (any, []cacheStore.Option, error) {
@@ -797,28 +762,32 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
 
+	// Get users belonging to this account from NetBird's database
 	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountIDString)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	userData, err := am.idpManager.GetAccount(ctx, accountIDString)
+	// Get all users from IdP (we don't have per-account queries anymore)
+	idpUsers, err := am.idpManager.GetAllUsers(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), accountIDString)
+	log.WithContext(ctx).Debugf("%d total users in IdP, matching against account %s", len(idpUsers), accountIDString)
 
-	dataMap := make(map[string]*idp.UserData, len(userData))
-	for _, datum := range userData {
-		dataMap[datum.ID] = datum
+	// Create a map for quick lookup of IdP users by ID
+	idpUserMap := make(map[string]*idp.UserData, len(idpUsers))
+	for _, user := range idpUsers {
+		idpUserMap[user.ID] = user
 	}
 
+	// Match account users against IdP users
 	matchedUserData := make([]*idp.UserData, 0)
 	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
-		datum, ok := dataMap[user.Id]
+		datum, ok := idpUserMap[user.Id]
 		if !ok {
 			log.WithContext(ctx).Warnf("user %s not found in IDP", user.Id)
 			continue
@@ -972,7 +941,7 @@ func (am *DefaultAccountManager) lookupCache(ctx context.Context, accountUsers m
 	return data, nil
 }
 
-// isCacheFresh checks if the cache is refreshed already by comparing the accountUsers with the cache data by user count and user invite status
+// isCacheFresh checks if the cache is refreshed already by comparing the accountUsers with the cache data by user count
 func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers map[string]userLoggedInOnce, data []*idp.UserData) bool {
 	userDataMap := make(map[string]*idp.UserData, len(data))
 	for _, datum := range data {
@@ -980,15 +949,10 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 	}
 
 	// the accountUsers ID list of non integration users from store, we check if cache has all of them
-	// as result of for loop knownUsersCount will have number of users are not presented in the cashed
+	// as result of for loop knownUsersCount will have number of users are not presented in the cached
 	knownUsersCount := len(accountUsers)
-	for user, loggedInOnce := range accountUsers {
-		if datum, ok := userDataMap[user]; ok {
-			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
-			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
-				log.WithContext(ctx).Infof("user %s has a pending invite and has logged in once, cache invalid", user)
-				return false
-			}
+	for user := range accountUsers {
+		if _, ok := userDataMap[user]; ok {
 			knownUsersCount--
 			continue
 		}
@@ -1078,12 +1042,6 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 		return err
 	}
 
-	// we should register the account ID to this user's metadata in our IDP manager
-	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, userAccountID)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -1106,11 +1064,6 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 	newAccount.IsDomainPrimaryAccount = true
 
 	err = am.Store.SaveAccount(ctx, newAccount)
-	if err != nil {
-		return "", err
-	}
-
-	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, newAccount.Id)
 	if err != nil {
 		return "", err
 	}
@@ -1139,11 +1092,6 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, domainAccountID)
-	if err != nil {
-		return "", err
-	}
-
 	if newUser.PendingApproval {
 		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, map[string]any{"pending_approval": true})
 	} else {
@@ -1155,34 +1103,30 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 
 // redeemInvite checks whether user has been invited and redeems the invite
 func (am *DefaultAccountManager) redeemInvite(ctx context.Context, accountID string, userID string) error {
-	// only possible with the enabled IdP manager
-	if am.idpManager == nil {
-		log.WithContext(ctx).Warnf("invites only work with enabled IdP manager")
-		return nil
-	}
-
-	user, err := am.lookupUserInCache(ctx, userID, accountID)
+	// Get user from NetBird's database (source of truth for authorization data)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return err
 	}
 
 	if user == nil {
-		return status.Errorf(status.NotFound, "user %s not found in the IdP", userID)
+		return status.Errorf(status.NotFound, "user %s not found", userID)
 	}
 
-	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
+	// Check if user has a pending invite that needs to be redeemed
+	if user.PendingInvite {
 		log.WithContext(ctx).Infof("redeeming invite for user %s account %s", userID, accountID)
-		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
-		// Our job is to just reload cache.
-		go func() {
-			_, err = am.refreshCache(ctx, accountID)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed reloading cache when redeeming user %s under account %s", userID, accountID)
-				return
-			}
-			log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", user.ID, accountID)
-			am.StoreEvent(ctx, userID, userID, accountID, activity.UserJoined, nil)
-		}()
+
+		// Update user to mark invite as redeemed
+		user.PendingInvite = false
+		err = am.Store.SaveUser(ctx, user)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to redeem invite for user %s: %v", userID, err)
+			return err
+		}
+
+		log.WithContext(ctx).Debugf("user %s of account %s redeemed invite", userID, accountID)
+		am.StoreEvent(ctx, userID, userID, accountID, activity.UserJoined, nil)
 	}
 
 	return nil

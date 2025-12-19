@@ -319,14 +319,19 @@ func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error
 }
 
 // CreateUser creates a new user in zitadel Idp and sends an invite via Zitadel.
-func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
+// Note: Authorization data (account membership, invite status) is stored in NetBird's DB, not in the IdP.
+func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name string) (*UserData, error) {
 	firstLast := strings.SplitN(name, " ", 2)
+	lastName := firstLast[0]
+	if len(firstLast) > 1 {
+		lastName = firstLast[1]
+	}
 
 	var addUser = map[string]any{
 		"userName": email,
 		"profile": map[string]string{
 			"firstName":   firstLast[0],
-			"lastName":    firstLast[0],
+			"lastName":    lastName,
 			"displayName": name,
 		},
 		"email": map[string]any{
@@ -357,18 +362,11 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 		return nil, err
 	}
 
-	var pending bool = true
-	ret := &UserData{
+	return &UserData{
 		Email: email,
 		Name:  name,
 		ID:    newUser.UserId,
-		AppMetadata: AppMetadata{
-			WTAccountID:     accountID,
-			WTPendingInvite: &pending,
-			WTInvitedBy:     invitedByEmail,
-		},
-	}
-	return ret, nil
+	}, nil
 }
 
 // GetUserByEmail searches users with a given email.
@@ -413,7 +411,7 @@ func (zm *ZitadelManager) GetUserByEmail(ctx context.Context, email string) ([]*
 }
 
 // GetUserDataByID requests user data from zitadel via ID.
-func (zm *ZitadelManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
+func (zm *ZitadelManager) GetUserDataByID(ctx context.Context, userID string) (*UserData, error) {
 	body, err := zm.get(ctx, "users/"+userID, nil)
 	if err != nil {
 		return nil, err
@@ -429,43 +427,12 @@ func (zm *ZitadelManager) GetUserDataByID(ctx context.Context, userID string, ap
 		return nil, err
 	}
 
-	userData := profile.User.userData()
-	userData.AppMetadata = appMetadata
-
-	return userData, nil
+	return profile.User.userData(), nil
 }
 
-// GetAccount returns all the users for a given profile.
-func (zm *ZitadelManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
-	body, err := zm.post(ctx, "users/_search", "")
-	if err != nil {
-		return nil, err
-	}
-
-	if zm.appMetrics != nil {
-		zm.appMetrics.IDPMetrics().CountGetAccount()
-	}
-
-	var profiles struct{ Result []zitadelProfile }
-	err = zm.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
-	users := make([]*UserData, 0)
-	for _, profile := range profiles.Result {
-		userData := profile.userData()
-		userData.AppMetadata.WTAccountID = accountID
-
-		users = append(users, userData)
-	}
-
-	return users, nil
-}
-
-// GetAllAccounts gets all registered accounts with corresponding user data.
-// It returns a list of users indexed by accountID.
-func (zm *ZitadelManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
+// GetAllUsers returns all users from the IdP.
+// Used for cache warming - NetBird matches these against its own user database.
+func (zm *ZitadelManager) GetAllUsers(ctx context.Context) ([]*UserData, error) {
 	body, err := zm.post(ctx, "users/_search", "")
 	if err != nil {
 		return nil, err
@@ -481,19 +448,12 @@ func (zm *ZitadelManager) GetAllAccounts(ctx context.Context) (map[string][]*Use
 		return nil, err
 	}
 
-	indexedUsers := make(map[string][]*UserData)
+	users := make([]*UserData, 0, len(profiles.Result))
 	for _, profile := range profiles.Result {
-		userData := profile.userData()
-		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
+		users = append(users, profile.userData())
 	}
 
-	return indexedUsers, nil
-}
-
-// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-// Metadata values are base64 encoded.
-func (zm *ZitadelManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
-	return nil
+	return users, nil
 }
 
 type inviteUserRequest struct {
