@@ -1057,7 +1057,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
 
-			if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 				if len(rule.AuthorizedGroups) == 0 {
 					users := make(map[string]struct{})
 					for _, nbUser := range a.Users {
@@ -1088,6 +1088,14 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 						}
 					}
 				}
+			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+				users := make(map[string]struct{})
+				for _, nbUser := range a.Users {
+					if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
+						users[nbUser.Id] = struct{}{}
+					}
+				}
+				authorizedUsers["*"] = users
 			}
 		}
 	}
@@ -1143,6 +1151,28 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
 		}
+}
+
+func policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
+	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
+}
+
+func portRangeIncludesSSH(portRanges []RulePortRange) bool {
+	for _, pr := range portRanges {
+		if pr.Start <= 22 && pr.End >= 22 {
+			return true
+		}
+	}
+	return false
+}
+
+func portsIncludesSSH(ports []string) bool {
+	for _, port := range ports {
+		if port == "22" {
+			return true
+		}
+	}
+	return false
 }
 
 // getAllPeersFromGroups for given peer ID and list of groups
