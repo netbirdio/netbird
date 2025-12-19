@@ -154,34 +154,34 @@ type PeerGroupsLookup interface {
 	GetPeerGroupNames(peerID string) []string
 }
 
-// AccountPeerGroupsLookup implements PeerGroupsLookup using an Account's Groups map
+// AccountPeerGroupsLookup implements PeerGroupsLookup using a pre-built reverse index
+// for O(1) lookup performance instead of O(N*M) iteration.
 type AccountPeerGroupsLookup struct {
-	groups map[string]*types.Group
+	peerToGroups map[string][]string
 }
 
-// NewAccountPeerGroupsLookup creates a new AccountPeerGroupsLookup from an Account
+// NewAccountPeerGroupsLookup creates a new AccountPeerGroupsLookup from an Account.
+// It pre-builds a reverse index (peer ID -> group names) for efficient lookups.
 func NewAccountPeerGroupsLookup(account *types.Account) *AccountPeerGroupsLookup {
 	if account == nil {
 		return nil
 	}
-	return &AccountPeerGroupsLookup{groups: account.Groups}
-}
-
-// GetPeerGroupNames returns the group names for a given peer ID
-func (a *AccountPeerGroupsLookup) GetPeerGroupNames(peerID string) []string {
-	if a == nil || a.groups == nil {
-		return nil
-	}
-	var groupNames []string
-	for _, group := range a.groups {
-		for _, id := range group.Peers {
-			if id == peerID {
-				groupNames = append(groupNames, group.Name)
-				break
-			}
+	peerToGroups := make(map[string][]string)
+	for _, group := range account.Groups {
+		for _, peerID := range group.Peers {
+			peerToGroups[peerID] = append(peerToGroups[peerID], group.Name)
 		}
 	}
-	return groupNames
+	return &AccountPeerGroupsLookup{peerToGroups: peerToGroups}
+}
+
+// GetPeerGroupNames returns the group names for a given peer ID.
+// Returns nil if the peer is not found in any group.
+func (a *AccountPeerGroupsLookup) GetPeerGroupNames(peerID string) []string {
+	if a == nil || a.peerToGroups == nil {
+		return nil
+	}
+	return a.peerToGroups[peerID]
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, groupsLookup PeerGroupsLookup) []*proto.RemotePeerConfig {
