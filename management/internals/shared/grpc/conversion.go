@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -101,6 +102,9 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		AutoUpdate: &proto.AutoUpdateSettings{
+			Version: settings.AutoUpdateVersion,
+		},
 	}
 }
 
@@ -108,9 +112,10 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
 		NetworkMap: &proto.NetworkMap{
-			Serial:    networkMap.Network.CurrentSerial(),
-			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
+			Serial:     networkMap.Network.CurrentSerial(),
+			Routes:     toProtocolRoutes(networkMap.Routes),
+			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
