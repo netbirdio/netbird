@@ -333,6 +333,8 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 }
 
 // PeerIdentity contains identity information for a peer.
+// This type mirrors peer.PeerIdentity from client/internal/peer/status.go
+// to provide a clean public API without exposing internal types.
 type PeerIdentity struct {
 	FQDN   string
 	UserId string
@@ -340,6 +342,8 @@ type PeerIdentity struct {
 }
 
 // WhoIs returns the identity of the peer with the given IP address.
+// This is used by the Kubernetes auth proxy to look up the identity
+// of incoming requests based on their WireGuard IP.
 func (c *Client) WhoIs(ip string) (PeerIdentity, error) {
 	c.mu.Lock()
 	connect := c.connect
@@ -356,13 +360,17 @@ func (c *Client) WhoIs(ip string) (PeerIdentity, error) {
 
 	identity, found := statusRecorder.GetPeerIdentityByIP(ip)
 	if !found {
-		return PeerIdentity{}, fmt.Errorf("peer not found")
+		return PeerIdentity{}, fmt.Errorf("peer with IP %s not found", ip)
 	}
+
+	// Clone the Groups slice to prevent caller from modifying internal state
+	groups := make([]string, len(identity.Groups))
+	copy(groups, identity.Groups)
 
 	return PeerIdentity{
 		FQDN:   identity.FQDN,
 		UserId: identity.UserId,
-		Groups: identity.Groups,
+		Groups: groups,
 	}, nil
 }
 
