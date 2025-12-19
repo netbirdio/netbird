@@ -463,7 +463,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	log.Info("created dns server")
 
 	// Populate DNS cache with NetbirdConfig and management URL for early resolution
+	e.shutdownWg.Add(1)
 	go func() {
+		defer e.shutdownWg.Done()
 		backoff := time.Second
 		var lastErr error
 		const populateAttempts = 5
