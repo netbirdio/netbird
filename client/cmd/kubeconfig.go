@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -75,7 +76,7 @@ func kubeconfigFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	// Expand ~ in path
-	if kubeconfigOutput[:2] == "~/" {
+	if strings.HasPrefix(kubeconfigOutput, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("failed to get home directory: %w", err)
@@ -94,6 +95,8 @@ func kubeconfigFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Printf("Kubeconfig written to %s\n", kubeconfigOutput)
+	cmd.PrintErrln("\nWarning: TLS verification is disabled (insecure-skip-tls-verify: true).")
+	cmd.PrintErrln("This is safe when traffic is encrypted via NetBird's WireGuard tunnel.")
 	cmd.Printf("\nTo use this kubeconfig:\n")
 	cmd.Printf("  export KUBECONFIG=%s\n", kubeconfigOutput)
 	cmd.Printf("  kubectl get nodes\n")
