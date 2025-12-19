@@ -170,7 +170,7 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 	case "icmp":
 		return "", RulePortRange{}, errors.New("icmp does not accept ports; use 'icmp' without '/…'")
 	case "netbird-ssh":
-		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: 22, End: 22}, nil
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
 	default:
 		return "", RulePortRange{}, fmt.Errorf("invalid protocol: %q", protoStr)
 	}
