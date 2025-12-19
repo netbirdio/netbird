@@ -69,6 +69,12 @@ type State struct {
 	RosenpassEnabled           bool
 	SSHHostKey                 []byte
 	routes                     map[string]struct{}
+	// Groups contains the NetBird group names this peer belongs to.
+	// Used by K8s Auth Proxy to map NetBird groups to Kubernetes RBAC groups.
+	Groups []string
+	// UserId is the user identifier (typically email) of the peer's owner.
+	// Used by K8s Auth Proxy to impersonate the user in Kubernetes API requests.
+	UserId string
 }
 
 // AddRoute add a single route to routes map
@@ -257,7 +263,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
+func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, groups []string, userId string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -271,6 +277,8 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
 		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
+		Groups:     groups,
+		UserId:     userId,
 	}
 	d.peerListChangedForNotification = true
 	return nil
@@ -298,6 +306,31 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// PeerIdentity contains identity information for a peer, used for K8s Auth Proxy impersonation.
+type PeerIdentity struct {
+	FQDN   string
+	UserId string
+	Groups []string
+}
+
+// GetPeerIdentityByIP returns peer identity information (groups, userId) by IP address.
+// This is used by the K8s Auth Proxy to impersonate users based on their NetBird identity.
+func (d *Status) GetPeerIdentityByIP(ip string) (PeerIdentity, bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	for _, state := range d.peers {
+		if state.IP == ip {
+			return PeerIdentity{
+				FQDN:   state.FQDN,
+				UserId: state.UserId,
+				Groups: state.Groups,
+			}, true
+		}
+	}
+	return PeerIdentity{}, false
 }
 
 // RemovePeer removes peer from Daemon status map
@@ -568,6 +601,24 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	}
 
 	peerState.FQDN = fqdn
+	d.peers[peerPubKey] = peerState
+
+	return nil
+}
+
+// UpdatePeerIdentity updates peer's groups and userId for K8s Auth Proxy impersonation.
+// This is called when the management server sends updated peer config.
+func (d *Status) UpdatePeerIdentity(peerPubKey string, groups []string, userId string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.Groups = groups
+	peerState.UserId = userId
 	d.peers[peerPubKey] = peerState
 
 	return nil

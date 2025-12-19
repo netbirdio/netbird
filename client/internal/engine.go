@@ -662,6 +662,11 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
 			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
+
+		// Update peer identity (groups/userId) for K8s Auth Proxy impersonation
+		if err := e.statusRecorder.UpdatePeerIdentity(peerPubKey, p.GetGroups(), p.GetUserId()); err != nil {
+			log.Warnf("error updating peer's %s identity in the status recorder, got error: %v", peerPubKey, err)
+		}
 	}
 
 	// second, close all modified connections and remove them from the state map
@@ -1267,6 +1272,8 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 			ConnStatus:       peer.StatusIdle,
 			ConnStatusUpdate: time.Now(),
 			Mux:              new(sync.RWMutex),
+			Groups:           offlinePeer.GetGroups(),
+			UserId:           offlinePeer.GetUserId(),
 		}
 	}
 	e.statusRecorder.ReplaceOfflinePeers(replacement)
@@ -1305,7 +1312,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
 
-	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
+	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String(), peerConfig.GetGroups(), peerConfig.GetUserId())
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
