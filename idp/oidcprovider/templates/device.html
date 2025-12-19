@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Authorization - NetBird</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 450px;
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo h1 {
+            font-size: 28px;
+            color: #333;
+            font-weight: 600;
+        }
+        .logo p {
+            color: #666;
+            margin-top: 8px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e1e5eb;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        input.code-input {
+            text-align: center;
+            font-size: 24px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button.secondary {
+            background: #e1e5eb;
+            color: #333;
+        }
+        button.secondary:hover {
+            background: #d1d5db;
+            box-shadow: none;
+        }
+        button.deny {
+            background: #dc2626;
+        }
+        button.deny:hover {
+            background: #b91c1c;
+        }
+        .error {
+            background: #fee;
+            color: #c00;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border: 1px solid #fcc;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 16px;
+            border: 1px solid #c3e6cb;
+        }
+        .info {
+            background: #e8f4fd;
+            color: #0c5460;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border: 1px solid #bee5eb;
+        }
+        .scopes {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .scopes h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 12px;
+        }
+        .scopes ul {
+            list-style: none;
+            padding: 0;
+        }
+        .scopes li {
+            padding: 8px 0;
+            border-bottom: 1px solid #e1e5eb;
+            color: #333;
+        }
+        .scopes li:last-child {
+            border-bottom: none;
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+        }
+        .button-group button {
+            flex: 1;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            color: #888;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>NetBird</h1>
+            <p>Device Authorization</p>
+        </div>
+
+        {{if .Error}}
+        <div class="error">{{.Error}}</div>
+        {{end}}
+
+        {{if eq .Step "code"}}
+        <!-- Step 1: Enter user code -->
+        <div class="info">
+            Enter the code shown on your device to authorize it.
+        </div>
+        <form method="GET" action="/device">
+            <div class="form-group">
+                <label for="user_code">Device Code</label>
+                <input type="text" id="user_code" name="user_code" class="code-input"
+                       placeholder="XXXX-XXXX" required autofocus
+                       pattern="[A-Za-z]{4}-?[A-Za-z]{4}">
+            </div>
+            <button type="submit">Continue</button>
+        </form>
+        {{end}}
+
+        {{if eq .Step "login"}}
+        <!-- Step 2: Login -->
+        <div class="info">
+            Sign in to authorize the device.
+        </div>
+        <form method="POST" action="/device/login">
+            <input type="hidden" name="user_code" value="{{.UserCode}}">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit">Sign In</button>
+        </form>
+        {{end}}
+
+        {{if eq .Step "confirm"}}
+        <!-- Step 3: Confirm authorization -->
+        <div class="info">
+            <strong>{{.ClientID}}</strong> is requesting access to your account.
+        </div>
+
+        {{if .Scopes}}
+        <div class="scopes">
+            <h3>This application will have access to:</h3>
+            <ul>
+                {{range .Scopes}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+
+        <form method="POST" action="/device/confirm">
+            <div class="button-group">
+                <button type="submit" name="action" value="allow">Allow</button>
+                <button type="submit" name="action" value="deny" class="deny">Deny</button>
+            </div>
+        </form>
+        {{end}}
+
+        {{if eq .Step "result"}}
+        <!-- Result -->
+        {{if .Success}}
+        <div class="success">
+            {{.Message}}
+        </div>
+        {{else}}
+        <div class="info">
+            {{.Message}}
+        </div>
+        {{end}}
+        {{end}}
+
+        <div class="footer">
+            Powered by NetBird Identity Provider
+        </div>
+    </div>
+</body>
+</html>
