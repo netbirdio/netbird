@@ -318,15 +318,18 @@ type PeerIdentity struct {
 // GetPeerIdentityByIP returns peer identity information (groups, userId) by IP address.
 // This is used by the K8s Auth Proxy to impersonate users based on their NetBird identity.
 func (d *Status) GetPeerIdentityByIP(ip string) (PeerIdentity, bool) {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 
 	for _, state := range d.peers {
 		if state.IP == ip {
+			// Clone the Groups slice to prevent caller from modifying internal state
+			groups := make([]string, len(state.Groups))
+			copy(groups, state.Groups)
 			return PeerIdentity{
 				FQDN:   state.FQDN,
 				UserId: state.UserId,
-				Groups: state.Groups,
+				Groups: groups,
 			}, true
 		}
 	}
@@ -617,7 +620,9 @@ func (d *Status) UpdatePeerIdentity(peerPubKey string, groups []string, userId s
 		return errors.New("peer doesn't exist")
 	}
 
-	peerState.Groups = groups
+	// Clone the groups slice to prevent caller from modifying internal state
+	peerState.Groups = make([]string, len(groups))
+	copy(peerState.Groups, groups)
 	peerState.UserId = userId
 	d.peers[peerPubKey] = peerState
 
