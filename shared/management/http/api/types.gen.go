@@ -294,6 +294,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string               `json:"dns_domain,omitempty"`
 	Extra     *AccountExtraSettings `json:"extra,omitempty"`
