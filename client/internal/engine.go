@@ -476,11 +476,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 				return
 			} else {
 				lastErr = pErr
-				log.Debugf("populate DNS cache attempt %d failed: %v", attempts+1, pErr)
+				log.Infof("populate DNS cache attempt %d failed: %v", attempts+1, pErr)
 			}
 
 			d := backoff + time.Duration(rand.Intn(500))*time.Millisecond
-			log.WithFields(log.Fields{"attempt": attempts + 1, "sleep": d}).Debug("populate DNS cache retrying")
+			log.WithFields(log.Fields{"attempt": attempts + 1, "sleep": d}).Info("populate DNS cache retrying")
 
 			select {
 			case <-time.After(d):
