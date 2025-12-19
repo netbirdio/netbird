@@ -16,6 +16,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -1059,13 +1060,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 
 			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 				if len(rule.AuthorizedGroups) == 0 {
-					users := make(map[string]struct{})
-					for _, nbUser := range a.Users {
-						if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
-							users[nbUser.Id] = struct{}{}
-						}
-					}
-					authorizedUsers["*"] = users
+					authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 				} else {
 					for groupID, localUsers := range rule.AuthorizedGroups {
 						userIDs, ok := groupIDToUserIDs[groupID]
@@ -1075,7 +1070,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 						}
 
 						if len(localUsers) == 0 {
-							localUsers = []string{"*"}
+							localUsers = []string{auth.Wildcard}
 						}
 
 						for _, localUser := range localUsers {
@@ -1089,19 +1084,23 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 					}
 				}
 			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
-				users := make(map[string]struct{})
-				for _, nbUser := range a.Users {
-					if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
-						users[nbUser.Id] = struct{}{}
-					}
-				}
-				authorizedUsers["*"] = users
+				authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 			}
 		}
 	}
 
 	peers, fwRules := getAccumulatedResources()
 	return peers, fwRules, authorizedUsers
+}
+
+func (a *Account) getAllowedUserIDs() map[string]struct{} {
+	users := make(map[string]struct{})
+	for _, nbUser := range a.Users {
+		if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
+			users[nbUser.Id] = struct{}{}
+		}
+	}
+	return users
 }
 
 // connResourcesGenerator returns generator and accumulator function which returns the result of generator calls

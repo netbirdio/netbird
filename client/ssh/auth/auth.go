@@ -13,6 +13,8 @@ import (
 const (
 	// DefaultUserIDClaim is the default JWT claim used to extract user IDs
 	DefaultUserIDClaim = "sub"
+	// Wildcard is a special user ID that matches all users
+	Wildcard = "*"
 )
 
 var (

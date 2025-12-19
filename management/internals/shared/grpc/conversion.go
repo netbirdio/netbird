@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -151,7 +152,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	if networkMap.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
-		userIDClaim := "sub"
+		userIDClaim := auth.DefaultUserIDClaim
 		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
 			userIDClaim = httpConfig.AuthUserIDClaim
 		}
@@ -166,10 +167,10 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	var hashedUsers []uint64
 	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
 
-	users, ok := authorizedUsers["*"]
+	users, ok := authorizedUsers[auth.Wildcard]
 	if ok {
 		wildcard := make(map[string]map[string]struct{})
-		wildcard["*"] = users
+		wildcard[auth.Wildcard] = users
 		authorizedUsers = wildcard
 	}
 
