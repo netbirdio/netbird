@@ -13,10 +13,14 @@ import (
 	"sync"
 	"time"
 
+	dexapi "github.com/dexidp/dex/api/v2"
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/storage"
 	"github.com/dexidp/dex/storage/sql"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/grpc"
 )
 
 // Config matches what management/internals/server/server.go expects
@@ -25,18 +29,23 @@ type Config struct {
 	Port    int
 	DataDir string
 	DevMode bool
+
+	// GRPCAddr is the address for the gRPC API (e.g., ":5557"). Empty disables gRPC.
+	GRPCAddr string
 }
 
 // Provider wraps a Dex server
 type Provider struct {
-	config     *Config
-	dexServer  *server.Server
-	httpServer *http.Server
-	listener   net.Listener
-	storage    storage.Storage
-	logger     *slog.Logger
-	mu         sync.Mutex
-	running    bool
+	config       *Config
+	dexServer    *server.Server
+	httpServer   *http.Server
+	listener     net.Listener
+	grpcServer   *grpc.Server
+	grpcListener net.Listener
+	storage      storage.Storage
+	logger       *slog.Logger
+	mu           sync.Mutex
+	running      bool
 }
 
 // NewProvider creates and initializes the Dex server
@@ -107,7 +116,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 	}, nil
 }
 
-// Start starts the HTTP server
+// Start starts the HTTP server and optionally the gRPC API server
 func (p *Provider) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -133,10 +142,43 @@ func (p *Provider) Start(ctx context.Context) error {
 
 	go func() {
 		if err := p.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			p.logger.Error("server error", "error", err)
+			p.logger.Error("http server error", "error", err)
 		}
 	}()
 
+	// Start gRPC API server if configured
+	if p.config.GRPCAddr != "" {
+		if err := p.startGRPCServer(); err != nil {
+			// Clean up HTTP server on failure
+			p.httpServer.Close()
+			p.listener.Close()
+			return fmt.Errorf("failed to start gRPC server: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// startGRPCServer starts the gRPC API server using Dex's built-in API
+func (p *Provider) startGRPCServer() error {
+	grpcListener, err := net.Listen("tcp", p.config.GRPCAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", p.config.GRPCAddr, err)
+	}
+	p.grpcListener = grpcListener
+
+	p.grpcServer = grpc.NewServer()
+	// Use Dex's built-in API server implementation
+	// server.NewAPI(storage, logger, version, dexServer)
+	dexapi.RegisterDexServer(p.grpcServer, server.NewAPI(p.storage, p.logger, "netbird-dex", p.dexServer))
+
+	go func() {
+		if err := p.grpcServer.Serve(grpcListener); err != nil {
+			p.logger.Error("grpc server error", "error", err)
+		}
+	}()
+
+	p.logger.Info("gRPC API server started", "addr", p.config.GRPCAddr)
 	return nil
 }
 
@@ -150,6 +192,16 @@ func (p *Provider) Stop(ctx context.Context) error {
 	}
 
 	var errs []error
+
+	// Stop gRPC server first
+	if p.grpcServer != nil {
+		p.grpcServer.GracefulStop()
+		p.grpcServer = nil
+	}
+	if p.grpcListener != nil {
+		p.grpcListener.Close()
+		p.grpcListener = nil
+	}
 
 	if p.httpServer != nil {
 		if err := p.httpServer.Shutdown(ctx); err != nil {
@@ -229,6 +281,31 @@ func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliU
 // Users can use storage.Client, storage.Password, storage.Connector directly
 func (p *Provider) Storage() storage.Storage {
 	return p.storage
+}
+
+// CreateUser creates a new user with the given email, username, and password
+func (p *Provider) CreateUser(ctx context.Context, email, username, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	return p.storage.CreatePassword(ctx, storage.Password{
+		Email:    email,
+		Username: username,
+		UserID:   uuid.New().String(),
+		Hash:     hash,
+	})
+}
+
+// DeleteUser removes a user by email
+func (p *Provider) DeleteUser(ctx context.Context, email string) error {
+	return p.storage.DeletePassword(ctx, email)
+}
+
+// ListUsers returns all users
+func (p *Provider) ListUsers(ctx context.Context) ([]storage.Password, error) {
+	return p.storage.ListPasswords(ctx)
 }
 
 // ensureLocalConnector creates a local (password) connector if none exists
