@@ -229,9 +229,6 @@ func LoadConfig(path string) (*YAMLConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Expand environment variables
-	data = []byte(os.ExpandEnv(string(data)))
-
 	var cfg YAMLConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
