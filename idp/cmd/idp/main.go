@@ -17,28 +17,26 @@ import (
 
 func main() {
 	var (
-		issuer    = flag.String("issuer", "http://localhost:33081", "OIDC issuer URL")
-		port      = flag.Int("port", 33081, "HTTP port")
-		grpcAddr  = flag.String("grpc-addr", "", "gRPC API address (e.g., :5557). Empty disables gRPC API")
-		dataDir   = flag.String("data-dir", "./data", "Data directory")
-		devMode   = flag.Bool("dev", true, "Development mode")
-		addUser   = flag.String("add-user", "", "Add a user (format: email:password)")
-		listUsers = flag.Bool("list-users", false, "List all users and exit")
+		configFile = flag.String("config", "", "Path to YAML config file (dex-compatible format)")
+		addUser    = flag.String("add-user", "", "Add a user (format: email:password)")
+		listUsers  = flag.Bool("list-users", false, "List all users and exit")
 	)
 	flag.Parse()
+
+	if *configFile == "" {
+		log.Fatal("--config flag is required. Please provide a YAML configuration file.")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	config := &dex.Config{
-		Issuer:   *issuer,
-		Port:     *port,
-		GRPCAddr: *grpcAddr,
-		DataDir:  *dataDir,
-		DevMode:  *devMode,
+	// Load YAML config
+	yamlConfig, err := dex.LoadConfig(*configFile)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	provider, err := dex.NewProvider(ctx, config)
+	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
 		log.Fatalf("Failed to create provider: %v", err)
 	}
@@ -79,10 +77,10 @@ func main() {
 		log.Fatalf("Failed to start: %v", err)
 	}
 
-	log.Infof("OIDC Provider: %s/dex", config.Issuer)
-	log.Infof("Discovery: %s/dex/.well-known/openid-configuration", config.Issuer)
-	if config.GRPCAddr != "" {
-		log.Infof("gRPC API: %s", config.GRPCAddr)
+	log.Infof("OIDC Provider: %s", yamlConfig.Issuer)
+	log.Infof("Discovery: %s/.well-known/openid-configuration", yamlConfig.Issuer)
+	if yamlConfig.GRPC.Addr != "" {
+		log.Infof("gRPC API: %s", yamlConfig.GRPC.Addr)
 	}
 
 	// Wait for shutdown

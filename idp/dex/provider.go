@@ -37,6 +37,7 @@ type Config struct {
 // Provider wraps a Dex server
 type Provider struct {
 	config       *Config
+	yamlConfig   *YAMLConfig
 	dexServer    *server.Server
 	httpServer   *http.Server
 	listener     net.Listener
@@ -116,8 +117,142 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 	}, nil
 }
 
+// NewProviderFromYAML creates and initializes the Dex server from a YAMLConfig
+func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider, error) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// Open storage based on config
+	stor, err := yamlConfig.Storage.OpenStorage(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open storage: %w", err)
+	}
+
+	// Ensure a local connector exists if password DB is enabled
+	if yamlConfig.EnablePasswordDB {
+		if err := ensureLocalConnector(ctx, stor); err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to ensure local connector: %w", err)
+		}
+	}
+
+	// Create static passwords if provided
+	for _, pw := range yamlConfig.StaticPasswords {
+		existing, err := stor.GetPassword(ctx, pw.Email)
+		if err == storage.ErrNotFound {
+			if err := stor.CreatePassword(ctx, storage.Password(pw)); err != nil {
+				stor.Close()
+				return nil, fmt.Errorf("failed to create password for %s: %w", pw.Email, err)
+			}
+			continue
+		}
+		if err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to get password for %s: %w", pw.Email, err)
+		}
+		// Update existing user if hash changed
+		if string(existing.Hash) != string(pw.Hash) {
+			if err := stor.UpdatePassword(ctx, pw.Email, func(old storage.Password) (storage.Password, error) {
+				old.Hash = pw.Hash
+				old.Username = pw.Username
+				return old, nil
+			}); err != nil {
+				stor.Close()
+				return nil, fmt.Errorf("failed to update password for %s: %w", pw.Email, err)
+			}
+		}
+	}
+
+	// Create static clients if provided
+	for _, client := range yamlConfig.StaticClients {
+		_, err := stor.GetClient(ctx, client.ID)
+		if err == storage.ErrNotFound {
+			if err := stor.CreateClient(ctx, client); err != nil {
+				stor.Close()
+				return nil, fmt.Errorf("failed to create client %s: %w", client.ID, err)
+			}
+			continue
+		}
+		if err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to get client %s: %w", client.ID, err)
+		}
+		// Update if exists
+		if err := stor.UpdateClient(ctx, client.ID, func(old storage.Client) (storage.Client, error) {
+			old.RedirectURIs = client.RedirectURIs
+			old.Name = client.Name
+			old.Public = client.Public
+			return old, nil
+		}); err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to update client %s: %w", client.ID, err)
+		}
+	}
+
+	// Create connectors if provided
+	for _, conn := range yamlConfig.StaticConnectors {
+		storConn, err := conn.ToStorageConnector()
+		if err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to convert connector %s: %w", conn.ID, err)
+		}
+		_, err = stor.GetConnector(ctx, conn.ID)
+		if err == storage.ErrNotFound {
+			if err := stor.CreateConnector(ctx, storConn); err != nil {
+				stor.Close()
+				return nil, fmt.Errorf("failed to create connector %s: %w", conn.ID, err)
+			}
+			continue
+		}
+		if err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to get connector %s: %w", conn.ID, err)
+		}
+		// Update if exists
+		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
+			old.Name = storConn.Name
+			old.Config = storConn.Config
+			return old, nil
+		}); err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to update connector %s: %w", conn.ID, err)
+		}
+	}
+
+	// Build Dex server config
+	dexConfig := yamlConfig.ToServerConfig(stor, logger)
+	dexConfig.PrometheusRegistry = prometheus.NewRegistry()
+	dexConfig.RotateKeysAfter = 6 * time.Hour
+	dexConfig.IDTokensValidFor = 24 * time.Hour
+	if dexConfig.Web.Issuer == "" {
+		dexConfig.Web.Issuer = "NetBird"
+	}
+	if len(dexConfig.SupportedResponseTypes) == 0 {
+		dexConfig.SupportedResponseTypes = []string{"code"}
+	}
+
+	dexSrv, err := server.NewServer(ctx, dexConfig)
+	if err != nil {
+		stor.Close()
+		return nil, fmt.Errorf("failed to create dex server: %w", err)
+	}
+
+	// Convert YAMLConfig to Config for internal use
+	config := &Config{
+		Issuer:   yamlConfig.Issuer,
+		GRPCAddr: yamlConfig.GRPC.Addr,
+	}
+
+	return &Provider{
+		config:     config,
+		yamlConfig: yamlConfig,
+		dexServer:  dexSrv,
+		storage:    stor,
+		logger:     logger,
+	}, nil
+}
+
 // Start starts the HTTP server and optionally the gRPC API server
-func (p *Provider) Start(ctx context.Context) error {
+func (p *Provider) Start(_ context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -125,7 +260,20 @@ func (p *Provider) Start(ctx context.Context) error {
 		return fmt.Errorf("already running")
 	}
 
-	addr := fmt.Sprintf(":%d", p.config.Port)
+	// Determine listen address from config
+	var addr string
+	if p.yamlConfig != nil {
+		addr = p.yamlConfig.Web.HTTP
+		if addr == "" {
+			addr = p.yamlConfig.Web.HTTPS
+		}
+	} else if p.config != nil && p.config.Port > 0 {
+		addr = fmt.Sprintf(":%d", p.config.Port)
+	}
+	if addr == "" {
+		return fmt.Errorf("no listen address configured")
+	}
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
@@ -150,12 +298,13 @@ func (p *Provider) Start(ctx context.Context) error {
 	if p.config.GRPCAddr != "" {
 		if err := p.startGRPCServer(); err != nil {
 			// Clean up HTTP server on failure
-			p.httpServer.Close()
-			p.listener.Close()
+			_ = p.httpServer.Close()
+			_ = p.listener.Close()
 			return fmt.Errorf("failed to start gRPC server: %w", err)
 		}
 	}
 
+	p.logger.Info("HTTP server started", "addr", addr)
 	return nil
 }
 
