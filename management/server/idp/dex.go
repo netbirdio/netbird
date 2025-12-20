@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -61,12 +62,21 @@ func NewDexManager(config DexClientConfig, appMetrics telemetry.AppMetrics) (*De
 }
 
 // getConnection returns a gRPC connection to Dex, creating one if necessary.
+// It also checks if an existing connection is still healthy and reconnects if needed.
 func (dm *DexManager) getConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	dm.mux.Lock()
 	defer dm.mux.Unlock()
 
 	if dm.conn != nil {
-		return dm.conn, nil
+		state := dm.conn.GetState()
+		// If connection is shutdown or in a transient failure, close and reconnect
+		if state == connectivity.Shutdown || state == connectivity.TransientFailure {
+			log.WithContext(ctx).Debugf("Dex gRPC connection in state %s, reconnecting", state)
+			_ = dm.conn.Close()
+			dm.conn = nil
+		} else {
+			return dm.conn, nil
+		}
 	}
 
 	log.WithContext(ctx).Debugf("connecting to Dex gRPC API at %s", dm.grpcAddr)
@@ -432,17 +442,4 @@ func (dm *DexManager) getAllUsers(ctx context.Context) ([]*UserData, error) {
 	}
 
 	return users, nil
-}
-
-// Close closes the gRPC connection to Dex.
-func (dm *DexManager) Close() error {
-	dm.mux.Lock()
-	defer dm.mux.Unlock()
-
-	if dm.conn != nil {
-		err := dm.conn.Close()
-		dm.conn = nil
-		return err
-	}
-	return nil
 }
