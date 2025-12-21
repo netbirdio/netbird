@@ -41,7 +41,6 @@ require (
 	github.com/coder/websocket v1.8.13
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
-	github.com/dexidp/dex v2.13.0+incompatible
 	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
@@ -124,7 +123,7 @@ require (
 )
 
 require (
-	cloud.google.com/go/auth v0.17.0 // indirect
+	cloud.google.com/go/auth v0.3.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	dario.cat/mergo v1.0.1 // indirect
