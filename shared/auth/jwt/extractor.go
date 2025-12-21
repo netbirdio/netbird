@@ -123,6 +123,19 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 	return userAuth, nil
 }
 
+// ToEmail extracts email from a JWT token claims
+// Returns empty string if email claim is not present
+func (c *ClaimsExtractor) ToEmail(token *jwt.Token) string {
+	claims := token.Claims.(jwt.MapClaims)
+
+	// Try standard "email" claim first
+	if email, ok := claims["email"].(string); ok && email != "" {
+		return email
+	}
+
+	return ""
+}
+
 // ToGroups extracts group information from a JWT token
 func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string {
 	claims := token.Claims.(jwt.MapClaims)

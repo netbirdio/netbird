@@ -20,6 +20,7 @@ type MockManager struct {
 	EnsureUserAccessByJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error)
 	MarkPATUsedFunc                 func(ctx context.Context, tokenID string) error
 	GetPATInfoFunc                  func(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error)
+	GetUserEmailFunc                func(ctx context.Context, token *jwt.Token, accessToken string) (string, error)
 }
 
 // EnsureUserAccessByJWTGroups implements Manager.
@@ -52,4 +53,12 @@ func (m *MockManager) ValidateAndParseToken(ctx context.Context, value string) (
 		return m.ValidateAndParseTokenFunc(ctx, value)
 	}
 	return auth.UserAuth{}, &jwt.Token{}, nil
+}
+
+// GetUserEmail implements Manager.
+func (m *MockManager) GetUserEmail(ctx context.Context, token *jwt.Token, accessToken string) (string, error) {
+	if m.GetUserEmailFunc != nil {
+		return m.GetUserEmailFunc(ctx, token, accessToken)
+	}
+	return "", nil
 }
