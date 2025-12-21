@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/idp/dex"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -40,7 +41,7 @@ type Server interface {
 	SetContainer(key string, container any)
 }
 
-// Server holds the HTTP BaseServer instance.
+// BaseServer holds the HTTP server instance.
 // Add any additional fields you need, such as database connections, Config, etc.
 type BaseServer struct {
 	// Config holds the server configuration
@@ -61,6 +62,9 @@ type BaseServer struct {
 	listener    net.Listener
 	certManager *autocert.Manager
 	update      *version.Update
+
+	// embeddedIdp is the embedded Dex OIDC identity provider
+	embeddedIdp *dex.Provider
 
 	errCh  chan error
 	wg     sync.WaitGroup
@@ -133,6 +137,22 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		go metricsWorker.Run(srvCtx)
 	}
 
+	// Initialize embedded IDP if configured
+	if s.Config.EmbeddedIdp != nil && s.Config.EmbeddedIdp.Enabled {
+		if s.Config.EmbeddedIdp.ConfigPath == "" {
+			return fmt.Errorf("embedded IDP enabled but no config path specified")
+		}
+		yamlConfig, err := dex.LoadConfig(s.Config.EmbeddedIdp.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to load embedded IDP config: %v", err)
+		}
+		s.embeddedIdp, err = dex.NewProviderFromYAML(srvCtx, yamlConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create embedded IDP: %v", err)
+		}
+		log.WithContext(srvCtx).Infof("embedded Dex IDP initialized with issuer: %s", yamlConfig.Issuer)
+	}
+
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
@@ -144,7 +164,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
+	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -215,6 +235,9 @@ func (s *BaseServer) Stop() error {
 	if s.update != nil {
 		s.update.StopWatch()
 	}
+	if s.embeddedIdp != nil {
+		_ = s.embeddedIdp.Stop(ctx)
+	}
 
 	select {
 	case <-s.Errors():
@@ -250,7 +273,7 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 	return util.DirectWriteJson(ctx, path, config)
 }
 
-func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
 	wsProxy := wsproxyserver.New(gRPCHandler, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -260,6 +283,12 @@ func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Hand
 			gRPCHandler.ServeHTTP(writer, request)
 		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
+		case strings.HasPrefix(request.URL.Path, "/dex/"):
+			if s.embeddedIdp != nil {
+				s.embeddedIdp.Handler().ServeHTTP(writer, request)
+			} else {
+				http.Error(writer, "Embedded IDP not configured", http.StatusNotFound)
+			}
 		default:
 			httpHandler.ServeHTTP(writer, request)
 		}

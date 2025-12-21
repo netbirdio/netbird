@@ -432,6 +432,12 @@ func (p *Provider) Storage() storage.Storage {
 	return p.storage
 }
 
+// Handler returns the Dex server as an http.Handler for embedding in another server.
+// The handler expects requests with path prefix "/dex/".
+func (p *Provider) Handler() http.Handler {
+	return p.dexServer
+}
+
 // CreateUser creates a new user with the given email, username, and password
 func (p *Provider) CreateUser(ctx context.Context, email, username, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
