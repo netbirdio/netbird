@@ -404,3 +404,150 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 		assert.NoError(t, err)
 	}
 }
+
+func TestAuthorizer_Wildcard_AllowsAllAuthorizedUsers(t *testing.T) {
+	authorizer := NewAuthorizer()
+
+	user1Hash, err := sshauth.HashUserID("user1")
+	require.NoError(t, err)
+	user2Hash, err := sshauth.HashUserID("user2")
+	require.NoError(t, err)
+	user3Hash, err := sshauth.HashUserID("user3")
+	require.NoError(t, err)
+
+	// Configure with wildcard - all authorized users can access any OS user
+	config := &Config{
+		UserIDClaim:     DefaultUserIDClaim,
+		AuthorizedUsers: []sshauth.UserIDHash{user1Hash, user2Hash, user3Hash},
+		MachineUsers: map[string][]uint32{
+			"*": {0}, // wildcard with any indexes - indexes don't matter
+		},
+	}
+	authorizer.Update(config)
+
+	// All authorized users should be able to access any OS user
+	err = authorizer.Authorize("user1", "root")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user2", "postgres")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user3", "admin")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user1", "ubuntu")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user2", "nginx")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user3", "docker")
+	assert.NoError(t, err)
+}
+
+func TestAuthorizer_Wildcard_UnauthorizedUserStillDenied(t *testing.T) {
+	authorizer := NewAuthorizer()
+
+	user1Hash, err := sshauth.HashUserID("user1")
+	require.NoError(t, err)
+
+	// Configure with wildcard
+	config := &Config{
+		UserIDClaim:     DefaultUserIDClaim,
+		AuthorizedUsers: []sshauth.UserIDHash{user1Hash},
+		MachineUsers: map[string][]uint32{
+			"*": {0},
+		},
+	}
+	authorizer.Update(config)
+
+	// user1 should have access
+	err = authorizer.Authorize("user1", "root")
+	assert.NoError(t, err)
+
+	// Unauthorized user should still be denied even with wildcard
+	err = authorizer.Authorize("unauthorized-user", "root")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUserNotAuthorized)
+}
+
+func TestAuthorizer_Wildcard_TakesPrecedenceOverSpecificMappings(t *testing.T) {
+	authorizer := NewAuthorizer()
+
+	user1Hash, err := sshauth.HashUserID("user1")
+	require.NoError(t, err)
+	user2Hash, err := sshauth.HashUserID("user2")
+	require.NoError(t, err)
+
+	// Configure with both wildcard and specific mappings - wildcard should take precedence
+	config := &Config{
+		UserIDClaim:     DefaultUserIDClaim,
+		AuthorizedUsers: []sshauth.UserIDHash{user1Hash, user2Hash},
+		MachineUsers: map[string][]uint32{
+			"*":    {0}, // wildcard exists
+			"root": {0}, // specific mapping that would normally restrict to user1 only
+		},
+	}
+	authorizer.Update(config)
+
+	// Both users should be able to access root because wildcard takes precedence
+	err = authorizer.Authorize("user1", "root")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user2", "root")
+	assert.NoError(t, err)
+
+	// Both users should be able to access any other OS user via wildcard
+	err = authorizer.Authorize("user1", "postgres")
+	assert.NoError(t, err)
+
+	err = authorizer.Authorize("user2", "admin")
+	assert.NoError(t, err)
+}
+
+func TestAuthorizer_NoWildcard_SpecificMappingsOnly(t *testing.T) {
+	authorizer := NewAuthorizer()
+
+	user1Hash, err := sshauth.HashUserID("user1")
+	require.NoError(t, err)
+	user2Hash, err := sshauth.HashUserID("user2")
+	require.NoError(t, err)
+
+	// Configure WITHOUT wildcard - only specific mappings
+	config := &Config{
+		UserIDClaim:     DefaultUserIDClaim,
+		AuthorizedUsers: []sshauth.UserIDHash{user1Hash, user2Hash},
+		MachineUsers: map[string][]uint32{
+			"root":     {0}, // only user1
+			"postgres": {1}, // only user2
+		},
+	}
+	authorizer.Update(config)
+
+	// user1 can access root
+	err = authorizer.Authorize("user1", "root")
+	assert.NoError(t, err)
+
+	// user2 can access postgres
+	err = authorizer.Authorize("user2", "postgres")
+	assert.NoError(t, err)
+
+	// user1 cannot access postgres
+	err = authorizer.Authorize("user1", "postgres")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
+
+	// user2 cannot access root
+	err = authorizer.Authorize("user2", "root")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
+
+	// Neither can access unmapped OS users
+	err = authorizer.Authorize("user1", "admin")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
+
+	err = authorizer.Authorize("user2", "admin")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
+}
