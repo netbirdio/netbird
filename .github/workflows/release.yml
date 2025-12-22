@@ -38,7 +38,7 @@ jobs:
           VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Generated files for version: $VERSION"
-          cat "$DIFF_FILE"
+          cat netbird-*.diff
 
       - name: Test FreeBSD port
         uses: vmactions/freebsd-vm@v1
