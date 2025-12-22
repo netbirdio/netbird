@@ -168,11 +168,11 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 func lookupIPWithExtraTimeout(ctx context.Context, d domain.Domain) ([]netip.Addr, error) {
 	log.Infof("looking up IP for mgmt domain=%s", d.SafeString())
 	defer log.Infof("done looking up IP for mgmt domain=%s", d.SafeString())
-	errChan := make(chan *ipsResponse, 1)
+	resultChan := make(chan *ipsResponse, 1)
 
 	go func() {
 		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
-		errChan <- &ipsResponse{
+		resultChan <- &ipsResponse{
 			err: err,
 			ips: ips,
 		}
@@ -186,7 +186,7 @@ func lookupIPWithExtraTimeout(ctx context.Context, d domain.Domain) ([]netip.Add
 		return nil, fmt.Errorf("timed out waiting for ips to be available for domain %s", d.SafeString())
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case resp = <-errChan:
+	case resp = <-resultChan:
 	}
 
 	if resp.err != nil {
