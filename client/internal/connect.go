@@ -170,19 +170,19 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		return err
 	}
 
-	sm := profilemanager.NewServiceManager("")
-
-	path := sm.GetStatePath()
+	var path string
 	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+		// On mobile, use the provided state file path directly
 		if !fileExists(mobileDependency.StateFilePath) {
-			err := createFile(mobileDependency.StateFilePath)
-			if err != nil {
+			if err := createFile(mobileDependency.StateFilePath); err != nil {
 				log.Errorf("failed to create state file: %v", err)
 				// we are not exiting as we can run without the state manager
 			}
 		}
-
 		path = mobileDependency.StateFilePath
+	} else {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
 	}
 	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
