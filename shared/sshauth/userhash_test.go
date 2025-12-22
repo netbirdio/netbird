@@ -44,7 +44,7 @@ func TestHashUserID(t *testing.T) {
 			}
 
 			// Verify hash is non-zero for non-empty inputs
-			if tt.userID != "" && hash == 0 {
+			if tt.userID != "" && hash == [16]byte{} {
 				t.Errorf("HashUserID() returned zero hash for non-empty input")
 			}
 		})
@@ -105,23 +105,23 @@ func TestUserIDHash_String(t *testing.T) {
 	}{
 		{
 			name:     "zero hash",
-			hash:     UserIDHash(0),
-			expected: "0000000000000000",
+			hash:     [16]byte{},
+			expected: "00000000000000000000000000000000",
 		},
 		{
 			name:     "small value",
-			hash:     UserIDHash(255),
-			expected: "00000000000000ff",
+			hash:     [16]byte{15: 0xff},
+			expected: "000000000000000000000000000000ff",
 		},
 		{
 			name:     "large value",
-			hash:     UserIDHash(0xdeadbeefcafebabe),
-			expected: "deadbeefcafebabe",
+			hash:     [16]byte{8: 0xde, 9: 0xad, 10: 0xbe, 11: 0xef, 12: 0xca, 13: 0xfe, 14: 0xba, 15: 0xbe},
+			expected: "0000000000000000deadbeefcafebabe",
 		},
 		{
 			name:     "max value",
-			hash:     UserIDHash(0xffffffffffffffff),
-			expected: "ffffffffffffffff",
+			hash:     [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+			expected: "ffffffffffffffffffffffffffffffff",
 		},
 	}
 
@@ -136,7 +136,7 @@ func TestUserIDHash_String(t *testing.T) {
 }
 
 func TestUserIDHash_String_Length(t *testing.T) {
-	// Test that String() always returns 16 hex characters
+	// Test that String() always returns 32 hex characters (16 bytes * 2)
 	userID := "test@example.com"
 	hash, err := HashUserID(userID)
 	if err != nil {
@@ -144,8 +144,8 @@ func TestUserIDHash_String_Length(t *testing.T) {
 	}
 
 	result := hash.String()
-	if len(result) != 16 {
-		t.Errorf("UserIDHash.String() length = %d, want 16", len(result))
+	if len(result) != 32 {
+		t.Errorf("UserIDHash.String() length = %d, want 32", len(result))
 	}
 
 	// Verify it's valid hex
@@ -157,21 +157,23 @@ func TestUserIDHash_String_Length(t *testing.T) {
 }
 
 func TestHashUserID_KnownValues(t *testing.T) {
-	// Test with known FNV-1a values to ensure correct implementation
+	// Test with known BLAKE2b-128 values to ensure correct implementation
 	tests := []struct {
 		name     string
 		userID   string
 		expected UserIDHash
 	}{
 		{
-			name:     "empty string",
-			userID:   "",
-			expected: UserIDHash(0xcbf29ce484222325), // FNV-1a offset basis
+			name:   "empty string",
+			userID: "",
+			// BLAKE2b-128 of empty string
+			expected: [16]byte{0xca, 0xe6, 0x69, 0x41, 0xd9, 0xef, 0xbd, 0x40, 0x4e, 0x4d, 0x88, 0x75, 0x8e, 0xa6, 0x76, 0x70},
 		},
 		{
-			name:     "single character 'a'",
-			userID:   "a",
-			expected: UserIDHash(0xaf63dc4c8601ec8c),
+			name:   "single character 'a'",
+			userID: "a",
+			// BLAKE2b-128 of "a"
+			expected: [16]byte{0x27, 0xc3, 0x5e, 0x6e, 0x93, 0x73, 0x87, 0x7f, 0x29, 0xe5, 0x62, 0x46, 0x4e, 0x46, 0x49, 0x7e},
 		},
 	}
 
@@ -184,8 +186,8 @@ func TestHashUserID_KnownValues(t *testing.T) {
 			}
 
 			if hash != tt.expected {
-				t.Errorf("HashUserID(%q) = %v (0x%x), want %v (0x%x)",
-					tt.userID, hash, uint64(hash), tt.expected, uint64(tt.expected))
+				t.Errorf("HashUserID(%q) = %x, want %x",
+					tt.userID, hash, tt.expected)
 			}
 		})
 	}
@@ -200,7 +202,7 @@ func BenchmarkHashUserID(b *testing.B) {
 }
 
 func BenchmarkUserIDHash_String(b *testing.B) {
-	hash := UserIDHash(0xdeadbeefcafebabe)
+	hash := UserIDHash([16]byte{8: 0xde, 9: 0xad, 10: 0xbe, 11: 0xef, 12: 0xca, 13: 0xfe, 14: 0xba, 15: 0xbe})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = hash.String()
