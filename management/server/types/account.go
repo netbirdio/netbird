@@ -1131,6 +1131,11 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					peersExists[peer.ID] = struct{}{}
 				}
 
+				protocol := rule.Protocol
+				if protocol == PolicyRuleProtocolNetbirdSSH {
+					protocol = PolicyRuleProtocolTCP
+				}
+
 				fr := FirewallRule{
 					PolicyID:  rule.ID,
 					PeerIP:    peer.IP.String(),
