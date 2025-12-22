@@ -147,6 +147,10 @@ components:
           description: Enables or disables experimental lazy connection
           type: boolean
           example: true
+        auto_update_version:
+          description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+          type: string
+          example: "0.51.2"
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration

@@ -10,9 +10,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -180,7 +180,7 @@ func unaryInterceptor(
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
-	reqID := uuid.New().String()
+	reqID := xid.New().String()
 	//nolint
 	ctx = context.WithValue(ctx, hook.ExecutionContextKey, hook.GRPCSource)
 	//nolint
@@ -194,7 +194,7 @@ func streamInterceptor(
 	info *grpc.StreamServerInfo,
 	handler grpc.StreamHandler,
 ) error {
-	reqID := uuid.New().String()
+	reqID := xid.New().String()
 	wrapped := grpcMiddleware.WrapServerStream(ss)
 	//nolint
 	ctx := context.WithValue(ss.Context(), hook.ExecutionContextKey, hook.GRPCSource)

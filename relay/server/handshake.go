@@ -97,7 +97,7 @@ func (h *handshake) handshakeReceive() (*messages.PeerID, error) {
 		return nil, fmt.Errorf("invalid message type %d from %s", msgType, h.conn.RemoteAddr())
 	}
 	if err != nil {
-		return nil, err
+		return peerID, err
 	}
 	h.peerID = peerID
 	return peerID, nil
@@ -147,7 +147,7 @@ func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
 	}
 
 	if err := h.validator.Validate(authPayload); err != nil {
-		return nil, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
+		return rawPeerID, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
 	}
 
 	return rawPeerID, nil

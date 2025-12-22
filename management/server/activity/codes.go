@@ -181,13 +181,15 @@ const (
 	UserRejected               Activity = 90
 	UserCreated                Activity = 91
 
-	DNSZoneCreated Activity = 92
-	DNSZoneUpdated Activity = 93
-	DNSZoneDeleted Activity = 94
+	AccountAutoUpdateVersionUpdated Activity = 92
 
-	DNSRecordCreated Activity = 95
-	DNSRecordUpdated Activity = 96
-	DNSRecordDeleted Activity = 97
+	DNSZoneCreated Activity = 93
+	DNSZoneUpdated Activity = 94
+	DNSZoneDeleted Activity = 95
+
+	DNSRecordCreated Activity = 96
+	DNSRecordUpdated Activity = 97
+	DNSRecordDeleted Activity = 98
 
 	AccountDeleted Activity = 99999
 )
@@ -295,9 +297,12 @@ var activityMap = map[Activity]Code{
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
-	UserApproved:  {"User approved", "user.approve"},
-	UserRejected:  {"User rejected", "user.reject"},
-	UserCreated:   {"User created", "user.create"},
+
+	UserApproved: {"User approved", "user.approve"},
+	UserRejected: {"User rejected", "user.reject"},
+	UserCreated:  {"User created", "user.create"},
+
+	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
 
 	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
 	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},
