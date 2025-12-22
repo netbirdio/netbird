@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"hash/crc32"
-	"net/url"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -19,8 +18,6 @@ import (
 )
 
 var _ Manager = (*manager)(nil)
-
-const OIDCDiscoveryURL = "/.well-known/openid-configuration"
 
 type Manager interface {
 	ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error)
@@ -46,11 +43,9 @@ func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim s
 		idpRefreshKeys,
 	)
 
-	discoveryURL, _ := url.JoinPath(issuer, OIDCDiscoveryURL)
 	claimsExtractor := nbjwt.NewClaimsExtractor(
 		nbjwt.WithAudience(audience),
 		nbjwt.WithUserIDClaim(userIdClaim),
-		nbjwt.WithUserInfoDiscoveryURL(discoveryURL),
 	)
 
 	return &manager{
