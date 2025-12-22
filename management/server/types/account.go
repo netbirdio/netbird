@@ -1141,7 +1141,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
-					Protocol:  string(rule.Protocol),
+					Protocol:  string(protocol),
 				}
 
 				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
