@@ -367,10 +367,13 @@ func (e *Engine) updateSSHServerAuth(sshAuth *mgmProto.SSHAuth) {
 		return
 	}
 
-	// Convert proto uint64 to UserIDHash
 	protoUsers := sshAuth.GetAuthorizedUsers()
 	authorizedUsers := make([]sshuserhash.UserIDHash, len(protoUsers))
 	for i, hash := range protoUsers {
+		if len(hash) != 16 {
+			log.Warnf("invalid hash length %d, expected 16 - skipping SSH server auth update", len(hash))
+			return
+		}
 		authorizedUsers[i] = sshuserhash.UserIDHash(hash)
 	}
 
