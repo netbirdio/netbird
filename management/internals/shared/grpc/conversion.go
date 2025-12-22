@@ -119,7 +119,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 			Serial:     networkMap.Network.CurrentSerial(),
 			Routes:     toProtocolRoutes(networkMap.Routes),
 			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -167,9 +167,9 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	return response
 }
 
-func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([]uint64, map[string]*proto.MachineUserIndexes) {
+func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {
 	userIDToIndex := make(map[string]uint32)
-	var hashedUsers []uint64
+	var hashedUsers [][]byte
 	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
 
 	users, ok := authorizedUsers[auth.Wildcard]
@@ -191,7 +191,7 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 				}
 				idx = uint32(len(hashedUsers))
 				userIDToIndex[userID] = idx
-				hashedUsers = append(hashedUsers, uint64(hash))
+				hashedUsers = append(hashedUsers, hash[:])
 			}
 			indexes = append(indexes, idx)
 		}
