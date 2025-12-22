@@ -18,6 +18,8 @@ type UserAuth struct {
 
 	// The user id
 	UserId string
+	// The user's email address (optional, may be empty if not in token)
+	Email string
 	// Last login time for this user
 	LastLogin time.Time
 	// The Groups the user belongs to on this account

@@ -1,8 +1,12 @@
 package jwt
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -34,6 +38,12 @@ var (
 type ClaimsExtractor struct {
 	authAudience string
 	userIDClaim  string
+
+	// userinfo endpoint fetching
+	userInfoDiscoveryURL string
+	httpClient           *http.Client
+	userInfoMu           sync.Mutex
+	userInfoEndpoint     string
 }
 
 // ClaimsExtractorOption is a function that configures the ClaimsExtractor
@@ -50,6 +60,16 @@ func WithAudience(audience string) ClaimsExtractorOption {
 func WithUserIDClaim(userIDClaim string) ClaimsExtractorOption {
 	return func(c *ClaimsExtractor) {
 		c.userIDClaim = userIDClaim
+	}
+}
+
+// WithUserInfoDiscoveryURL sets the OIDC discovery URL for fetching userinfo endpoint
+func WithUserInfoDiscoveryURL(discoveryURL string) ClaimsExtractorOption {
+	return func(c *ClaimsExtractor) {
+		c.userInfoDiscoveryURL = discoveryURL
+		c.httpClient = &http.Client{
+			Timeout: time.Second,
+		}
 	}
 }
 
@@ -78,17 +98,19 @@ func parseTime(timeString string) time.Time {
 	return parsedTime
 }
 
-func (c ClaimsExtractor) audienceClaim(claimName string) string {
-	url, err := url.JoinPath(c.authAudience, claimName)
+func (c *ClaimsExtractor) audienceClaim(claimName string) string {
+	audienceURL, err := url.JoinPath(c.authAudience, claimName)
 	if err != nil {
 		return c.authAudience + claimName // as it was previously
 	}
 
-	return url
+	return audienceURL
 }
 
-// ToUserAuth extracts user authentication information from a JWT token
-func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
+// ToUserAuth extracts user authentication information from a JWT token.
+// If email is not in token claims and userinfo discovery URL is configured,
+// it will fetch the email from the OIDC userinfo endpoint.
+func (c *ClaimsExtractor) ToUserAuth(ctx context.Context, token *jwt.Token) (auth.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	userAuth := auth.UserAuth{}
 
@@ -120,20 +142,96 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 		}
 	}
 
+	// Extract email from standard "email" claim
+	if email, ok := claims["email"].(string); ok {
+		userAuth.Email = email
+	}
+
+	// If email not in claims and userinfo is configured, fetch from userinfo endpoint
+	if userAuth.Email == "" && c.userInfoDiscoveryURL != "" {
+		email, err := c.fetchEmailFromUserInfo(ctx, token.Raw)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to fetch email from /userinfo endpoint: %v", err)
+		} else {
+			userAuth.Email = email
+		}
+	}
+
 	return userAuth, nil
 }
 
-// ToEmail extracts email from a JWT token claims
-// Returns empty string if email claim is not present
-func (c *ClaimsExtractor) ToEmail(token *jwt.Token) string {
-	claims := token.Claims.(jwt.MapClaims)
-
-	// Try standard "email" claim first
-	if email, ok := claims["email"].(string); ok && email != "" {
-		return email
+// fetchEmailFromUserInfo fetches the user's email from the OIDC userinfo endpoint
+func (c *ClaimsExtractor) fetchEmailFromUserInfo(ctx context.Context, accessToken string) (string, error) {
+	userInfoEndpoint, err := c.getUserInfoEndpoint(ctx)
+	if err != nil {
+		return "", err
 	}
 
-	return ""
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoEndpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New("userinfo endpoint returned non-200 status")
+	}
+
+	var userInfo struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		return "", err
+	}
+
+	return userInfo.Email, nil
+}
+
+// getUserInfoEndpoint returns the cached userinfo endpoint, discovering it on first call
+func (c *ClaimsExtractor) getUserInfoEndpoint(ctx context.Context) (string, error) {
+	if c.userInfoEndpoint != "" {
+		return c.userInfoEndpoint, nil
+	}
+
+	c.userInfoMu.Lock()
+	defer c.userInfoMu.Unlock()
+
+	// Discover userinfo endpoint from OIDC discovery document
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.userInfoDiscoveryURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New("OIDC discovery returned non-200 status")
+	}
+
+	var discovery struct {
+		UserinfoEndpoint string `json:"userinfo_endpoint"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
+		return "", err
+	}
+
+	if discovery.UserinfoEndpoint == "" {
+		return "", errors.New("userinfo_endpoint not found in OIDC discovery document")
+	}
+
+	c.userInfoEndpoint = discovery.UserinfoEndpoint
+	log.WithContext(ctx).Infof("discovered userinfo endpoint: %s", c.userInfoEndpoint)
+	return c.userInfoEndpoint, nil
 }
 
 // ToGroups extracts group information from a JWT token

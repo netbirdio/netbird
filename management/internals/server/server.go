@@ -284,6 +284,17 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
 		case strings.HasPrefix(request.URL.Path, "/dex/"):
+			// Add CORS headers for DEX endpoints (needed for browser-based OIDC flows)
+			writer.Header().Set("Access-Control-Allow-Origin", "*")
+			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			// Handle preflight OPTIONS request
+			if request.Method == http.MethodOptions {
+				writer.WriteHeader(http.StatusOK)
+				return
+			}
+
 			if s.embeddedIdp != nil {
 				s.embeddedIdp.Handler().ServeHTTP(writer, request)
 			} else {
