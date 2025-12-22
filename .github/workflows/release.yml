@@ -38,7 +38,7 @@ jobs:
           VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Generated files for version: $VERSION"
-          cat netbird-*.diff
+          cat "$DIFF_FILE"
 
       - name: Test FreeBSD port
         uses: vmactions/freebsd-vm@v1
@@ -69,7 +69,7 @@ jobs:
             DIFF_FILE=$(find $PWD -name "netbird-*.diff" -type f 2>/dev/null | head -1)
             echo "Found: $DIFF_FILE"
 
-            if [ -z "$DIFF_FILE" ]; then
+            if [[ -z "$DIFF_FILE" ]]; then
               echo "ERROR: Could not find diff file"
               find ~ -name "*.diff" -type f 2>/dev/null || true
               exit 1
@@ -87,7 +87,7 @@ jobs:
             make package
             pkg add ./work/pkg/netbird-*.pkg
             
-            netbird version | grep $version
+            netbird version | grep "$version"
 
             echo "FreeBSD port test completed successfully!"
 

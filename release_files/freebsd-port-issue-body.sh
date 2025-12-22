@@ -21,11 +21,12 @@ fetch_current_ports_version() {
     echo "Fetching current version from FreeBSD ports..." >&2
     local makefile_content
     makefile_content=$(curl -sL "$PORTS_CGIT_URL" 2>/dev/null)
-    if [ -z "$makefile_content" ]; then
+    if [[ -z "$makefile_content" ]]; then
         echo "Error: Could not fetch Makefile from FreeBSD ports" >&2
         return 1
     fi
     echo "$makefile_content" | grep -E "^DISTVERSION=" | sed 's/DISTVERSION=[[:space:]]*//' | tr -d '\t '
+    return 0
 }
 
 fetch_all_tags() {
@@ -34,6 +35,7 @@ fetch_all_tags() {
         grep -oE '/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+' | \
         sed 's/.*\/v//' | \
         sort -u -V
+    return 0
 }
 
 fetch_latest_github_release() {
@@ -43,25 +45,26 @@ fetch_latest_github_release() {
     # Fetch from GitHub tags page
     latest=$(fetch_all_tags | tail -1)
 
-    if [ -z "$latest" ]; then
+    if [[ -z "$latest" ]]; then
         # Fallback to GitHub API
         latest=$(curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | \
             grep '"tag_name"' | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')
     fi
 
-    if [ -z "$latest" ]; then
+    if [[ -z "$latest" ]]; then
         echo "Error: Could not fetch latest release from GitHub" >&2
         return 1
     fi
     echo "$latest"
+    return 0
 }
 
 OLD_VERSION="${1:-}"
 NEW_VERSION="${2:-}"
 
-if [ -z "$OLD_VERSION" ]; then
+if [[ -z "$OLD_VERSION" ]]; then
     OLD_VERSION=$(fetch_current_ports_version)
-    if [ -z "$OLD_VERSION" ]; then
+    if [[ -z "$OLD_VERSION" ]]; then
         echo "Error: Could not determine old version. Please provide it manually." >&2
         echo "Usage: $0 <old_version> <new_version>" >&2
         exit 1
@@ -69,9 +72,9 @@ if [ -z "$OLD_VERSION" ]; then
     echo "Detected OLD version from FreeBSD ports: $OLD_VERSION" >&2
 fi
 
-if [ -z "$NEW_VERSION" ]; then
+if [[ -z "$NEW_VERSION" ]]; then
     NEW_VERSION=$(fetch_latest_github_release)
-    if [ -z "$NEW_VERSION" ]; then
+    if [[ -z "$NEW_VERSION" ]]; then
         echo "Error: Could not determine new version. Please provide it manually." >&2
         echo "Usage: $0 <old_version> <new_version>" >&2
         exit 1
@@ -79,7 +82,7 @@ if [ -z "$NEW_VERSION" ]; then
     echo "Detected NEW version from GitHub: $NEW_VERSION" >&2
 fi
 
-if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+if [[ "$OLD_VERSION" = "$NEW_VERSION" ]]; then
     echo "Warning: OLD and NEW versions are the same ($OLD_VERSION). Port may already be up to date." >&2
 fi
 
@@ -93,12 +96,13 @@ fetch_releases_between_versions() {
     # Fetch all tags and filter to those between OLD and NEW versions
     fetch_all_tags | \
         while read -r ver; do
-            if [ "$(printf '%s\n' "$OLD_VERSION" "$ver" | sort -V | head -n1)" = "$OLD_VERSION" ] && \
-               [ "$(printf '%s\n' "$ver" "$NEW_VERSION" | sort -V | head -n1)" = "$ver" ] && \
-               [ "$ver" != "$OLD_VERSION" ]; then
+            if [[ "$(printf '%s\n' "$OLD_VERSION" "$ver" | sort -V | head -n1)" = "$OLD_VERSION" ]] && \
+               [[ "$(printf '%s\n' "$ver" "$NEW_VERSION" | sort -V | head -n1)" = "$ver" ]] && \
+               [[ "$ver" != "$OLD_VERSION" ]]; then
                 echo "$ver"
             fi
         done
+    return 0
 }
 
 generate_changelog_section() {
@@ -106,13 +110,14 @@ generate_changelog_section() {
     releases=$(fetch_releases_between_versions)
 
     echo "Changelogs:"
-    if [ -n "$releases" ]; then
+    if [[ -n "$releases" ]]; then
         echo "$releases" | while read -r ver; do
             echo "https://github.com/${GITHUB_REPO}/releases/tag/v${ver}"
         done
     else
         echo "https://github.com/${GITHUB_REPO}/releases/tag/v${NEW_VERSION}"
     fi
+    return 0
 }
 
 OUTPUT_FILE="${OUTPUT_DIR}/netbird-${NEW_VERSION}-issue.txt"
