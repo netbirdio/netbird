@@ -160,6 +160,8 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 
 	// blocking until error
 	err = c.receiveEvents(stream, serverPubKey, msgHandler)
+	// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
+	// reset times and next try will start with a long delay
 	backOff.Reset()
 	if err != nil {
 		c.notifyDisconnected(err)
