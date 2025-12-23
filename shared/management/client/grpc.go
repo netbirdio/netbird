@@ -112,7 +112,6 @@ func (c *GrpcClient) ready() bool {
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	backOff := defaultBackoff(ctx)
-	backOff.Reset()
 
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
@@ -157,7 +156,6 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	}
 
 	log.Infof("connected to the Management Service stream")
-
 	c.notifyConnected()
 
 	// blocking until error
