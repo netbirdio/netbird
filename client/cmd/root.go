@@ -85,12 +85,16 @@ var (
 
 // Execute executes the root command.
 func Execute() error {
-	if isUpdateBinary() {
-		return updateCmd.Execute()
-	}
 	return rootCmd.Execute()
 }
 
+// init initializes package-level defaults and configures the root CLI command.
+// It sets OS-specific default paths for configuration and logs, determines the default
+// daemon address, registers persistent CLI flags (daemon address, management/admin URLs,
+// logging, setup key options, pre-shared key, hostname, anonymization, and config path),
+// and wires up all top-level and nested subcommands. It also defines upCmd-specific
+// flags for external IP mapping, custom DNS resolver address, Rosenpass options,
+// auto-connect control, and lazy connection.
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
@@ -144,6 +148,7 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(kubeconfigCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)

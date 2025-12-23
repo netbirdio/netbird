@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -84,6 +83,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
+// toPeerConfig builds a proto.PeerConfig from internal peer, network, DNS name, and settings.
+// 
+// The returned PeerConfig includes the peer's IP with network mask, FQDN, SSH configuration
+// (including JWT config when SSH is enabled), and flags for routing DNS resolution and lazy connections.
 func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
@@ -102,20 +105,25 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
-		AutoUpdate: &proto.AutoUpdateSettings{
-			Version: settings.AutoUpdateVersion,
-		},
 	}
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+// ToSyncResponse constructs a proto.SyncResponse that bundles the peer's runtime configuration,
+// network map (routes, DNS, peer lists, firewall and forwarding rules), Netbird configuration,
+// and posture checks for a sync operation.
+//
+// The response includes PeerConfig, NetworkMap (with Serial, Routes, DNSConfig, PeerConfig,
+// RemotePeers, OfflinePeers, FirewallRules, RoutesFirewallRules, and ForwardingRules when present),
+// NetbirdConfig (extended with integrations), and Checks. Remote peer lists' "IsEmpty" flags are
+// set based on their lengths. If remotePeerGroupsLookup is non-nil, each remote peer's Groups and
+// UserId fields are populated using GetPeerGroupNames for that peer.
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, remotePeerGroupsLookup PeerGroupsLookup) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
 		NetworkMap: &proto.NetworkMap{
-			Serial:     networkMap.Network.CurrentSerial(),
-			Routes:     toProtocolRoutes(networkMap.Routes),
-			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
+			Serial:    networkMap.Network.CurrentSerial(),
+			Routes:    toProtocolRoutes(networkMap.Routes),
+			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -127,13 +135,13 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, remotePeerGroupsLookup)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, remotePeerGroupsLookup)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -154,14 +162,58 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	return response
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+// PeerGroupsLookup provides group names for a peer ID
+type PeerGroupsLookup interface {
+	GetPeerGroupNames(peerID string) []string
+}
+
+// AccountPeerGroupsLookup implements PeerGroupsLookup using a pre-built reverse index
+// for O(1) lookup performance instead of O(N*M) iteration.
+type AccountPeerGroupsLookup struct {
+	peerToGroups map[string][]string
+}
+
+// NewAccountPeerGroupsLookup creates a new AccountPeerGroupsLookup from an Account.
+// NewAccountPeerGroupsLookup builds an AccountPeerGroupsLookup containing a reverse index
+// from peer ID to the names of groups that include that peer. If account is nil, it returns nil.
+func NewAccountPeerGroupsLookup(account *types.Account) *AccountPeerGroupsLookup {
+	if account == nil {
+		return nil
+	}
+	peerToGroups := make(map[string][]string)
+	for _, group := range account.Groups {
+		for _, peerID := range group.Peers {
+			peerToGroups[peerID] = append(peerToGroups[peerID], group.Name)
+		}
+	}
+	return &AccountPeerGroupsLookup{peerToGroups: peerToGroups}
+}
+
+// GetPeerGroupNames returns the group names for a given peer ID.
+// Returns nil if the peer is not found in any group.
+func (a *AccountPeerGroupsLookup) GetPeerGroupNames(peerID string) []string {
+	if a == nil || a.peerToGroups == nil {
+		return nil
+	}
+	return a.peerToGroups[peerID]
+}
+
+// appendRemotePeerConfig appends a RemotePeerConfig for each peer in peers to dst.
+// For each peer it adds a RemotePeerConfig populated with the WireGuard public key, an /32 allowed IP derived from the peer IP, SSH public key, FQDN (computed using dnsName), agent version, group names retrieved from groupsLookup when provided, and the user ID, and returns the extended slice.
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, groupsLookup PeerGroupsLookup) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
+		var groups []string
+		if groupsLookup != nil {
+			groups = groupsLookup.GetPeerGroupNames(rPeer.ID)
+		}
 		dst = append(dst, &proto.RemotePeerConfig{
 			WgPubKey:     rPeer.Key,
 			AllowedIps:   []string{rPeer.IP.String() + "/32"},
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.Meta.WtVersion,
+			Groups:       groups,
+			UserId:       rPeer.UserID,
 		})
 	}
 	return dst
