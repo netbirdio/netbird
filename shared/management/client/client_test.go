@@ -313,7 +313,7 @@ func TestClient_Sync(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		err = client.Sync(ctx, info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(ctx, info, 0, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})

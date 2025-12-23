@@ -13,7 +13,7 @@ import (
 
 type Client interface {
 	io.Closer
-	Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
+	Sync(ctx context.Context, sysInfo *system.Info, networkSerial uint64, msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKey() (*wgtypes.Key, error)
 	Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	Login(serverKey wgtypes.Key, sysInfo *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)

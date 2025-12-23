@@ -824,7 +824,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	nm := update.GetNetworkMap()
-	if nm == nil {
+	if nm == nil || update.SkipNetworkMapUpdate {
 		return nil
 	}
 
@@ -990,7 +990,7 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.DisableSSHAuth,
 		)
 
-		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err = e.mgmClient.Sync(e.ctx, info, e.networkSerial, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
