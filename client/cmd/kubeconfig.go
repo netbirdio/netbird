@@ -48,6 +48,8 @@ func init() {
 	_ = kubeconfigCmd.MarkFlagRequired("server")
 }
 
+// kubeconfigFunc generates a kubeconfig file for accessing Kubernetes via the NetBird auth proxy.
+// It verifies NetBird connectivity and creates a kubeconfig with the appropriate server URL.
 func kubeconfigFunc(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
@@ -104,6 +106,8 @@ func kubeconfigFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// generateKubeconfig creates a kubeconfig YAML string with the given parameters.
+// The config uses insecure-skip-tls-verify since traffic is encrypted via WireGuard.
 func generateKubeconfig(server, cluster, context, user, namespace string) string {
 	return fmt.Sprintf(`apiVersion: v1
 kind: Config
