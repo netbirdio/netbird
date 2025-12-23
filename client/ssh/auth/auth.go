@@ -13,6 +13,8 @@ import (
 const (
 	// DefaultUserIDClaim is the default JWT claim used to extract user IDs
 	DefaultUserIDClaim = "sub"
+	// Wildcard is a special user ID that matches all users
+	Wildcard = "*"
 )
 
 var (
@@ -121,7 +123,19 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 		return ErrUserNotAuthorized
 	}
 
-	// Check machine user mapping
+	return a.checkMachineUserMapping(jwtUserID, osUsername, userIndex)
+}
+
+// checkMachineUserMapping validates if a user's index is authorized for the specified OS user
+// Checks wildcard mapping first, then specific OS user mappings
+func (a *Authorizer) checkMachineUserMapping(jwtUserID, osUsername string, userIndex int) error {
+	// If wildcard exists, allow any authorized user to access any OS user
+	if _, hasWildcard := a.machineUsers[Wildcard]; hasWildcard {
+		log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' via wildcard (index: %d)", jwtUserID, osUsername, userIndex)
+		return nil
+	}
+
+	// Check for specific OS username mapping
 	allowedIndexes, hasMachineUserMapping := a.machineUsers[osUsername]
 	if !hasMachineUserMapping {
 		// No mapping for this OS user - deny by default (fail closed)
@@ -129,7 +143,7 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 		return ErrNoMachineUserMapping
 	}
 
-	// Check if user's index is in the allowed indexes for this OS user
+	// Check if user's index is in the allowed indexes for this specific OS user
 	if !a.isIndexInList(uint32(userIndex), allowedIndexes) {
 		log.Warnf("SSH auth denied: user '%s' not mapped to OS user '%s' (user index: %d)", jwtUserID, osUsername, userIndex)
 		return ErrUserNotMappedToOSUser
