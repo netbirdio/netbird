@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 var (
@@ -60,6 +61,14 @@ func (s *BaseServer) Store() store.Store {
 		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
+		}
+
+		if s.Config.DataStoreEncryptionKey != "" {
+			fieldEncrypt, err := crypt.NewFieldEncrypt(s.Config.DataStoreEncryptionKey)
+			if err != nil {
+				log.Fatalf("failed to create field encryptor: %v", err)
+			}
+			store.SetFieldEncrypt(fieldEncrypt)
 		}
 
 		return store

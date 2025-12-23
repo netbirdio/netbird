@@ -2090,7 +2090,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := types.NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID, "", "")
 	owner.AccountID = accountID
 	users[userID] = owner
 

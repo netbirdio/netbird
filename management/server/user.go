@@ -40,7 +40,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	}
 
 	newUserID := uuid.New().String()
-	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI)
+	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI, "", "")
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
@@ -823,7 +823,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 	account, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err = am.newAccount(ctx, userID, lowerDomain)
+			account, err = am.newAccount(ctx, userID, lowerDomain, "", "")
 			if err != nil {
 				return nil, err
 			}
