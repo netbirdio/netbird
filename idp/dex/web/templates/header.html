@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
     <title>{{ issuer }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="{{ url .ReqPath "theme/favicon.png" }}">
+    <link rel="icon" type="image/x-icon" href="{{ url .ReqPath "theme/favicon.ico" }}">
     <style>
         *,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}
         html,body{margin:0;padding:0;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:14px;line-height:1.5;background-color:#18191d;color:#e4e7e9;min-height:100vh}
@@ -22,7 +22,7 @@
         .nb-btn{width:100%;padding:12px 20px;background-color:#f68330;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background-color .2s}
         .nb-btn:hover{background-color:#e5722a}
         .nb-btn:disabled{opacity:.6;cursor:not-allowed}
-        .nb-btn-connector{width:100%;padding:12px 20px;background-color:rgba(63,68,75,.5);border:1px solid rgba(63,68,75,.8);border-radius:8px;color:#e4e7e9;font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;margin-bottom:12px}
+        .nb-btn-connector{width:100%;padding:12px 20px;background-color:rgba(63,68,75,.5);border:1px solid rgba(63,68,75,.8);border-radius:8px;color:#e4e7e9;font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;text-decoration:none;margin-bottom:12px}
         .nb-btn-connector:hover{background-color:rgba(63,68,75,.8);border-color:rgba(63,68,75,1)}
         .nb-error{background-color:rgba(153,27,27,.2);border:1px solid rgba(153,27,27,.5);border-radius:8px;padding:12px 16px;color:#f87171;font-size:13px;text-align:center;margin-bottom:16px}
         .nb-link{color:#f68330;text-decoration:none;font-size:13px}
