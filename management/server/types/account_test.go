@@ -1136,6 +1136,7 @@ func Test_GetActiveGroupUsers(t *testing.T) {
 				"group1": {"user1", "user3"},
 				"group2": {"user1", "user2"},
 				"group3": {"user2"},
+				"":       {"user1", "user2", "user3"},
 			},
 		},
 		{
@@ -1163,6 +1164,7 @@ func Test_GetActiveGroupUsers(t *testing.T) {
 				"group1": {"user1", "user3"},
 				"group2": {"user1"},
 				"group3": {"user3"},
+				"":       {"user1", "user3"},
 			},
 		},
 		{
@@ -1201,6 +1203,7 @@ func Test_GetActiveGroupUsers(t *testing.T) {
 			},
 			expected: map[string][]string{
 				"group1": {"user2"},
+				"":       {"user1", "user2"},
 			},
 		},
 		{
@@ -1233,6 +1236,7 @@ func Test_GetActiveGroupUsers(t *testing.T) {
 			},
 			expected: map[string][]string{
 				"group1": {"user1", "user2", "user3"},
+				"":       {"user1", "user2", "user3"},
 			},
 		},
 		{
@@ -1260,6 +1264,7 @@ func Test_GetActiveGroupUsers(t *testing.T) {
 				"group1": {"user1"},
 				"group2": {"user1"},
 				"group3": {"user1", "user3"},
+				"":       {"user1", "user3"},
 			},
 		},
 	}
