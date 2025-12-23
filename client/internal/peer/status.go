@@ -262,7 +262,8 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 	d.peerListChangedForNotification = true
 }
 
-// AddPeer adds peer to Daemon status map
+// AddPeer adds peer to Daemon status map.
+// The groups slice is cloned to prevent caller from modifying internal state.
 func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, groups []string, userId string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
@@ -271,13 +272,18 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, groups []str
 	if ok {
 		return errors.New("peer already exist")
 	}
+
+	// Clone the groups slice to prevent caller from modifying internal state
+	groupsCopy := make([]string, len(groups))
+	copy(groupsCopy, groups)
+
 	d.peers[peerPubKey] = State{
 		PubKey:     peerPubKey,
 		IP:         ip,
 		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
-		Groups:     groups,
+		Groups:     groupsCopy,
 		UserId:     userId,
 	}
 	d.peerListChangedForNotification = true
