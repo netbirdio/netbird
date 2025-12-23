@@ -438,19 +438,45 @@ func (p *Provider) Handler() http.Handler {
 	return p.dexServer
 }
 
-// CreateUser creates a new user with the given email, username, and password
-func (p *Provider) CreateUser(ctx context.Context, email, username, password string) error {
+// CreateUser creates a new user with the given email, username, and password.
+// Returns the generated user ID.
+func (p *Provider) CreateUser(ctx context.Context, email, username, password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+		return "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	return p.storage.CreatePassword(ctx, storage.Password{
+	userID := uuid.New().String()
+	err = p.storage.CreatePassword(ctx, storage.Password{
 		Email:    email,
 		Username: username,
-		UserID:   uuid.New().String(),
+		UserID:   userID,
 		Hash:     hash,
 	})
+	if err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
+// GetUser returns a user by email
+func (p *Provider) GetUser(ctx context.Context, email string) (storage.Password, error) {
+	return p.storage.GetPassword(ctx, email)
+}
+
+// GetUserByID returns a user by user ID.
+// Note: This requires iterating through all users since dex storage doesn't index by userID.
+func (p *Provider) GetUserByID(ctx context.Context, userID string) (storage.Password, error) {
+	users, err := p.storage.ListPasswords(ctx)
+	if err != nil {
+		return storage.Password{}, fmt.Errorf("failed to list users: %w", err)
+	}
+	for _, user := range users {
+		if user.UserID == userID {
+			return user, nil
+		}
+	}
+	return storage.Password{}, storage.ErrNotFound
 }
 
 // DeleteUser removes a user by email

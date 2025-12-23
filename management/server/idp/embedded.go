@@ -1,0 +1,126 @@
+package idp
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/dexidp/dex/storage"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+)
+
+// Compile-time check that EmbeddedIdPManager implements Manager interface
+var _ Manager = (*EmbeddedIdPManager)(nil)
+
+// EmbeddedIdPManager implements the Manager interface using the embedded Dex IdP.
+type EmbeddedIdPManager struct {
+	provider   *dex.Provider
+	appMetrics telemetry.AppMetrics
+}
+
+// EmbeddedIdPConfig holds configuration for the embedded IdP manager.
+type EmbeddedIdPConfig struct {
+	// Provider is the embedded Dex provider instance
+	Provider *dex.Provider
+}
+
+// NewEmbeddedIdPManager creates a new instance of EmbeddedIdPManager.
+func NewEmbeddedIdPManager(config EmbeddedIdPConfig, appMetrics telemetry.AppMetrics) (*EmbeddedIdPManager, error) {
+	if config.Provider == nil {
+		return nil, fmt.Errorf("embedded IdP configuration is incomplete, Provider is missing")
+	}
+
+	return &EmbeddedIdPManager{
+		provider:   config.Provider,
+		appMetrics: appMetrics,
+	}, nil
+}
+
+// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
+func (m *EmbeddedIdPManager) UpdateUserAppMetadata(ctx context.Context, userID string, appMetadata AppMetadata) error {
+	// TODO: implement
+	return nil
+}
+
+// GetUserDataByID requests user data from the embedded IdP via user ID.
+func (m *EmbeddedIdPManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
+	// TODO: implement
+	return nil, fmt.Errorf("not implemented")
+}
+
+// GetAccount returns all the users for a given account.
+func (m *EmbeddedIdPManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
+	// TODO: implement
+	return nil, fmt.Errorf("not implemented")
+}
+
+// GetAllAccounts gets all registered accounts with corresponding user data.
+func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
+	// TODO: implement
+	return nil, fmt.Errorf("not implemented")
+}
+
+// CreateUser creates a new user in the embedded IdP.
+func (m *EmbeddedIdPManager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
+	if m.appMetrics != nil {
+		m.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	// Check if user already exists
+	_, err := m.provider.GetUser(ctx, email)
+	if err == nil {
+		return nil, fmt.Errorf("user with email %s already exists", email)
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to check existing user: %w", err)
+	}
+
+	// Generate a random password for the new user
+	password := GeneratePassword(16, 2, 2, 2)
+
+	// Create the user via provider (handles hashing and ID generation)
+	userID, err := m.provider.CreateUser(ctx, email, name, password)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
+	}
+
+	log.WithContext(ctx).Debugf("created user %s in embedded IdP", email)
+
+	return &UserData{
+		Email:    email,
+		Name:     name,
+		ID:       userID,
+		Password: password,
+		AppMetadata: AppMetadata{
+			WTAccountID: accountID,
+			WTInvitedBy: invitedByEmail,
+		},
+	}, nil
+}
+
+// GetUserByEmail searches users with a given email.
+func (m *EmbeddedIdPManager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
+	// TODO: implement
+	return nil, fmt.Errorf("not implemented")
+}
+
+// InviteUserByID resends an invitation to a user.
+func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) error {
+	// TODO: implement
+	return fmt.Errorf("not implemented")
+}
+
+// DeleteUser deletes a user from the embedded IdP by user ID.
+func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) error {
+	// TODO: implement
+	return fmt.Errorf("not implemented")
+}
