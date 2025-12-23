@@ -13,6 +13,8 @@ import (
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/storage"
 	"github.com/dexidp/dex/storage/sql"
+
+	"github.com/netbirdio/netbird/idp/dex/web"
 )
 
 // YAMLConfig represents the YAML configuration file format (mirrors dex's config format)
@@ -213,6 +215,11 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 			Dir:     c.Frontend.Dir,
 			Extra:   c.Frontend.Extra,
 		},
+	}
+
+	// Use embedded NetBird-styled templates if no custom dir specified
+	if c.Frontend.Dir == "" {
+		cfg.Web.WebFS = web.FS()
 	}
 
 	if len(c.OAuth2.ResponseTypes) > 0 {

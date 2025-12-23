@@ -1,0 +1,14 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <h1 class="nb-heading">Sign in</h1>
+    <p class="nb-subheading">Choose your login method</p>
+
+    {{ range $c := .Connectors }}
+    <a href="{{ $c.URL }}" class="nb-btn-connector">
+        Log in with {{ $c.Name }}
+    </a>
+    {{ end }}
+</div>
+
+{{ template "footer.html" . }}
