@@ -3,11 +3,14 @@ package accounts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"time"
 
 	"github.com/gorilla/mux"
+
+	goversion "github.com/hashicorp/go-version"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -26,7 +29,9 @@ const (
 	// MinNetworkBits is the minimum prefix length for IPv4 network ranges (e.g., /29 gives 8 addresses, /28 gives 16)
 	MinNetworkBitsIPv4 = 28
 	// MinNetworkBitsIPv6 is the minimum prefix length for IPv6 network ranges
-	MinNetworkBitsIPv6 = 120
+	MinNetworkBitsIPv6      = 120
+	disableAutoUpdate       = "disabled"
+	autoUpdateLatestVersion = "latest"
 )
 
 // handler is a handler that handles the server.Account HTTP endpoints
@@ -162,6 +167,61 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
+func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJSONRequestBody) (*types.Settings, error) {
+	returnSettings := &types.Settings{
+		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
+		RegularUsersViewBlocked:    req.Settings.RegularUsersViewBlocked,
+
+		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
+		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
+	}
+
+	if req.Settings.Extra != nil {
+		returnSettings.Extra = &types.ExtraSettings{
+			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
+			UserApprovalRequired:     req.Settings.Extra.UserApprovalRequired,
+			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
+			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
+		}
+	}
+
+	if req.Settings.JwtGroupsEnabled != nil {
+		returnSettings.JWTGroupsEnabled = *req.Settings.JwtGroupsEnabled
+	}
+	if req.Settings.GroupsPropagationEnabled != nil {
+		returnSettings.GroupsPropagationEnabled = *req.Settings.GroupsPropagationEnabled
+	}
+	if req.Settings.JwtGroupsClaimName != nil {
+		returnSettings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
+	}
+	if req.Settings.JwtAllowGroups != nil {
+		returnSettings.JWTAllowGroups = *req.Settings.JwtAllowGroups
+	}
+	if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
+		returnSettings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
+	}
+	if req.Settings.DnsDomain != nil {
+		returnSettings.DNSDomain = *req.Settings.DnsDomain
+	}
+	if req.Settings.LazyConnectionEnabled != nil {
+		returnSettings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
+	}
+	if req.Settings.AutoUpdateVersion != nil {
+		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
+		if *req.Settings.AutoUpdateVersion == autoUpdateLatestVersion ||
+			*req.Settings.AutoUpdateVersion == disableAutoUpdate ||
+			err == nil {
+			returnSettings.AutoUpdateVersion = *req.Settings.AutoUpdateVersion
+		} else if *req.Settings.AutoUpdateVersion != "" {
+			return nil, fmt.Errorf("invalid AutoUpdateVersion")
+		}
+	}
+
+	return returnSettings, nil
+}
+
 // updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
@@ -186,45 +246,10 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settings := &types.Settings{
-		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
-		RegularUsersViewBlocked:    req.Settings.RegularUsersViewBlocked,
-
-		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
-		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
-	}
-
-	if req.Settings.Extra != nil {
-		settings.Extra = &types.ExtraSettings{
-			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
-			UserApprovalRequired:     req.Settings.Extra.UserApprovalRequired,
-			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
-			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
-			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
-		}
-	}
-
-	if req.Settings.JwtGroupsEnabled != nil {
-		settings.JWTGroupsEnabled = *req.Settings.JwtGroupsEnabled
-	}
-	if req.Settings.GroupsPropagationEnabled != nil {
-		settings.GroupsPropagationEnabled = *req.Settings.GroupsPropagationEnabled
-	}
-	if req.Settings.JwtGroupsClaimName != nil {
-		settings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
-	}
-	if req.Settings.JwtAllowGroups != nil {
-		settings.JWTAllowGroups = *req.Settings.JwtAllowGroups
-	}
-	if req.Settings.RoutingPeerDnsResolutionEnabled != nil {
-		settings.RoutingPeerDNSResolutionEnabled = *req.Settings.RoutingPeerDnsResolutionEnabled
-	}
-	if req.Settings.DnsDomain != nil {
-		settings.DNSDomain = *req.Settings.DnsDomain
-	}
-	if req.Settings.LazyConnectionEnabled != nil {
-		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
+	settings, err := h.updateAccountRequestSettings(req)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
 		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
@@ -313,6 +338,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
+		AutoUpdateVersion:               &settings.AutoUpdateVersion,
 	}
 
 	if settings.NetworkRange.IsValid() {

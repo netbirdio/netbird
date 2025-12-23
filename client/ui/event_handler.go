@@ -80,7 +80,7 @@ func (h *eventHandler) handleConnectClick() {
 	go func() {
 		defer connectCancel()
 
-		if err := h.client.menuUpClick(connectCtx); err != nil {
+		if err := h.client.menuUpClick(connectCtx, true); err != nil {
 			st, ok := status.FromError(err)
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
@@ -185,7 +185,7 @@ func (h *eventHandler) handleAdvancedSettingsClick() {
 	go func() {
 		defer h.client.mAdvancedSettings.Enable()
 		defer h.client.getSrvConfig()
-		h.runSelfCommand(h.client.ctx, "settings", "true")
+		h.runSelfCommand(h.client.ctx, "settings")
 	}()
 }
 
@@ -193,7 +193,7 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 	h.client.mCreateDebugBundle.Disable()
 	go func() {
 		defer h.client.mCreateDebugBundle.Enable()
-		h.runSelfCommand(h.client.ctx, "debug", "true")
+		h.runSelfCommand(h.client.ctx, "debug")
 	}()
 }
 
@@ -217,7 +217,7 @@ func (h *eventHandler) handleNetworksClick() {
 	h.client.mNetworks.Disable()
 	go func() {
 		defer h.client.mNetworks.Enable()
-		h.runSelfCommand(h.client.ctx, "networks", "true")
+		h.runSelfCommand(h.client.ctx, "networks")
 	}()
 }
 
@@ -237,17 +237,21 @@ func (h *eventHandler) updateConfigWithErr() error {
 	return nil
 }
 
-func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) {
+func (h *eventHandler) runSelfCommand(ctx context.Context, command string, args ...string) {
 	proc, err := os.Executable()
 	if err != nil {
 		log.Errorf("error getting executable path: %v", err)
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, proc,
-		fmt.Sprintf("--%s=%s", command, arg),
+	// Build the full command arguments
+	cmdArgs := []string{
+		fmt.Sprintf("--%s=true", command),
 		fmt.Sprintf("--daemon-addr=%s", h.client.addr),
-	)
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.CommandContext(ctx, proc, cmdArgs...)
 
 	if out := h.client.attachOutput(cmd); out != nil {
 		defer func() {
@@ -257,17 +261,17 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) 
 		}()
 	}
 
-	log.Printf("running command: %s --%s=%s --daemon-addr=%s", proc, command, arg, h.client.addr)
+	log.Printf("running command: %s", cmd.String())
 
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			log.Printf("command '%s %s' failed with exit code %d", command, arg, exitErr.ExitCode())
+			log.Printf("command '%s' failed with exit code %d", cmd.String(), exitErr.ExitCode())
 		}
 		return
 	}
 
-	log.Printf("command '%s %s' completed successfully", command, arg)
+	log.Printf("command '%s' completed successfully", cmd.String())
 }
 
 func (h *eventHandler) logout(ctx context.Context) error {
