@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -461,7 +462,11 @@ func (p *SSHProxy) tcpipForwardHandler(sshCtx ssh.Context, _ *ssh.Server, req *c
 	}
 
 	if ok {
-		log.Debugf("remote port forwarding established for %s:%d", reqPayload.Host, reqPayload.Port)
+		actualPort := reqPayload.Port
+		if reqPayload.Port == 0 && len(payload) >= 4 {
+			actualPort = binary.BigEndian.Uint32(payload)
+		}
+		log.Debugf("remote port forwarding established for %s:%d", reqPayload.Host, actualPort)
 		p.forwardedChannelsOnce.Do(func() {
 			go p.handleForwardedChannels(sshCtx, backendClient)
 		})

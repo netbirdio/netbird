@@ -1,9 +1,16 @@
+// Package server implements port forwarding for the SSH server.
+//
+// Security note: Port forwarding runs in the main server process without privilege separation.
+// The attack surface is primarily io.Copy through well-tested standard library code, making it
+// lower risk than shell execution which uses privilege-separated child processes. We enforce
+// user-level port restrictions: non-privileged users cannot bind to ports < 1024.
 package server
 
 import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 
 	"github.com/gliderlabs/ssh"
@@ -12,6 +19,8 @@ import (
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
+
+const privilegedPortThreshold = 1024
 
 // sessionKey uniquely identifies an SSH session
 type sessionKey string
@@ -78,6 +87,12 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 }
 
 // checkPortForwardingPrivileges validates privilege requirements for port forwarding operations.
+// For remote port forwarding (binding), it enforces that non-privileged users cannot bind to
+// ports below 1024, mirroring the restriction they would face if binding directly.
+//
+// Note: FeatureSupportsUserSwitch is true because we accept requests from any authenticated user,
+// though we don't actually switch users - port forwarding runs in the server process. The resolved
+// user is used for privileged port access checks.
 func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType string, port uint32) error {
 	if ctx == nil {
 		return fmt.Errorf("%s port forwarding denied: no context", forwardType)
@@ -85,7 +100,7 @@ func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType stri
 
 	result := s.CheckPrivileges(PrivilegeCheckRequest{
 		RequestedUsername:         ctx.User(),
-		FeatureSupportsUserSwitch: false,
+		FeatureSupportsUserSwitch: true,
 		FeatureName:               forwardType + " port forwarding",
 	})
 
@@ -93,7 +108,40 @@ func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType stri
 		return result.Error
 	}
 
+	if err := s.checkPrivilegedPortAccess(forwardType, port, result); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// checkPrivilegedPortAccess enforces that non-privileged users cannot bind to privileged ports.
+// This applies to remote port forwarding where the server binds a port on behalf of the user.
+// On Windows, there is no privileged port restriction, so this check is skipped.
+func (s *Server) checkPrivilegedPortAccess(forwardType string, port uint32, result PrivilegeCheckResult) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	isBindOperation := forwardType == "remote" || forwardType == "tcpip-forward"
+	if !isBindOperation {
+		return nil
+	}
+
+	// Port 0 means "pick any available port", which will be >= 1024
+	if port == 0 || port >= privilegedPortThreshold {
+		return nil
+	}
+
+	if result.User != nil && isPrivilegedUsername(result.User.Username) {
+		return nil
+	}
+
+	username := "unknown"
+	if result.User != nil {
+		username = result.User.Username
+	}
+	return fmt.Errorf("user %s cannot bind to privileged port %d (requires root)", username, port)
 }
 
 // tcpipForwardHandler handles tcpip-forward requests for remote port forwarding.
