@@ -1738,12 +1738,20 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 }
 
 func (a *Account) GetActiveGroupUsers() map[string][]string {
+	allGroupID := ""
+	group, err := a.GetGroupAll()
+	if err != nil {
+		log.Errorf("failed to get group all: %v", err)
+	} else {
+		allGroupID = group.ID
+	}
 	groups := make(map[string][]string, len(a.GroupsG))
 	for _, user := range a.Users {
 		if !user.IsBlocked() && !user.IsServiceUser {
 			for _, groupID := range user.AutoGroups {
 				groups[groupID] = append(groups[groupID], user.Id)
 			}
+			groups[allGroupID] = append(groups[allGroupID], user.Id)
 		}
 	}
 	return groups
