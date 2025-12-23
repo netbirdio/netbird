@@ -63,9 +63,10 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+	
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

@@ -164,9 +164,10 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+	
 	helper := JsonParser{}
 
 	hasPAT := config.PAT != ""
