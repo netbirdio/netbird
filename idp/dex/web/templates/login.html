@@ -25,6 +25,8 @@
             {{- $iconClass = "nb-icon-jumpcloud" -}}
         {{- else if or (contains "pocket" $nameLower) (contains "pocket" $idLower) -}}
             {{- $iconClass = "nb-icon-pocketid" -}}
+        {{- else if or (contains "zitadel" $nameLower) (contains "zitadel" $idLower) -}}
+            {{- $iconClass = "nb-icon-zitadel" -}}
         {{- end -}}
         <span class="nb-icon {{ $iconClass }}"></span>
         <span>Continue with {{ $c.Name }}</span>
