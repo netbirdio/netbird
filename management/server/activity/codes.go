@@ -183,6 +183,14 @@ const (
 
 	AccountAutoUpdateVersionUpdated Activity = 92
 
+	DNSZoneCreated Activity = 93
+	DNSZoneUpdated Activity = 94
+	DNSZoneDeleted Activity = 95
+
+	DNSRecordCreated Activity = 96
+	DNSRecordUpdated Activity = 97
+	DNSRecordDeleted Activity = 98
+
 	AccountDeleted Activity = 99999
 )
 
@@ -295,6 +303,14 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
+	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},
+	DNSZoneDeleted: {"DNS zone deleted", "dns.zone.delete"},
+
+	DNSRecordCreated: {"DNS zone record created", "dns.zone.record.create"},
+	DNSRecordUpdated: {"DNS zone record updated", "dns.zone.record.update"},
+	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
 }
 
 // StringCode returns a string code of the activity
