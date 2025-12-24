@@ -168,6 +168,15 @@ func (l *Logger) Warn3(format string, arg1, arg2, arg3 any) {
 	}
 }
 
+func (l *Logger) Warn4(format string, arg1, arg2, arg3, arg4 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
+		default:
+		}
+	}
+}
+
 func (l *Logger) Debug1(format string, arg1 any) {
 	if l.level.Load() >= uint32(LevelDebug) {
 		select {
