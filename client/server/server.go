@@ -278,14 +278,22 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
-	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.Warnf("failed login: %v", err)
+		log.Errorf("failed to create auth client: %v", err)
+		return internal.StatusLoginFailed, err
+	}
+	defer authClient.Close()
+
+	var status internal.StatusType
+	err = authClient.Login(ctx, setupKey, jwtToken)
+	if err != nil {
+		// Check if it's an authentication error (permission denied, invalid credentials, unauthenticated)
+		if errors.Is(err, mgm.ErrPermissionDenied) || errors.Is(err, mgm.ErrInvalidArgument) || errors.Is(err, mgm.ErrUnauthenticated) {
+			log.Warnf("authentication failed: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
-			log.Errorf("failed login: %v", err)
+			log.Errorf("login failed: %v", err)
 			status = internal.StatusLoginFailed
 		}
 		return status, err
@@ -606,8 +614,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
+	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	s.mutex.Lock()
@@ -1002,8 +1009,8 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 	}
 
 	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, key, mgmTlsEnabled)
-	if err != nil {
+	mgmClient := mgm.NewClient(config.ManagementURL.Host, key, mgmTlsEnabled)
+	if err := mgmClient.Connect(ctx); err != nil {
 		return fmt.Errorf("connect to management server: %w", err)
 	}
 	defer func() {
@@ -1012,7 +1019,7 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 		}
 	}()
 
-	return mgmClient.Logout()
+	return mgmClient.Logout(ctx)
 }
 
 // Status returns the daemon status

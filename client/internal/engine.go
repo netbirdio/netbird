@@ -891,7 +891,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.DisableSSHAuth,
 	)
 
-	if err := e.mgmClient.SyncMeta(info); err != nil {
+	if err := e.mgmClient.SyncMeta(e.ctx, info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
 		return err
 	}
@@ -1517,7 +1517,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.DisableSSHAuth,
 	)
 
-	netMap, err := e.mgmClient.GetNetworkMap(info)
+	netMap, err := e.mgmClient.GetNetworkMap(e.ctx, info)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -1666,7 +1666,7 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	signalHealthy := e.signal.IsHealthy()
 	log.Debugf("signal health check: healthy=%t", signalHealthy)
 
-	managementHealthy := e.mgmClient.IsHealthy()
+	managementHealthy := e.mgmClient.IsHealthy(e.ctx)
 	log.Debugf("management health check: healthy=%t", managementHealthy)
 
 	stuns := slices.Clone(e.STUNs)

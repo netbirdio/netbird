@@ -162,6 +162,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		return err
 	}
 
+	// Create management client once outside retry loop
+	mgmClient := mgm.NewClient(c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+	mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
+	mgmClient.SetConnStateListener(mgmNotifier)
+
 	defer c.statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -180,12 +185,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
-		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-		if err != nil {
-			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
+		if err := mgmClient.ConnectWithoutRetry(engineCtx); err != nil {
+			return wrapErr(fmt.Errorf("failed connecting to Management Service: %w", err))
 		}
-		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
-		mgmClient.SetConnStateListener(mgmNotifier)
 
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
@@ -198,7 +200,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
 			log.Debug(err)
-			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			if errors.Is(err, mgm.ErrPermissionDenied) {
 				state.Set(StatusNeedsLogin)
 				_ = c.Stop()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
@@ -320,7 +322,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+		if errors.Is(err, mgm.ErrPermissionDenied) {
 			state.Set(StatusNeedsLogin)
 			_ = c.Stop()
 		}
@@ -504,12 +506,6 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
-
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
-	}
-
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -528,7 +524,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
+	loginResp, err := client.Login(ctx, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
 		return nil, err
 	}

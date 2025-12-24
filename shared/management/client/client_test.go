@@ -193,12 +193,12 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 	s, listener := startManagement(t)
 	defer closeManagementSilently(s, listener)
 
-	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
-	if err != nil {
+	client := NewClient(listener.Addr().String(), testKey, false)
+	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
+	key, err := client.getServerPublicKey(ctx)
 	if err != nil {
 		t.Error("couldn't retrieve management public key")
 	}
@@ -216,16 +216,12 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	s, listener := startManagement(t)
 	defer closeManagementSilently(s, listener)
 
-	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := client.GetServerPublicKey()
-	if err != nil {
+	client := NewClient(listener.Addr().String(), testKey, false)
+	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo, nil, nil)
+	_, err = client.Login(ctx, sysInfo, nil, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -243,23 +239,15 @@ func TestClient_LoginRegistered(t *testing.T) {
 	s, listener := startManagement(t)
 	defer closeManagementSilently(s, listener)
 
-	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
-	if err != nil {
+	client := NewClient(listener.Addr().String(), testKey, false)
+	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	key, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Error(err)
-	}
 	info := system.GetInfo(context.TODO())
-	resp, err := client.Register(*key, ValidKey, "", info, nil, nil)
+	err = client.Register(ctx, ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Error(err)
-	}
-
-	if resp == nil {
-		t.Error("expecting non nil response, got nil")
 	}
 }
 
@@ -272,18 +260,13 @@ func TestClient_Sync(t *testing.T) {
 	s, listener := startManagement(t)
 	defer closeManagementSilently(s, listener)
 
-	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
-	if err != nil {
+	client := NewClient(listener.Addr().String(), testKey, false)
+	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		t.Error(err)
-	}
-
 	info := system.GetInfo(context.TODO())
-	_, err = client.Register(*serverKey, ValidKey, "", info, nil, nil)
+	err = client.Register(ctx, ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -293,13 +276,14 @@ func TestClient_Sync(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	remoteClient, err := NewClient(context.TODO(), listener.Addr().String(), remoteKey, false)
-	if err != nil {
+	remoteClient := NewClient(listener.Addr().String(), remoteKey, false)
+	remoteCtx := context.TODO()
+	if err := remoteClient.Connect(remoteCtx); err != nil {
 		t.Fatal(err)
 	}
 
 	info = system.GetInfo(context.TODO())
-	_, err = remoteClient.Register(*serverKey, ValidKey, "", info, nil, nil)
+	err = remoteClient.Register(remoteCtx, ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,14 +338,9 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	serverAddr := lis.Addr().String()
 	ctx := context.Background()
 
-	testClient, err := NewClient(ctx, serverAddr, testKey, false)
-	if err != nil {
-		t.Fatalf("error while creating testClient: %v", err)
-	}
-
-	key, err := testClient.GetServerPublicKey()
-	if err != nil {
-		t.Fatalf("error while getting server public key from testclient, %v", err)
+	testClient := NewClient(serverAddr, testKey, false)
+	if err := testClient.Connect(ctx); err != nil {
+		t.Fatalf("error while connecting testClient: %v", err)
 	}
 
 	var actualMeta *mgmtProto.PeerSystemMeta
@@ -400,7 +379,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = testClient.Register(*key, ValidKey, "", info, nil, nil)
+	err = testClient.Register(ctx, ValidKey, "", info, nil, nil)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}
@@ -489,9 +468,9 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 	serverAddr := lis.Addr().String()
 	ctx := context.Background()
 
-	client, err := NewClient(ctx, serverAddr, testKey, false)
-	if err != nil {
-		t.Fatalf("error while creating testClient: %v", err)
+	client := NewClient(serverAddr, testKey, false)
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("error while connecting testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.DeviceAuthorizationFlow{
@@ -512,7 +491,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetDeviceAuthorizationFlow(ctx)
 	if err != nil {
 		t.Error("error while retrieving device auth flow information")
 	}
@@ -533,9 +512,9 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	serverAddr := lis.Addr().String()
 	ctx := context.Background()
 
-	client, err := NewClient(ctx, serverAddr, testKey, false)
-	if err != nil {
-		t.Fatalf("error while creating testClient: %v", err)
+	client := NewClient(serverAddr, testKey, false)
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("error while connecting testClient: %v", err)
 	}
 
 	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{
@@ -558,7 +537,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetPKCEAuthorizationFlow(serverKey)
+	flowInfo, err := client.GetPKCEAuthorizationFlow(ctx)
 	if err != nil {
 		t.Error("error while retrieving pkce auth flow information")
 	}

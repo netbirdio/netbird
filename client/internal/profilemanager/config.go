@@ -730,8 +730,8 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
-	if err != nil {
+	client := mgm.NewClient(newURL.Host, key, mgmTlsEnabled)
+	if err := client.Connect(ctx); err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
 	}
@@ -743,8 +743,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 	}()
 
 	// gRPC check
-	_, err = client.GetServerPublicKey()
-	if err != nil {
+	if err := client.HealthCheck(ctx); err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return nil, err
 	}

@@ -25,6 +25,24 @@ import (
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
+// Custom management client errors that abstract away gRPC error codes
+var (
+	// ErrPermissionDenied is returned when the server denies access to a resource
+	ErrPermissionDenied = errors.New("permission denied")
+
+	// ErrInvalidArgument is returned when the request contains invalid arguments
+	ErrInvalidArgument = errors.New("invalid argument")
+
+	// ErrUnauthenticated is returned when authentication is required
+	ErrUnauthenticated = errors.New("unauthenticated")
+
+	// ErrNotFound is returned when the requested resource is not found
+	ErrNotFound = errors.New("not found")
+
+	// ErrUnimplemented is returned when the operation is not implemented
+	ErrUnimplemented = errors.New("not implemented")
+)
+
 const ConnectTimeout = 10 * time.Second
 
 const (
@@ -41,40 +59,67 @@ type ConnStateNotifier interface {
 type GrpcClient struct {
 	key                   wgtypes.Key
 	realClient            proto.ManagementServiceClient
-	ctx                   context.Context
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	addr                  string
+	tlsEnabled            bool
+	reconnectMutex        sync.Mutex
 }
 
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+// The client is not connected after creation - call Connect to establish the connection
+func NewClient(addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) *GrpcClient {
+	return &GrpcClient{
+		key:                   ourPrivateKey,
+		addr:                  addr,
+		tlsEnabled:            tlsEnabled,
+		connStateCallbackLock: sync.RWMutex{},
+		reconnectMutex:        sync.Mutex{},
+	}
+}
+
+// Connect establishes a connection to the Management Service with retry logic
+// Retries connection attempts with exponential backoff on failure
+func (c *GrpcClient) Connect(ctx context.Context) error {
 	var conn *grpc.ClientConn
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, c.addr, c.tlsEnabled, wsproxy.ManagementComponent)
 		if err != nil {
-			return fmt.Errorf("create connection: %w", err)
+			log.Warnf("failed to connect to Management Service: %v", err)
+			return err
 		}
 		return nil
 	}
 
-	err := backoff.Retry(operation, nbgrpc.Backoff(ctx))
-	if err != nil {
-		log.Errorf("failed creating connection to Management Service: %v", err)
-		return nil, err
+	if err := backoff.Retry(operation, defaultBackoff(ctx)); err != nil {
+		log.Errorf("failed creating connection to Management Service after retries: %v", err)
+		return fmt.Errorf("create connection: %w", err)
 	}
 
-	realClient := proto.NewManagementServiceClient(conn)
+	c.conn = conn
+	c.realClient = proto.NewManagementServiceClient(conn)
 
-	return &GrpcClient{
-		key:                   ourPrivateKey,
-		realClient:            realClient,
-		ctx:                   ctx,
-		conn:                  conn,
-		connStateCallbackLock: sync.RWMutex{},
-	}, nil
+	log.Infof("connected to the Management Service at %s", c.addr)
+	return nil
+}
+
+// ConnectWithoutRetry establishes a connection to the Management Service without retry logic
+// Performs a single connection attempt - callers should implement their own retry logic if needed
+func (c *GrpcClient) ConnectWithoutRetry(ctx context.Context) error {
+	conn, err := nbgrpc.CreateConnection(ctx, c.addr, c.tlsEnabled, wsproxy.ManagementComponent)
+	if err != nil {
+		log.Warnf("failed to connect to Management Service: %v", err)
+		return fmt.Errorf("create connection: %w", err)
+	}
+
+	c.conn = conn
+	c.realClient = proto.NewManagementServiceClient(conn)
+
+	log.Debugf("connected to the Management Service at %s", c.addr)
+	return nil
 }
 
 // Close closes connection to the Management Service
@@ -87,19 +132,6 @@ func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
 	c.connStateCallbackLock.Lock()
 	defer c.connStateCallbackLock.Unlock()
 	c.connStateCallback = notifier
-}
-
-// defaultBackoff is a basic backoff mechanism for general issues
-func defaultBackoff(ctx context.Context) backoff.BackOff {
-	return backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 1,
-		Multiplier:          1.7,
-		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
 }
 
 // ready indicates whether the client is okay and ready to be used
@@ -122,7 +154,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return fmt.Errorf("connection to management is not ready and in %s state", connState)
 		}
 
-		serverPubKey, err := c.GetServerPublicKey()
+		serverPubKey, err := c.getServerPublicKey(ctx)
 		if err != nil {
 			log.Debugf(errMsgMgmtPublicKey, err)
 			return err
@@ -177,15 +209,13 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 }
 
 // GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
-	serverPubKey, err := c.GetServerPublicKey()
+func (c *GrpcClient) GetNetworkMap(ctx context.Context, sysInfo *system.Info) (*proto.NetworkMap, error) {
+	serverPubKey, err := c.getServerPublicKey(ctx)
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
 		return nil, err
 	}
 
-	ctx, cancelStream := context.WithCancel(c.ctx)
-	defer cancelStream()
 	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
@@ -264,30 +294,32 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 	}
 }
 
-// GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
-func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
+// getServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
+// This is a simple operation without retry logic - callers should handle retries at the operation level
+func (c *GrpcClient) getServerPublicKey(ctx context.Context) (*wgtypes.Key, error) {
 	if !c.ready() {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	mgmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, fmt.Errorf("failed while getting Management Service public key")
 	}
 
-	serverKey, err := wgtypes.ParseKey(resp.Key)
+	key, err := wgtypes.ParseKey(resp.Key)
 	if err != nil {
 		return nil, err
 	}
 
-	return &serverKey, nil
+	return &key, nil
 }
 
 // IsHealthy probes the gRPC connection and returns false on errors
-func (c *GrpcClient) IsHealthy() bool {
+func (c *GrpcClient) IsHealthy(ctx context.Context) bool {
 	switch c.conn.GetState() {
 	case connectivity.TransientFailure:
 		return false
@@ -299,10 +331,10 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	healthCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
+	_, err := c.realClient.GetServerKey(healthCtx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
@@ -312,12 +344,26 @@ func (c *GrpcClient) IsHealthy() bool {
 	return true
 }
 
-func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+// HealthCheck verifies connectivity to the management server
+// Returns an error if the server is not reachable
+// Internally uses getServerPublicKey to verify the connection
+func (c *GrpcClient) HealthCheck(ctx context.Context) error {
+	_, err := c.getServerPublicKey(ctx)
+	return err
+}
+
+func (c *GrpcClient) login(ctx context.Context, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
+	serverKey, err := c.getServerPublicKey(ctx)
+	if err != nil {
+		log.Debugf(errMsgMgmtPublicKey, err)
+		return nil, err
+	}
+
+	loginReq, err := encryption.EncryptMessage(*serverKey, c.key, req)
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
@@ -325,7 +371,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 
 	var resp *proto.EncryptedMessage
 	operation := func() error {
-		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
+		mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 		defer cancel()
 
 		var err error
@@ -344,14 +390,14 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		return nil
 	}
 
-	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
+	err = backoff.Retry(operation, nbgrpc.Backoff(ctx))
 	if err != nil {
 		log.Errorf("failed to login to Management Service: %v", err)
 		return nil, err
 	}
 
 	loginResp := &proto.LoginResponse{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, loginResp)
+	err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, loginResp)
 	if err != nil {
 		log.Errorf("failed to decrypt login response: %s", err)
 		return nil, err
@@ -363,99 +409,135 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
-func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+// Returns custom errors: ErrPermissionDenied, ErrInvalidArgument, ErrUnauthenticated
+func (c *GrpcClient) Register(ctx context.Context, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) error {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	_, err := c.login(ctx, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return wrapGRPCError(err)
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+// Returns custom errors: ErrPermissionDenied, ErrInvalidArgument, ErrUnauthenticated
+func (c *GrpcClient) Login(ctx context.Context, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	resp, err := c.login(ctx, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return resp, wrapGRPCError(err)
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
-	if !c.ready() {
-		return nil, fmt.Errorf("no connection to management in order to get device authorization flow")
-	}
-	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
-	defer cancel()
+// It automatically retries with backoff and reconnection on connection errors.
+// Returns custom errors: ErrNotFound, ErrUnimplemented
+func (c *GrpcClient) GetDeviceAuthorizationFlow(ctx context.Context) (*proto.DeviceAuthorizationFlow, error) {
+	var flowInfoResp *proto.DeviceAuthorizationFlow
 
-	message := &proto.DeviceAuthorizationFlowRequest{}
-	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
-	if err != nil {
-		return nil, err
-	}
+	err := c.withRetry(ctx, func() error {
+		if !c.ready() {
+			return fmt.Errorf("no connection to management in order to get device authorization flow")
+		}
 
-	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
-		WgPubKey: c.key.PublicKey().String(),
-		Body:     encryptedMSG},
-	)
-	if err != nil {
-		return nil, err
-	}
+		serverKey, err := c.getServerPublicKey(ctx)
+		if err != nil {
+			log.Debugf(errMsgMgmtPublicKey, err)
+			return err
+		}
 
-	flowInfoResp := &proto.DeviceAuthorizationFlow{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
-	if err != nil {
-		errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
-		log.Error(errWithMSG)
-		return nil, errWithMSG
-	}
+		mgmCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+		defer cancel()
 
-	return flowInfoResp, nil
+		message := &proto.DeviceAuthorizationFlowRequest{}
+		encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
+		if err != nil {
+			return err
+		}
+
+		resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+			WgPubKey: c.key.PublicKey().String(),
+			Body:     encryptedMSG},
+		)
+		if err != nil {
+			return err
+		}
+
+		flowInfo := &proto.DeviceAuthorizationFlow{}
+		err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, flowInfo)
+		if err != nil {
+			errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
+			log.Error(errWithMSG)
+			return errWithMSG
+		}
+
+		flowInfoResp = flowInfo
+		return nil
+	})
+
+	return flowInfoResp, wrapGRPCError(err)
 }
 
 // GetPKCEAuthorizationFlow returns a pkce authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
-	if !c.ready() {
-		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
-	}
-	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
-	defer cancel()
+// It automatically retries with backoff and reconnection on connection errors.
+// Returns custom errors: ErrNotFound, ErrUnimplemented
+func (c *GrpcClient) GetPKCEAuthorizationFlow(ctx context.Context) (*proto.PKCEAuthorizationFlow, error) {
+	var flowInfoResp *proto.PKCEAuthorizationFlow
 
-	message := &proto.PKCEAuthorizationFlowRequest{}
-	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
-	if err != nil {
-		return nil, err
-	}
+	err := c.withRetry(ctx, func() error {
+		if !c.ready() {
+			return fmt.Errorf("no connection to management in order to get pkce authorization flow")
+		}
 
-	resp, err := c.realClient.GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
-		WgPubKey: c.key.PublicKey().String(),
-		Body:     encryptedMSG,
+		serverKey, err := c.getServerPublicKey(ctx)
+		if err != nil {
+			log.Debugf(errMsgMgmtPublicKey, err)
+			return err
+		}
+
+		mgmCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+		defer cancel()
+
+		message := &proto.PKCEAuthorizationFlowRequest{}
+		encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
+		if err != nil {
+			return err
+		}
+
+		resp, err := c.realClient.GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+			WgPubKey: c.key.PublicKey().String(),
+			Body:     encryptedMSG,
+		})
+		if err != nil {
+			return err
+		}
+
+		flowInfo := &proto.PKCEAuthorizationFlow{}
+		err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, flowInfo)
+		if err != nil {
+			errWithMSG := fmt.Errorf("failed to decrypt pkce authorization flow message: %s", err)
+			log.Error(errWithMSG)
+			return errWithMSG
+		}
+
+		flowInfoResp = flowInfo
+		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	flowInfoResp := &proto.PKCEAuthorizationFlow{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
-	if err != nil {
-		errWithMSG := fmt.Errorf("failed to decrypt pkce authorization flow message: %s", err)
-		log.Error(errWithMSG)
-		return nil, errWithMSG
-	}
-
-	return flowInfoResp, nil
+	return flowInfoResp, wrapGRPCError(err)
 }
 
 // SyncMeta sends updated system metadata to the Management Service.
 // It should be used if there is changes on peer posture check after initial sync.
-func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
+func (c *GrpcClient) SyncMeta(ctx context.Context, sysInfo *system.Info) error {
 	if !c.ready() {
 		return errors.New(errMsgNoMgmtConnection)
 	}
 
-	serverPubKey, err := c.GetServerPublicKey()
+	serverPubKey, err := c.getServerPublicKey(ctx)
 	if err != nil {
 		log.Debugf(errMsgMgmtPublicKey, err)
 		return err
@@ -467,7 +549,7 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 		return err
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
 	defer cancel()
 
 	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
@@ -497,13 +579,13 @@ func (c *GrpcClient) notifyConnected() {
 	c.connStateCallback.MarkManagementConnected()
 }
 
-func (c *GrpcClient) Logout() error {
-	serverKey, err := c.GetServerPublicKey()
+func (c *GrpcClient) Logout(ctx context.Context) error {
+	serverKey, err := c.getServerPublicKey(ctx)
 	if err != nil {
 		return fmt.Errorf("get server public key: %w", err)
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*15)
+	mgmCtx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
 
 	message := &proto.Empty{}
@@ -521,6 +603,156 @@ func (c *GrpcClient) Logout() error {
 	}
 
 	return nil
+}
+
+// reconnect closes the current connection and creates a new one
+func (c *GrpcClient) reconnect(ctx context.Context) error {
+	c.reconnectMutex.Lock()
+	defer c.reconnectMutex.Unlock()
+
+	// Close existing connection
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			log.Debugf("error closing old connection: %v", err)
+		}
+	}
+
+	// Create new connection
+	log.Debugf("reconnecting to Management Service %s", c.addr)
+	conn, err := nbgrpc.CreateConnection(ctx, c.addr, c.tlsEnabled, wsproxy.ManagementComponent)
+	if err != nil {
+		log.Errorf("failed reconnecting to Management Service %s: %v", c.addr, err)
+		return fmt.Errorf("reconnect: create connection: %w", err)
+	}
+
+	c.conn = conn
+	c.realClient = proto.NewManagementServiceClient(conn)
+	log.Debugf("successfully reconnected to Management service %s", c.addr)
+	return nil
+}
+
+// withRetry wraps an operation with exponential backoff retry logic
+// It automatically reconnects on connection errors
+func (c *GrpcClient) withRetry(ctx context.Context, operation func() error) error {
+	backoffSettings := &backoff.ExponentialBackOff{
+		InitialInterval:     500 * time.Millisecond,
+		RandomizationFactor: 0.5,
+		Multiplier:          1.5,
+		MaxInterval:         10 * time.Second,
+		MaxElapsedTime:      2 * time.Minute,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+	backoffSettings.Reset()
+
+	return backoff.RetryNotify(
+		func() error {
+			err := operation()
+			if err == nil {
+				return nil
+			}
+
+			// If it's a connection error, attempt reconnection
+			if isConnectionError(err) {
+				log.Warnf("connection error detected, attempting reconnection: %v", err)
+				if reconnectErr := c.reconnect(ctx); reconnectErr != nil {
+					log.Errorf("reconnection failed: %v", reconnectErr)
+					return reconnectErr
+				}
+				// Return the original error to trigger retry with the new connection
+				return err
+			}
+
+			// For authentication errors (InvalidArgument, PermissionDenied), don't retry
+			if isAuthenticationError(err) {
+				return backoff.Permanent(err)
+			}
+
+			return err
+		},
+		backoff.WithContext(backoffSettings, ctx),
+		func(err error, duration time.Duration) {
+			log.Warnf("operation failed, retrying in %v: %v", duration, err)
+		},
+	)
+}
+
+// defaultBackoff is a basic backoff mechanism for general issues
+func defaultBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         10 * time.Second,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+}
+
+// isConnectionError checks if the error is a connection-related error that should trigger reconnection
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := gstatus.FromError(err)
+	if !ok {
+		return false
+	}
+	// These error codes indicate connection issues
+	return s.Code() == codes.Unavailable ||
+		s.Code() == codes.DeadlineExceeded ||
+		s.Code() == codes.Canceled ||
+		s.Code() == codes.Internal
+}
+
+// isAuthenticationError checks if the error is an authentication-related error that should not be retried
+func isAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := gstatus.FromError(err)
+	if !ok {
+		return false
+	}
+	return s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied
+}
+
+// wrapGRPCError converts gRPC errors to custom management client errors
+func wrapGRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check if it's already a custom error
+	if errors.Is(err, ErrPermissionDenied) ||
+		errors.Is(err, ErrInvalidArgument) ||
+		errors.Is(err, ErrUnauthenticated) ||
+		errors.Is(err, ErrNotFound) ||
+		errors.Is(err, ErrUnimplemented) {
+		return err
+	}
+
+	// Convert gRPC status errors to custom errors
+	s, ok := gstatus.FromError(err)
+	if !ok {
+		return err
+	}
+
+	switch s.Code() {
+	case codes.PermissionDenied:
+		return fmt.Errorf("%w: %s", ErrPermissionDenied, s.Message())
+	case codes.InvalidArgument:
+		return fmt.Errorf("%w: %s", ErrInvalidArgument, s.Message())
+	case codes.Unauthenticated:
+		return fmt.Errorf("%w: %s", ErrUnauthenticated, s.Message())
+	case codes.NotFound:
+		return fmt.Errorf("%w: %s", ErrNotFound, s.Message())
+	case codes.Unimplemented:
+		return fmt.Errorf("%w: %s", ErrUnimplemented, s.Message())
+	default:
+		return err
+	}
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

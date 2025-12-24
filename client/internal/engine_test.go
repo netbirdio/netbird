@@ -1503,8 +1503,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	if err != nil {
 		return nil, err
 	}
-	mgmtClient, err := mgmt.NewClient(ctx, mgmtAddr, key, false)
-	if err != nil {
+	mgmtClient := mgmt.NewClient(mgmtAddr, key, false)
+	if err := mgmtClient.Connect(ctx); err != nil {
 		return nil, err
 	}
 	signalClient, err := signal.NewClient(ctx, signalAddr, key, false)
@@ -1512,13 +1512,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
-	publicKey, err := mgmtClient.GetServerPublicKey()
-	if err != nil {
-		return nil, err
-	}
-
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil, nil)
+	err = mgmtClient.Register(ctx, setupKey, "", info, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1531,9 +1526,10 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	wgPort := 33100 + i
+	testAddr := fmt.Sprintf("100.64.0.%d/24", i+1)
 	conf := &EngineConfig{
 		WgIfaceName:  ifaceName,
-		WgAddr:       resp.PeerConfig.Address,
+		WgAddr:       testAddr,
 		WgPrivateKey: key,
 		WgPort:       wgPort,
 		MTU:          iface.DefaultMTU,
