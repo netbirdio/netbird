@@ -37,9 +37,9 @@ var benchCasesPeers = map[string]testing_tools.BenchmarkCase{
 }
 
 func BenchmarkUpdatePeer(b *testing.B) {
-	// if os.Getenv("CI") != "true" {
-	// 	b.Skip("Skipping because CI is not set")
-	// }
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
+	}
 
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
