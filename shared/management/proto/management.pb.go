@@ -2076,7 +2076,7 @@ type SSHAuth struct {
 
 	// UserIDClaim is the JWT claim to be used to get the users ID
 	UserIDClaim string `protobuf:"bytes,1,opt,name=UserIDClaim,proto3" json:"UserIDClaim,omitempty"`
-	// AuthorizedUsers is a list of hashed user IDs (BLAKE2b-256, 32 bytes each) authorized to access this peer via SSH
+	// AuthorizedUsers is a list of hashed user IDs authorized to access this peer via SSH
 	AuthorizedUsers [][]byte `protobuf:"bytes,2,rep,name=AuthorizedUsers,proto3" json:"AuthorizedUsers,omitempty"`
 	// MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
 	MachineUsers map[string]*MachineUserIndexes `protobuf:"bytes,3,rep,name=machine_users,json=machineUsers,proto3" json:"machine_users,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`

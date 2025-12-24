@@ -341,7 +341,7 @@ message SSHAuth {
   // UserIDClaim is the JWT claim to be used to get the users ID
   string UserIDClaim = 1;
 
-  // AuthorizedUsers is a list of hashed user IDs (BLAKE2b-256, 32 bytes each) authorized to access this peer via SSH
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via SSH
   repeated bytes AuthorizedUsers = 2;
 
   // MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
