@@ -1064,7 +1064,8 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 
 			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 				sshEnabled = true
-				if len(rule.AuthorizedGroups) > 0 {
+				switch {
+				case len(rule.AuthorizedGroups) > 0:
 					for groupID, localUsers := range rule.AuthorizedGroups {
 						userIDs, ok := groupIDToUserIDs[groupID]
 						if !ok {
@@ -1085,12 +1086,12 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 							}
 						}
 					}
-				} else if rule.AuthorizedUser != "" {
+				case rule.AuthorizedUser != "":
 					if authorizedUsers[auth.Wildcard] == nil {
 						authorizedUsers[auth.Wildcard] = make(map[string]struct{})
 					}
 					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
-				} else {
+				default:
 					authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
 				}
 			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
