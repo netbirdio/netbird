@@ -135,6 +135,7 @@ func (a *Auth) Login() error {
 
 	jwtToken := ""
 	if needsLogin {
+		//nolint
 		return fmt.Errorf("Not authenticated")
 	}
 

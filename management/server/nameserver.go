@@ -20,7 +20,7 @@ import (
 
 const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
 
-var invalidDomainName = errors.New("invalid domain name")
+var errInvalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
@@ -314,7 +314,7 @@ func validateDomain(domain string) error {
 
 	_, valid := dns.IsDomainName(domain)
 	if !valid {
-		return invalidDomainName
+		return errInvalidDomainName
 	}
 
 	return nil
