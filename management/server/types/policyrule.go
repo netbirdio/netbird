@@ -83,6 +83,9 @@ type PolicyRule struct {
 
 	// AuthorizedGroups is a map of groupIDs and their respective access to local users via ssh
 	AuthorizedGroups map[string][]string `gorm:"serializer:json"`
+
+	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
+	AuthorizedUser string
 }
 
 // Copy returns a copy of a policy rule
@@ -103,6 +106,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Ports:               make([]string, len(pm.Ports)),
 		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
 		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
+		AuthorizedUser:      pm.AuthorizedUser,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
