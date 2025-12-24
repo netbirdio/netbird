@@ -312,6 +312,8 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	settingsEnabled      bool
+	profilesEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -907,7 +909,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected):
+		case status.Status == string(internal.StatusConnected) && !s.mUp.Disabled():
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -921,6 +923,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
+			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -1274,19 +1277,22 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		return
 	}
 
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
 	// Update settings menu based on current features
-	if features != nil && features.DisableUpdateSettings {
-		s.setSettingsEnabled(false)
-	} else {
-		s.setSettingsEnabled(true)
+	settingsEnabled := features == nil || !features.DisableUpdateSettings
+	if s.settingsEnabled != settingsEnabled {
+		s.settingsEnabled = settingsEnabled
+		s.setSettingsEnabled(settingsEnabled)
 	}
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		} else {
-			s.mProfile.setEnabled(true)
+		profilesEnabled := features == nil || !features.DisableProfiles
+		if s.profilesEnabled != profilesEnabled {
+			s.profilesEnabled = profilesEnabled
+			s.mProfile.setEnabled(profilesEnabled)
 		}
 	}
 }
