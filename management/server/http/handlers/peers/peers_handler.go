@@ -449,6 +449,18 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
+		LocalFlags: &api.PeerLocalFlags{
+			BlockInbound:          &peer.Meta.Flags.BlockInbound,
+			BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
+			DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
+			DisableDns:            &peer.Meta.Flags.DisableDNS,
+			DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
+			DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
+			LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
+			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
+			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
+			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+		},
 	}
 
 	if !approved {

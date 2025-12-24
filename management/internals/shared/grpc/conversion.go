@@ -96,7 +96,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		SshEnabled: peer.SSHEnabled || enableSSH,
 	}
 
-	if peer.SSHEnabled {
+	if sshConfig.SshEnabled {
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
