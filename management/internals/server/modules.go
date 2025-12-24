@@ -95,6 +95,20 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
+		// Use embedded IdP manager if embedded Dex is configured.
+		// Legacy IdpManager won't be used anymore even if configured.
+		if s.embeddedIdp != nil {
+			idpManager, err = idp.NewEmbeddedIdPManager(idp.EmbeddedIdPConfig{
+				Provider: s.embeddedIdp,
+			}, s.Metrics())
+			if err != nil {
+				log.Fatalf("failed to create embedded IDP manager: %v", err)
+			}
+			return idpManager
+		}
+
+		// Fall back to external IdP manager
 		if s.Config.IdpManagerConfig != nil {
 			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
