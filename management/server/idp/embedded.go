@@ -47,8 +47,20 @@ func (m *EmbeddedIdPManager) UpdateUserAppMetadata(ctx context.Context, userID s
 
 // GetUserDataByID requests user data from the embedded IdP via user ID.
 func (m *EmbeddedIdPManager) GetUserDataByID(ctx context.Context, userID string, appMetadata AppMetadata) (*UserData, error) {
-	// TODO: implement
-	return nil, fmt.Errorf("not implemented")
+	user, err := m.provider.GetUserByID(ctx, userID)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to get user by ID: %w", err)
+	}
+
+	return &UserData{
+		Email:       user.Email,
+		Name:        user.Username,
+		ID:          user.UserID,
+		AppMetadata: appMetadata,
+	}, nil
 }
 
 // GetAccount returns all the users for a given account.
@@ -109,8 +121,24 @@ func (m *EmbeddedIdPManager) CreateUser(ctx context.Context, email, name, accoun
 
 // GetUserByEmail searches users with a given email.
 func (m *EmbeddedIdPManager) GetUserByEmail(ctx context.Context, email string) ([]*UserData, error) {
-	// TODO: implement
-	return nil, fmt.Errorf("not implemented")
+	user, err := m.provider.GetUser(ctx, email)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, nil // Return empty slice for not found
+		}
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+
+	return []*UserData{
+		{
+			Email: user.Email,
+			Name:  user.Username,
+			ID:    user.UserID,
+		},
+	}, nil
 }
 
 // InviteUserByID resends an invitation to a user.
@@ -121,6 +149,28 @@ func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) 
 
 // DeleteUser deletes a user from the embedded IdP by user ID.
 func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) error {
-	// TODO: implement
-	return fmt.Errorf("not implemented")
+	if m.appMetrics != nil {
+		m.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	// Get user by ID to retrieve email (provider.DeleteUser requires email)
+	user, err := m.provider.GetUserByID(ctx, userID)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return fmt.Errorf("failed to get user for deletion: %w", err)
+	}
+
+	err = m.provider.DeleteUser(ctx, user.Email)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return fmt.Errorf("failed to delete user from embedded IdP: %w", err)
+	}
+
+	log.WithContext(ctx).Debugf("deleted user %s from embedded IdP", user.Email)
+
+	return nil
 }
