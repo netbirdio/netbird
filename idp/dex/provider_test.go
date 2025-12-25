@@ -67,7 +67,7 @@ func TestUserCreationFlow(t *testing.T) {
 	assert.Equal(t, rawUserID, user3.UserID)
 
 	// Verify encoding produces consistent format
-	reEncodedID := encodeDexUserID(rawUserID, "local")
+	reEncodedID := EncodeDexUserID(rawUserID, "local")
 	assert.Equal(t, encodedID, reEncodedID)
 }
 
@@ -113,7 +113,7 @@ func TestEncodeDexUserID(t *testing.T) {
 	userID := "7aad8c05-3287-473f-b42a-365504bf25e7"
 	connectorID := "local"
 
-	encoded := encodeDexUserID(userID, connectorID)
+	encoded := EncodeDexUserID(userID, connectorID)
 	assert.NotEmpty(t, encoded)
 
 	// Verify round-trip
@@ -136,7 +136,7 @@ func TestEncodeDexUserID_MatchesDexFormat(t *testing.T) {
 	assert.Equal(t, knownConnectorID, connID)
 
 	// Re-encode and verify it matches
-	reEncoded := encodeDexUserID(knownUserID, knownConnectorID)
+	reEncoded := EncodeDexUserID(knownUserID, knownConnectorID)
 	assert.Equal(t, knownEncodedID, reEncoded)
 }
 

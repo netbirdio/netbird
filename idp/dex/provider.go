@@ -460,14 +460,14 @@ func (p *Provider) CreateUser(ctx context.Context, email, username, password str
 
 	// Encode the user ID in Dex's format: base64(protobuf{user_id, connector_id})
 	// This matches the format Dex uses in JWT tokens
-	encodedID := encodeDexUserID(userID, "local")
+	encodedID := EncodeDexUserID(userID, "local")
 	return encodedID, nil
 }
 
-// encodeDexUserID encodes user ID and connector ID into Dex's base64-encoded protobuf format.
+// EncodeDexUserID encodes user ID and connector ID into Dex's base64-encoded protobuf format.
 // Dex uses this format for the 'sub' claim in JWT tokens.
 // Format: base64(protobuf message with field 1 = user_id, field 2 = connector_id)
-func encodeDexUserID(userID, connectorID string) string {
+func EncodeDexUserID(userID, connectorID string) string {
 	// Manually encode protobuf: field 1 (user_id) and field 2 (connector_id)
 	// Wire type 2 (length-delimited) for strings
 	var buf []byte
