@@ -117,6 +117,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
+		PendingInvite:        true, // User hasn't accepted invite yet
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
@@ -169,7 +170,7 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
+	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
@@ -285,8 +286,8 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return status.NewPermissionDeniedError()
 	}
 
-	// check if the user is already registered with this ID
-	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
+	// Get user from NetBird's database (source of truth for authorization data)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -295,18 +296,17 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return status.Errorf(status.NotFound, "user account %s doesn't exist", targetUserID)
 	}
 
-	// check if user account is already invited and account is not activated
-	pendingInvite := user.AppMetadata.WTPendingInvite
-	if pendingInvite == nil || !*pendingInvite {
+	// Check if user is still pending invite (hasn't activated their account)
+	if !user.PendingInvite {
 		return status.Errorf(status.PreconditionFailed, "can't invite a user with an activated NetBird account")
 	}
 
-	err = am.idpManager.InviteUserByID(ctx, user.ID)
+	err = am.idpManager.InviteUserByID(ctx, targetUserID)
 	if err != nil {
 		return err
 	}
 
-	am.StoreEvent(ctx, initiatorUserID, user.ID, accountID, activity.UserInvited, nil)
+	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserInvited, nil)
 
 	return nil
 }
@@ -1011,17 +1011,15 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUserID, accountID string) error {
 	if am.userDeleteFromIDPEnabled {
-		log.WithContext(ctx).Debugf("user %s deleted from IdP", targetUserID)
+		log.WithContext(ctx).Debugf("deleting user %s from IdP", targetUserID)
 		err := am.idpManager.DeleteUser(ctx, targetUserID)
 		if err != nil {
 			return fmt.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
 		}
-	} else {
-		err := am.idpManager.UpdateUserAppMetadata(ctx, targetUserID, idp.AppMetadata{})
-		if err != nil {
-			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
-		}
 	}
+	// Note: If userDeleteFromIDPEnabled is false, the user remains in IdP but is removed from NetBird.
+	// This allows the user to re-authenticate if they're re-invited later.
+
 	err := am.removeUserFromCache(ctx, accountID, targetUserID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("remove user from account (%q) cache failed with error: %v", accountID, err)
@@ -1095,7 +1093,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	if !isNil(am.idpManager) {
 		// Delete if the user already exists in the IdP. Necessary in cases where a user account
 		// was created where a user account was provisioned but the user did not sign in
-		_, err := am.idpManager.GetUserDataByID(ctx, targetUserInfo.ID, idp.AppMetadata{WTAccountID: accountID})
+		_, err := am.idpManager.GetUserDataByID(ctx, targetUserInfo.ID)
 		if err == nil {
 			err = am.deleteUserFromIDP(ctx, targetUserInfo.ID, accountID)
 			if err != nil {

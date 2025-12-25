@@ -1,0 +1,83 @@
+{
+	servers :80,:443 {
+		protocols h1 h2c h2 h3
+	}
+}
+
+(security_headers) {
+	header * {
+		# HSTS - use 1 hour for testing, increase to 63072000 (2 years) in production
+		Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
+		# Prevent MIME type sniffing
+		X-Content-Type-Options "nosniff"
+		# Clickjacking protection
+		X-Frame-Options "SAMEORIGIN"
+		# XSS protection
+		X-XSS-Protection "1; mode=block"
+		# Remove server header
+		-Server
+		# Referrer policy
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
+
+:${NETBIRD_CADDY_PORT}${CADDY_SECURE_DOMAIN} {
+	import security_headers
+
+	# Relay
+	reverse_proxy /relay* relay:${NETBIRD_RELAY_INTERNAL_PORT}
+
+	# Signal - WebSocket proxy
+	reverse_proxy /ws-proxy/signal* signal:80
+	# Signal - gRPC
+	reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
+
+	# Management - REST API
+	reverse_proxy /api/* management:80
+	# Management - WebSocket proxy
+	reverse_proxy /ws-proxy/management* management:80
+	# Management - gRPC
+	reverse_proxy /management.ManagementService/* h2c://management:80
+
+	# Zitadel - Admin API
+	reverse_proxy /zitadel.admin.v1.AdminService/* h2c://zitadel:8080
+	reverse_proxy /admin/v1/* h2c://zitadel:8080
+
+	# Zitadel - Auth API
+	reverse_proxy /zitadel.auth.v1.AuthService/* h2c://zitadel:8080
+	reverse_proxy /auth/v1/* h2c://zitadel:8080
+
+	# Zitadel - Management API
+	reverse_proxy /zitadel.management.v1.ManagementService/* h2c://zitadel:8080
+	reverse_proxy /management/v1/* h2c://zitadel:8080
+
+	# Zitadel - System API
+	reverse_proxy /zitadel.system.v1.SystemService/* h2c://zitadel:8080
+	reverse_proxy /system/v1/* h2c://zitadel:8080
+
+	# Zitadel - User API v2
+	reverse_proxy /zitadel.user.v2.UserService/* h2c://zitadel:8080
+
+	# Zitadel - Assets
+	reverse_proxy /assets/v1/* h2c://zitadel:8080
+
+	# Zitadel - UI (login, console, etc.)
+	reverse_proxy /ui/* h2c://zitadel:8080
+
+	# Zitadel - OIDC endpoints
+	reverse_proxy /oidc/v1/* h2c://zitadel:8080
+	reverse_proxy /oauth/v2/* h2c://zitadel:8080
+	reverse_proxy /.well-known/openid-configuration h2c://zitadel:8080
+
+	# Zitadel - SAML
+	reverse_proxy /saml/v2/* h2c://zitadel:8080
+
+	# Zitadel - Other
+	reverse_proxy /openapi/* h2c://zitadel:8080
+	reverse_proxy /debug/* h2c://zitadel:8080
+	reverse_proxy /device/* h2c://zitadel:8080
+	reverse_proxy /device h2c://zitadel:8080
+
+	# Dashboard - catch-all for frontend
+	reverse_proxy /* dashboard:80
+}

@@ -563,7 +563,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 	}
 
 	idpMock := idp.MockIDP{
-		CreateUserFunc: func(_ context.Context, email, name, accountID, invitedByEmail string) (*idp.UserData, error) {
+		CreateUserFunc: func(_ context.Context, email, name string) (*idp.UserData, error) {
 			newData := &idp.UserData{
 				Email: email,
 				Name:  name,
@@ -574,7 +574,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 
 			return newData, nil
 		},
-		GetAccountFunc: func(_ context.Context, accountId string) ([]*idp.UserData, error) {
+		GetAllUsersFunc: func(_ context.Context) ([]*idp.UserData, error) {
 			return mockData, nil
 		},
 	}
@@ -1068,7 +1068,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	am := DefaultAccountManager{
 		Store:              store,
 		eventStore:         &activity.InMemoryEventStore{},
-		idpManager:         &idp.GoogleWorkspaceManager{}, // empty manager
+		idpManager:         &idp.MockIDP{}, // empty manager
 		cacheLoading:       map[string]chan struct{}{},
 		permissionsManager: permissionsManager,
 	}
