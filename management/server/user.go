@@ -927,7 +927,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	var queriedUsers []*idp.UserData
 	var err error
 
-	if !isNil(am.idpManager) {
+	// embedded IdP ensures that we have user data (email and name) stored in the database.
+	if !isNil(am.idpManager) && !isEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
