@@ -1152,7 +1152,11 @@ func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpe
 		return []*nbpeer.Peer{}, false
 	}
 
-	return []*nbpeer.Peer{peer}, resource.ID == peerID
+	if peer.ID == peerID {
+		return []*nbpeer.Peer{}, true
+	}
+
+	return []*nbpeer.Peer{peer}, false
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer
