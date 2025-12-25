@@ -3,6 +3,7 @@ package dex
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net"
@@ -439,7 +440,7 @@ func (p *Provider) Handler() http.Handler {
 }
 
 // CreateUser creates a new user with the given email, username, and password.
-// Returns the generated user ID.
+// Returns the encoded user ID in Dex's format (base64-encoded protobuf with connector ID).
 func (p *Provider) CreateUser(ctx context.Context, email, username, password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -456,7 +457,82 @@ func (p *Provider) CreateUser(ctx context.Context, email, username, password str
 	if err != nil {
 		return "", err
 	}
-	return userID, nil
+
+	// Encode the user ID in Dex's format: base64(protobuf{user_id, connector_id})
+	// This matches the format Dex uses in JWT tokens
+	encodedID := encodeDexUserID(userID, "local")
+	return encodedID, nil
+}
+
+// encodeDexUserID encodes user ID and connector ID into Dex's base64-encoded protobuf format.
+// Dex uses this format for the 'sub' claim in JWT tokens.
+// Format: base64(protobuf message with field 1 = user_id, field 2 = connector_id)
+func encodeDexUserID(userID, connectorID string) string {
+	// Manually encode protobuf: field 1 (user_id) and field 2 (connector_id)
+	// Wire type 2 (length-delimited) for strings
+	var buf []byte
+
+	// Field 1: user_id (tag = 0x0a = field 1, wire type 2)
+	buf = append(buf, 0x0a)
+	buf = append(buf, byte(len(userID)))
+	buf = append(buf, []byte(userID)...)
+
+	// Field 2: connector_id (tag = 0x12 = field 2, wire type 2)
+	buf = append(buf, 0x12)
+	buf = append(buf, byte(len(connectorID)))
+	buf = append(buf, []byte(connectorID)...)
+
+	return base64.RawStdEncoding.EncodeToString(buf)
+}
+
+// DecodeDexUserID decodes Dex's base64-encoded user ID back to the raw user ID and connector ID.
+func DecodeDexUserID(encodedID string) (userID, connectorID string, err error) {
+	// Try RawStdEncoding first, then StdEncoding (with padding)
+	buf, err := base64.RawStdEncoding.DecodeString(encodedID)
+	if err != nil {
+		buf, err = base64.StdEncoding.DecodeString(encodedID)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to decode base64: %w", err)
+		}
+	}
+
+	// Parse protobuf manually
+	i := 0
+	for i < len(buf) {
+		if i >= len(buf) {
+			break
+		}
+		tag := buf[i]
+		i++
+
+		fieldNum := tag >> 3
+		wireType := tag & 0x07
+
+		if wireType != 2 { // We only expect length-delimited strings
+			return "", "", fmt.Errorf("unexpected wire type %d", wireType)
+		}
+
+		if i >= len(buf) {
+			return "", "", fmt.Errorf("truncated message")
+		}
+		length := int(buf[i])
+		i++
+
+		if i+length > len(buf) {
+			return "", "", fmt.Errorf("truncated string field")
+		}
+		value := string(buf[i : i+length])
+		i += length
+
+		switch fieldNum {
+		case 1:
+			userID = value
+		case 2:
+			connectorID = value
+		}
+	}
+
+	return userID, connectorID, nil
 }
 
 // GetUser returns a user by email
@@ -465,14 +541,22 @@ func (p *Provider) GetUser(ctx context.Context, email string) (storage.Password,
 }
 
 // GetUserByID returns a user by user ID.
+// The userID can be either an encoded Dex ID (base64 protobuf) or a raw UUID.
 // Note: This requires iterating through all users since dex storage doesn't index by userID.
 func (p *Provider) GetUserByID(ctx context.Context, userID string) (storage.Password, error) {
+	// Try to decode the user ID in case it's encoded
+	rawUserID, _, err := DecodeDexUserID(userID)
+	if err != nil {
+		// If decoding fails, assume it's already a raw UUID
+		rawUserID = userID
+	}
+
 	users, err := p.storage.ListPasswords(ctx)
 	if err != nil {
 		return storage.Password{}, fmt.Errorf("failed to list users: %w", err)
 	}
 	for _, user := range users {
-		if user.UserID == userID {
+		if user.UserID == rawUserID {
 			return user, nil
 		}
 	}

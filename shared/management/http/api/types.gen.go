@@ -1812,6 +1812,9 @@ type User struct {
 	// Name User's name from idp provider
 	Name string `json:"name"`
 
+	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+	Password *string `json:"password,omitempty"`
+
 	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
 	PendingApproval bool             `json:"pending_approval"`
 	Permissions     *UserPermissions `json:"permissions,omitempty"`

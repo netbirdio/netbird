@@ -67,10 +67,11 @@ func main() {
 		email, password := parts[0], parts[1]
 		username := strings.Split(email, "@")[0] // Use part before @ as username
 
-		if err := provider.CreateUser(ctx, email, username, password); err != nil {
+		userID, err := provider.CreateUser(ctx, email, username, password)
+		if err != nil {
 			log.Fatalf("Failed to create user: %v", err)
 		}
-		log.Infof("Created user: %s", email)
+		log.Infof("Created user: %s (ID: %s)", email, userID)
 	}
 
 	if err := provider.Start(ctx); err != nil {

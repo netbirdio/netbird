@@ -138,6 +138,7 @@ func (m *EmbeddedIdPManager) CreateUser(ctx context.Context, email, name, accoun
 	password := GeneratePassword(16, 2, 2, 2)
 
 	// Create the user via provider (handles hashing and ID generation)
+	// The provider returns an encoded user ID in Dex's format (base64 protobuf with connector ID)
 	userID, err := m.provider.CreateUser(ctx, email, name, password)
 	if err != nil {
 		if m.appMetrics != nil {

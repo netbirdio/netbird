@@ -66,6 +66,7 @@ type UserInfo struct {
 	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
 	PendingApproval      bool                                       `json:"pending_approval"`
+	Password             string                                     `json:"password"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 }
 
@@ -188,6 +189,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		LastLogin:       u.GetLastLogin(),
 		Issued:          u.Issued,
 		PendingApproval: u.PendingApproval,
+		Password:        userData.Password,
 	}, nil
 }
 

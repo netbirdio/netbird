@@ -202,6 +202,10 @@ components:
           description: User's email address
           type: string
           example: demo@netbird.io
+        password:
+          description: User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+          type: string
+          example: super_secure_password
         name:
           description: User's name from idp provider
           type: string

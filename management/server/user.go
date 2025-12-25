@@ -122,21 +122,19 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
-	}
-
-	// For embedded IDP, store user email and name in the database
-	if isEmbeddedIdp(am.idpManager) {
-		newUser.Email = invite.Email
-		newUser.Name = invite.Name
+		Email:                invite.Email,
+		Name:                 invite.Name,
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
-	_, err = am.refreshCache(ctx, accountID)
-	if err != nil {
-		return nil, err
+	if !isEmbeddedIdp(am.idpManager) {
+		_, err = am.refreshCache(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)

@@ -105,8 +105,9 @@ func (d *DexIdP) Storage() storage.Storage {
 	return d.provider.Storage()
 }
 
-// CreateUser creates a new user with the given email, username, and password
-func (d *DexIdP) CreateUser(ctx context.Context, email, username, password string) error {
+// CreateUser creates a new user with the given email, username, and password.
+// Returns the encoded user ID in Dex's format.
+func (d *DexIdP) CreateUser(ctx context.Context, email, username, password string) (string, error) {
 	return d.provider.CreateUser(ctx, email, username, password)
 }
 
