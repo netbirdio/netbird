@@ -104,7 +104,12 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		inviterID = createdBy
 	}
 
-	idpUser, err := am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	var idpUser *idp.UserData
+	if isEmbeddedIdp(am.idpManager) {
+		idpUser, err = am.createEmbeddedIdpUser(ctx, accountID, inviterID, invite)
+	} else {
+		idpUser, err = am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +122,12 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
+	}
+
+	// For embedded IDP, store user email and name in the database
+	if isEmbeddedIdp(am.idpManager) {
+		newUser.Email = invite.Email
+		newUser.Name = invite.Name
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
@@ -170,6 +181,34 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 	}
 
 	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
+}
+
+// createEmbeddedIdpUser validates the invite and creates a new user in the embedded IdP.
+// Unlike createNewIdpUser, this method fetches user data directly from the database
+// since the embedded IdP usage ensures the username and email are stored locally in the User table.
+func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, inviterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inviter user: %w", err)
+	}
+
+	if inviter == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist", inviterID)
+	}
+
+	// check if the user is already registered with this email => reject
+	existingUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, user := range existingUsers {
+		if strings.ToLower(user.Email) == strings.ToLower(invite.Email) {
+			return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
+		}
+	}
+
+	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviter.Email)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {

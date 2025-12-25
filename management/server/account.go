@@ -757,6 +757,16 @@ func isNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
+// isEmbeddedIdp checks if the IDP manager is an embedded IDP (data stored locally in DB).
+// When true, user cache should be skipped and data fetched directly from the IDP manager.
+func isEmbeddedIdp(i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	_, ok := i.(*idp.EmbeddedIdPManager)
+	return ok
+}
+
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) {
