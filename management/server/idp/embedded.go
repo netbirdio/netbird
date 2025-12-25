@@ -64,15 +64,56 @@ func (m *EmbeddedIdPManager) GetUserDataByID(ctx context.Context, userID string,
 }
 
 // GetAccount returns all the users for a given account.
+// Note: Embedded dex doesn't store account metadata, so this returns all users.
 func (m *EmbeddedIdPManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
-	// TODO: implement
-	return nil, fmt.Errorf("not implemented")
+	users, err := m.provider.ListUsers(ctx)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+
+	result := make([]*UserData, 0, len(users))
+	for _, user := range users {
+		result = append(result, &UserData{
+			Email: user.Email,
+			Name:  user.Username,
+			ID:    user.UserID,
+			AppMetadata: AppMetadata{
+				WTAccountID: accountID,
+			},
+		})
+	}
+
+	return result, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
+// Note: Embedded dex doesn't store account metadata, so all users are indexed under UnsetAccountID.
 func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
-	// TODO: implement
-	return nil, fmt.Errorf("not implemented")
+	if m.appMetrics != nil {
+		m.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	users, err := m.provider.ListUsers(ctx)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range users {
+		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], &UserData{
+			Email: user.Email,
+			Name:  user.Username,
+			ID:    user.UserID,
+		})
+	}
+
+	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in the embedded IdP.
