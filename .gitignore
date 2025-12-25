@@ -31,3 +31,4 @@ infrastructure_files/setup-*.env
 .DS_Store
 vendor/
 /netbird
+client/netbird-electron/
