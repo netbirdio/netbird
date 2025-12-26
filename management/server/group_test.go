@@ -379,7 +379,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup

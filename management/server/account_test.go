@@ -382,7 +382,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	}
 
 	for _, testCase := range tt {
-		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io", false)
+		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io", "", "", false)
 		account.UpdateSettings(&testCase.accountSettings)
 		account.Network = network
 		account.Peers = testCase.peers
@@ -407,7 +407,7 @@ func TestNewAccount(t *testing.T) {
 	domain := "netbird.io"
 	userId := "account_creator"
 	accountID := "account_id"
-	account := newAccountWithId(context.Background(), accountID, userId, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userId, domain, "", "", false)
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
@@ -649,7 +649,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
-	_ = newAccountWithId(context.Background(), "", userId, domain, false)
+	_ = newAccountWithId(context.Background(), "", userId, domain, "", "", false)
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, domain)
@@ -802,7 +802,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
@@ -3717,7 +3717,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 
 	// Create a domain-based account with user approval enabled
 	existingAccountID := "existing-account"
-	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", "", "", false)
 	account.Settings.Extra = &types.ExtraSettings{
 		UserApprovalRequired: true,
 	}
