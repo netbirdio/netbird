@@ -1914,15 +1914,30 @@ func TestUser_CreateUser_WithEmbeddedIDP(t *testing.T) {
 	account := newAccountWithId(ctx, mockAccountID, mockUserID, "", "owner@test.com", "Owner User", false)
 	require.NoError(t, testStore.SaveAccount(ctx, account))
 
+	// Create mock network map controller
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	// Create account manager with embedded IDP
 	permissionsManager := permissions.NewManager(testStore)
 	am := DefaultAccountManager{
-		Store:              testStore,
-		eventStore:         &activity.InMemoryEventStore{},
-		permissionsManager: permissionsManager,
-		idpManager:         embeddedIdp,
-		cacheLoading:       map[string]chan struct{}{},
+		Store:                testStore,
+		eventStore:           &activity.InMemoryEventStore{},
+		permissionsManager:   permissionsManager,
+		idpManager:           embeddedIdp,
+		cacheLoading:         map[string]chan struct{}{},
+		networkMapController: networkMapControllerMock,
 	}
+
+	// Initialize cache manager
+	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
+	require.NoError(t, err)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 
 	t.Run("create regular user returns password", func(t *testing.T) {
 		userInfo, err := am.CreateUser(ctx, mockAccountID, mockUserID, &types.UserInfo{
