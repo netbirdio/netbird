@@ -1151,6 +1151,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
 			log.Warnf("failed to update SSH client config: %v", err)
 		}
+
+		e.updateSSHServerAuth(networkMap.GetSshAuth())
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
