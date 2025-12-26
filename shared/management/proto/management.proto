@@ -280,6 +280,18 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // Auto-update config
+  AutoUpdateSettings autoUpdate = 8;
+}
+
+message AutoUpdateSettings {
+  string version = 1;
+  /*
+    alwaysUpdate = true → Updates happen automatically in the background
+    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+   */
+  bool alwaysUpdate = 2;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections

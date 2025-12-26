@@ -24,10 +24,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -39,11 +43,13 @@ import (
 )
 
 type ConnectClient struct {
-	ctx            context.Context
-	config         *profilemanager.Config
-	statusRecorder *peer.Status
-	engine         *Engine
-	engineMutex    sync.Mutex
+	ctx                 context.Context
+	config              *profilemanager.Config
+	statusRecorder      *peer.Status
+	doInitialAutoUpdate bool
+
+	engine      *Engine
+	engineMutex sync.Mutex
 
 	persistSyncResponse bool
 }
@@ -52,13 +58,15 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
+	doInitalAutoUpdate bool,
 
 ) *ConnectClient {
 	return &ConnectClient{
-		ctx:            ctx,
-		config:         config,
-		statusRecorder: statusRecorder,
-		engineMutex:    sync.Mutex{},
+		ctx:                 ctx,
+		config:              config,
+		statusRecorder:      statusRecorder,
+		doInitialAutoUpdate: doInitalAutoUpdate,
+		engineMutex:         sync.Mutex{},
 	}
 }
 
@@ -160,6 +168,33 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	publicSSHKey, err := ssh.GeneratePublicKey([]byte(c.config.SSHKey))
 	if err != nil {
 		return err
+	}
+
+	var path string
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+		// On mobile, use the provided state file path directly
+		if !fileExists(mobileDependency.StateFilePath) {
+			if err := createFile(mobileDependency.StateFilePath); err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+		path = mobileDependency.StateFilePath
+	} else {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
+	stateManager := statemanager.New(path)
+	stateManager.RegisterState(&sshconfig.ShutdownState{})
+
+	updateManager, err := updatemanager.NewManager(c.statusRecorder, stateManager)
+	if err == nil {
+		updateManager.CheckUpdateSuccess(c.ctx)
+
+		inst := installer.New()
+		if err := inst.CleanUpInstallerFiles(); err != nil {
+			log.Errorf("failed to clean up temporary installer file: %v", err)
+		}
 	}
 
 	defer c.statusRecorder.ClientStop()
@@ -273,7 +308,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
 		c.engineMutex.Unlock()
@@ -281,6 +316,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		if err := engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
+		}
+
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			// AutoUpdate will be true when the user click on "Connect" menu on the UI
+			if c.doInitialAutoUpdate {
+				log.Infof("start engine by ui, run auto-update check")
+				c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+				c.doInitialAutoUpdate = false
+			}
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
