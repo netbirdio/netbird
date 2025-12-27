@@ -216,3 +216,33 @@ func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) erro
 
 	return nil
 }
+
+// CreateConnector creates a new identity provider connector in Dex.
+func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
+	return m.provider.CreateConnector(ctx, cfg)
+}
+
+// GetConnector retrieves an identity provider connector by ID.
+func (m *EmbeddedIdPManager) GetConnector(ctx context.Context, id string) (*dex.ConnectorConfig, error) {
+	return m.provider.GetConnector(ctx, id)
+}
+
+// ListConnectors returns all identity provider connectors.
+func (m *EmbeddedIdPManager) ListConnectors(ctx context.Context) ([]*dex.ConnectorConfig, error) {
+	return m.provider.ListConnectors(ctx)
+}
+
+// UpdateConnector updates an existing identity provider connector.
+func (m *EmbeddedIdPManager) UpdateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
+	return m.provider.UpdateConnector(ctx, cfg)
+}
+
+// DeleteConnector removes an identity provider connector.
+func (m *EmbeddedIdPManager) DeleteConnector(ctx context.Context, id string) error {
+	return m.provider.DeleteConnector(ctx, id)
+}
+
+// GetRedirectURI returns the Dex callback redirect URI for configuring connectors.
+func (m *EmbeddedIdPManager) GetRedirectURI() string {
+	return m.provider.GetRedirectURI()
+}

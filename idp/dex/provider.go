@@ -4,6 +4,7 @@ package dex
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -615,4 +616,245 @@ func ensureLocalConnector(ctx context.Context, stor storage.Storage) error {
 	}
 
 	return nil
+}
+
+// ConnectorConfig represents the configuration for an identity provider connector
+type ConnectorConfig struct {
+	// ID is the unique identifier for the connector
+	ID string
+	// Name is a human-readable name for the connector
+	Name string
+	// Type is the connector type (oidc, google, microsoft)
+	Type string
+	// Issuer is the OIDC issuer URL (for OIDC-based connectors)
+	Issuer string
+	// ClientID is the OAuth2 client ID
+	ClientID string
+	// ClientSecret is the OAuth2 client secret
+	ClientSecret string
+	// RedirectURI is the OAuth2 redirect URI
+	RedirectURI string
+}
+
+// CreateConnector creates a new connector in Dex storage.
+// It maps the connector config to the appropriate Dex connector type and configuration.
+func (p *Provider) CreateConnector(ctx context.Context, cfg *ConnectorConfig) error {
+	storageConn, err := p.buildStorageConnector(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to build connector: %w", err)
+	}
+
+	if err := p.storage.CreateConnector(ctx, storageConn); err != nil {
+		return fmt.Errorf("failed to create connector: %w", err)
+	}
+
+	p.logger.Info("connector created", "id", cfg.ID, "type", cfg.Type)
+	return nil
+}
+
+// GetConnector retrieves a connector by ID from Dex storage.
+func (p *Provider) GetConnector(ctx context.Context, id string) (*ConnectorConfig, error) {
+	conn, err := p.storage.GetConnector(ctx, id)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get connector: %w", err)
+	}
+
+	return p.parseStorageConnector(conn)
+}
+
+// ListConnectors returns all connectors from Dex storage (excluding the local connector).
+func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, error) {
+	connectors, err := p.storage.ListConnectors(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list connectors: %w", err)
+	}
+
+	result := make([]*ConnectorConfig, 0, len(connectors))
+	for _, conn := range connectors {
+		// Skip the local password connector
+		if conn.ID == "local" && conn.Type == "local" {
+			continue
+		}
+
+		cfg, err := p.parseStorageConnector(conn)
+		if err != nil {
+			p.logger.Warn("failed to parse connector", "id", conn.ID, "error", err)
+			continue
+		}
+		result = append(result, cfg)
+	}
+
+	return result, nil
+}
+
+// UpdateConnector updates an existing connector in Dex storage.
+func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
+	storageConn, err := p.buildStorageConnector(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to build connector: %w", err)
+	}
+
+	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
+		return storageConn, nil
+	}); err != nil {
+		return fmt.Errorf("failed to update connector: %w", err)
+	}
+
+	p.logger.Info("connector updated", "id", cfg.ID, "type", cfg.Type)
+	return nil
+}
+
+// DeleteConnector removes a connector from Dex storage.
+func (p *Provider) DeleteConnector(ctx context.Context, id string) error {
+	// Prevent deletion of the local connector
+	if id == "local" {
+		return fmt.Errorf("cannot delete the local password connector")
+	}
+
+	if err := p.storage.DeleteConnector(ctx, id); err != nil {
+		return fmt.Errorf("failed to delete connector: %w", err)
+	}
+
+	p.logger.Info("connector deleted", "id", id)
+	return nil
+}
+
+// buildStorageConnector creates a storage.Connector from ConnectorConfig.
+// It handles the type-specific configuration for each connector type.
+func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connector, error) {
+	var configData []byte
+	var dexType string
+
+	// Determine the redirect URI - default to Dex callback
+	redirectURI := cfg.RedirectURI
+	if redirectURI == "" && p.config != nil {
+		issuer := strings.TrimSuffix(p.config.Issuer, "/")
+		if !strings.HasSuffix(issuer, "/dex") {
+			issuer = issuer + "/dex"
+		}
+		redirectURI = issuer + "/callback"
+	}
+
+	switch cfg.Type {
+	case "oidc", "zitadel", "entra", "okta", "pocketid":
+		// All these types use the OIDC connector in Dex
+		dexType = "oidc"
+		oidcConfig := map[string]interface{}{
+			"issuer":       cfg.Issuer,
+			"clientID":     cfg.ClientID,
+			"clientSecret": cfg.ClientSecret,
+			"redirectURI":  redirectURI,
+			"scopes":       []string{"openid", "profile", "email"},
+		}
+		// Type-specific configurations
+		switch cfg.Type {
+		case "zitadel":
+			oidcConfig["getUserInfo"] = true
+		case "entra":
+			oidcConfig["insecureSkipEmailVerified"] = true
+			oidcConfig["claimMapping"] = map[string]string{
+				"email": "preferred_username",
+			}
+		}
+		var err error
+		configData, err = encodeConnectorConfig(oidcConfig)
+		if err != nil {
+			return storage.Connector{}, err
+		}
+
+	case "google":
+		dexType = "google"
+		googleConfig := map[string]interface{}{
+			"clientID":     cfg.ClientID,
+			"clientSecret": cfg.ClientSecret,
+			"redirectURI":  redirectURI,
+		}
+		var err error
+		configData, err = encodeConnectorConfig(googleConfig)
+		if err != nil {
+			return storage.Connector{}, err
+		}
+
+	case "microsoft":
+		dexType = "microsoft"
+		msConfig := map[string]interface{}{
+			"clientID":     cfg.ClientID,
+			"clientSecret": cfg.ClientSecret,
+			"redirectURI":  redirectURI,
+		}
+		var err error
+		configData, err = encodeConnectorConfig(msConfig)
+		if err != nil {
+			return storage.Connector{}, err
+		}
+
+	default:
+		return storage.Connector{}, fmt.Errorf("unsupported connector type: %s", cfg.Type)
+	}
+
+	return storage.Connector{
+		ID:     cfg.ID,
+		Type:   dexType,
+		Name:   cfg.Name,
+		Config: configData,
+	}, nil
+}
+
+// parseStorageConnector converts a storage.Connector back to ConnectorConfig.
+func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConfig, error) {
+	cfg := &ConnectorConfig{
+		ID:   conn.ID,
+		Name: conn.Name,
+		Type: conn.Type, // Default to the Dex type, may be overridden below
+	}
+
+	if len(conn.Config) == 0 {
+		return cfg, nil
+	}
+
+	var configMap map[string]interface{}
+	if err := decodeConnectorConfig(conn.Config, &configMap); err != nil {
+		return nil, fmt.Errorf("failed to parse connector config: %w", err)
+	}
+
+	// Extract common fields
+	if v, ok := configMap["clientID"].(string); ok {
+		cfg.ClientID = v
+	}
+	if v, ok := configMap["clientSecret"].(string); ok {
+		cfg.ClientSecret = v
+	}
+	if v, ok := configMap["redirectURI"].(string); ok {
+		cfg.RedirectURI = v
+	}
+	if v, ok := configMap["issuer"].(string); ok {
+		cfg.Issuer = v
+	}
+
+	return cfg, nil
+}
+
+// encodeConnectorConfig serializes connector config to JSON bytes.
+func encodeConnectorConfig(config map[string]interface{}) ([]byte, error) {
+	return json.Marshal(config)
+}
+
+// decodeConnectorConfig deserializes connector config from JSON bytes.
+func decodeConnectorConfig(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
+}
+
+// GetRedirectURI returns the default redirect URI for connectors.
+func (p *Provider) GetRedirectURI() string {
+	if p.config == nil {
+		return ""
+	}
+	issuer := strings.TrimSuffix(p.config.Issuer, "/")
+	if !strings.HasSuffix(issuer, "/dex") {
+		issuer = issuer + "/dex"
+	}
+	return issuer + "/callback"
 }
