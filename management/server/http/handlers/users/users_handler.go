@@ -331,6 +331,11 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		password = &user.Password
 	}
 
+	var idpID *string
+	if user.IdPID != "" {
+		idpID = &user.IdPID
+	}
+
 	return &api.User{
 		Id:              user.ID,
 		Name:            user.Name,
@@ -345,6 +350,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		Issued:          &user.Issued,
 		PendingApproval: user.PendingApproval,
 		Password:        password,
+		IdpId:           idpID,
 	}
 }
 

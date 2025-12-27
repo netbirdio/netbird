@@ -1847,6 +1847,9 @@ type User struct {
 	// Id User ID
 	Id string `json:"id"`
 
+	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+	IdpId *string `json:"idp_id,omitempty"`
+
 	// IsBlocked Is true if this user is blocked. Blocked users can't use the system
 	IsBlocked bool `json:"is_blocked"`
 

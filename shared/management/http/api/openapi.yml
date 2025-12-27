@@ -258,6 +258,10 @@ components:
           description: How user was issued by API or Integration
           type: string
           example: api
+        idp_id:
+          description: Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+          type: string
+          example: okta-abc123
         permissions:
           $ref: '#/components/schemas/UserPermissions'
       required:

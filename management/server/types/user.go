@@ -68,6 +68,9 @@ type UserInfo struct {
 	PendingApproval      bool                                       `json:"pending_approval"`
 	Password             string                                     `json:"password"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
+	// IdPID is the identity provider ID (connector ID) extracted from the Dex-encoded user ID.
+	// This field is only populated when the user ID can be decoded from Dex's format.
+	IdPID string `json:"idp_id,omitempty"`
 }
 
 // User represents a user of the system

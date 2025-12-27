@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -963,6 +964,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			if err != nil {
 				return nil, err
 			}
+			// Try to decode Dex user ID to extract the IdP ID (connector ID)
+			if _, connectorID, decodeErr := dex.DecodeDexUserID(accountUser.Id); decodeErr == nil && connectorID != "" {
+				info.IdPID = connectorID
+			}
 			userInfosMap[accountUser.Id] = info
 		}
 
@@ -984,7 +989,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 			info = &types.UserInfo{
 				ID:            localUser.Id,
-				Email:         "",
+				Email:         localUser.Email,
 				Name:          name,
 				Role:          string(localUser.Role),
 				AutoGroups:    localUser.AutoGroups,
@@ -992,6 +997,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
 			}
+		}
+		// Try to decode Dex user ID to extract the IdP ID (connector ID)
+		if _, connectorID, decodeErr := dex.DecodeDexUserID(localUser.Id); decodeErr == nil && connectorID != "" {
+			info.IdPID = connectorID
 		}
 		userInfosMap[info.ID] = info
 	}
