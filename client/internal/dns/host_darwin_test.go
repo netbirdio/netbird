@@ -109,3 +109,147 @@ func removeTestDNSKey(key string) error {
 	_, err := cmd.CombinedOutput()
 	return err
 }
+
+func TestParseSystemConfigOutput_Complete(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : example.com
+  SearchDomains : <array> {
+    0 : internal.local
+    1 : corp.example.com
+  }
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+    1 : 8.8.8.8
+  }
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Equal(t, 53, result.ServerPort)
+	assert.Len(t, result.Domains, 3)
+	assert.Contains(t, result.Domains, "example.com")
+	assert.Contains(t, result.Domains, "internal.local")
+	assert.Contains(t, result.Domains, "corp.example.com")
+
+	assert.Len(t, result.ServerIPs, 2)
+	assert.Equal(t, "192.168.1.1", result.ServerIPs[0].String())
+	assert.Equal(t, "8.8.8.8", result.ServerIPs[1].String())
+}
+
+func TestParseSystemConfigOutput_MultipleServers(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : test.local
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+    1 : 10.0.0.1
+    2 : 2001:4860:4860::8888
+    3 : fd00::1
+  }
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Len(t, result.ServerIPs, 4)
+	assert.Equal(t, "192.168.1.1", result.ServerIPs[0].String())
+	assert.Equal(t, "10.0.0.1", result.ServerIPs[1].String())
+	assert.Equal(t, "2001:4860:4860::8888", result.ServerIPs[2].String())
+	assert.Equal(t, "fd00::1", result.ServerIPs[3].String())
+}
+
+func TestParseSystemConfigOutput_DomainDeduplication(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : example.com
+  SearchDomains : <array> {
+    0 : example.com
+    1 : internal.local
+    2 : example.com
+  }
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+  }
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Len(t, result.Domains, 2)
+	assert.Contains(t, result.Domains, "example.com")
+	assert.Contains(t, result.Domains, "internal.local")
+
+	domainCount := make(map[string]int)
+	for _, domain := range result.Domains {
+		domainCount[domain]++
+	}
+	assert.Equal(t, 1, domainCount["example.com"])
+}
+
+func TestParseSystemConfigOutput_EmptyOutput(t *testing.T) {
+	result, err := parseSystemConfigOutput([]byte(""))
+	require.NoError(t, err)
+
+	assert.Equal(t, 53, result.ServerPort)
+	assert.Empty(t, result.Domains)
+	assert.Empty(t, result.ServerIPs)
+}
+
+func TestParseSystemConfigOutput_InvalidIP(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : test.local
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+    1 : invalid-ip
+    2 : 8.8.8.8
+    3 : 999.999.999.999
+  }
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Len(t, result.ServerIPs, 2)
+	assert.Equal(t, "192.168.1.1", result.ServerIPs[0].String())
+	assert.Equal(t, "8.8.8.8", result.ServerIPs[1].String())
+}
+
+func TestParseSystemConfigOutput_OnlyDomainName(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : example.com
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Len(t, result.Domains, 1)
+	assert.Equal(t, "example.com", result.Domains[0])
+	assert.Empty(t, result.ServerIPs)
+	assert.Equal(t, 53, result.ServerPort)
+}
+
+func TestParseSystemConfigOutput_NestedArrays(t *testing.T) {
+	mockOutput := `<dictionary> {
+  DomainName : example.com
+  SearchDomains : <array> {
+    0 : search1.local
+    1 : search2.local
+  }
+  ServerAddresses : <array> {
+    0 : 192.168.1.1
+    1 : 192.168.1.2
+  }
+  OtherField : value
+}`
+
+	result, err := parseSystemConfigOutput([]byte(mockOutput))
+	require.NoError(t, err)
+
+	assert.Len(t, result.Domains, 3)
+	assert.Contains(t, result.Domains, "example.com")
+	assert.Contains(t, result.Domains, "search1.local")
+	assert.Contains(t, result.Domains, "search2.local")
+
+	assert.Len(t, result.ServerIPs, 2)
+	assert.Equal(t, "192.168.1.1", result.ServerIPs[0].String())
+	assert.Equal(t, "192.168.1.2", result.ServerIPs[1].String())
+}
