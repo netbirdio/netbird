@@ -36,6 +36,8 @@ type IdentityProvider struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
+	// RedirectURL is the OAuth2 redirect URL for configuring the identity provider (not stored in DB)
+	RedirectURL string `gorm:"-"`
 }
 
 // Copy returns a copy of the IdentityProvider
@@ -48,6 +50,7 @@ func (idp *IdentityProvider) Copy() *IdentityProvider {
 		Issuer:       idp.Issuer,
 		ClientID:     idp.ClientID,
 		ClientSecret: idp.ClientSecret,
+		RedirectURL:  idp.RedirectURL,
 	}
 }
 

@@ -98,9 +98,13 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 	connCfg := identityProviderToConnectorConfig(idpConfig)
 
-	if err := embeddedManager.CreateConnector(ctx, connCfg); err != nil {
+	createdConn, err := embeddedManager.CreateConnector(ctx, connCfg)
+	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create identity provider: %v", err)
 	}
+
+	// Set the redirect URL from the created connector
+	idpConfig.RedirectURL = createdConn.RedirectURI
 
 	return idpConfig, nil
 }
@@ -212,6 +216,7 @@ func connectorConfigToIdentityProvider(conn *dex.ConnectorConfig, accountID stri
 		Issuer:       conn.Issuer,
 		ClientID:     conn.ClientID,
 		ClientSecret: conn.ClientSecret,
+		RedirectURL:  conn.RedirectURI,
 	}
 }
 

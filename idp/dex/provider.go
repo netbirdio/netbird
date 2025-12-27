@@ -641,18 +641,23 @@ type ConnectorConfig struct {
 
 // CreateConnector creates a new connector in Dex storage.
 // It maps the connector config to the appropriate Dex connector type and configuration.
-func (p *Provider) CreateConnector(ctx context.Context, cfg *ConnectorConfig) error {
+func (p *Provider) CreateConnector(ctx context.Context, cfg *ConnectorConfig) (*ConnectorConfig, error) {
+	// Fill in the redirect URI if not provided
+	if cfg.RedirectURI == "" {
+		cfg.RedirectURI = p.GetRedirectURI()
+	}
+
 	storageConn, err := p.buildStorageConnector(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to build connector: %w", err)
+		return nil, fmt.Errorf("failed to build connector: %w", err)
 	}
 
 	if err := p.storage.CreateConnector(ctx, storageConn); err != nil {
-		return fmt.Errorf("failed to create connector: %w", err)
+		return nil, fmt.Errorf("failed to create connector: %w", err)
 	}
 
 	p.logger.Info("connector created", "id", cfg.ID, "type", cfg.Type)
-	return nil
+	return cfg, nil
 }
 
 // GetConnector retrieves a connector by ID from Dex storage.

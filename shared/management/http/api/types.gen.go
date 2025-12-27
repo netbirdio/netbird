@@ -542,6 +542,9 @@ type IdentityProvider struct {
 	// Name Human-readable name for the identity provider
 	Name string `json:"name"`
 
+	// RedirectUrl OAuth2 redirect URL for configuring the identity provider
+	RedirectUrl *string `json:"redirect_url,omitempty"`
+
 	// Type Type of identity provider
 	Type IdentityProviderType `json:"type"`
 }

@@ -218,7 +218,8 @@ func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) erro
 }
 
 // CreateConnector creates a new identity provider connector in Dex.
-func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
+// Returns the created connector config with the redirect URL populated.
+func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) (*dex.ConnectorConfig, error) {
 	return m.provider.CreateConnector(ctx, cfg)
 }
 
