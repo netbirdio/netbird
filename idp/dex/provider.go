@@ -231,8 +231,13 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 	// Build Dex server config
 	dexConfig := yamlConfig.ToServerConfig(stor, logger)
 	dexConfig.PrometheusRegistry = prometheus.NewRegistry()
-	dexConfig.RotateKeysAfter = 6 * time.Hour
-	dexConfig.IDTokensValidFor = 24 * time.Hour
+	// Set defaults only if not configured in YAML
+	if dexConfig.RotateKeysAfter == 0 {
+		dexConfig.RotateKeysAfter = 6 * time.Hour
+	}
+	if dexConfig.IDTokensValidFor == 0 {
+		dexConfig.IDTokensValidFor = 24 * time.Hour
+	}
 	if dexConfig.Web.Issuer == "" {
 		dexConfig.Web.Issuer = "NetBird"
 	}
@@ -240,15 +245,13 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 		dexConfig.SupportedResponseTypes = []string{"code"}
 	}
 
-	// Ensure RefreshTokenPolicy is set (required to avoid nil pointer panics)
-	if dexConfig.RefreshTokenPolicy == nil {
-		refreshPolicy, err := server.NewRefreshTokenPolicy(logger, false, "", "", "")
-		if err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to create refresh token policy: %w", err)
-		}
-		dexConfig.RefreshTokenPolicy = refreshPolicy
+	// Create RefreshTokenPolicy from YAML config or use defaults
+	refreshPolicy, err := yamlConfig.GetRefreshTokenPolicy(logger)
+	if err != nil {
+		stor.Close()
+		return nil, fmt.Errorf("failed to create refresh token policy: %w", err)
 	}
+	dexConfig.RefreshTokenPolicy = refreshPolicy
 
 	dexSrv, err := server.NewServer(ctx, dexConfig)
 	if err != nil {

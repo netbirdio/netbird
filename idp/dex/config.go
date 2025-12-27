@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,11 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex/web"
 )
+
+// parseDuration parses a duration string (e.g., "6h", "24h", "168h").
+func parseDuration(s string) (time.Duration, error) {
+	return time.ParseDuration(s)
+}
 
 // YAMLConfig represents the YAML configuration file format (mirrors dex's config format)
 type YAMLConfig struct {
@@ -46,8 +52,10 @@ type YAMLConfig struct {
 
 // Web is the config format for the HTTP server.
 type Web struct {
-	HTTP  string `yaml:"http" json:"http"`
-	HTTPS string `yaml:"https" json:"https"`
+	HTTP           string   `yaml:"http" json:"http"`
+	HTTPS          string   `yaml:"https" json:"https"`
+	AllowedOrigins []string `yaml:"allowedOrigins" json:"allowedOrigins"`
+	AllowedHeaders []string `yaml:"allowedHeaders" json:"allowedHeaders"`
 }
 
 // GRPC is the config for the gRPC API.
@@ -69,10 +77,19 @@ type OAuth2 struct {
 
 // Expiry holds configuration for the validity period of components.
 type Expiry struct {
-	SigningKeys    string `yaml:"signingKeys" json:"signingKeys"`
-	IDTokens       string `yaml:"idTokens" json:"idTokens"`
-	AuthRequests   string `yaml:"authRequests" json:"authRequests"`
-	DeviceRequests string `yaml:"deviceRequests" json:"deviceRequests"`
+	SigningKeys    string              `yaml:"signingKeys" json:"signingKeys"`
+	IDTokens       string              `yaml:"idTokens" json:"idTokens"`
+	AuthRequests   string              `yaml:"authRequests" json:"authRequests"`
+	DeviceRequests string              `yaml:"deviceRequests" json:"deviceRequests"`
+	RefreshTokens  RefreshTokensExpiry `yaml:"refreshTokens" json:"refreshTokens"`
+}
+
+// RefreshTokensExpiry holds configuration for refresh token expiry.
+type RefreshTokensExpiry struct {
+	ReuseInterval     string `yaml:"reuseInterval" json:"reuseInterval"`
+	ValidIfNotUsedFor string `yaml:"validIfNotUsedFor" json:"validIfNotUsedFor"`
+	AbsoluteLifetime  string `yaml:"absoluteLifetime" json:"absoluteLifetime"`
+	DisableRotation   bool   `yaml:"disableRotation" json:"disableRotation"`
 }
 
 // Logger holds configuration required to customize logging.
@@ -208,6 +225,8 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 		Storage:            stor,
 		Logger:             logger,
 		SkipApprovalScreen: c.OAuth2.SkipApprovalScreen,
+		AllowedOrigins:     c.Web.AllowedOrigins,
+		AllowedHeaders:     c.Web.AllowedHeaders,
 		Web: server.WebConfig{
 			Issuer:  c.Frontend.Issuer,
 			LogoURL: c.Frontend.LogoURL,
@@ -226,7 +245,41 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 		cfg.SupportedResponseTypes = c.OAuth2.ResponseTypes
 	}
 
+	// Apply expiry settings
+	if c.Expiry.SigningKeys != "" {
+		if d, err := parseDuration(c.Expiry.SigningKeys); err == nil {
+			cfg.RotateKeysAfter = d
+		}
+	}
+	if c.Expiry.IDTokens != "" {
+		if d, err := parseDuration(c.Expiry.IDTokens); err == nil {
+			cfg.IDTokensValidFor = d
+		}
+	}
+	if c.Expiry.AuthRequests != "" {
+		if d, err := parseDuration(c.Expiry.AuthRequests); err == nil {
+			cfg.AuthRequestsValidFor = d
+		}
+	}
+	if c.Expiry.DeviceRequests != "" {
+		if d, err := parseDuration(c.Expiry.DeviceRequests); err == nil {
+			cfg.DeviceRequestsValidFor = d
+		}
+	}
+
 	return cfg
+}
+
+// GetRefreshTokenPolicy creates a RefreshTokenPolicy from the expiry config.
+// This should be called after ToServerConfig and the policy set on the config.
+func (c *YAMLConfig) GetRefreshTokenPolicy(logger *slog.Logger) (*server.RefreshTokenPolicy, error) {
+	return server.NewRefreshTokenPolicy(
+		logger,
+		c.Expiry.RefreshTokens.DisableRotation,
+		c.Expiry.RefreshTokens.ValidIfNotUsedFor,
+		c.Expiry.RefreshTokens.AbsoluteLifetime,
+		c.Expiry.RefreshTokens.ReuseInterval,
+	)
 }
 
 // LoadConfig loads configuration from a YAML file
