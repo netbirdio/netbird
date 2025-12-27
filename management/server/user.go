@@ -798,7 +798,7 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	if !isNil(am.idpManager) && !user.IsServiceUser {
+	if !isNil(am.idpManager) && !user.IsServiceUser && !isEmbeddedIdp(am.idpManager) {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err

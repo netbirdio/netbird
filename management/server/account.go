@@ -243,7 +243,7 @@ func BuildManager(
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 
-	if !isNil(am.idpManager) {
+	if !isNil(am.idpManager) && !isEmbeddedIdp(am.idpManager) {
 		go func() {
 			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
@@ -779,7 +779,7 @@ func isEmbeddedIdp(i idp.Manager) bool {
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
-	if !isNil(am.idpManager) {
+	if !isNil(am.idpManager) && !isEmbeddedIdp(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
 		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
@@ -1025,6 +1025,9 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accountID, userID string) error {
+	if isEmbeddedIdp(am.idpManager) {
+		return nil
+	}
 	data, err := am.getAccountFromCache(ctx, accountID, false)
 	if err != nil {
 		return err
