@@ -758,6 +758,8 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 			oidcConfig["claimMapping"] = map[string]string{
 				"email": "preferred_username",
 			}
+		case "okta":
+			oidcConfig["insecureSkipEmailVerified"] = true
 		}
 		var err error
 		configData, err = encodeConnectorConfig(oidcConfig)

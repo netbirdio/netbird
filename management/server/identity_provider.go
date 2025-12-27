@@ -92,7 +92,7 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 	// Generate ID if not provided
 	if idpConfig.ID == "" {
-		idpConfig.ID = xid.New().String()
+		idpConfig.ID = generateIdentityProviderID(idpConfig.Type)
 	}
 	idpConfig.AccountID = accountID
 
@@ -224,5 +224,30 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 		Issuer:       idpConfig.Issuer,
 		ClientID:     idpConfig.ClientID,
 		ClientSecret: idpConfig.ClientSecret,
+	}
+}
+
+// generateIdentityProviderID generates a unique ID for an identity provider.
+// For specific provider types (okta, zitadel, entra, google, pocketid, microsoft),
+// the ID is prefixed with the type name. Generic OIDC providers get no prefix.
+func generateIdentityProviderID(idpType types.IdentityProviderType) string {
+	id := xid.New().String()
+
+	switch idpType {
+	case types.IdentityProviderTypeOkta:
+		return "okta-" + id
+	case types.IdentityProviderTypeZitadel:
+		return "zitadel-" + id
+	case types.IdentityProviderTypeEntra:
+		return "entra-" + id
+	case types.IdentityProviderTypeGoogle:
+		return "google-" + id
+	case types.IdentityProviderTypePocketID:
+		return "pocketid-" + id
+	case types.IdentityProviderTypeMicrosoft:
+		return "microsoft-" + id
+	default:
+		// Generic OIDC - no prefix
+		return id
 	}
 }
