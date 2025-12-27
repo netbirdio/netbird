@@ -804,14 +804,15 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 }
 
 // parseStorageConnector converts a storage.Connector back to ConnectorConfig.
+// It infers the original identity provider type from the Dex connector type and ID.
 func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConfig, error) {
 	cfg := &ConnectorConfig{
 		ID:   conn.ID,
 		Name: conn.Name,
-		Type: conn.Type, // Default to the Dex type, may be overridden below
 	}
 
 	if len(conn.Config) == 0 {
+		cfg.Type = conn.Type
 		return cfg, nil
 	}
 
@@ -834,7 +835,39 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 		cfg.Issuer = v
 	}
 
+	// Infer the original identity provider type from Dex connector type and ID
+	cfg.Type = inferIdentityProviderType(conn.Type, conn.ID, configMap)
+
 	return cfg, nil
+}
+
+// inferIdentityProviderType determines the original identity provider type
+// based on the Dex connector type, connector ID, and configuration.
+func inferIdentityProviderType(dexType, connectorID string, config map[string]interface{}) string {
+	connectorIDLower := strings.ToLower(connectorID)
+
+	switch dexType {
+	case "oidc":
+		// Check connector ID for specific provider hints
+		switch {
+		case strings.Contains(connectorIDLower, "pocketid"):
+			return "pocketid"
+		case strings.Contains(connectorIDLower, "zitadel"):
+			return "zitadel"
+		case strings.Contains(connectorIDLower, "entra"):
+			return "entra"
+		case strings.Contains(connectorIDLower, "okta"):
+			return "okta"
+		default:
+			return "oidc"
+		}
+	case "google":
+		return "google"
+	case "microsoft":
+		return "microsoft"
+	default:
+		return dexType
+	}
 }
 
 // encodeConnectorConfig serializes connector config to JSON bytes.
