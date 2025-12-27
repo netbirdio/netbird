@@ -89,6 +89,13 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		issuer = issuer + "/dex"
 	}
 
+	// Build refresh token policy (required to avoid nil pointer panics)
+	refreshPolicy, err := server.NewRefreshTokenPolicy(logger, false, "", "", "")
+	if err != nil {
+		stor.Close()
+		return nil, fmt.Errorf("failed to create refresh token policy: %w", err)
+	}
+
 	// Build Dex server config - use Dex's types directly
 	dexConfig := server.Config{
 		Issuer:                 issuer,
@@ -99,6 +106,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		PrometheusRegistry:     prometheus.NewRegistry(),
 		RotateKeysAfter:        6 * time.Hour,
 		IDTokensValidFor:       24 * time.Hour,
+		RefreshTokenPolicy:     refreshPolicy,
 		Web: server.WebConfig{
 			Issuer: "NetBird",
 		},
@@ -229,6 +237,16 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 	}
 	if len(dexConfig.SupportedResponseTypes) == 0 {
 		dexConfig.SupportedResponseTypes = []string{"code"}
+	}
+
+	// Ensure RefreshTokenPolicy is set (required to avoid nil pointer panics)
+	if dexConfig.RefreshTokenPolicy == nil {
+		refreshPolicy, err := server.NewRefreshTokenPolicy(logger, false, "", "", "")
+		if err != nil {
+			stor.Close()
+			return nil, fmt.Errorf("failed to create refresh token policy: %w", err)
+		}
+		dexConfig.RefreshTokenPolicy = refreshPolicy
 	}
 
 	dexSrv, err := server.NewServer(ctx, dexConfig)
