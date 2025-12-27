@@ -80,6 +80,7 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
+	currentConfigHash  uint64
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 
@@ -207,6 +208,7 @@ func newDefaultServer(
 		hostsDNSHolder:    newHostsDNSHolder(),
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
+		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -586,8 +588,29 @@ func (s *DefaultServer) applyHostConfig() {
 
 	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
+	hash, err := hashstructure.Hash(config, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Warnf("unable to hash the host dns configuration, will apply config anyway: %s", err)
+		// Fall through to apply config anyway (fail-safe approach)
+	} else if s.currentConfigHash == hash {
+		log.Debugf("not applying host config as there are no changes")
+		return
+	}
+
+	log.Debugf("applying host config as there are changes")
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
+		return
+	}
+
+	// Only update hash if it was computed successfully and config was applied
+	if err == nil {
+		s.currentConfigHash = hash
 	}
 
 	s.registerFallback(config)
