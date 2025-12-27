@@ -32,6 +32,8 @@ tags:
   - name: Ingress Ports
     description: Interact with and view information about the ingress peers and ports.
     x-cloud-only: true
+  - name: Identity Providers
+    description: Interact with and view information about identity providers.
 components:
   schemas:
     Account:
@@ -2201,6 +2203,71 @@ components:
         - page_size
         - total_records
         - total_pages
+    IdentityProviderType:
+      type: string
+      description: Type of identity provider
+      enum:
+        - oidc
+        - zitadel
+        - entra
+        - google
+        - okta
+        - pocketid
+        - microsoft
+      example: oidc
+    IdentityProvider:
+      type: object
+      properties:
+        id:
+          description: Identity provider ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7l0
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+    IdentityProviderRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+        client_secret:
+          description: OAuth2 client secret
+          type: string
+          example: secret123
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+        - client_secret
   responses:
     not_found:
       description: Resource not found
@@ -4820,6 +4887,150 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/City'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers:
+    get:
+      summary: List all Identity Providers
+      description: Returns a list of all identity providers configured for the account
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON array of identity providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Identity Provider
+      description: Creates a new identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Identity provider configuration
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers/{idpId}:
+    get:
+      summary: Retrieve an Identity Provider
+      description: Get information about a specific identity provider
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Identity Provider
+      description: Update an existing identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      requestBody:
+        description: Identity provider update
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Identity Provider
+      description: Delete an identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

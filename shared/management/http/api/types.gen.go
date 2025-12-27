@@ -83,6 +83,17 @@ const (
 	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
 )
 
+// Defines values for IdentityProviderType.
+const (
+	IdentityProviderTypeEntra     IdentityProviderType = "entra"
+	IdentityProviderTypeGoogle    IdentityProviderType = "google"
+	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
+	IdentityProviderTypeOidc      IdentityProviderType = "oidc"
+	IdentityProviderTypeOkta      IdentityProviderType = "okta"
+	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
+	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
+)
+
 // Defines values for IngressPortAllocationPortMappingProtocol.
 const (
 	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
@@ -516,6 +527,45 @@ type GroupRequest struct {
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
 }
+
+// IdentityProvider defines model for IdentityProvider.
+type IdentityProvider struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// Id Identity provider ID
+	Id *string `json:"id,omitempty"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderRequest defines model for IdentityProviderRequest.
+type IdentityProviderRequest struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// ClientSecret OAuth2 client secret
+	ClientSecret string `json:"client_secret"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderType Type of identity provider
+type IdentityProviderType string
 
 // IngressPeer defines model for IngressPeer.
 type IngressPeer struct {
@@ -1958,6 +2008,12 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
+
+// PostApiIdentityProvidersJSONRequestBody defines body for PostApiIdentityProviders for application/json ContentType.
+type PostApiIdentityProvidersJSONRequestBody = IdentityProviderRequest
+
+// PutApiIdentityProvidersIdpIdJSONRequestBody defines body for PutApiIdentityProvidersIdpId for application/json ContentType.
+type PutApiIdentityProvidersIdpIdJSONRequestBody = IdentityProviderRequest
 
 // PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
 type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest

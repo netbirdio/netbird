@@ -183,6 +183,10 @@ const (
 
 	AccountAutoUpdateVersionUpdated Activity = 92
 
+	IdentityProviderCreated Activity = 93
+	IdentityProviderUpdated Activity = 94
+	IdentityProviderDeleted Activity = 95
+
 	AccountDeleted Activity = 99999
 )
 
@@ -295,6 +299,10 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
+	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
+	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
 }
 
 // StringCode returns a string code of the activity
