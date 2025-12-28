@@ -85,10 +85,10 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to ensure local connector: %w", err)
 	}
 
-	// Ensure issuer ends with /dex for proper path mounting
+	// Ensure issuer ends with /oauth2 for proper path mounting
 	issuer := strings.TrimSuffix(config.Issuer, "/")
-	if !strings.HasSuffix(issuer, "/dex") {
-		issuer = issuer + "/dex"
+	if !strings.HasSuffix(issuer, "/oauth2") {
+		issuer = issuer + "/oauth2"
 	}
 
 	// Build refresh token policy (required to avoid nil pointer panics)
@@ -304,10 +304,10 @@ func (p *Provider) Start(_ context.Context) error {
 	}
 	p.listener = listener
 
-	// Mount Dex at /dex/ path for reverse proxy compatibility
-	// Don't strip the prefix - Dex's issuer includes /dex so it expects the full path
+	// Mount Dex at /oauth2/ path for reverse proxy compatibility
+	// Don't strip the prefix - Dex's issuer includes /oauth2 so it expects the full path
 	mux := http.NewServeMux()
-	mux.Handle("/dex/", p.dexServer)
+	mux.Handle("/oauth2/", p.dexServer)
 
 	p.httpServer = &http.Server{Handler: mux}
 	p.running = true
@@ -457,7 +457,7 @@ func (p *Provider) Storage() storage.Storage {
 }
 
 // Handler returns the Dex server as an http.Handler for embedding in another server.
-// The handler expects requests with path prefix "/dex/".
+// The handler expects requests with path prefix "/oauth2/".
 func (p *Provider) Handler() http.Handler {
 	return p.dexServer
 }
@@ -737,12 +737,12 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 	var configData []byte
 	var dexType string
 
-	// Determine the redirect URI - default to Dex callback
+	// Determine the redirect URI - default to oauth2 callback
 	redirectURI := cfg.RedirectURI
 	if redirectURI == "" && p.config != nil {
 		issuer := strings.TrimSuffix(p.config.Issuer, "/")
-		if !strings.HasSuffix(issuer, "/dex") {
-			issuer = issuer + "/dex"
+		if !strings.HasSuffix(issuer, "/oauth2") {
+			issuer = issuer + "/oauth2"
 		}
 		redirectURI = issuer + "/callback"
 	}
@@ -897,8 +897,8 @@ func (p *Provider) GetRedirectURI() string {
 		return ""
 	}
 	issuer := strings.TrimSuffix(p.config.Issuer, "/")
-	if !strings.HasSuffix(issuer, "/dex") {
-		issuer = issuer + "/dex"
+	if !strings.HasSuffix(issuer, "/oauth2") {
+		issuer = issuer + "/oauth2"
 	}
 	return issuer + "/callback"
 }

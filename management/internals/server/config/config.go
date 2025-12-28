@@ -59,7 +59,7 @@ type Config struct {
 	DisableDefaultPolicy bool
 
 	// EmbeddedIdp contains configuration for the embedded Dex OIDC provider.
-	// When set, Dex will be embedded in the management server and serve requests at /dex/
+	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
 	EmbeddedIdp *EmbeddedIdpConfig
 }
 

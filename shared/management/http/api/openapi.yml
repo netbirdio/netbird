@@ -2243,7 +2243,7 @@ components:
         redirect_url:
           description: OAuth2 redirect URL for configuring the identity provider
           type: string
-          example: https://example.com/dex/callback
+          example: https://example.com/oauth2/callback
       required:
         - type
         - name

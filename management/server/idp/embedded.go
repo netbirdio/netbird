@@ -48,7 +48,7 @@ type OwnerConfig struct {
 
 // EmbeddedIdPConfig holds configuration for the embedded IdP manager.
 type EmbeddedIdPConfig struct {
-	// Issuer is the OIDC issuer URL (e.g., "http://localhost:3002/dex")
+	// Issuer is the OIDC issuer URL (e.g., "http://localhost:3002/oauth2")
 	Issuer string
 	// Storage configuration for the IdP database
 	Storage EmbeddedStorageConfig
