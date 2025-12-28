@@ -139,12 +139,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	// Initialize embedded IDP if configured
 	if s.Config.EmbeddedIdp != nil && s.Config.EmbeddedIdp.Enabled {
-		if s.Config.EmbeddedIdp.ConfigPath == "" {
-			return fmt.Errorf("embedded IDP enabled but no config path specified")
-		}
-		yamlConfig, err := dex.LoadConfig(s.Config.EmbeddedIdp.ConfigPath)
+		yamlConfig, err := s.Config.EmbeddedIdp.EmbeddedIdPConfig.ToYAMLConfig()
 		if err != nil {
-			return fmt.Errorf("failed to load embedded IDP config: %v", err)
+			return fmt.Errorf("failed to create embedded IDP config: %v", err)
 		}
 		s.embeddedIdp, err = dex.NewProviderFromYAML(srvCtx, yamlConfig)
 		if err != nil {

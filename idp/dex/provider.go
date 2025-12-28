@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -148,7 +149,7 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 	// Create static passwords if provided
 	for _, pw := range yamlConfig.StaticPasswords {
 		existing, err := stor.GetPassword(ctx, pw.Email)
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			if err := stor.CreatePassword(ctx, storage.Password(pw)); err != nil {
 				stor.Close()
 				return nil, fmt.Errorf("failed to create password for %s: %w", pw.Email, err)

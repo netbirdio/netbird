@@ -67,8 +67,8 @@ type Config struct {
 type EmbeddedIdpConfig struct {
 	// Enabled indicates whether the embedded IDP is enabled
 	Enabled bool
-	// ConfigPath is the path to the Dex YAML configuration file
-	ConfigPath string
+	// Config contains the embedded IdP configuration
+	idp.EmbeddedIdPConfig
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
