@@ -902,3 +902,41 @@ func (p *Provider) GetRedirectURI() string {
 	}
 	return issuer + "/callback"
 }
+
+// GetIssuer returns the OIDC issuer URL.
+func (p *Provider) GetIssuer() string {
+	if p.config == nil {
+		return ""
+	}
+	issuer := strings.TrimSuffix(p.config.Issuer, "/")
+	if !strings.HasSuffix(issuer, "/oauth2") {
+		issuer = issuer + "/oauth2"
+	}
+	return issuer
+}
+
+// GetKeysLocation returns the JWKS endpoint URL for token validation.
+func (p *Provider) GetKeysLocation() string {
+	issuer := p.GetIssuer()
+	if issuer == "" {
+		return ""
+	}
+	return issuer + "/keys"
+}
+
+// GetClientIDs returns the OAuth2 client IDs configured for this provider.
+func (p *Provider) GetClientIDs() []string {
+	if p.yamlConfig != nil && len(p.yamlConfig.StaticClients) > 0 {
+		clientIDs := make([]string, 0, len(p.yamlConfig.StaticClients))
+		for _, client := range p.yamlConfig.StaticClients {
+			clientIDs = append(clientIDs, client.ID)
+		}
+		return clientIDs
+	}
+	// Default client IDs if not configured via YAML
+	return []string{"netbird-dashboard", "netbird-cli"}
+}
+
+func (p *Provider) GetUserIDClaim() string {
+	return "sub"
+}

@@ -55,14 +55,31 @@ func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 }
 
 func (s *BaseServer) AuthManager() auth.Manager {
+	audiences := s.Config.GetAuthAudiences()
+	audience := s.Config.HttpConfig.AuthAudience
+	keysLocation := s.Config.HttpConfig.AuthKeysLocation
+	signingKeyRefreshEnabled := s.Config.HttpConfig.IdpSignKeyRefreshEnabled
+	issuer := s.Config.HttpConfig.AuthIssuer
+	userIDClaim := s.Config.HttpConfig.AuthUserIDClaim
+	if s.embeddedIdp != nil {
+		// Use embedded IdP provider's methods to extract configuration
+		audiences = s.embeddedIdp.GetClientIDs()
+		if len(audiences) > 0 {
+			audience = audiences[0] // Use the first client ID as the primary audience
+		}
+		keysLocation = s.embeddedIdp.GetKeysLocation()
+		signingKeyRefreshEnabled = true
+		issuer = s.embeddedIdp.GetIssuer()
+		userIDClaim = s.embeddedIdp.GetUserIDClaim()
+	}
 	return Create(s, func() auth.Manager {
 		return auth.NewManager(s.Store(),
-			s.Config.HttpConfig.AuthIssuer,
-			s.Config.HttpConfig.AuthAudience,
-			s.Config.HttpConfig.AuthKeysLocation,
-			s.Config.HttpConfig.AuthUserIDClaim,
-			s.Config.GetAuthAudiences(),
-			s.Config.HttpConfig.IdpSignKeyRefreshEnabled)
+			issuer,
+			audience,
+			keysLocation,
+			userIDClaim,
+			audiences,
+			signingKeyRefreshEnabled)
 	})
 }
 

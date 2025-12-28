@@ -56,6 +56,8 @@ type EmbeddedIdPConfig struct {
 	DashboardRedirectURIs []string
 	// Owner is the initial owner/admin user (optional, can be nil)
 	Owner *OwnerConfig
+	// SignKeyRefreshEnabled enables automatic key rotation for signing keys
+	SignKeyRefreshEnabled bool
 }
 
 // DefaultCLIRedirectURIs returns the default redirect URIs for the CLI client.
