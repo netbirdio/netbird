@@ -172,13 +172,6 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	var hashedUsers [][]byte
 	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
 
-	users, ok := authorizedUsers[auth.Wildcard]
-	if ok {
-		wildcard := make(map[string]map[string]struct{})
-		wildcard[auth.Wildcard] = users
-		authorizedUsers = wildcard
-	}
-
 	for machineUser, users := range authorizedUsers {
 		indexes := make([]uint32, 0, len(users))
 		for userID := range users {
