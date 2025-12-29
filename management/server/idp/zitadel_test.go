@@ -288,16 +288,14 @@ func TestZitadelAuthenticate(t *testing.T) {
 }
 
 func TestZitadelProfile(t *testing.T) {
-	type azureProfileTest struct {
+	type zitadelProfileTest struct {
 		name             string
-		invite           bool
 		inputProfile     zitadelProfile
 		expectedUserData UserData
 	}
 
-	azureProfileTestCase1 := azureProfileTest{
-		name:   "User Request",
-		invite: false,
+	zitadelProfileTestCase1 := zitadelProfileTest{
+		name: "User Request",
 		inputProfile: zitadelProfile{
 			ID:                 "test1",
 			State:              "USER_STATE_ACTIVE",
@@ -322,15 +320,11 @@ func TestZitadelProfile(t *testing.T) {
 			ID:    "test1",
 			Name:  "ZITADEL Admin",
 			Email: "test1@mail.com",
-			AppMetadata: AppMetadata{
-				WTAccountID: "1",
-			},
 		},
 	}
 
-	azureProfileTestCase2 := azureProfileTest{
-		name:   "Service User Request",
-		invite: true,
+	zitadelProfileTestCase2 := zitadelProfileTest{
+		name: "Service User Request",
 		inputProfile: zitadelProfile{
 			ID:                 "test2",
 			State:              "USER_STATE_ACTIVE",
@@ -345,15 +339,11 @@ func TestZitadelProfile(t *testing.T) {
 			ID:    "test2",
 			Name:  "machine",
 			Email: "machine",
-			AppMetadata: AppMetadata{
-				WTAccountID: "1",
-			},
 		},
 	}
 
-	for _, testCase := range []azureProfileTest{azureProfileTestCase1, azureProfileTestCase2} {
+	for _, testCase := range []zitadelProfileTest{zitadelProfileTestCase1, zitadelProfileTestCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.expectedUserData.AppMetadata.WTPendingInvite = &testCase.invite
 			userData := testCase.inputProfile.userData()
 
 			assert.Equal(t, testCase.expectedUserData.ID, userData.ID, "User id should match")

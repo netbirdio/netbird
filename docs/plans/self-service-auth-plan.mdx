@@ -1,0 +1,352 @@
+# Zitadel Integration Plan
+
+This plan is split into stages. Each stage is self-contained and can be implemented and tested independently.
+
+---
+
+## Stage 1: Infrastructure Setup [COMPLETED]
+
+**Goal**: Add Zitadel to docker-compose with first-boot initialization (single container, SQLite).
+
+### Design Principles
+- **KISS**: Single Zitadel container with SQLite (no separate PostgreSQL or init containers)
+- **DRY**: Leverage Zitadel's built-in first-instance configuration via environment variables
+- **Clean**: Credentials generated in configure.sh and printed directly
+
+### Files Created
+
+#### `infrastructure_files/Caddyfile.tmpl`
+Reverse proxy configuration routing:
+- `/api/*`, `/management.*` → Management server
+- `/relay*` → Relay
+- `/signalexchange.*`, `/signal*` → Signal
+- `/oauth/*`, `/oidc/*`, `/.well-known/*`, `/ui/*` → Zitadel
+- `/*` → Dashboard
+
+### Files Modified
+
+#### `infrastructure_files/docker-compose.yml.tmpl`
+Added single Zitadel service using SQLite:
+```yaml
+zitadel:
+  image: ghcr.io/zitadel/zitadel:$ZITADEL_TAG
+  command: 'start-from-init --masterkeyFromEnv --tlsMode $ZITADEL_TLS_MODE'
+  environment:
+    - ZITADEL_DATABASE_SQLITE_PATH=/data/zitadel.db
+    - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=$ZITADEL_ADMIN_USERNAME
+    - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD=$ZITADEL_ADMIN_PASSWORD
+    # ... service account config via env vars
+```
+
+#### `infrastructure_files/management.json.tmpl`
+Updated IdpManagerConfig to default to Zitadel.
+
+#### `infrastructure_files/base.setup.env`
+Added Zitadel-specific environment variables:
+- `ZITADEL_TAG` (default: v4.7.6)
+- `ZITADEL_MASTERKEY` (auto-generated)
+- `ZITADEL_ADMIN_USERNAME`, `ZITADEL_ADMIN_PASSWORD` (auto-generated)
+- `ZITADEL_EXTERNALSECURE`, `ZITADEL_EXTERNALPORT`, `ZITADEL_TLS_MODE`
+
+#### `infrastructure_files/configure.sh`
+- Generates Zitadel masterkey if not set
+- Generates admin credentials if not set
+- Prints credentials to stdout during configuration
+
+### Deliverable
+Running `./configure.sh && cd artifacts && docker compose up -d` starts full stack with Zitadel. Admin credentials printed during configuration.
+
+---
+
+## Stage 2: Simplify IdP Integration
+
+**Goal**: Make NetBird the single source of truth for user authorization data. Zitadel handles authentication only.
+
+### Design Principles
+- **Single source of truth**: NetBird DB stores all authorization data (roles, account membership, invite status)
+- **Clean separation**: Zitadel stores identity only (email, name, password)
+- **No duplicate data**: Remove `wt_account_id` and `wt_pending_invite` from IdP metadata
+
+### Files to Modify
+
+#### `management/server/types/user.go`
+Add `PendingInvite` field to User struct:
+```go
+type User struct {
+    // ... existing fields ...
+    PendingInvite bool  // NEW: tracks if user has accepted invite
+}
+```
+
+Update `ToUserInfo()` to use local field instead of IdP metadata:
+```go
+// Before
+if userData.AppMetadata.WTPendingInvite != nil && *userData.AppMetadata.WTPendingInvite {
+    userStatus = UserStatusInvited
+}
+
+// After
+if u.PendingInvite {
+    userStatus = UserStatusInvited
+}
+```
+
+#### `management/server/idp/idp.go`
+Simplify `Manager` interface:
+```go
+type Manager interface {
+    // Simplified - no more accountID or invitedByEmail params
+    CreateUser(ctx context.Context, email, name string) (*UserData, error)
+    GetUserDataByID(ctx context.Context, userId string) (*UserData, error)
+    GetUserByEmail(ctx context.Context, email string) ([]*UserData, error)
+    InviteUserByID(ctx context.Context, userID string) error
+    DeleteUser(ctx context.Context, userID string) error
+}
+```
+
+Remove:
+- `UpdateUserAppMetadata()` - no longer needed
+- `GetAccount()` - account membership now in NetBird DB
+- `GetAllAccounts()` - account membership now in NetBird DB
+- `AppMetadata` struct fields (`WTAccountID`, `WTPendingInvite`, `WTInvitedBy`)
+
+#### `management/server/idp/zitadel.go`
+- Update `CreateUser()` to not set metadata
+- Remove `UpdateUserAppMetadata()` implementation
+- Simplify `GetUserDataByID()` to not expect metadata
+
+#### `management/server/user.go`
+Update user creation flow:
+1. `inviteNewUser()`: Set `PendingInvite = true` when creating user
+2. On first login: Set `PendingInvite = false`
+
+### Data Flow (After)
+
+```
+Invite User:
+1. Admin invites user@example.com via NetBird UI
+2. NetBird calls Zitadel: CreateUser(email, name)  // No metadata
+3. Zitadel creates user, sends invite email
+4. NetBird creates User in its DB:
+   - Id = Zitadel user ID
+   - AccountID = current account
+   - Role = invited role
+   - PendingInvite = true
+
+First Login:
+1. User clicks invite, sets password in Zitadel
+2. User logs into NetBird Dashboard
+3. NetBird updates User in its DB:
+   - PendingInvite = false
+   - LastLogin = now
+```
+
+### Deliverable
+- NetBird is single source of truth for authorization
+- Zitadel stores identity only (email, name, credentials)
+- No metadata sync issues between systems
+
+---
+
+## Stage 3: Remove Legacy IdP Managers
+
+**Goal**: Remove all non-Zitadel IdP implementations.
+
+### Files to Delete
+- `management/server/idp/auth0.go`
+- `management/server/idp/auth0_test.go`
+- `management/server/idp/azure.go`
+- `management/server/idp/azure_test.go`
+- `management/server/idp/keycloak.go`
+- `management/server/idp/keycloak_test.go`
+- `management/server/idp/okta.go`
+- `management/server/idp/okta_test.go`
+- `management/server/idp/google_workspace.go`
+- `management/server/idp/google_workspace_test.go`
+- `management/server/idp/jumpcloud.go`
+- `management/server/idp/jumpcloud_test.go`
+- `management/server/idp/authentik.go`
+- `management/server/idp/authentik_test.go`
+- `management/server/idp/pocketid.go`
+- `management/server/idp/pocketid_test.go`
+
+### Files to Modify
+
+#### `management/server/idp/idp.go`
+Simplify `NewManager()` to only support Zitadel:
+```go
+func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
+    switch strings.ToLower(config.ManagerType) {
+    case "none", "":
+        return nil, nil
+    case "zitadel":
+        return NewZitadelManager(...)
+    default:
+        return nil, fmt.Errorf("unsupported IdP manager type: %s (only 'zitadel' is supported)", config.ManagerType)
+    }
+}
+```
+
+#### `management/server/idp/idp.go`
+Remove unused config structs:
+- `Auth0ClientConfig`
+- `AzureClientConfig`
+- `KeycloakClientConfig`
+- etc.
+
+### Deliverable
+Only Zitadel IdP manager remains. Build passes. Tests pass.
+
+---
+
+## Stage 4: External IdP Connector API
+
+**Goal**: API for users to add external IdPs (Okta, Google, LDAP) as Zitadel connectors.
+
+### New Files
+
+#### `management/server/idp/connectors.go`
+Wrapper for Zitadel IdP connector API:
+```go
+type Connector struct {
+    ID       string
+    Name     string
+    Type     string // "oidc", "ldap", "saml"
+    Issuer   string // for OIDC
+    ClientID string // for OIDC
+}
+
+type ConnectorManager interface {
+    AddOIDCConnector(ctx, name, issuer, clientID, clientSecret string, scopes []string) (*Connector, error)
+    AddLDAPConnector(ctx, name, host string, port int, baseDN, bindDN, bindPassword string) (*Connector, error)
+    ListConnectors(ctx) ([]Connector, error)
+    DeleteConnector(ctx, connectorID string) error
+}
+```
+
+#### `management/server/http/handlers/idp_connectors_handler.go`
+REST API handlers:
+```
+POST   /api/idp/connectors        - Add connector
+GET    /api/idp/connectors        - List connectors
+DELETE /api/idp/connectors/{id}   - Delete connector
+```
+
+### Zitadel API Endpoints Used
+- `POST /management/v1/idps/generic_oidc` - Add OIDC connector
+- `POST /management/v1/idps/ldap` - Add LDAP connector
+- `GET /management/v1/idps` - List all IdPs
+- `DELETE /management/v1/idps/{id}` - Remove IdP
+
+### Deliverable
+Admin users can add/remove external IdP connectors via NetBird API.
+
+---
+
+## Stage 5: User Role Permissions
+
+**Goal**: Enforce admin/user permissions throughout the application.
+
+### Files to Modify
+
+#### `management/server/types/user.go`
+Simplify roles to:
+```go
+const (
+    UserRoleAdmin UserRole = "admin"
+    UserRoleUser  UserRole = "user"
+)
+```
+
+Keep `owner` as alias for `admin` for backwards compatibility.
+
+#### Permission checks (various files)
+Update permission checks to use simplified role model:
+- Admin: Full access to all resources
+- User: View/manage own peers only, no user/policy management
+
+### Permission Matrix
+| Resource | Admin | User |
+|----------|-------|------|
+| All peers | read/write | - |
+| Own peers | read/write | read/write |
+| Users | read/write | - |
+| Groups | read/write | read (own) |
+| Policies | read/write | - |
+| IdP Connectors | read/write | - |
+| Account settings | read/write | - |
+
+### Deliverable
+Role-based access control enforced. User role has limited dashboard access.
+
+---
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     NETBIRD DEPLOYMENT                          │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                      CADDY (Reverse Proxy)                │  │
+│  │  :80/:443 → routes to appropriate service                 │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│         │           │           │            │                  │
+│         ▼           ▼           ▼            ▼                  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
+│  │ Dashboard│ │Management│ │  Signal  │ │     Zitadel      │   │
+│  │   :80    │ │   :80    │ │   :80    │ │  :8080 (SQLite)  │   │
+│  └──────────┘ └────┬─────┘ └──────────┘ └──────────────────┘   │
+│                    │                          │                 │
+│                    │    OIDC + Mgmt API       │                 │
+│                    └──────────────────────────┘                 │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │          Relay           │        Coturn (TURN)           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Implementation Order
+
+1. **Stage 1** - Infrastructure (can be tested standalone)
+2. **Stage 2** - Role management (requires Stage 1)
+3. **Stage 3** - Remove legacy IdPs (can be done in parallel with Stage 2)
+4. **Stage 4** - Connector API (requires Stage 1)
+5. **Stage 5** - Permissions (requires Stage 2)
+
+Stages 3 and 4 can be worked on in parallel after Stage 1 is complete.
+
+---
+
+## Security Considerations
+
+### First-Boot Credentials
+- Generated with `openssl rand -base64 32` in configure.sh
+- Printed to stdout during configuration (save them!)
+- Marked as "must change on first login" in Zitadel via `PASSWORDCHANGEREQUIRED=true`
+
+### Zitadel Masterkey
+- Auto-generated if not provided (32 bytes)
+- Stored in environment variable (docker secret in production)
+- Used for Zitadel's internal encryption
+
+### Service Account
+- Machine user created via `ZITADEL_FIRSTINSTANCE_ORG_MACHINE_*` env vars
+- PAT (Personal Access Token) generated with 1-year expiration
+- Used by NetBird management to call Zitadel API
+
+---
+
+## Migration Notes
+
+Existing deployments using Auth0/Azure/Keycloak will need to:
+1. Deploy Zitadel alongside existing IdP
+2. Add existing IdP as Zitadel connector
+3. Migrate users (or let them re-authenticate via connector)
+4. Switch NetBird config to use Zitadel
+5. Remove old IdP
+
+A migration guide should be provided as documentation.

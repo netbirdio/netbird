@@ -11,24 +11,25 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
-const (
-	// UnsetAccountID is a special key to map users without an account ID
-	UnsetAccountID = "unset"
-)
-
 // Manager idp manager interface
+// Note: NetBird is the single source of truth for authorization data (roles, account membership, invite status).
+// The IdP only stores identity information (email, name, credentials).
 type Manager interface {
-	UpdateUserAppMetadata(ctx context.Context, userId string, appMetadata AppMetadata) error
-	GetUserDataByID(ctx context.Context, userId string, appMetadata AppMetadata) (*UserData, error)
-	GetAccount(ctx context.Context, accountId string) ([]*UserData, error)
-	GetAllAccounts(ctx context.Context) (map[string][]*UserData, error)
-	CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error)
+	// CreateUser creates a new user in the IdP. Returns basic user data (ID, email, name).
+	CreateUser(ctx context.Context, email, name string) (*UserData, error)
+	// GetUserDataByID retrieves user identity data from the IdP by user ID.
+	GetUserDataByID(ctx context.Context, userId string) (*UserData, error)
+	// GetUserByEmail searches for users by email address.
 	GetUserByEmail(ctx context.Context, email string) ([]*UserData, error)
+	// GetAllUsers returns all users from the IdP for cache warming.
+	GetAllUsers(ctx context.Context) ([]*UserData, error)
+	// InviteUserByID resends an invitation to a user who hasn't completed signup.
 	InviteUserByID(ctx context.Context, userID string) error
+	// DeleteUser removes a user from the IdP.
 	DeleteUser(ctx context.Context, userID string) error
 }
 
-// ClientConfig defines common client configuration for all IdP manager
+// ClientConfig defines common client configuration for the IdP manager
 type ClientConfig struct {
 	Issuer        string
 	TokenEndpoint string
@@ -42,13 +43,10 @@ type ExtraConfig map[string]string
 
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
-	ManagerType               string
-	ClientConfig              *ClientConfig
-	ExtraConfig               ExtraConfig
-	Auth0ClientCredentials    *Auth0ClientConfig
-	AzureClientCredentials    *AzureClientConfig
-	KeycloakClientCredentials *KeycloakClientConfig
-	ZitadelClientCredentials  *ZitadelClientConfig
+	ManagerType              string
+	ClientConfig             *ClientConfig
+	ExtraConfig              ExtraConfig
+	ZitadelClientCredentials *ZitadelClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -67,11 +65,12 @@ type ManagerHelper interface {
 	Unmarshal(data []byte, v interface{}) error
 }
 
+// UserData represents identity information from the IdP.
+// Note: Authorization data (account membership, roles, invite status) is stored in NetBird's DB.
 type UserData struct {
-	Email       string      `json:"email"`
-	Name        string      `json:"name"`
-	ID          string      `json:"user_id"`
-	AppMetadata AppMetadata `json:"app_metadata"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	ID    string `json:"user_id"`
 }
 
 func (u *UserData) MarshalBinary() (data []byte, err error) {
@@ -91,15 +90,6 @@ func (u *UserData) Unmarshal(data []byte) (err error) {
 	return json.Unmarshal(data, &u)
 }
 
-// AppMetadata user app metadata to associate with a profile
-type AppMetadata struct {
-	// WTAccountID is a NetBird (previously Wiretrustee) account id to update in the IDP
-	// maps to wt_account_id when json.marshal
-	WTAccountID     string `json:"wt_account_id,omitempty"`
-	WTPendingInvite *bool  `json:"wt_pending_invite,omitempty"`
-	WTInvitedBy     string `json:"wt_invited_by_email,omitempty"`
-}
-
 // JWTToken a JWT object that holds information of a token
 type JWTToken struct {
 	AccessToken   string `json:"access_token"`
@@ -109,7 +99,8 @@ type JWTToken struct {
 	TokenType     string `json:"token_type"`
 }
 
-// NewManager returns a new idp manager based on the configuration that it receives
+// NewManager returns a new idp manager based on the configuration that it receives.
+// Only Zitadel is supported as the IdP manager.
 func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
 	if config.ClientConfig != nil {
 		config.ClientConfig.Issuer = strings.TrimSuffix(config.ClientConfig.Issuer, "/")
@@ -118,46 +109,6 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
 		return nil, nil //nolint:nilnil
-	case "auth0":
-		auth0ClientConfig := config.Auth0ClientCredentials
-		if config.ClientConfig != nil {
-			auth0ClientConfig = &Auth0ClientConfig{
-				Audience:     config.ExtraConfig["Audience"],
-				AuthIssuer:   config.ClientConfig.Issuer,
-				ClientID:     config.ClientConfig.ClientID,
-				ClientSecret: config.ClientConfig.ClientSecret,
-				GrantType:    config.ClientConfig.GrantType,
-			}
-		}
-
-		return NewAuth0Manager(*auth0ClientConfig, appMetrics)
-	case "azure":
-		azureClientConfig := config.AzureClientCredentials
-		if config.ClientConfig != nil {
-			azureClientConfig = &AzureClientConfig{
-				ClientID:         config.ClientConfig.ClientID,
-				ClientSecret:     config.ClientConfig.ClientSecret,
-				GrantType:        config.ClientConfig.GrantType,
-				TokenEndpoint:    config.ClientConfig.TokenEndpoint,
-				ObjectID:         config.ExtraConfig["ObjectId"],
-				GraphAPIEndpoint: config.ExtraConfig["GraphApiEndpoint"],
-			}
-		}
-
-		return NewAzureManager(*azureClientConfig, appMetrics)
-	case "keycloak":
-		keycloakClientConfig := config.KeycloakClientCredentials
-		if config.ClientConfig != nil {
-			keycloakClientConfig = &KeycloakClientConfig{
-				ClientID:      config.ClientConfig.ClientID,
-				ClientSecret:  config.ClientConfig.ClientSecret,
-				GrantType:     config.ClientConfig.GrantType,
-				TokenEndpoint: config.ClientConfig.TokenEndpoint,
-				AdminEndpoint: config.ExtraConfig["AdminEndpoint"],
-			}
-		}
-
-		return NewKeycloakManager(*keycloakClientConfig, appMetrics)
 	case "zitadel":
 		zitadelClientConfig := config.ZitadelClientCredentials
 		if config.ClientConfig != nil {
@@ -172,42 +123,7 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 		}
 
 		return NewZitadelManager(*zitadelClientConfig, appMetrics)
-	case "authentik":
-		authentikConfig := AuthentikClientConfig{
-			Issuer:        config.ClientConfig.Issuer,
-			ClientID:      config.ClientConfig.ClientID,
-			TokenEndpoint: config.ClientConfig.TokenEndpoint,
-			GrantType:     config.ClientConfig.GrantType,
-			Username:      config.ExtraConfig["Username"],
-			Password:      config.ExtraConfig["Password"],
-		}
-		return NewAuthentikManager(authentikConfig, appMetrics)
-	case "okta":
-		oktaClientConfig := OktaClientConfig{
-			Issuer:        config.ClientConfig.Issuer,
-			TokenEndpoint: config.ClientConfig.TokenEndpoint,
-			GrantType:     config.ClientConfig.GrantType,
-			APIToken:      config.ExtraConfig["ApiToken"],
-		}
-		return NewOktaManager(oktaClientConfig, appMetrics)
-	case "google":
-		googleClientConfig := GoogleWorkspaceClientConfig{
-			ServiceAccountKey: config.ExtraConfig["ServiceAccountKey"],
-			CustomerID:        config.ExtraConfig["CustomerId"],
-		}
-		return NewGoogleWorkspaceManager(ctx, googleClientConfig, appMetrics)
-	case "jumpcloud":
-		jumpcloudConfig := JumpCloudClientConfig{
-			APIToken: config.ExtraConfig["ApiToken"],
-		}
-		return NewJumpCloudManager(jumpcloudConfig, appMetrics)
-	case "pocketid":
-		pocketidConfig := PocketIdClientConfig{
-			APIToken:           config.ExtraConfig["ApiToken"],
-			ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
-		}
-		return NewPocketIdManager(pocketidConfig, appMetrics)
 	default:
-		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
+		return nil, fmt.Errorf("unsupported IdP manager type: %s (only 'zitadel' is supported)", config.ManagerType)
 	}
 }
