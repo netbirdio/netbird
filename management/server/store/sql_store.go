@@ -1919,7 +1919,8 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 		var r types.PolicyRule
 		var dest, destRes, sources, sourceRes, ports, portRanges, authorizedGroups []byte
 		var enabled, bidirectional sql.NullBool
-		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &r.AuthorizedUser)
+		var authorizedUser sql.NullString
+		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -1947,6 +1948,9 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 			}
 			if authorizedGroups != nil {
 				_ = json.Unmarshal(authorizedGroups, &r.AuthorizedGroups)
+			}
+			if authorizedUser.Valid {
+				r.AuthorizedUser = authorizedUser.String
 			}
 		}
 		return &r, err
