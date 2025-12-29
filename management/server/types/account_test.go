@@ -1105,6 +1105,193 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 	}
 }
 
+func Test_GetActiveGroupUsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  *Account
+		expected map[string][]string
+	}{
+		{
+			name: "all users are active",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1", "user2"},
+				"group3": {"user2"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "some users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1", "group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1"},
+				"group3": {"user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+		{
+			name: "all users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    true,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2"},
+						Blocked:    true,
+					},
+				},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "user with no auto groups",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user2"},
+				"":       {"user1", "user2"},
+			},
+		},
+		{
+			name: "empty account",
+			account: &Account{
+				Users: map[string]*User{},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "multiple users in same group",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user2", "user3"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "user in multiple groups with blocked users",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2", "group3"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1"},
+				"group2": {"user1"},
+				"group3": {"user1", "user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.account.GetActiveGroupUsers()
+
+			// Check that the number of groups matches
+			assert.Equal(t, len(tt.expected), len(result), "number of groups should match")
+
+			// Check each group's users
+			for groupID, expectedUsers := range tt.expected {
+				actualUsers, exists := result[groupID]
+				assert.True(t, exists, "group %s should exist in result", groupID)
+				assert.ElementsMatch(t, expectedUsers, actualUsers, "users in group %s should match", groupID)
+			}
+
+			// Ensure no extra groups in result
+			for groupID := range result {
+				_, exists := tt.expected[groupID]
+				assert.True(t, exists, "unexpected group %s in result", groupID)
+			}
+		})
+	}
+}
+
 func Test_FilterZoneRecordsForPeers(t *testing.T) {
 	tests := []struct {
 		name            string
