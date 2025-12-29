@@ -129,10 +129,12 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 // checkMachineUserMapping validates if a user's index is authorized for the specified OS user
 // Checks wildcard mapping first, then specific OS user mappings
 func (a *Authorizer) checkMachineUserMapping(jwtUserID, osUsername string, userIndex int) error {
-	// If wildcard exists, allow any authorized user to access any OS user
-	if _, hasWildcard := a.machineUsers[Wildcard]; hasWildcard {
-		log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' via wildcard (index: %d)", jwtUserID, osUsername, userIndex)
-		return nil
+	// If wildcard exists and user's index is in the wildcard list, allow access to any OS user
+	if wildcardIndexes, hasWildcard := a.machineUsers[Wildcard]; hasWildcard {
+		if a.isIndexInList(uint32(userIndex), wildcardIndexes) {
+			log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' via wildcard (index: %d)", jwtUserID, osUsername, userIndex)
+			return nil
+		}
 	}
 
 	// Check for specific OS username mapping

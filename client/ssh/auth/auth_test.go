@@ -420,7 +420,7 @@ func TestAuthorizer_Wildcard_AllowsAllAuthorizedUsers(t *testing.T) {
 		UserIDClaim:     DefaultUserIDClaim,
 		AuthorizedUsers: []sshauth.UserIDHash{user1Hash, user2Hash, user3Hash},
 		MachineUsers: map[string][]uint32{
-			"*": {0}, // wildcard with any indexes - indexes don't matter
+			"*": {0, 1, 2}, // wildcard with all user indexes
 		},
 	}
 	authorizer.Update(config)
@@ -479,18 +479,19 @@ func TestAuthorizer_Wildcard_TakesPrecedenceOverSpecificMappings(t *testing.T) {
 	user2Hash, err := sshauth.HashUserID("user2")
 	require.NoError(t, err)
 
-	// Configure with both wildcard and specific mappings - wildcard should take precedence
+	// Configure with both wildcard and specific mappings
+	// Wildcard takes precedence for users in the wildcard index list
 	config := &Config{
 		UserIDClaim:     DefaultUserIDClaim,
 		AuthorizedUsers: []sshauth.UserIDHash{user1Hash, user2Hash},
 		MachineUsers: map[string][]uint32{
-			"*":    {0}, // wildcard exists
-			"root": {0}, // specific mapping that would normally restrict to user1 only
+			"*":    {0, 1}, // wildcard for both users
+			"root": {0},    // specific mapping that would normally restrict to user1 only
 		},
 	}
 	authorizer.Update(config)
 
-	// Both users should be able to access root because wildcard takes precedence
+	// Both users should be able to access root via wildcard (takes precedence over specific mapping)
 	err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
@@ -550,4 +551,62 @@ func TestAuthorizer_NoWildcard_SpecificMappingsOnly(t *testing.T) {
 	err = authorizer.Authorize("user2", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
+}
+
+func TestAuthorizer_Wildcard_WithPartialIndexes_AllowsAllUsers(t *testing.T) {
+	// This test covers the scenario where wildcard exists with limited indexes.
+	// Only users whose indexes are in the wildcard list can access any OS user via wildcard.
+	// Other users can only access OS users they are explicitly mapped to.
+	authorizer := NewAuthorizer()
+
+	// Create two authorized user hashes (simulating the base64-encoded hashes in the config)
+	wasmHash, err := sshauth.HashUserID("wasm")
+	require.NoError(t, err)
+	user2Hash, err := sshauth.HashUserID("user2")
+	require.NoError(t, err)
+
+	// Configure with wildcard having only index 0, and specific mappings for other OS users
+	config := &Config{
+		UserIDClaim:     "sub",
+		AuthorizedUsers: []sshauth.UserIDHash{wasmHash, user2Hash},
+		MachineUsers: map[string][]uint32{
+			"*":     {0}, // wildcard with only index 0 - only wasm has wildcard access
+			"alice": {1}, // specific mapping for user2
+			"bob":   {1}, // specific mapping for user2
+		},
+	}
+	authorizer.Update(config)
+
+	// wasm (index 0) should access any OS user via wildcard
+	err = authorizer.Authorize("wasm", "root")
+	assert.NoError(t, err, "wasm should access root via wildcard")
+
+	err = authorizer.Authorize("wasm", "alice")
+	assert.NoError(t, err, "wasm should access alice via wildcard")
+
+	err = authorizer.Authorize("wasm", "bob")
+	assert.NoError(t, err, "wasm should access bob via wildcard")
+
+	err = authorizer.Authorize("wasm", "postgres")
+	assert.NoError(t, err, "wasm should access postgres via wildcard")
+
+	// user2 (index 1) should only access alice and bob (explicitly mapped), NOT root or postgres
+	err = authorizer.Authorize("user2", "alice")
+	assert.NoError(t, err, "user2 should access alice via explicit mapping")
+
+	err = authorizer.Authorize("user2", "bob")
+	assert.NoError(t, err, "user2 should access bob via explicit mapping")
+
+	err = authorizer.Authorize("user2", "root")
+	assert.Error(t, err, "user2 should NOT access root (not in wildcard indexes)")
+	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
+
+	err = authorizer.Authorize("user2", "postgres")
+	assert.Error(t, err, "user2 should NOT access postgres (not explicitly mapped)")
+	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
+
+	// Unauthorized user should still be denied
+	err = authorizer.Authorize("user3", "root")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUserNotAuthorized, "unauthorized user should be denied")
 }
