@@ -77,6 +77,11 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		return nil, fmt.Errorf("storage file is required for sqlite3")
 	}
 
+	// Build CLI redirect URIs including the device callback (both relative and absolute)
+	cliRedirectURIs := c.CLIRedirectURIs
+	cliRedirectURIs = append(cliRedirectURIs, "/device/callback")
+	cliRedirectURIs = append(cliRedirectURIs, c.Issuer+"/device/callback")
+
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
 		Storage: dex.Storage{
@@ -108,7 +113,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 				ID:           staticClientCLI,
 				Name:         "NetBird CLI",
 				Public:       true,
-				RedirectURIs: c.CLIRedirectURIs,
+				RedirectURIs: cliRedirectURIs,
 			},
 		},
 	}
