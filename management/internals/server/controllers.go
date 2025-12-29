@@ -61,17 +61,19 @@ func (s *BaseServer) AuthManager() auth.Manager {
 	signingKeyRefreshEnabled := s.Config.HttpConfig.IdpSignKeyRefreshEnabled
 	issuer := s.Config.HttpConfig.AuthIssuer
 	userIDClaim := s.Config.HttpConfig.AuthUserIDClaim
-	if s.embeddedIdp != nil {
-		// Use embedded IdP provider's methods to extract configuration
-		audiences = s.embeddedIdp.GetClientIDs()
+
+	// Use embedded IdP configuration if available
+	if oauthProvider := s.OAuthConfigProvider(); oauthProvider != nil {
+		audiences = oauthProvider.GetClientIDs()
 		if len(audiences) > 0 {
 			audience = audiences[0] // Use the first client ID as the primary audience
 		}
-		keysLocation = s.embeddedIdp.GetKeysLocation()
+		keysLocation = oauthProvider.GetKeysLocation()
 		signingKeyRefreshEnabled = true
-		issuer = s.embeddedIdp.GetIssuer()
-		userIDClaim = s.embeddedIdp.GetUserIDClaim()
+		issuer = oauthProvider.GetIssuer()
+		userIDClaim = oauthProvider.GetUserIDClaim()
 	}
+
 	return Create(s, func() auth.Manager {
 		return auth.NewManager(s.Store(),
 			issuer,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	idpmanager "github.com/netbirdio/netbird/management/server/idp"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 
@@ -52,23 +53,7 @@ const (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(
-	ctx context.Context,
-	accountManager account.Manager,
-	networksManager nbnetworks.Manager,
-	resourceManager resources.Manager,
-	routerManager routers.Manager,
-	groupsManager nbgroups.Manager,
-	LocationManager geolocation.Geolocation,
-	authManager auth.Manager,
-	appMetrics telemetry.AppMetrics,
-	integratedValidator integrated_validator.IntegratedValidator,
-	proxyController port_forwarding.Controller,
-	permissionsManager permissions.Manager,
-	peersManager nbpeers.Manager,
-	settingsManager settings.Manager,
-	networkMapController network_map.Controller,
-) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager) (http.Handler, error) {
 
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {
@@ -136,6 +121,11 @@ func NewAPIHandler(
 	events.AddEndpoints(accountManager, router)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	idp.AddEndpoints(accountManager, router)
+
+	// Mount embedded IdP handler at /oauth2 path if configured
+	if embeddedIdP, ok := idpManager.(*idpmanager.EmbeddedIdPManager); ok {
+		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
+	}
 
 	return rootRouter, nil
 }

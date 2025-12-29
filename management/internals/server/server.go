@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/idp"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
@@ -19,7 +20,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/idp/dex"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -62,9 +62,6 @@ type BaseServer struct {
 	listener    net.Listener
 	certManager *autocert.Manager
 	update      *version.Update
-
-	// embeddedIdp is the embedded Dex OIDC identity provider
-	embeddedIdp *dex.Provider
 
 	errCh  chan error
 	wg     sync.WaitGroup
@@ -135,19 +132,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		}
 		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
 		go metricsWorker.Run(srvCtx)
-	}
-
-	// Initialize embedded IDP if configured
-	if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
-		yamlConfig, err := s.Config.EmbeddedIdP.ToYAMLConfig()
-		if err != nil {
-			return fmt.Errorf("failed to create embedded IDP config: %v", err)
-		}
-		s.embeddedIdp, err = dex.NewProviderFromYAML(srvCtx, yamlConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create embedded IDP: %v", err)
-		}
-		log.WithContext(srvCtx).Infof("embedded Dex IDP initialized with issuer: %s", yamlConfig.Issuer)
 	}
 
 	var compatListener net.Listener
@@ -232,8 +216,9 @@ func (s *BaseServer) Stop() error {
 	if s.update != nil {
 		s.update.StopWatch()
 	}
-	if s.embeddedIdp != nil {
-		_ = s.embeddedIdp.Stop(ctx)
+	// Stop embedded IdP if configured
+	if embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager); ok {
+		_ = embeddedIdP.Stop(ctx)
 	}
 
 	select {
@@ -280,23 +265,6 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 			gRPCHandler.ServeHTTP(writer, request)
 		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
-		case strings.HasPrefix(request.URL.Path, "/oauth2/"):
-			// Add CORS headers for OAuth2 endpoints (needed for browser-based OIDC flows)
-			writer.Header().Set("Access-Control-Allow-Origin", "*")
-			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-			// Handle preflight OPTIONS request
-			if request.Method == http.MethodOptions {
-				writer.WriteHeader(http.StatusOK)
-				return
-			}
-
-			if s.embeddedIdp != nil {
-				s.embeddedIdp.Handler().ServeHTTP(writer, request)
-			} else {
-				http.Error(writer, "Embedded IDP not configured", http.StatusNotFound)
-			}
 		default:
 			httpHandler.ServeHTTP(writer, request)
 		}

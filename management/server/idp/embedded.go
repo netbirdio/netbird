@@ -4,33 +4,200 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/dexidp/dex/storage"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
+const (
+	staticClientDashboard  = "netbird-dashboard"
+	staticClientCLI        = "netbird-cli"
+	defaultCLIRedirectURL1 = "http://localhost:53000/"
+	defaultCLIRedirectURL2 = "http://localhost:54000/"
+	defaultScopes          = "openid profile email offline_access"
+	defaultUserIDClaim     = "sub"
+)
+
+// EmbeddedIdPConfig contains configuration for the embedded Dex OIDC identity provider
+type EmbeddedIdPConfig struct {
+	// Enabled indicates whether the embedded IDP is enabled
+	Enabled bool
+	// Issuer is the OIDC issuer URL (e.g., "http://localhost:3002/oauth2")
+	Issuer string
+	// Storage configuration for the IdP database
+	Storage EmbeddedStorageConfig
+	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
+	DashboardRedirectURIs []string
+	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
+	CLIRedirectURIs []string
+	// Owner is the initial owner/admin user (optional, can be nil)
+	Owner *OwnerConfig
+	// SignKeyRefreshEnabled enables automatic key rotation for signing keys
+	SignKeyRefreshEnabled bool
+}
+
+// EmbeddedStorageConfig holds storage configuration for the embedded IdP.
+type EmbeddedStorageConfig struct {
+	// Type is the storage type (currently only "sqlite3" is supported)
+	Type string
+	// Config contains type-specific configuration
+	Config EmbeddedStorageTypeConfig
+}
+
+// EmbeddedStorageTypeConfig contains type-specific storage configuration.
+type EmbeddedStorageTypeConfig struct {
+	// File is the path to the SQLite database file (for sqlite3 type)
+	File string
+}
+
+// OwnerConfig represents the initial owner/admin user for the embedded IdP.
+type OwnerConfig struct {
+	// Email is the user's email address (required)
+	Email string
+	// Hash is the bcrypt hash of the user's password (required)
+	Hash string
+	// Username is the display name for the user (optional, defaults to email)
+	Username string
+}
+
+// ToYAMLConfig converts EmbeddedIdPConfig to dex.YAMLConfig.
+func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
+	if c.Issuer == "" {
+		return nil, fmt.Errorf("issuer is required")
+	}
+	if c.Storage.Type == "" {
+		c.Storage.Type = "sqlite3"
+	}
+	if c.Storage.Type == "sqlite3" && c.Storage.Config.File == "" {
+		return nil, fmt.Errorf("storage file is required for sqlite3")
+	}
+
+	cfg := &dex.YAMLConfig{
+		Issuer: c.Issuer,
+		Storage: dex.Storage{
+			Type: c.Storage.Type,
+			Config: map[string]interface{}{
+				"file": c.Storage.Config.File,
+			},
+		},
+		Web: dex.Web{
+			AllowedOrigins: []string{"*"},
+			AllowedHeaders: []string{"Authorization", "Content-Type"},
+		},
+		OAuth2: dex.OAuth2{
+			SkipApprovalScreen: true,
+		},
+		Frontend: dex.Frontend{
+			Issuer: "NetBird",
+			Theme:  "light",
+		},
+		EnablePasswordDB: true,
+		StaticClients: []storage.Client{
+			{
+				ID:           staticClientDashboard,
+				Name:         "NetBird Dashboard",
+				Public:       true,
+				RedirectURIs: c.DashboardRedirectURIs,
+			},
+			{
+				ID:           staticClientCLI,
+				Name:         "NetBird CLI",
+				Public:       true,
+				RedirectURIs: c.CLIRedirectURIs,
+			},
+		},
+	}
+
+	// Add owner user if provided
+	if c.Owner != nil && c.Owner.Email != "" && c.Owner.Hash != "" {
+		username := c.Owner.Username
+		if username == "" {
+			username = c.Owner.Email
+		}
+		cfg.StaticPasswords = []dex.Password{
+			{
+				Email:    c.Owner.Email,
+				Hash:     []byte(c.Owner.Hash),
+				Username: username,
+				UserID:   uuid.New().String(),
+			},
+		}
+	}
+
+	return cfg, nil
+}
+
 // Compile-time check that EmbeddedIdPManager implements Manager interface
 var _ Manager = (*EmbeddedIdPManager)(nil)
+
+// Compile-time check that EmbeddedIdPManager implements OAuthConfigProvider interface
+var _ OAuthConfigProvider = (*EmbeddedIdPManager)(nil)
+
+// OAuthConfigProvider defines the interface for OAuth configuration needed by auth flows.
+type OAuthConfigProvider interface {
+	GetIssuer() string
+	GetKeysLocation() string
+	GetClientIDs() []string
+	GetUserIDClaim() string
+	GetTokenEndpoint() string
+	GetDeviceAuthEndpoint() string
+	GetAuthorizationEndpoint() string
+	GetDefaultScopes() string
+	GetCLIClientID() string
+	GetCLIRedirectURLs() []string
+}
 
 // EmbeddedIdPManager implements the Manager interface using the embedded Dex IdP.
 type EmbeddedIdPManager struct {
 	provider   *dex.Provider
 	appMetrics telemetry.AppMetrics
+	config     EmbeddedIdPConfig
 }
 
-// NewEmbeddedIdPManager creates a new instance of EmbeddedIdPManager with an existing provider.
-func NewEmbeddedIdPManager(provider *dex.Provider, appMetrics telemetry.AppMetrics) (*EmbeddedIdPManager, error) {
-	if provider == nil {
-		return nil, fmt.Errorf("embedded IdP provider is required")
+// NewEmbeddedIdPManager creates a new instance of EmbeddedIdPManager from a configuration.
+// It instantiates the underlying Dex provider internally.
+func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMetrics telemetry.AppMetrics) (*EmbeddedIdPManager, error) {
+	if config == nil {
+		return nil, fmt.Errorf("embedded IdP config is required")
 	}
+
+	if len(config.CLIRedirectURIs) == 0 {
+		config.CLIRedirectURIs = []string{defaultCLIRedirectURL1, defaultCLIRedirectURL2}
+	}
+
+	// there are some properties create when creating YAML config (e.g., auth clients)
+	yamlConfig, err := config.ToYAMLConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create embedded IdP provider: %w", err)
+	}
+
+	log.WithContext(ctx).Infof("embedded Dex IDP initialized with issuer: %s", yamlConfig.Issuer)
 
 	return &EmbeddedIdPManager{
 		provider:   provider,
 		appMetrics: appMetrics,
+		config:     *config,
 	}, nil
+}
+
+// Handler returns the HTTP handler for serving OIDC requests.
+func (m *EmbeddedIdPManager) Handler() http.Handler {
+	return m.provider.Handler()
+}
+
+// Stop gracefully shuts down the embedded IdP provider.
+func (m *EmbeddedIdPManager) Stop(ctx context.Context) error {
+	return m.provider.Stop(ctx)
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
@@ -237,7 +404,55 @@ func (m *EmbeddedIdPManager) DeleteConnector(ctx context.Context, id string) err
 	return m.provider.DeleteConnector(ctx, id)
 }
 
-// GetRedirectURI returns the Dex callback redirect URI for configuring connectors.
-func (m *EmbeddedIdPManager) GetRedirectURI() string {
-	return m.provider.GetRedirectURI()
+// GetIssuer returns the OIDC issuer URL.
+func (m *EmbeddedIdPManager) GetIssuer() string {
+	return m.provider.GetIssuer()
+}
+
+// GetTokenEndpoint returns the OAuth2 token endpoint URL.
+func (m *EmbeddedIdPManager) GetTokenEndpoint() string {
+	return m.provider.GetTokenEndpoint()
+}
+
+// GetDeviceAuthEndpoint returns the OAuth2 device authorization endpoint URL.
+func (m *EmbeddedIdPManager) GetDeviceAuthEndpoint() string {
+	return m.provider.GetDeviceAuthEndpoint()
+}
+
+// GetAuthorizationEndpoint returns the OAuth2 authorization endpoint URL.
+func (m *EmbeddedIdPManager) GetAuthorizationEndpoint() string {
+	return m.provider.GetAuthorizationEndpoint()
+}
+
+// GetDefaultScopes returns the default OAuth2 scopes for authentication.
+func (m *EmbeddedIdPManager) GetDefaultScopes() string {
+	return defaultScopes
+}
+
+// GetCLIClientID returns the client ID for CLI authentication.
+func (m *EmbeddedIdPManager) GetCLIClientID() string {
+	return staticClientCLI
+}
+
+// GetCLIRedirectURLs returns the redirect URLs configured for the CLI client.
+func (m *EmbeddedIdPManager) GetCLIRedirectURLs() []string {
+	if len(m.config.CLIRedirectURIs) == 0 {
+		return []string{defaultCLIRedirectURL1, defaultCLIRedirectURL2}
+	}
+	return m.config.CLIRedirectURIs
+}
+
+// GetKeysLocation returns the JWKS endpoint URL for token validation.
+func (m *EmbeddedIdPManager) GetKeysLocation() string {
+	return m.provider.GetKeysLocation()
+}
+
+// GetClientIDs returns the OAuth2 client IDs configured for this provider.
+func (m *EmbeddedIdPManager) GetClientIDs() []string {
+	return []string{staticClientDashboard, staticClientCLI}
+}
+
+// GetUserIDClaim returns the JWT claim name used for user identification.
+func (m *EmbeddedIdPManager) GetUserIDClaim() string {
+	return defaultUserIDClaim
 }

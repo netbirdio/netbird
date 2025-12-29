@@ -924,19 +924,29 @@ func (p *Provider) GetKeysLocation() string {
 	return issuer + "/keys"
 }
 
-// GetClientIDs returns the OAuth2 client IDs configured for this provider.
-func (p *Provider) GetClientIDs() []string {
-	if p.yamlConfig != nil && len(p.yamlConfig.StaticClients) > 0 {
-		clientIDs := make([]string, 0, len(p.yamlConfig.StaticClients))
-		for _, client := range p.yamlConfig.StaticClients {
-			clientIDs = append(clientIDs, client.ID)
-		}
-		return clientIDs
+// GetTokenEndpoint returns the OAuth2 token endpoint URL.
+func (p *Provider) GetTokenEndpoint() string {
+	issuer := p.GetIssuer()
+	if issuer == "" {
+		return ""
 	}
-	// Default client IDs if not configured via YAML
-	return []string{"netbird-dashboard", "netbird-cli"}
+	return issuer + "/token"
 }
 
-func (p *Provider) GetUserIDClaim() string {
-	return "sub"
+// GetDeviceAuthEndpoint returns the OAuth2 device authorization endpoint URL.
+func (p *Provider) GetDeviceAuthEndpoint() string {
+	issuer := p.GetIssuer()
+	if issuer == "" {
+		return ""
+	}
+	return issuer + "/device/code"
+}
+
+// GetAuthorizationEndpoint returns the OAuth2 authorization endpoint URL.
+func (p *Provider) GetAuthorizationEndpoint() string {
+	issuer := p.GetIssuer()
+	if issuer == "" {
+		return ""
+	}
+	return issuer + "/auth"
 }

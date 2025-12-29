@@ -106,7 +106,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 	}
 
 	var idpUser *idp.UserData
-	if isEmbeddedIdp(am.idpManager) {
+	if IsEmbeddedIdp(am.idpManager) {
 		idpUser, err = am.createEmbeddedIdpUser(ctx, accountID, inviterID, invite)
 	} else {
 		idpUser, err = am.createNewIdpUser(ctx, accountID, inviterID, invite)
@@ -131,7 +131,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, err
 	}
 
-	if !isEmbeddedIdp(am.idpManager) {
+	if !IsEmbeddedIdp(am.idpManager) {
 		_, err = am.refreshCache(ctx, accountID)
 		if err != nil {
 			return nil, err
@@ -799,7 +799,7 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	if !isNil(am.idpManager) && !user.IsServiceUser && !isEmbeddedIdp(am.idpManager) {
+	if !IsNil(am.idpManager) && !user.IsServiceUser && !IsEmbeddedIdp(am.idpManager) {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
@@ -927,7 +927,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	var err error
 
 	// embedded IdP ensures that we have user data (email and name) stored in the database.
-	if !isNil(am.idpManager) && !isEmbeddedIdp(am.idpManager) {
+	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
@@ -1139,7 +1139,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 
 // deleteRegularUser deletes a specified user and their related peers from the account.
 func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountID, initiatorUserID string, targetUserInfo *types.UserInfo) (bool, error) {
-	if !isNil(am.idpManager) {
+	if !IsNil(am.idpManager) {
 		// Delete if the user already exists in the IdP. Necessary in cases where a user account
 		// was created where a user account was provisioned but the user did not sign in
 		_, err := am.idpManager.GetUserDataByID(ctx, targetUserInfo.ID, idp.AppMetadata{WTAccountID: accountID})
