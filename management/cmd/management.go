@@ -152,7 +152,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 	}
 
 	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
-	if oidcEndpoint != "" && loadedConfig.EmbeddedIdp == nil {
+	if oidcEndpoint != "" && loadedConfig.EmbeddedIdP == nil {
 		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
 		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
 		oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
@@ -200,8 +200,8 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 		}
 	}
 
-	if loadedConfig.EmbeddedIdp != nil {
-		log.Infof("running with the embedded IdP: %v", loadedConfig.EmbeddedIdp.Issuer)
+	if loadedConfig.EmbeddedIdP != nil {
+		log.Infof("running with the embedded IdP: %v", loadedConfig.EmbeddedIdP.Issuer)
 	}
 
 	if loadedConfig.Relay != nil {

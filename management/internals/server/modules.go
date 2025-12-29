@@ -99,7 +99,7 @@ func (s *BaseServer) IdpManager() idp.Manager {
 		// Use embedded IdP manager if embedded Dex is configured.
 		// Legacy IdpManager won't be used anymore even if configured.
 		if s.embeddedIdp != nil {
-			idpManager, err = idp.NewEmbeddedIdPManagerFromProvider(s.embeddedIdp, s.Metrics())
+			idpManager, err = idp.NewEmbeddedIdPManager(s.embeddedIdp, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP manager: %v", err)
 			}

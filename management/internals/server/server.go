@@ -138,8 +138,8 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 
 	// Initialize embedded IDP if configured
-	if s.Config.EmbeddedIdp != nil && s.Config.EmbeddedIdp.Enabled {
-		yamlConfig, err := s.Config.EmbeddedIdp.EmbeddedIdPConfig.ToYAMLConfig()
+	if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+		yamlConfig, err := s.Config.EmbeddedIdP.ToYAMLConfig()
 		if err != nil {
 			return fmt.Errorf("failed to create embedded IDP config: %v", err)
 		}
