@@ -355,6 +355,119 @@ func (a *Account) GetPeerNetworkMap(
 	return nm
 }
 
+// GetPeerNetworkMap returns the networkmap for the given peer ID.
+func (a *Account) GetPeerNetworkMapCompacted(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeersMap map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+	metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	start := time.Now()
+	peer := a.Peers[peerID]
+	if peer == nil {
+		return &NetworkMap{
+			Network: a.Network.Copy(),
+		}
+	}
+
+	if _, ok := validatedPeersMap[peerID]; !ok {
+		return &NetworkMap{
+			Network: a.Network.Copy(),
+		}
+	}
+
+	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
+	// exclude expired peers
+	var peersToConnect []*nbpeer.Peer
+	var expiredPeers []*nbpeer.Peer
+	for _, p := range aclPeers {
+		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
+		if a.Settings.PeerLoginExpirationEnabled && expired {
+			expiredPeers = append(expiredPeers, p)
+			continue
+		}
+		peersToConnect = append(peersToConnect, p)
+	}
+
+	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
+	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
+	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
+	var networkResourcesFirewallRules []*RouteFirewallRule
+	if isRouter {
+		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
+	}
+	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, isRouter, sourcePeers)
+
+	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
+	dnsUpdate := nbdns.Config{
+		ServiceEnable: dnsManagementStatus,
+	}
+
+	if dnsManagementStatus {
+		var zones []nbdns.CustomZone
+		if peersCustomZone.Domain != "" {
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnectIncludingRouters, expiredPeers)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
+		}
+		dnsUpdate.CustomZones = zones
+		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
+	}
+	type crt struct {
+		route   *route.Route
+		peerIds []string
+	}
+	var routes []*route.Route
+	rtfilter := make(map[string]crt)
+	otherRoutesIDs := slices.Concat(networkResourcesRoutes, routesUpdate)
+	for _, route := range otherRoutesIDs {
+		rid, pid := splitRouteAndPeer(route)
+		if pid == peerID || len(pid) == 0 {
+			routes = append(routes, route)
+			continue
+		}
+		crt := rtfilter[rid]
+		crt.peerIds = append(crt.peerIds, pid)
+		crt.route = route.CopyClean()
+		rtfilter[rid] = crt
+	}
+
+	for rid, crt := range rtfilter {
+		crt.route.ApplicablePeerIDs = crt.peerIds
+		crt.route.ID = route.ID(rid)
+		routes = append(routes, crt.route)
+	}
+
+	nm := &NetworkMap{
+		Peers:               peersToConnectIncludingRouters,
+		Network:             a.Network.Copy(),
+		Routes:              routes,
+		DNSConfig:           dnsUpdate,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
+		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+	}
+
+	if metrics != nil {
+		objectCount := int64(len(peersToConnectIncludingRouters) + len(expiredPeers) + len(routesUpdate) + len(networkResourcesRoutes) + len(firewallRules) + +len(networkResourcesFirewallRules) + len(routesFirewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+
+		if objectCount > 5000 {
+			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects, "+
+				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d, network resources routes: %d, network resources firewall rules: %d, routes firewall rules: %d",
+				a.Id, objectCount, len(peersToConnectIncludingRouters), len(expiredPeers), len(routesUpdate), len(firewallRules), len(networkResourcesRoutes), len(networkResourcesFirewallRules), len(routesFirewallRules))
+		}
+	}
+
+	return nm
+}
+
 func (a *Account) addNetworksRoutingPeers(
 	networkResourcesRoutes []*route.Route,
 	peer *nbpeer.Peer,

@@ -1,0 +1,442 @@
+package types
+
+import (
+	"context"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	"github.com/netbirdio/netbird/route"
+)
+
+func (a *Account) GetPeerNetworkMapComponents(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeersMap map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+) *NetworkMapComponents {
+
+	peer := a.Peers[peerID]
+	if peer == nil {
+		return nil
+	}
+
+	if _, ok := validatedPeersMap[peerID]; !ok {
+		return nil
+	}
+
+	components := &NetworkMapComponents{
+		PeerID:              peerID,
+		Serial:              a.Network.Serial,
+		Network:             a.Network.Copy(),
+		Peers:               make(map[string]*nbpeer.Peer),
+		Groups:              make(map[string]*Group),
+		Policies:            make([]*Policy, 0),
+		Routes:              make([]*route.Route, 0),
+		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
+		CustomZoneDomain:    peersCustomZone.Domain,
+		AllDNSRecords:       peersCustomZone.Records,
+		ResourcePoliciesMap: make(map[string][]*Policy),
+		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
+		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
+	}
+
+	components.AccountSettings = &AccountSettingsInfo{
+		PeerLoginExpirationEnabled:     a.Settings.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:            a.Settings.PeerLoginExpiration,
+		PeerInactivityExpirationEnabled: a.Settings.PeerInactivityExpirationEnabled,
+		PeerInactivityExpiration:       a.Settings.PeerInactivityExpiration,
+	}
+
+	components.DNSSettings = &a.DNSSettings
+
+	relevantPeerIDsList, relevantGroupIDs := a.findRelevantPeersAndGroups(ctx, peerID, validatedPeersMap)
+
+	relevantPeerIDsMap := make(map[string]struct{})
+	for _, pid := range relevantPeerIDsList {
+		relevantPeerIDsMap[pid] = struct{}{}
+	}
+
+	_, _, networkResourcesSourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
+	for sourcePeerID := range networkResourcesSourcePeers {
+		relevantPeerIDsMap[sourcePeerID] = struct{}{}
+	}
+
+	for pid := range relevantPeerIDsMap {
+		if p := a.Peers[pid]; p != nil {
+			components.Peers[pid] = p
+		}
+	}
+
+	for gid := range relevantGroupIDs {
+		if g := a.Groups[gid]; g != nil {
+			components.Groups[gid] = g
+		}
+	}
+
+	for _, policy := range a.Policies {
+		if a.isPolicyRelevantForPeer(ctx, policy, peerID, relevantGroupIDs) {
+			components.Policies = append(components.Policies, policy)
+		}
+	}
+
+	for _, r := range a.Routes {
+		if a.isRouteRelevantForPeer(ctx, r, peerID, relevantGroupIDs) {
+			components.Routes = append(components.Routes, r)
+		}
+	}
+
+	for _, nsGroup := range a.NameServerGroups {
+		if nsGroup.Enabled {
+			for _, gID := range nsGroup.Groups {
+				if _, found := relevantGroupIDs[gID]; found {
+					components.NameServerGroups = append(components.NameServerGroups, nsGroup.Copy())
+					break
+				}
+			}
+		}
+	}
+
+	relevantResourceIDs := make(map[string]struct{})
+	relevantNetworkIDs := make(map[string]struct{})
+
+	for _, resource := range a.NetworkResources {
+		if !resource.Enabled {
+			continue
+		}
+
+		policies, exists := resourcePolicies[resource.ID]
+		if !exists {
+			continue
+		}
+
+		isRelevant := false
+
+		networkRoutingPeers, routerExists := routers[resource.NetworkID]
+		if routerExists {
+			if _, ok := networkRoutingPeers[peerID]; ok {
+				isRelevant = true
+			}
+		}
+
+		if !isRelevant {
+			for _, policy := range policies {
+				var peers []string
+				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+					peers = []string{policy.Rules[0].SourceResource.ID}
+				} else {
+					peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+				}
+
+				for _, p := range peers {
+					if p == peerID && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
+						isRelevant = true
+						break
+					}
+				}
+
+				if isRelevant {
+					break
+				}
+			}
+		}
+
+		if isRelevant {
+			relevantResourceIDs[resource.ID] = struct{}{}
+			relevantNetworkIDs[resource.NetworkID] = struct{}{}
+			components.NetworkResources = append(components.NetworkResources, resource)
+		}
+	}
+
+	for resID, policies := range resourcePolicies {
+		if _, isRelevant := relevantResourceIDs[resID]; !isRelevant {
+			continue
+		}
+
+		for _, p := range policies {
+			for _, rule := range p.Rules {
+				for _, srcGroupID := range rule.Sources {
+					if g := a.Groups[srcGroupID]; g != nil {
+						if _, exists := components.Groups[srcGroupID]; !exists {
+							components.Groups[srcGroupID] = g
+						}
+					}
+				}
+				for _, dstGroupID := range rule.Destinations {
+					if g := a.Groups[dstGroupID]; g != nil {
+						if _, exists := components.Groups[dstGroupID]; !exists {
+							components.Groups[dstGroupID] = g
+						}
+					}
+				}
+			}
+		}
+		components.ResourcePoliciesMap[resID] = policies
+	}
+
+	for networkID, networkRouters := range routers {
+		if _, isRelevant := relevantNetworkIDs[networkID]; !isRelevant {
+			continue
+		}
+
+		components.RoutersMap[networkID] = networkRouters
+		for peerIDKey := range networkRouters {
+			if _, exists := components.Peers[peerIDKey]; !exists {
+				if p := a.Peers[peerIDKey]; p != nil {
+					components.Peers[peerIDKey] = p
+				}
+			}
+		}
+	}
+
+	for groupID, groupInfo := range components.Groups {
+		filteredPeers := make([]string, 0, len(groupInfo.Peers))
+		for _, peerID := range groupInfo.Peers {
+			if _, exists := components.Peers[peerID]; exists {
+				filteredPeers = append(filteredPeers, peerID)
+			}
+		}
+
+		if len(filteredPeers) == 0 {
+			delete(components.Groups, groupID)
+		} else {
+			groupInfo.Peers = filteredPeers
+			components.Groups[groupID] = groupInfo
+		}
+	}
+
+	return components
+}
+
+func (a *Account) findRelevantPeersAndGroups(
+	ctx context.Context,
+	peerID string,
+	validatedPeersMap map[string]struct{},
+) ([]string, map[string]struct{}) {
+	relevantPeerIDs := make(map[string]struct{})
+	relevantGroupIDs := make(map[string]struct{})
+
+	relevantPeerIDs[peerID] = struct{}{}
+
+	for groupID, group := range a.Groups {
+		for _, pid := range group.Peers {
+			if pid == peerID {
+				relevantGroupIDs[groupID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	for _, policy := range a.Policies {
+		if !policy.Enabled {
+			continue
+		}
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
+				continue
+			}
+
+			var sourcePeers, destinationPeers []string
+			var peerInSources, peerInDestinations bool
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers = []string{rule.SourceResource.ID}
+				if rule.SourceResource.ID == peerID {
+					peerInSources = true
+				}
+			} else {
+				sourcePeers, peerInSources = a.getPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+			}
+
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				destinationPeers = []string{rule.DestinationResource.ID}
+				if rule.DestinationResource.ID == peerID {
+					peerInDestinations = true
+				}
+			} else {
+				destinationPeers, peerInDestinations = a.getPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
+			}
+
+			if rule.Bidirectional {
+				if peerInSources {
+					for _, pid := range destinationPeers {
+						relevantPeerIDs[pid] = struct{}{}
+					}
+					for _, dstGroupID := range rule.Destinations {
+						relevantGroupIDs[dstGroupID] = struct{}{}
+					}
+				}
+				if peerInDestinations {
+					for _, pid := range sourcePeers {
+						relevantPeerIDs[pid] = struct{}{}
+					}
+					for _, srcGroupID := range rule.Sources {
+						relevantGroupIDs[srcGroupID] = struct{}{}
+					}
+				}
+			}
+
+			if peerInSources {
+				for _, pid := range destinationPeers {
+					relevantPeerIDs[pid] = struct{}{}
+				}
+				for _, dstGroupID := range rule.Destinations {
+					relevantGroupIDs[dstGroupID] = struct{}{}
+				}
+			}
+
+			if peerInDestinations {
+				for _, pid := range sourcePeers {
+					relevantPeerIDs[pid] = struct{}{}
+				}
+				for _, srcGroupID := range rule.Sources {
+					relevantGroupIDs[srcGroupID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	for _, r := range a.Routes {
+		isRelevant := false
+
+		for _, groupID := range r.Groups {
+			if _, found := relevantGroupIDs[groupID]; found {
+				isRelevant = true
+				break
+			}
+		}
+
+		if r.Peer == peerID || r.PeerID == peerID {
+			isRelevant = true
+		}
+
+		for _, groupID := range r.PeerGroups {
+			if group := a.Groups[groupID]; group != nil {
+				for _, pid := range group.Peers {
+					if pid == peerID {
+						isRelevant = true
+						break
+					}
+				}
+			}
+		}
+
+		if isRelevant {
+			for _, groupID := range r.Groups {
+				relevantGroupIDs[groupID] = struct{}{}
+			}
+			for _, groupID := range r.PeerGroups {
+				relevantGroupIDs[groupID] = struct{}{}
+			}
+			for _, groupID := range r.AccessControlGroups {
+				relevantGroupIDs[groupID] = struct{}{}
+			}
+
+			if r.Peer != "" {
+				relevantPeerIDs[r.Peer] = struct{}{}
+			}
+			if r.PeerID != "" {
+				relevantPeerIDs[r.PeerID] = struct{}{}
+			}
+		}
+	}
+
+	peerIDsList := make([]string, 0, len(relevantPeerIDs))
+	for pid := range relevantPeerIDs {
+		peerIDsList = append(peerIDsList, pid)
+	}
+
+	return peerIDsList, relevantGroupIDs
+}
+
+func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]string, bool) {
+	peerInGroups := false
+	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
+	filteredPeerIDs := make([]string, 0, len(uniquePeerIDs))
+
+	for _, p := range uniquePeerIDs {
+		peer, ok := a.Peers[p]
+		if !ok || peer == nil {
+			continue
+		}
+
+		isValid := a.validatePostureChecksOnPeer(ctx, sourcePostureChecksIDs, peer.ID)
+		if !isValid {
+			continue
+		}
+
+		if _, ok := validatedPeersMap[peer.ID]; !ok {
+			continue
+		}
+
+		if peer.ID == peerID {
+			peerInGroups = true
+			continue
+		}
+
+		filteredPeerIDs = append(filteredPeerIDs, peer.ID)
+	}
+
+	return filteredPeerIDs, peerInGroups
+}
+
+func (a *Account) isPolicyRelevantForPeer(ctx context.Context, policy *Policy, peerID string, relevantGroupIDs map[string]struct{}) bool {
+	for _, rule := range policy.Rules {
+		for _, srcGroupID := range rule.Sources {
+			if _, found := relevantGroupIDs[srcGroupID]; found {
+				return true
+			}
+		}
+
+		for _, dstGroupID := range rule.Destinations {
+			if _, found := relevantGroupIDs[dstGroupID]; found {
+				return true
+			}
+		}
+
+		if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID == peerID {
+			return true
+		}
+
+		if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID == peerID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (a *Account) isRouteRelevantForPeer(ctx context.Context, r *route.Route, peerID string, relevantGroupIDs map[string]struct{}) bool {
+	if r.Peer == peerID || r.PeerID == peerID {
+		return true
+	}
+
+	for _, groupID := range r.Groups {
+		if _, found := relevantGroupIDs[groupID]; found {
+			return true
+		}
+	}
+
+	for _, groupID := range r.PeerGroups {
+		if group := a.Groups[groupID]; group != nil {
+			for _, pid := range group.Peers {
+				if pid == peerID {
+					return true
+				}
+			}
+		}
+	}
+
+	for _, groupID := range r.AccessControlGroups {
+		if _, found := relevantGroupIDs[groupID]; found {
+			return true
+		}
+	}
+
+	return false
+}
+

@@ -1290,19 +1290,35 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 	compactCachedJSON, err := json.Marshal(compactCachedNm)
 	require.NoError(b, err)
 
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+	components := account.GetPeerNetworkMapComponents(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers)
+	componentsJSON, err := json.Marshal(components)
+	require.NoError(b, err)
+
 	regularSize := len(regularJSON)
 	compactSize := len(compactJSON)
 	compactCachedSize := len(compactCachedJSON)
-	savingsPercent := 100 - int(float64(compactCachedSize)/float64(regularSize)*100)
+	componentsSize := len(componentsJSON)
+
+	compactSavingsPercent := 100 - int(float64(compactCachedSize)/float64(regularSize)*100)
+	componentsSavingsPercent := 100 - int(float64(componentsSize)/float64(regularSize)*100)
 
 	b.ReportMetric(float64(regularSize), "regular_bytes")
 	b.ReportMetric(float64(compactCachedSize), "compact_cached_bytes")
-	b.ReportMetric(float64(savingsPercent), "savings_%")
+	b.ReportMetric(float64(componentsSize), "components_bytes")
+	b.ReportMetric(float64(compactSavingsPercent), "compact_savings_%")
+	b.ReportMetric(float64(componentsSavingsPercent), "components_savings_%")
 
-	b.Logf("Regular network map: %d bytes", regularSize)
-	b.Logf("Compact network map: %d bytes", compactSize)
-	b.Logf("Compact cached network map: %d bytes", compactCachedSize)
-	b.Logf("Data savings: %d%% (%d bytes saved)", savingsPercent, regularSize-compactCachedSize)
+	b.Logf("========== Network Map Size Comparison ==========")
+	b.Logf("Regular network map:       %d bytes", regularSize)
+	b.Logf("Compact network map:       %d bytes (-%d%%)", compactSize, 100-int(float64(compactSize)/float64(regularSize)*100))
+	b.Logf("Compact cached network map: %d bytes (-%d%%)", compactCachedSize, compactSavingsPercent)
+	b.Logf("Components:                %d bytes (-%d%%)", componentsSize, componentsSavingsPercent)
+	b.Logf("")
+	b.Logf("Bandwidth savings (Compact cached): %d bytes saved (%d%%)", regularSize-compactCachedSize, compactSavingsPercent)
+	b.Logf("Bandwidth savings (Components):     %d bytes saved (%d%%)", regularSize-componentsSize, componentsSavingsPercent)
+	b.Logf("=================================================")
 
 	b.Run("Regular", func(b *testing.B) {
 		b.ResetTimer()
@@ -1322,6 +1338,54 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+	b.Run("Legacy", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = account.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+		}
+	})
+	b.Run("LegacyCompacted", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = account.GetPeerNetworkMapCompacted(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+		}
+	})
+
+	b.Run("ComponentsNetworkMap", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			components := account.GetPeerNetworkMapComponents(
+				ctx,
+				testingPeerID,
+				customZone,
+				validatedPeersMap,
+				resourcePolicies,
+				routers,
+			)
+			_ = types.CalculateNetworkMapFromComponents(ctx, components)
+		}
+	})
+
+	b.Run("ComponentsCreation", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = account.GetPeerNetworkMapComponents(
+				ctx,
+				testingPeerID,
+				customZone,
+				validatedPeersMap,
+				resourcePolicies,
+				routers,
+			)
+		}
+	})
+
+	b.Run("CalculationFromComponents", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = types.CalculateNetworkMapFromComponents(ctx, components)
 		}
 	})
 }
