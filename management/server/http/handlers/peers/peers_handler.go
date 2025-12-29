@@ -369,6 +369,9 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 				PortRanges:    []types.RulePortRange{portRange},
 			}},
 		}
+		if protocol == types.PolicyRuleProtocolNetbirdSSH {
+			policy.Rules[0].AuthorizedUser = userAuth.UserId
+		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
 		if err != nil {
