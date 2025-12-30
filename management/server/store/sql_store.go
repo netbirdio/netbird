@@ -37,7 +37,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/shared/sshauth"
 )
 
 const (
@@ -64,6 +63,8 @@ type SqlStore struct {
 	installationPK    int
 	storeEngine       types.Engine
 	pool              *pgxpool.Pool
+
+	transactionTimeout time.Duration
 }
 
 type installation struct {
@@ -85,6 +86,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
+	transactionTimeout := 5 * time.Minute
+	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			transactionTimeout = parsed
+		}
+	}
+	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
+
 	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -102,7 +111,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
@@ -121,7 +130,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
