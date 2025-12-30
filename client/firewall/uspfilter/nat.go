@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 
+	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -13,6 +15,21 @@ import (
 
 var ErrIPv4Only = errors.New("only IPv4 is supported for DNAT")
 
+var (
+	errInvalidIPHeaderLength = errors.New("invalid IP header length")
+)
+
+const (
+	// Port offsets in TCP/UDP headers
+	sourcePortOffset      = 0
+	destinationPortOffset = 2
+
+	// IP address offsets in IPv4 header
+	sourceIPOffset      = 12
+	destinationIPOffset = 16
+)
+
+// ipv4Checksum calculates IPv4 header checksum.
 func ipv4Checksum(header []byte) uint16 {
 	if len(header) < 20 {
 		return 0
@@ -52,6 +69,7 @@ func ipv4Checksum(header []byte) uint16 {
 	return ^uint16(sum)
 }
 
+// icmpChecksum calculates ICMP checksum.
 func icmpChecksum(data []byte) uint16 {
 	var sum1, sum2, sum3, sum4 uint32
 	i := 0
@@ -89,11 +107,21 @@ func icmpChecksum(data []byte) uint16 {
 	return ^uint16(sum)
 }
 
+// biDNATMap maintains bidirectional DNAT mappings.
 type biDNATMap struct {
 	forward map[netip.Addr]netip.Addr
 	reverse map[netip.Addr]netip.Addr
 }
 
+// portDNATRule represents a port-specific DNAT rule.
+type portDNATRule struct {
+	protocol   gopacket.LayerType
+	origPort   uint16
+	targetPort uint16
+	targetIP   netip.Addr
+}
+
+// newBiDNATMap creates a new bidirectional DNAT mapping structure.
 func newBiDNATMap() *biDNATMap {
 	return &biDNATMap{
 		forward: make(map[netip.Addr]netip.Addr),
@@ -101,11 +129,13 @@ func newBiDNATMap() *biDNATMap {
 	}
 }
 
+// set adds a bidirectional DNAT mapping between original and translated addresses.
 func (b *biDNATMap) set(original, translated netip.Addr) {
 	b.forward[original] = translated
 	b.reverse[translated] = original
 }
 
+// delete removes a bidirectional DNAT mapping for the given original address.
 func (b *biDNATMap) delete(original netip.Addr) {
 	if translated, exists := b.forward[original]; exists {
 		delete(b.forward, original)
@@ -113,19 +143,25 @@ func (b *biDNATMap) delete(original netip.Addr) {
 	}
 }
 
+// getTranslated returns the translated address for a given original address.
 func (b *biDNATMap) getTranslated(original netip.Addr) (netip.Addr, bool) {
 	translated, exists := b.forward[original]
 	return translated, exists
 }
 
+// getOriginal returns the original address for a given translated address.
 func (b *biDNATMap) getOriginal(translated netip.Addr) (netip.Addr, bool) {
 	original, exists := b.reverse[translated]
 	return original, exists
 }
 
+// AddInternalDNATMapping adds a 1:1 IP address mapping for internal DNAT translation.
 func (m *Manager) AddInternalDNATMapping(originalAddr, translatedAddr netip.Addr) error {
-	if !originalAddr.IsValid() || !translatedAddr.IsValid() {
-		return fmt.Errorf("invalid IP addresses")
+	if !originalAddr.IsValid() {
+		return fmt.Errorf("invalid original IP address")
+	}
+	if !translatedAddr.IsValid() {
+		return fmt.Errorf("invalid translated IP address")
 	}
 
 	if m.localipmanager.IsLocalIP(translatedAddr) {
@@ -135,7 +171,6 @@ func (m *Manager) AddInternalDNATMapping(originalAddr, translatedAddr netip.Addr
 	m.dnatMutex.Lock()
 	defer m.dnatMutex.Unlock()
 
-	// Initialize both maps together if either is nil
 	if m.dnatMappings == nil || m.dnatBiMap == nil {
 		m.dnatMappings = make(map[netip.Addr]netip.Addr)
 		m.dnatBiMap = newBiDNATMap()
@@ -151,7 +186,7 @@ func (m *Manager) AddInternalDNATMapping(originalAddr, translatedAddr netip.Addr
 	return nil
 }
 
-// RemoveInternalDNATMapping removes a 1:1 IP address mapping
+// RemoveInternalDNATMapping removes a 1:1 IP address mapping.
 func (m *Manager) RemoveInternalDNATMapping(originalAddr netip.Addr) error {
 	m.dnatMutex.Lock()
 	defer m.dnatMutex.Unlock()
@@ -169,7 +204,7 @@ func (m *Manager) RemoveInternalDNATMapping(originalAddr netip.Addr) error {
 	return nil
 }
 
-// getDNATTranslation returns the translated address if a mapping exists
+// getDNATTranslation returns the translated address if a mapping exists.
 func (m *Manager) getDNATTranslation(addr netip.Addr) (netip.Addr, bool) {
 	if !m.dnatEnabled.Load() {
 		return addr, false
@@ -181,7 +216,7 @@ func (m *Manager) getDNATTranslation(addr netip.Addr) (netip.Addr, bool) {
 	return translated, exists
 }
 
-// findReverseDNATMapping finds original address for return traffic
+// findReverseDNATMapping finds original address for return traffic.
 func (m *Manager) findReverseDNATMapping(translatedAddr netip.Addr) (netip.Addr, bool) {
 	if !m.dnatEnabled.Load() {
 		return translatedAddr, false
@@ -193,13 +228,9 @@ func (m *Manager) findReverseDNATMapping(translatedAddr netip.Addr) (netip.Addr,
 	return original, exists
 }
 
-// translateOutboundDNAT applies DNAT translation to outbound packets
+// translateOutboundDNAT applies DNAT translation to outbound packets.
 func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	if !m.dnatEnabled.Load() {
-		return false
-	}
-
-	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 {
 		return false
 	}
 
@@ -210,8 +241,8 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 		return false
 	}
 
-	if err := m.rewritePacketDestination(packetData, d, translatedIP); err != nil {
-		m.logger.Error1("Failed to rewrite packet destination: %v", err)
+	if err := m.rewritePacketIP(packetData, d, translatedIP, destinationIPOffset); err != nil {
+		m.logger.Error1("failed to rewrite packet destination: %v", err)
 		return false
 	}
 
@@ -219,13 +250,9 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	return true
 }
 
-// translateInboundReverse applies reverse DNAT to inbound return traffic
+// translateInboundReverse applies reverse DNAT to inbound return traffic.
 func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 	if !m.dnatEnabled.Load() {
-		return false
-	}
-
-	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 {
 		return false
 	}
 
@@ -236,8 +263,8 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 		return false
 	}
 
-	if err := m.rewritePacketSource(packetData, d, originalIP); err != nil {
-		m.logger.Error1("Failed to rewrite packet source: %v", err)
+	if err := m.rewritePacketIP(packetData, d, originalIP, sourceIPOffset); err != nil {
+		m.logger.Error1("failed to rewrite packet source: %v", err)
 		return false
 	}
 
@@ -245,21 +272,21 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 	return true
 }
 
-// rewritePacketDestination replaces destination IP in the packet
-func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP netip.Addr) error {
-	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 || !newIP.Is4() {
+// rewritePacketIP replaces an IP address (source or destination) in the packet and updates checksums.
+func (m *Manager) rewritePacketIP(packetData []byte, d *decoder, newIP netip.Addr, ipOffset int) error {
+	if !newIP.Is4() {
 		return ErrIPv4Only
 	}
 
-	var oldDst [4]byte
-	copy(oldDst[:], packetData[16:20])
-	newDst := newIP.As4()
+	var oldIP [4]byte
+	copy(oldIP[:], packetData[ipOffset:ipOffset+4])
+	newIPBytes := newIP.As4()
 
-	copy(packetData[16:20], newDst[:])
+	copy(packetData[ipOffset:ipOffset+4], newIPBytes[:])
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf("invalid IP header length")
+		return errInvalidIPHeaderLength
 	}
 
 	binary.BigEndian.PutUint16(packetData[10:12], 0)
@@ -269,9 +296,9 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 	if len(d.decoded) > 1 {
 		switch d.decoded[1] {
 		case layers.LayerTypeTCP:
-			m.updateTCPChecksum(packetData, ipHeaderLen, oldDst[:], newDst[:])
+			m.updateTCPChecksum(packetData, ipHeaderLen, oldIP[:], newIPBytes[:])
 		case layers.LayerTypeUDP:
-			m.updateUDPChecksum(packetData, ipHeaderLen, oldDst[:], newDst[:])
+			m.updateUDPChecksum(packetData, ipHeaderLen, oldIP[:], newIPBytes[:])
 		case layers.LayerTypeICMPv4:
 			m.updateICMPChecksum(packetData, ipHeaderLen)
 		}
@@ -280,41 +307,7 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 	return nil
 }
 
-// rewritePacketSource replaces the source IP address in the packet
-func (m *Manager) rewritePacketSource(packetData []byte, d *decoder, newIP netip.Addr) error {
-	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 || !newIP.Is4() {
-		return ErrIPv4Only
-	}
-
-	var oldSrc [4]byte
-	copy(oldSrc[:], packetData[12:16])
-	newSrc := newIP.As4()
-
-	copy(packetData[12:16], newSrc[:])
-
-	ipHeaderLen := int(d.ip4.IHL) * 4
-	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf("invalid IP header length")
-	}
-
-	binary.BigEndian.PutUint16(packetData[10:12], 0)
-	ipChecksum := ipv4Checksum(packetData[:ipHeaderLen])
-	binary.BigEndian.PutUint16(packetData[10:12], ipChecksum)
-
-	if len(d.decoded) > 1 {
-		switch d.decoded[1] {
-		case layers.LayerTypeTCP:
-			m.updateTCPChecksum(packetData, ipHeaderLen, oldSrc[:], newSrc[:])
-		case layers.LayerTypeUDP:
-			m.updateUDPChecksum(packetData, ipHeaderLen, oldSrc[:], newSrc[:])
-		case layers.LayerTypeICMPv4:
-			m.updateICMPChecksum(packetData, ipHeaderLen)
-		}
-	}
-
-	return nil
-}
-
+// updateTCPChecksum updates TCP checksum after IP address change per RFC 1624.
 func (m *Manager) updateTCPChecksum(packetData []byte, ipHeaderLen int, oldIP, newIP []byte) {
 	tcpStart := ipHeaderLen
 	if len(packetData) < tcpStart+18 {
@@ -327,6 +320,7 @@ func (m *Manager) updateTCPChecksum(packetData []byte, ipHeaderLen int, oldIP, n
 	binary.BigEndian.PutUint16(packetData[checksumOffset:checksumOffset+2], newChecksum)
 }
 
+// updateUDPChecksum updates UDP checksum after IP address change per RFC 1624.
 func (m *Manager) updateUDPChecksum(packetData []byte, ipHeaderLen int, oldIP, newIP []byte) {
 	udpStart := ipHeaderLen
 	if len(packetData) < udpStart+8 {
@@ -344,6 +338,7 @@ func (m *Manager) updateUDPChecksum(packetData []byte, ipHeaderLen int, oldIP, n
 	binary.BigEndian.PutUint16(packetData[checksumOffset:checksumOffset+2], newChecksum)
 }
 
+// updateICMPChecksum recalculates ICMP checksum after packet modification.
 func (m *Manager) updateICMPChecksum(packetData []byte, ipHeaderLen int) {
 	icmpStart := ipHeaderLen
 	if len(packetData) < icmpStart+8 {
@@ -356,7 +351,7 @@ func (m *Manager) updateICMPChecksum(packetData []byte, ipHeaderLen int) {
 	binary.BigEndian.PutUint16(icmpData[2:4], checksum)
 }
 
-// incrementalUpdate performs incremental checksum update per RFC 1624
+// incrementalUpdate performs incremental checksum update per RFC 1624.
 func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	sum := uint32(^oldChecksum)
 
@@ -391,7 +386,7 @@ func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	return ^uint16(sum)
 }
 
-// AddDNATRule adds a DNAT rule (delegates to native firewall for port forwarding)
+// AddDNATRule adds outbound DNAT rule for forwarding external traffic to NetBird network.
 func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	if m.nativeFirewall == nil {
 		return nil, errNatNotSupported
@@ -399,10 +394,184 @@ func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) 
 	return m.nativeFirewall.AddDNATRule(rule)
 }
 
-// DeleteDNATRule deletes a DNAT rule (delegates to native firewall)
+// DeleteDNATRule deletes outbound DNAT rule.
 func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	if m.nativeFirewall == nil {
 		return errNatNotSupported
 	}
 	return m.nativeFirewall.DeleteDNATRule(rule)
+}
+
+// addPortRedirection adds a port redirection rule.
+func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, sourcePort, targetPort uint16) error {
+	m.portDNATMutex.Lock()
+	defer m.portDNATMutex.Unlock()
+
+	rule := portDNATRule{
+		protocol:   protocol,
+		origPort:   sourcePort,
+		targetPort: targetPort,
+		targetIP:   targetIP,
+	}
+
+	m.portDNATRules = append(m.portDNATRules, rule)
+	m.portDNATEnabled.Store(true)
+
+	return nil
+}
+
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	var layerType gopacket.LayerType
+	switch protocol {
+	case firewall.ProtocolTCP:
+		layerType = layers.LayerTypeTCP
+	case firewall.ProtocolUDP:
+		layerType = layers.LayerTypeUDP
+	default:
+		return fmt.Errorf("unsupported protocol: %s", protocol)
+	}
+
+	return m.addPortRedirection(localAddr, layerType, sourcePort, targetPort)
+}
+
+// removePortRedirection removes a port redirection rule.
+func (m *Manager) removePortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, sourcePort, targetPort uint16) error {
+	m.portDNATMutex.Lock()
+	defer m.portDNATMutex.Unlock()
+
+	m.portDNATRules = slices.DeleteFunc(m.portDNATRules, func(rule portDNATRule) bool {
+		return rule.protocol == protocol && rule.origPort == sourcePort && rule.targetPort == targetPort && rule.targetIP.Compare(targetIP) == 0
+	})
+
+	if len(m.portDNATRules) == 0 {
+		m.portDNATEnabled.Store(false)
+	}
+
+	return nil
+}
+
+// RemoveInboundDNAT removes an inbound DNAT rule.
+func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	var layerType gopacket.LayerType
+	switch protocol {
+	case firewall.ProtocolTCP:
+		layerType = layers.LayerTypeTCP
+	case firewall.ProtocolUDP:
+		layerType = layers.LayerTypeUDP
+	default:
+		return fmt.Errorf("unsupported protocol: %s", protocol)
+	}
+
+	return m.removePortRedirection(localAddr, layerType, sourcePort, targetPort)
+}
+
+// translateInboundPortDNAT applies port-specific DNAT translation to inbound packets.
+func (m *Manager) translateInboundPortDNAT(packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
+	if !m.portDNATEnabled.Load() {
+		return false
+	}
+
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		dstPort := uint16(d.tcp.DstPort)
+		return m.applyPortRule(packetData, d, srcIP, dstIP, dstPort, layers.LayerTypeTCP, m.rewriteTCPPort)
+	case layers.LayerTypeUDP:
+		dstPort := uint16(d.udp.DstPort)
+		return m.applyPortRule(packetData, d, netip.Addr{}, dstIP, dstPort, layers.LayerTypeUDP, m.rewriteUDPPort)
+	default:
+		return false
+	}
+}
+
+type portRewriteFunc func(packetData []byte, d *decoder, newPort uint16, portOffset int) error
+
+func (m *Manager) applyPortRule(packetData []byte, d *decoder, srcIP, dstIP netip.Addr, port uint16, protocol gopacket.LayerType, rewriteFn portRewriteFunc) bool {
+	m.portDNATMutex.RLock()
+	defer m.portDNATMutex.RUnlock()
+
+	for _, rule := range m.portDNATRules {
+		if rule.protocol != protocol || rule.targetIP.Compare(dstIP) != 0 {
+			continue
+		}
+
+		if rule.targetPort == port && rule.targetIP.Compare(srcIP) == 0 {
+			return false
+		}
+
+		if rule.origPort != port {
+			continue
+		}
+
+		if err := rewriteFn(packetData, d, rule.targetPort, destinationPortOffset); err != nil {
+			m.logger.Error1("failed to rewrite port: %v", err)
+			return false
+		}
+		d.dnatOrigPort = rule.origPort
+		return true
+	}
+	return false
+}
+
+// rewriteTCPPort rewrites a TCP port (source or destination) and updates checksum.
+func (m *Manager) rewriteTCPPort(packetData []byte, d *decoder, newPort uint16, portOffset int) error {
+	ipHeaderLen := int(d.ip4.IHL) * 4
+	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
+		return errInvalidIPHeaderLength
+	}
+
+	tcpStart := ipHeaderLen
+	if len(packetData) < tcpStart+4 {
+		return fmt.Errorf("packet too short for TCP header")
+	}
+
+	portStart := tcpStart + portOffset
+	oldPort := binary.BigEndian.Uint16(packetData[portStart : portStart+2])
+	binary.BigEndian.PutUint16(packetData[portStart:portStart+2], newPort)
+
+	if len(packetData) >= tcpStart+18 {
+		checksumOffset := tcpStart + 16
+		oldChecksum := binary.BigEndian.Uint16(packetData[checksumOffset : checksumOffset+2])
+
+		var oldPortBytes, newPortBytes [2]byte
+		binary.BigEndian.PutUint16(oldPortBytes[:], oldPort)
+		binary.BigEndian.PutUint16(newPortBytes[:], newPort)
+
+		newChecksum := incrementalUpdate(oldChecksum, oldPortBytes[:], newPortBytes[:])
+		binary.BigEndian.PutUint16(packetData[checksumOffset:checksumOffset+2], newChecksum)
+	}
+
+	return nil
+}
+
+// rewriteUDPPort rewrites a UDP port (source or destination) and updates checksum.
+func (m *Manager) rewriteUDPPort(packetData []byte, d *decoder, newPort uint16, portOffset int) error {
+	ipHeaderLen := int(d.ip4.IHL) * 4
+	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
+		return errInvalidIPHeaderLength
+	}
+
+	udpStart := ipHeaderLen
+	if len(packetData) < udpStart+8 {
+		return fmt.Errorf("packet too short for UDP header")
+	}
+
+	portStart := udpStart + portOffset
+	oldPort := binary.BigEndian.Uint16(packetData[portStart : portStart+2])
+	binary.BigEndian.PutUint16(packetData[portStart:portStart+2], newPort)
+
+	checksumOffset := udpStart + 6
+	if len(packetData) >= udpStart+8 {
+		oldChecksum := binary.BigEndian.Uint16(packetData[checksumOffset : checksumOffset+2])
+		if oldChecksum != 0 {
+			var oldPortBytes, newPortBytes [2]byte
+			binary.BigEndian.PutUint16(oldPortBytes[:], oldPort)
+			binary.BigEndian.PutUint16(newPortBytes[:], newPort)
+
+			newChecksum := incrementalUpdate(oldChecksum, oldPortBytes[:], newPortBytes[:])
+			binary.BigEndian.PutUint16(packetData[checksumOffset:checksumOffset+2], newChecksum)
+		}
+	}
+
+	return nil
 }

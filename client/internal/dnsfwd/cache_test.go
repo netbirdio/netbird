@@ -83,4 +83,3 @@ func TestCacheMiss(t *testing.T) {
 		t.Fatalf("expected cache miss, got=%v ok=%v", got, ok)
 	}
 }
-

@@ -31,19 +31,19 @@ import (
 	"fyne.io/systray"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
-
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/version"
@@ -56,6 +56,7 @@ const (
 
 const (
 	censoredPreSharedKey = "**********"
+	maxSSHJWTCacheTTL    = 86_400 // 24 hours in seconds
 )
 
 func main() {
@@ -86,21 +87,24 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:         flags.daemonAddr,
-		logFile:      logFile,
-		app:          a,
-		showSettings: flags.showSettings,
-		showNetworks: flags.showNetworks,
-		showLoginURL: flags.showLoginURL,
-		showDebug:    flags.showDebug,
-		showProfiles: flags.showProfiles,
+		addr:              flags.daemonAddr,
+		logFile:           logFile,
+		app:               a,
+		showSettings:      flags.showSettings,
+		showNetworks:      flags.showNetworks,
+		showLoginURL:      flags.showLoginURL,
+		showDebug:         flags.showDebug,
+		showProfiles:      flags.showProfiles,
+		showQuickActions:  flags.showQuickActions,
+		showUpdate:        flags.showUpdate,
+		showUpdateVersion: flags.showUpdateVersion,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate {
 		a.Run()
 		return
 	}
@@ -112,23 +116,31 @@ func main() {
 		return
 	}
 	if running {
-		log.Warnf("another process is running with pid %d, exiting", pid)
+		log.Infof("another process is running with pid %d, sending signal to show window", pid)
+		if err := sendShowWindowSignal(pid); err != nil {
+			log.Errorf("send signal to running instance: %v", err)
+		}
 		return
 	}
+
+	client.setupSignalHandler(client.ctx)
 
 	client.setDefaultFonts()
 	systray.Run(client.onTrayReady, client.onTrayExit)
 }
 
 type cliFlags struct {
-	daemonAddr     string
-	showSettings   bool
-	showNetworks   bool
-	showProfiles   bool
-	showDebug      bool
-	showLoginURL   bool
-	errorMsg       string
-	saveLogsInFile bool
+	daemonAddr        string
+	showSettings      bool
+	showNetworks      bool
+	showProfiles      bool
+	showDebug         bool
+	showLoginURL      bool
+	showQuickActions  bool
+	errorMsg          string
+	saveLogsInFile    bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -144,9 +156,12 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showNetworks, "networks", false, "run networks window")
 	flag.BoolVar(&flags.showProfiles, "profiles", false, "run profiles window")
 	flag.BoolVar(&flags.showDebug, "debug", false, "run debug window")
+	flag.BoolVar(&flags.showQuickActions, "quick-actions", false, "run quick actions window")
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
+	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
+	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
 	return &flags
 }
@@ -159,11 +174,9 @@ func initLogFile() (string, error) {
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
 func watchSettingsChanges(a fyne.App, client *serviceClient) {
-	settingsChangeChan := make(chan fyne.Settings)
-	a.Settings().AddChangeListener(settingsChangeChan)
-	for range settingsChangeChan {
+	a.Settings().AddListener(func(settings fyne.Settings) {
 		client.updateIcon()
-	}
+	})
 }
 
 // showErrorMessage displays an error message in a simple window.
@@ -203,10 +216,11 @@ var iconConnectedDot []byte
 var iconDisconnectedDot []byte
 
 type serviceClient struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	addr   string
-	conn   proto.DaemonServiceClient
+	ctx      context.Context
+	cancel   context.CancelFunc
+	addr     string
+	conn     proto.DaemonServiceClient
+	connLock sync.Mutex
 
 	eventHandler *eventHandler
 
@@ -260,34 +274,50 @@ type serviceClient struct {
 	iMTU           *widget.Entry
 
 	// switch elements for settings form
-	sRosenpassPermissive *widget.Check
-	sNetworkMonitor      *widget.Check
-	sDisableDNS          *widget.Check
-	sDisableClientRoutes *widget.Check
-	sDisableServerRoutes *widget.Check
-	sBlockLANAccess      *widget.Check
+	sRosenpassPermissive        *widget.Check
+	sNetworkMonitor             *widget.Check
+	sDisableDNS                 *widget.Check
+	sDisableClientRoutes        *widget.Check
+	sDisableServerRoutes        *widget.Check
+	sBlockLANAccess             *widget.Check
+	sEnableSSHRoot              *widget.Check
+	sEnableSSHSFTP              *widget.Check
+	sEnableSSHLocalPortForward  *widget.Check
+	sEnableSSHRemotePortForward *widget.Check
+	sDisableSSHAuth             *widget.Check
+	iSSHJWTCacheTTL             *widget.Entry
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
-	managementURL       string
-	preSharedKey        string
-	RosenpassPermissive bool
-	interfaceName       string
-	interfacePort       int
-	mtu                 uint16
-	networkMonitor      bool
-	disableDNS          bool
-	disableClientRoutes bool
-	disableServerRoutes bool
-	blockLANAccess      bool
+	managementURL string
+	preSharedKey  string
+
+	RosenpassPermissive        bool
+	interfaceName              string
+	interfacePort              int
+	mtu                        uint16
+	networkMonitor             bool
+	disableDNS                 bool
+	disableClientRoutes        bool
+	disableServerRoutes        bool
+	blockLANAccess             bool
+	enableSSHRoot              bool
+	enableSSHSFTP              bool
+	enableSSHLocalPortForward  bool
+	enableSSHRemotePortForward bool
+	disableSSHAuth             bool
+	sshJWTCacheTTL             int
 
 	connected            bool
 	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	settingsEnabled      bool
+	profilesEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
+	wQuickActions        fyne.Window
 
 	eventManager *event.Manager
 
@@ -297,6 +327,10 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
+	wUpdateProgress      fyne.Window
+	updateContextCancel  context.CancelFunc
+
+	connectCancel context.CancelFunc
 }
 
 type menuHandler struct {
@@ -305,14 +339,17 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr         string
-	logFile      string
-	app          fyne.App
-	showSettings bool
-	showNetworks bool
-	showDebug    bool
-	showLoginURL bool
-	showProfiles bool
+	addr              string
+	logFile           string
+	app               fyne.App
+	showSettings      bool
+	showNetworks      bool
+	showDebug         bool
+	showLoginURL      bool
+	showProfiles      bool
+	showQuickActions  bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // newServiceClient instance constructor
@@ -330,7 +367,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdate("nb/client-ui"),
+		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -348,6 +385,10 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showDebugUI()
 	case args.showProfiles:
 		s.showProfilesUI()
+	case args.showQuickActions:
+		s.showQuickActionsUI()
+	case args.showUpdate:
+		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
 
 	return s
@@ -424,18 +465,22 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
 	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
 	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
+	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
+	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
+	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
+	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
+	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
+	s.iSSHJWTCacheTTL = widget.NewEntry()
 
 	s.wSettings.SetContent(s.getSettingsForm())
-	s.wSettings.Resize(fyne.NewSize(600, 500))
+	s.wSettings.Resize(fyne.NewSize(600, 400))
 	s.wSettings.SetFixedSize(true)
 
 	s.getSrvConfig()
 	s.wSettings.Show()
 }
 
-// getSettingsForm to embed it into settings window.
-func (s *serviceClient) getSettingsForm() *widget.Form {
-
+func (s *serviceClient) getConnectionForm() *widget.Form {
 	var activeProfName string
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
@@ -446,164 +491,286 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Profile", Widget: widget.NewLabel(activeProfName)},
+			{Text: "Management URL", Widget: s.iMngURL},
+			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "MTU", Widget: s.iMTU},
-			{Text: "Management URL", Widget: s.iMngURL},
-			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Log File", Widget: s.iLogFile},
+		},
+	}
+}
+
+func (s *serviceClient) saveSettings() {
+	// Check if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else if features != nil && features.DisableUpdateSettings {
+		log.Warn("Configuration updates are disabled by daemon")
+		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		return
+	}
+
+	if err := s.validateSettings(); err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
+
+	port, mtu, err := s.parseNumericSettings()
+	if err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
+
+	iMngURL := strings.TrimSpace(s.iMngURL.Text)
+
+	if s.hasSettingsChanged(iMngURL, port, mtu) {
+		if err := s.applySettingsChanges(iMngURL, port, mtu); err != nil {
+			dialog.ShowError(err, s.wSettings)
+			return
+		}
+	}
+
+	s.wSettings.Close()
+}
+
+func (s *serviceClient) validateSettings() error {
+	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
+		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+			return fmt.Errorf("Invalid Pre-shared Key Value")
+		}
+	}
+	return nil
+}
+
+func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
+	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+	if err != nil {
+		return 0, 0, errors.New("Invalid interface port")
+	}
+	if port < 1 || port > 65535 {
+		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+	}
+
+	var mtu int64
+	mtuText := strings.TrimSpace(s.iMTU.Text)
+	if mtuText != "" {
+		mtu, err = strconv.ParseInt(mtuText, 10, 64)
+		if err != nil {
+			return 0, 0, errors.New("Invalid MTU value")
+		}
+		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
+		}
+	}
+
+	return port, mtu, nil
+}
+
+func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool {
+	return s.managementURL != iMngURL ||
+		s.preSharedKey != s.iPreSharedKey.Text ||
+		s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+		s.interfaceName != s.iInterfaceName.Text ||
+		s.interfacePort != int(port) ||
+		s.mtu != uint16(mtu) ||
+		s.networkMonitor != s.sNetworkMonitor.Checked ||
+		s.disableDNS != s.sDisableDNS.Checked ||
+		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.blockLANAccess != s.sBlockLANAccess.Checked ||
+		s.hasSSHChanges()
+}
+
+func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) error {
+	s.managementURL = iMngURL
+	s.preSharedKey = s.iPreSharedKey.Text
+	s.mtu = uint16(mtu)
+
+	req, err := s.buildSetConfigRequest(iMngURL, port, mtu)
+	if err != nil {
+		return fmt.Errorf("build config request: %w", err)
+	}
+
+	if err := s.sendConfigUpdate(req); err != nil {
+		return fmt.Errorf("set configuration: %w", err)
+	}
+
+	return nil
+}
+
+func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (*proto.SetConfigRequest, error) {
+	currUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		return nil, fmt.Errorf("get active profile: %w", err)
+	}
+
+	req := &proto.SetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	}
+
+	if iMngURL != "" {
+		req.ManagementUrl = iMngURL
+	}
+
+	req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+	req.InterfaceName = &s.iInterfaceName.Text
+	req.WireguardPort = &port
+	if mtu > 0 {
+		req.Mtu = &mtu
+	}
+
+	req.NetworkMonitor = &s.sNetworkMonitor.Checked
+	req.DisableDns = &s.sDisableDNS.Checked
+	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.BlockLanAccess = &s.sBlockLANAccess.Checked
+
+	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
+	req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
+	req.EnableSSHLocalPortForwarding = &s.sEnableSSHLocalPortForward.Checked
+	req.EnableSSHRemotePortForwarding = &s.sEnableSSHRemotePortForward.Checked
+	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
+
+	sshJWTCacheTTLText := strings.TrimSpace(s.iSSHJWTCacheTTL.Text)
+	if sshJWTCacheTTLText != "" {
+		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
+		if err != nil {
+			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+		}
+		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
+			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
+		}
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+
+	if s.iPreSharedKey.Text != censoredPreSharedKey {
+		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
+	}
+
+	return req, nil
+}
+
+func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
+	_, err = conn.SetConfig(s.ctx, req)
+	if err != nil {
+		return fmt.Errorf("set config: %w", err)
+	}
+
+	// Reconnect if connected to apply the new settings
+	go func() {
+		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return
+		}
+		if status.Status == string(internal.StatusConnected) {
+			// run down & up
+			_, err = conn.Down(s.ctx, &proto.DownRequest{})
+			if err != nil {
+				log.Errorf("down service: %v", err)
+			}
+
+			_, err = conn.Up(s.ctx, &proto.UpRequest{})
+			if err != nil {
+				log.Errorf("up service: %v", err)
+				return
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
+	connectionForm := s.getConnectionForm()
+	networkForm := s.getNetworkForm()
+	sshForm := s.getSSHForm()
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Connection", connectionForm),
+		container.NewTabItem("Network", networkForm),
+		container.NewTabItem("SSH", sshForm),
+	)
+	saveButton := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), s.saveSettings)
+	saveButton.Importance = widget.HighImportance
+	cancelButton := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+		s.wSettings.Close()
+	})
+	buttonContainer := container.NewHBox(
+		layout.NewSpacer(),
+		cancelButton,
+		saveButton,
+	)
+	return container.NewBorder(nil, buttonContainer, nil, nil, tabs)
+}
+
+func (s *serviceClient) getNetworkForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
-		SubmitText: "Save",
-		OnSubmit: func() {
-			// Check if update settings are disabled by daemon
-			features, err := s.getFeatures()
-			if err != nil {
-				log.Errorf("failed to get features from daemon: %v", err)
-				// Continue with default behavior if features can't be retrieved
-			} else if features != nil && features.DisableUpdateSettings {
-				log.Warn("Configuration updates are disabled by daemon")
-				dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
-				return
-			}
+	}
+}
 
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
-				// validate preSharedKey if it added
-				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
-					return
-				}
-			}
-
-			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
-			if err != nil {
-				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
-				return
-			}
-
-			var mtu int64
-			mtuText := strings.TrimSpace(s.iMTU.Text)
-			if mtuText != "" {
-				var err error
-				mtu, err = strconv.ParseInt(mtuText, 10, 64)
-				if err != nil {
-					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
-					return
-				}
-				if mtu < iface.MinMTU || mtu > iface.MaxMTU {
-					dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
-					return
-				}
-			}
-
-			iMngURL := strings.TrimSpace(s.iMngURL.Text)
-
-			defer s.wSettings.Close()
-
-			// Check if any settings have changed
-			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.mtu != uint16(mtu) ||
-				s.networkMonitor != s.sNetworkMonitor.Checked ||
-				s.disableDNS != s.sDisableDNS.Checked ||
-				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
-				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
-				s.blockLANAccess != s.sBlockLANAccess.Checked {
-
-				s.managementURL = iMngURL
-				s.preSharedKey = s.iPreSharedKey.Text
-				s.mtu = uint16(mtu)
-
-				currUser, err := user.Current()
-				if err != nil {
-					log.Errorf("get current user: %v", err)
-					return
-				}
-
-				var req proto.SetConfigRequest
-				req.ProfileName = activeProf.Name
-				req.Username = currUser.Username
-
-				if iMngURL != "" {
-					req.ManagementUrl = iMngURL
-				}
-
-				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
-				req.InterfaceName = &s.iInterfaceName.Text
-				req.WireguardPort = &port
-				if mtu > 0 {
-					req.Mtu = &mtu
-				}
-				req.NetworkMonitor = &s.sNetworkMonitor.Checked
-				req.DisableDns = &s.sDisableDNS.Checked
-				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
-				req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
-				req.BlockLanAccess = &s.sBlockLANAccess.Checked
-
-				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					req.OptionalPreSharedKey = &s.iPreSharedKey.Text
-				}
-
-				conn, err := s.getSrvClient(failFastTimeout)
-				if err != nil {
-					log.Errorf("get client: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to connect to the service: %v", err), s.wSettings)
-					return
-				}
-				_, err = conn.SetConfig(s.ctx, &req)
-				if err != nil {
-					log.Errorf("set config: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
-					return
-				}
-
-				go func() {
-					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-					if err != nil {
-						log.Errorf("get service status: %v", err)
-						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
-						return
-					}
-					if status.Status == string(internal.StatusConnected) {
-						// run down & up
-						_, err = conn.Down(s.ctx, &proto.DownRequest{})
-						if err != nil {
-							log.Errorf("down service: %v", err)
-						}
-
-						_, err = conn.Up(s.ctx, &proto.UpRequest{})
-						if err != nil {
-							log.Errorf("up service: %v", err)
-							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
-							return
-						}
-					}
-				}()
-			}
-		},
-		OnCancel: func() {
-			s.wSettings.Close()
+func (s *serviceClient) getSSHForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Enable SSH Root Login", Widget: s.sEnableSSHRoot},
+			{Text: "Enable SSH SFTP", Widget: s.sEnableSSHSFTP},
+			{Text: "Enable SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
+			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
+			{Text: "Disable SSH Authentication", Widget: s.sDisableSSHAuth},
+			{Text: "JWT Cache TTL (seconds, 0=disabled)", Widget: s.iSSHJWTCacheTTL},
 		},
 	}
 }
 
-func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
+func (s *serviceClient) hasSSHChanges() bool {
+	currentSSHJWTCacheTTL := s.sshJWTCacheTTL
+	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
+		val, err := strconv.Atoi(text)
+		if err != nil {
+			return true
+		}
+		currentSSHJWTCacheTTL = val
+	}
+
+	return s.enableSSHRoot != s.sEnableSSHRoot.Checked ||
+		s.enableSSHSFTP != s.sEnableSSHSFTP.Checked ||
+		s.enableSSHLocalPortForward != s.sEnableSSHLocalPortForward.Checked ||
+		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked ||
+		s.disableSSHAuth != s.sDisableSSHAuth.Checked ||
+		s.sshJWTCacheTTL != currentSSHJWTCacheTTL
+}
+
+func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("get daemon client: %w", err)
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
-		log.Errorf("get active profile: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
 	currUser, err := user.Current()
@@ -611,84 +778,82 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
-	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
+	loginReq := &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 		ProfileName:         &activeProf.Name,
 		Username:            &currUser.Username,
-	})
+	}
+
+	profileState, err := s.profileManager.GetProfileState(activeProf.Name)
 	if err != nil {
-		log.Errorf("login to management URL with: %v", err)
-		return nil, err
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginReq.Hint = &profileState.Email
+	}
+
+	loginResp, err := conn.Login(ctx, loginReq)
+	if err != nil {
+		return nil, fmt.Errorf("login to management: %w", err)
 	}
 
 	if loginResp.NeedsSSOLogin && openURL {
-		err = s.handleSSOLogin(loginResp, conn)
-		if err != nil {
-			log.Errorf("handle SSO login failed: %v", err)
-			return nil, err
+		if err = s.handleSSOLogin(ctx, loginResp, conn); err != nil {
+			return nil, fmt.Errorf("SSO login: %w", err)
 		}
 	}
 
 	return loginResp, nil
 }
 
-func (s *serviceClient) handleSSOLogin(loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
-	err := open.Run(loginResp.VerificationURIComplete)
-	if err != nil {
-		log.Errorf("opening the verification uri in the browser failed: %v", err)
-		return err
+func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
+	if err := openURL(loginResp.VerificationURIComplete); err != nil {
+		return fmt.Errorf("open browser: %w", err)
 	}
 
-	resp, err := conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+	resp, err := conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 	if err != nil {
-		log.Errorf("waiting sso login failed with: %v", err)
-		return err
+		return fmt.Errorf("wait for SSO login: %w", err)
 	}
 
 	if resp.Email != "" {
-		err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
 			Email: resp.Email,
-		})
-		if err != nil {
-			log.Warnf("failed to set profile state: %v", err)
+		}); err != nil {
+			log.Debugf("failed to set profile state: %v", err)
 		} else {
 			s.mProfile.refresh()
 		}
-
 	}
 
 	return nil
 }
 
-func (s *serviceClient) menuUpClick() error {
+func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		systray.SetTemplateIcon(iconErrorMacOS, s.icError)
-		log.Errorf("get client: %v", err)
-		return err
+		return fmt.Errorf("get daemon client: %w", err)
 	}
 
-	_, err = s.login(true)
+	_, err = s.login(ctx, true)
 	if err != nil {
-		log.Errorf("login failed with: %v", err)
-		return err
+		return fmt.Errorf("login: %w", err)
 	}
 
-	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+	status, err := conn.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
-		return err
+		return fmt.Errorf("get status: %w", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		log.Warnf("already connected")
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-		log.Errorf("up service: %v", err)
-		return err
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
+	}); err != nil {
+		return fmt.Errorf("start connection: %w", err)
 	}
 
 	return nil
@@ -698,24 +863,20 @@ func (s *serviceClient) menuDownClick() error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		return err
+		return fmt.Errorf("get daemon client: %w", err)
 	}
 
 	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
-		return err
+		return fmt.Errorf("get status: %w", err)
 	}
 
 	if status.Status != string(internal.StatusConnected) && status.Status != string(internal.StatusConnecting) {
-		log.Warnf("already down")
 		return nil
 	}
 
-	if _, err := s.conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
-		log.Errorf("down service: %v", err)
-		return err
+	if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
+		return fmt.Errorf("stop connection: %w", err)
 	}
 
 	return nil
@@ -748,7 +909,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected):
+		case status.Status == string(internal.StatusConnected) && !s.mUp.Disabled():
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -762,6 +923,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
+			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -851,6 +1013,7 @@ func (s *serviceClient) onTrayReady() {
 
 	newProfileMenuArgs := &newProfileMenuArgs{
 		ctx:                  s.ctx,
+		serviceClient:        s,
 		profileManager:       s.profileManager,
 		eventHandler:         s.eventHandler,
 		profileMenuItem:      profileMenuItem,
@@ -951,9 +1114,32 @@ func (s *serviceClient) onTrayReady() {
 			s.updateExitNodes()
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// todo use new Category
+		if windowAction, ok := event.Metadata["progress_window"]; ok {
+			targetVersion, ok := event.Metadata["version"]
+			if !ok {
+				targetVersion = "unknown"
+			}
+			log.Debugf("window action: %v", windowAction)
+			if windowAction == "show" {
+				if s.updateContextCancel != nil {
+					s.updateContextCancel()
+					s.updateContextCancel = nil
+				}
+
+				subCtx, cancel := context.WithCancel(s.ctx)
+				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
+				s.updateContextCancel = cancel
+			}
+		}
+	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
+
+	// Start sleep detection listener
+	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -990,6 +1176,8 @@ func (s *serviceClient) onTrayExit() {
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
+	s.connLock.Lock()
+	defer s.connLock.Unlock()
 	if s.conn != nil {
 		return s.conn, nil
 	}
@@ -1010,6 +1198,62 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// startSleepListener initializes the sleep detection service and listens for sleep events
+func (s *serviceClient) startSleepListener() {
+	sleepService, err := sleep.New()
+	if err != nil {
+		log.Warnf("%v", err)
+		return
+	}
+
+	if err := sleepService.Register(s.handleSleepEvents); err != nil {
+		log.Errorf("failed to start sleep detection: %v", err)
+		return
+	}
+
+	log.Info("sleep detection service initialized")
+
+	// Cleanup on context cancellation
+	go func() {
+		<-s.ctx.Done()
+		log.Info("stopping sleep event listener")
+		if err := sleepService.Deregister(); err != nil {
+			log.Errorf("failed to deregister sleep detection: %v", err)
+		}
+	}()
+}
+
+// handleSleepEvents sends a sleep notification to the daemon via gRPC
+func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
+	conn, err := s.getSrvClient(0)
+	if err != nil {
+		log.Errorf("failed to get daemon client for sleep notification: %v", err)
+		return
+	}
+
+	req := &proto.OSLifecycleRequest{}
+
+	switch event {
+	case sleep.EventTypeWakeUp:
+		log.Infof("handle wakeup event: %v", event)
+		req.Type = proto.OSLifecycleRequest_WAKEUP
+	case sleep.EventTypeSleep:
+		log.Infof("handle sleep event: %v", event)
+		req.Type = proto.OSLifecycleRequest_SLEEP
+	default:
+		log.Infof("unknown event: %v", event)
+		return
+	}
+
+	_, err = conn.NotifyOSLifecycle(s.ctx, req)
+	if err != nil {
+		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
+		return
+	}
+
+	log.Info("successfully notified daemon about os lifecycle")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
@@ -1033,19 +1277,22 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		return
 	}
 
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
 	// Update settings menu based on current features
-	if features != nil && features.DisableUpdateSettings {
-		s.setSettingsEnabled(false)
-	} else {
-		s.setSettingsEnabled(true)
+	settingsEnabled := features == nil || !features.DisableUpdateSettings
+	if s.settingsEnabled != settingsEnabled {
+		s.settingsEnabled = settingsEnabled
+		s.setSettingsEnabled(settingsEnabled)
 	}
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		} else {
-			s.mProfile.setEnabled(true)
+		profilesEnabled := features == nil || !features.DisableProfiles
+		if s.profilesEnabled != profilesEnabled {
+			s.profilesEnabled = profilesEnabled
+			s.mProfile.setEnabled(profilesEnabled)
 		}
 	}
 }
@@ -1121,6 +1368,25 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableServerRoutes = cfg.DisableServerRoutes
 	s.blockLANAccess = cfg.BlockLANAccess
 
+	if cfg.EnableSSHRoot != nil {
+		s.enableSSHRoot = *cfg.EnableSSHRoot
+	}
+	if cfg.EnableSSHSFTP != nil {
+		s.enableSSHSFTP = *cfg.EnableSSHSFTP
+	}
+	if cfg.EnableSSHLocalPortForwarding != nil {
+		s.enableSSHLocalPortForward = *cfg.EnableSSHLocalPortForwarding
+	}
+	if cfg.EnableSSHRemotePortForwarding != nil {
+		s.enableSSHRemotePortForward = *cfg.EnableSSHRemotePortForwarding
+	}
+	if cfg.DisableSSHAuth != nil {
+		s.disableSSHAuth = *cfg.DisableSSHAuth
+	}
+	if cfg.SSHJWTCacheTTL != nil {
+		s.sshJWTCacheTTL = *cfg.SSHJWTCacheTTL
+	}
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
@@ -1141,6 +1407,24 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
+		if cfg.EnableSSHRoot != nil {
+			s.sEnableSSHRoot.SetChecked(*cfg.EnableSSHRoot)
+		}
+		if cfg.EnableSSHSFTP != nil {
+			s.sEnableSSHSFTP.SetChecked(*cfg.EnableSSHSFTP)
+		}
+		if cfg.EnableSSHLocalPortForwarding != nil {
+			s.sEnableSSHLocalPortForward.SetChecked(*cfg.EnableSSHLocalPortForwarding)
+		}
+		if cfg.EnableSSHRemotePortForwarding != nil {
+			s.sEnableSSHRemotePortForward.SetChecked(*cfg.EnableSSHRemotePortForwarding)
+		}
+		if cfg.DisableSSHAuth != nil {
+			s.sDisableSSHAuth.SetChecked(*cfg.DisableSSHAuth)
+		}
+		if cfg.SSHJWTCacheTTL != nil {
+			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
+		}
 	}
 
 	if s.mNotifications == nil {
@@ -1210,6 +1494,15 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
 	config.BlockLANAccess = cfg.BlockLanAccess
+
+	config.EnableSSHRoot = &cfg.EnableSSHRoot
+	config.EnableSSHSFTP = &cfg.EnableSSHSFTP
+	config.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
+	config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
+	config.DisableSSHAuth = &cfg.DisableSSHAuth
+
+	ttl := int(cfg.SshJWTCacheTTL)
+	config.SSHJWTCacheTTL = &ttl
 
 	return &config
 }
@@ -1382,7 +1675,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 			return
 		}
 
-		resp, err := s.login(false)
+		resp, err := s.login(ctx, false)
 		if err != nil {
 			log.Errorf("failed to fetch login URL: %v", err)
 			return
@@ -1402,7 +1695,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 			return
 		}
 
-		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
+		_, err = conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
 		if err != nil {
 			log.Errorf("Waiting sso login failed with: %v", err)
 			label.SetText("Waiting login failed, please create \na debug bundle in the settings and contact support.")
@@ -1410,7 +1703,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 		}
 
 		label.SetText("Re-authentication successful.\nReconnecting")
-		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			return
@@ -1423,7 +1716,7 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 			return
 		}
 
-		_, err = conn.Up(s.ctx, &proto.UpRequest{})
+		_, err = conn.Up(ctx, &proto.UpRequest{})
 		if err != nil {
 			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
 			log.Errorf("Reconnecting failed with: %v", err)
@@ -1487,6 +1780,10 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 }
 
 func openURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+
 	var err error
 	switch runtime.GOOS {
 	case "windows":

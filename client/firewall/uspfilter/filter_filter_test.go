@@ -12,6 +12,7 @@ import (
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -31,7 +32,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -616,7 +617,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(tb, err)
 	require.NoError(tb, manager.EnableRouting())
 	require.NotNil(tb, manager)
@@ -1462,7 +1463,7 @@ func TestRouteACLSet(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))

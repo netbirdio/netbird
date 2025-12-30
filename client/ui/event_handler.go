@@ -12,6 +12,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
@@ -67,20 +69,55 @@ func (h *eventHandler) listen(ctx context.Context) {
 
 func (h *eventHandler) handleConnectClick() {
 	h.client.mUp.Disable()
+
+	if h.client.connectCancel != nil {
+		h.client.connectCancel()
+	}
+
+	connectCtx, connectCancel := context.WithCancel(h.client.ctx)
+	h.client.connectCancel = connectCancel
+
 	go func() {
-		defer h.client.mUp.Enable()
-		if err := h.client.menuUpClick(); err != nil {
-			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
+		defer connectCancel()
+
+		if err := h.client.menuUpClick(connectCtx, true); err != nil {
+			st, ok := status.FromError(err)
+			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
+				log.Debugf("connect operation cancelled by user")
+			} else {
+				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect"))
+				log.Errorf("connect failed: %v", err)
+			}
+		}
+
+		if err := h.client.updateStatus(); err != nil {
+			log.Debugf("failed to update status after connect: %v", err)
 		}
 	}()
 }
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
+
+	if h.client.connectCancel != nil {
+		log.Debugf("cancelling ongoing connect operation")
+		h.client.connectCancel()
+		h.client.connectCancel = nil
+	}
+
 	go func() {
-		defer h.client.mDown.Enable()
 		if err := h.client.menuDownClick(); err != nil {
-			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird daemon"))
+			st, ok := status.FromError(err)
+			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {
+				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to disconnect"))
+				log.Errorf("disconnect failed: %v", err)
+			} else {
+				log.Debugf("disconnect cancelled or already disconnecting")
+			}
+		}
+
+		if err := h.client.updateStatus(); err != nil {
+			log.Debugf("failed to update status after disconnect: %v", err)
 		}
 	}()
 }
@@ -148,7 +185,7 @@ func (h *eventHandler) handleAdvancedSettingsClick() {
 	go func() {
 		defer h.client.mAdvancedSettings.Enable()
 		defer h.client.getSrvConfig()
-		h.runSelfCommand(h.client.ctx, "settings", "true")
+		h.runSelfCommand(h.client.ctx, "settings")
 	}()
 }
 
@@ -156,7 +193,7 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 	h.client.mCreateDebugBundle.Disable()
 	go func() {
 		defer h.client.mCreateDebugBundle.Enable()
-		h.runSelfCommand(h.client.ctx, "debug", "true")
+		h.runSelfCommand(h.client.ctx, "debug")
 	}()
 }
 
@@ -180,7 +217,7 @@ func (h *eventHandler) handleNetworksClick() {
 	h.client.mNetworks.Disable()
 	go func() {
 		defer h.client.mNetworks.Enable()
-		h.runSelfCommand(h.client.ctx, "networks", "true")
+		h.runSelfCommand(h.client.ctx, "networks")
 	}()
 }
 
@@ -200,17 +237,21 @@ func (h *eventHandler) updateConfigWithErr() error {
 	return nil
 }
 
-func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) {
+func (h *eventHandler) runSelfCommand(ctx context.Context, command string, args ...string) {
 	proc, err := os.Executable()
 	if err != nil {
 		log.Errorf("error getting executable path: %v", err)
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, proc,
-		fmt.Sprintf("--%s=%s", command, arg),
+	// Build the full command arguments
+	cmdArgs := []string{
+		fmt.Sprintf("--%s=true", command),
 		fmt.Sprintf("--daemon-addr=%s", h.client.addr),
-	)
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.CommandContext(ctx, proc, cmdArgs...)
 
 	if out := h.client.attachOutput(cmd); out != nil {
 		defer func() {
@@ -220,17 +261,17 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) 
 		}()
 	}
 
-	log.Printf("running command: %s --%s=%s --daemon-addr=%s", proc, command, arg, h.client.addr)
+	log.Printf("running command: %s", cmd.String())
 
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			log.Printf("command '%s %s' failed with exit code %d", command, arg, exitErr.ExitCode())
+			log.Printf("command '%s' failed with exit code %d", cmd.String(), exitErr.ExitCode())
 		}
 		return
 	}
 
-	log.Printf("command '%s %s' completed successfully", command, arg)
+	log.Printf("command '%s' completed successfully", cmd.String())
 }
 
 func (h *eventHandler) logout(ctx context.Context) error {
@@ -245,6 +286,6 @@ func (h *eventHandler) logout(ctx context.Context) error {
 	}
 
 	h.client.getSrvConfig()
-	
+
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -33,7 +34,7 @@ type firewaller interface {
 }
 
 type DNSForwarder struct {
-	listenAddress  string
+	listenAddress  netip.AddrPort
 	ttl            uint32
 	statusRecorder *peer.Status
 
@@ -47,9 +48,11 @@ type DNSForwarder struct {
 	firewall   firewaller
 	resolver   resolver
 	cache      *cache
+
+	wgIface wgIface
 }
 
-func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, statusRecorder *peer.Status) *DNSForwarder {
+func NewDNSForwarder(listenAddress netip.AddrPort, ttl uint32, firewall firewaller, statusRecorder *peer.Status, wgIface wgIface) *DNSForwarder {
 	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d", listenAddress, ttl)
 	return &DNSForwarder{
 		listenAddress:  listenAddress,
@@ -58,30 +61,46 @@ func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, stat
 		statusRecorder: statusRecorder,
 		resolver:       net.DefaultResolver,
 		cache:          newCache(),
+		wgIface:        wgIface,
 	}
 }
 
 func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
-	log.Infof("starting DNS forwarder on address=%s", f.listenAddress)
+	var netstackNet *netstack.Net
+	if f.wgIface != nil {
+		netstackNet = f.wgIface.GetNet()
+	}
 
-	// UDP server
+	addrDesc := f.listenAddress.String()
+	if netstackNet != nil {
+		addrDesc = fmt.Sprintf("netstack %s", f.listenAddress)
+	}
+	log.Infof("starting DNS forwarder on address=%s", addrDesc)
+
+	udpLn, err := f.createUDPListener(netstackNet)
+	if err != nil {
+		return fmt.Errorf("create UDP listener: %w", err)
+	}
+
+	tcpLn, err := f.createTCPListener(netstackNet)
+	if err != nil {
+		return fmt.Errorf("create TCP listener: %w", err)
+	}
+
 	mux := dns.NewServeMux()
 	f.mux = mux
 	mux.HandleFunc(".", f.handleDNSQueryUDP)
 	f.dnsServer = &dns.Server{
-		Addr:    f.listenAddress,
-		Net:     "udp",
-		Handler: mux,
+		PacketConn: udpLn,
+		Handler:    mux,
 	}
 
-	// TCP server
 	tcpMux := dns.NewServeMux()
 	f.tcpMux = tcpMux
 	tcpMux.HandleFunc(".", f.handleDNSQueryTCP)
 	f.tcpServer = &dns.Server{
-		Addr:    f.listenAddress,
-		Net:     "tcp",
-		Handler: tcpMux,
+		Listener: tcpLn,
+		Handler:  tcpMux,
 	}
 
 	f.UpdateDomains(entries)
@@ -89,16 +108,31 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	errCh := make(chan error, 2)
 
 	go func() {
-		log.Infof("DNS UDP listener running on %s", f.listenAddress)
-		errCh <- f.dnsServer.ListenAndServe()
+		log.Infof("DNS UDP listener running on %s", addrDesc)
+		errCh <- f.dnsServer.ActivateAndServe()
 	}()
 	go func() {
-		log.Infof("DNS TCP listener running on %s", f.listenAddress)
-		errCh <- f.tcpServer.ListenAndServe()
+		log.Infof("DNS TCP listener running on %s", addrDesc)
+		errCh <- f.tcpServer.ActivateAndServe()
 	}()
 
-	// return the first error we get (e.g. bind failure or shutdown)
 	return <-errCh
+}
+
+func (f *DNSForwarder) createUDPListener(netstackNet *netstack.Net) (net.PacketConn, error) {
+	if netstackNet != nil {
+		return netstackNet.ListenUDPAddrPort(f.listenAddress)
+	}
+
+	return net.ListenUDP("udp", net.UDPAddrFromAddrPort(f.listenAddress))
+}
+
+func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listener, error) {
+	if netstackNet != nil {
+		return netstackNet.ListenTCPAddrPort(f.listenAddress)
+	}
+
+	return net.ListenTCP("tcp", net.TCPAddrFromAddrPort(f.listenAddress))
 }
 
 func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
@@ -198,6 +232,11 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 	if err != nil {
 		f.handleDNSError(ctx, w, question, resp, domain, err)
 		return nil
+	}
+
+	// Unmap IPv4-mapped IPv6 addresses that some resolvers may return
+	for i, ip := range ips {
+		ips[i] = ip.Unmap()
 	}
 
 	f.updateInternalState(ips, mostSpecificResId, matchingEntries)

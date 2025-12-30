@@ -839,12 +839,466 @@ func Test_NetworksNetMapGenShouldExcludeOtherRouters(t *testing.T) {
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
 }
 
+func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
+	tests := []struct {
+		name          string
+		peer          *nbpeer.Peer
+		rule          *PolicyRule
+		base          FirewallRule
+		expectedPorts []string
+	}{
+		{
+			name: "adds port 22022 when SSH enabled on modern peer with port 22",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "adds port 22022 once when port 22 is duplicated within policy",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22", "80", "22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "80", "22", "22022"},
+		},
+		{
+			name: "does not add 22022 for peer with old version",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.59.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22"},
+		},
+		{
+			name: "does not add 22022 when SSHEnabled is false",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: false,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22"},
+		},
+		{
+			name: "does not add 22022 when ServerSSHAllowed is false",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: false},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22"},
+		},
+		{
+			name: "does not add 22022 for UDP protocol",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolUDP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "udp"},
+			expectedPorts: []string{"22"},
+		},
+		{
+			name: "does not add 22022 when port 22 not in rule",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"80", "443"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"80", "443"},
+		},
+		{
+			name: "does not duplicate 22022 when already present",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22", "22022"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "does not duplicate 22022 when already within a port range",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol:   PolicyRuleProtocolTCP,
+				PortRanges: []RulePortRange{{Start: 20, End: 32000}},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"20-32000"},
+		},
+		{
+			name: "adds 22022 when port 22 in port range",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol:   PolicyRuleProtocolTCP,
+				PortRanges: []RulePortRange{{Start: 20, End: 25}},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"20-25", "22022"},
+		},
+		{
+			name: "adds single 22022 once when port 22 in multiple port ranges",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.60.0",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol:   PolicyRuleProtocolTCP,
+				PortRanges: []RulePortRange{{Start: 20, End: 25}, {Start: 10, End: 100}},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"20-25", "10-100", "22022"},
+		},
+		{
+			name: "dev suffix version supports all features",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "0.50.0-dev",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "dev suffix version supports all features",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "dev",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "development suffix version supports all features",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "development",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := expandPortsAndRanges(tt.base, tt.rule, tt.peer)
+
+			var ports []string
+			for _, fr := range result {
+				if fr.Port != "" {
+					ports = append(ports, fr.Port)
+				} else if fr.PortRange.Start > 0 {
+					ports = append(ports, fmt.Sprintf("%d-%d", fr.PortRange.Start, fr.PortRange.End))
+				}
+			}
+
+			assert.Equal(t, tt.expectedPorts, ports, "expanded ports should match expected")
+		})
+	}
+}
+
+func Test_GetActiveGroupUsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  *Account
+		expected map[string][]string
+	}{
+		{
+			name: "all users are active",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1", "user2"},
+				"group3": {"user2"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "some users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1", "group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1"},
+				"group3": {"user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+		{
+			name: "all users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    true,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2"},
+						Blocked:    true,
+					},
+				},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "user with no auto groups",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user2"},
+				"":       {"user1", "user2"},
+			},
+		},
+		{
+			name: "empty account",
+			account: &Account{
+				Users: map[string]*User{},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "multiple users in same group",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user2", "user3"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "user in multiple groups with blocked users",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2", "group3"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1"},
+				"group2": {"user1"},
+				"group3": {"user1", "user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.account.GetActiveGroupUsers()
+
+			// Check that the number of groups matches
+			assert.Equal(t, len(tt.expected), len(result), "number of groups should match")
+
+			// Check each group's users
+			for groupID, expectedUsers := range tt.expected {
+				actualUsers, exists := result[groupID]
+				assert.True(t, exists, "group %s should exist in result", groupID)
+				assert.ElementsMatch(t, expectedUsers, actualUsers, "users in group %s should match", groupID)
+			}
+
+			// Ensure no extra groups in result
+			for groupID := range result {
+				_, exists := tt.expected[groupID]
+				assert.True(t, exists, "unexpected group %s in result", groupID)
+			}
+		})
+	}
+}
+
 func Test_FilterZoneRecordsForPeers(t *testing.T) {
 	tests := []struct {
 		name            string
 		peer            *nbpeer.Peer
 		customZone      nbdns.CustomZone
 		peersToConnect  []*nbpeer.Peer
+		expiredPeers    []*nbpeer.Peer
 		expectedRecords []nbdns.SimpleRecord
 	}{
 		{
@@ -857,6 +1311,7 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				},
 			},
 			peersToConnect: []*nbpeer.Peer{},
+			expiredPeers:   []*nbpeer.Peer{},
 			peer:           &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
@@ -890,7 +1345,8 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				}
 				return peers
 			}(),
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			expiredPeers: []*nbpeer.Peer{},
+			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
 			expectedRecords: func() []nbdns.SimpleRecord {
 				var records []nbdns.SimpleRecord
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
@@ -924,7 +1380,8 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				{ID: "peer1", IP: net.ParseIP("10.0.0.1"), DNSLabel: "peer1", ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"}},
 				{ID: "peer2", IP: net.ParseIP("10.0.0.2"), DNSLabel: "peer2", ExtraDNSLabels: []string{"peer2-service"}},
 			},
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			expiredPeers: []*nbpeer.Peer{},
+			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
 				{Name: "peer1-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
@@ -934,11 +1391,35 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
 			},
 		},
+		{
+			name: "expired peers are included in DNS entries",
+			customZone: nbdns.CustomZone{
+				Domain: "netbird.cloud.",
+				Records: []nbdns.SimpleRecord{
+					{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+					{Name: "peer2.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
+					{Name: "expired-peer.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.99"},
+					{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
+				},
+			},
+			peersToConnect: []*nbpeer.Peer{
+				{ID: "peer1", IP: net.ParseIP("10.0.0.1")},
+			},
+			expiredPeers: []*nbpeer.Peer{
+				{ID: "expired-peer", IP: net.ParseIP("10.0.0.99")},
+			},
+			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			expectedRecords: []nbdns.SimpleRecord{
+				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "expired-peer.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.99"},
+				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := filterZoneRecordsForPeers(tt.peer, tt.customZone, tt.peersToConnect)
+			result := filterZoneRecordsForPeers(tt.peer, tt.customZone, tt.peersToConnect, tt.expiredPeers)
 			assert.Equal(t, len(tt.expectedRecords), len(result))
 			assert.ElementsMatch(t, tt.expectedRecords, result)
 		})

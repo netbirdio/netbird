@@ -160,7 +160,8 @@ func execute(cmd *cobra.Command, args []string) error {
 		log.Debugf("failed to create relay server: %v", err)
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}
-	log.Infof("server will be available on: %s", srv.InstanceURL())
+	instanceURL := srv.InstanceURL()
+	log.Infof("server will be available on: %s", instanceURL.String())
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/templates"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -46,9 +48,10 @@ type PKCEAuthorizationFlow struct {
 func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
 	var availableRedirectURL string
 
-	// find the first available redirect URL
+	excludedRanges := getSystemExcludedPortRanges()
+
 	for _, redirectURL := range config.RedirectURLs {
-		if !isRedirectURLPortUsed(redirectURL) {
+		if !isRedirectURLPortUsed(redirectURL, excludedRanges) {
 			availableRedirectURL = redirectURL
 			break
 		}
@@ -102,12 +105,15 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		if p.providerConfig.LoginFlag.IsPromptLogin() {
+		switch p.providerConfig.LoginFlag {
+		case common.LoginFlagPromptLogin:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		}
-		if p.providerConfig.LoginFlag.IsMaxAge0Login() {
+		case common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
+	}
+	if p.providerConfig.LoginHint != "" {
+		params = append(params, oauth2.SetAuthURLParam("login_hint", p.providerConfig.LoginHint))
 	}
 
 	authURL := p.oAuthConfig.AuthCodeURL(state, params...)
@@ -189,17 +195,20 @@ func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token,
 
 	if authError := query.Get(queryError); authError != "" {
 		authErrorDesc := query.Get(queryErrorDesc)
-		return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
+		if authErrorDesc != "" {
+			return nil, fmt.Errorf("authentication failed: %s", authErrorDesc)
+		}
+		return nil, fmt.Errorf("authentication failed: %s", authError)
 	}
 
 	// Prevent timing attacks on the state
 	if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
-		return nil, fmt.Errorf("invalid state")
+		return nil, fmt.Errorf("authentication failed: Invalid state")
 	}
 
 	code := query.Get(queryCode)
 	if code == "" {
-		return nil, fmt.Errorf("missing code")
+		return nil, fmt.Errorf("authentication failed: missing code")
 	}
 
 	return p.oAuthConfig.Exchange(
@@ -228,7 +237,7 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 	}
 
 	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
-		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
+		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
 	email, err := parseEmailFromIDToken(tokenInfo.IDToken)
@@ -276,15 +285,22 @@ func createCodeChallenge(codeVerifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sha2[:])
 }
 
-// isRedirectURLPortUsed checks if the port used in the redirect URL is in use.
-func isRedirectURLPortUsed(redirectURL string) bool {
+// isRedirectURLPortUsed checks if the port used in the redirect URL is in use or excluded on Windows.
+func isRedirectURLPortUsed(redirectURL string, excludedRanges []excludedPortRange) bool {
 	parsedURL, err := url.Parse(redirectURL)
 	if err != nil {
 		log.Errorf("failed to parse redirect URL: %v", err)
 		return true
 	}
 
-	addr := fmt.Sprintf(":%s", parsedURL.Port())
+	port := parsedURL.Port()
+
+	if isPortInExcludedRange(port, excludedRanges) {
+		log.Warnf("port %s is in Windows excluded port range, skipping", port)
+		return true
+	}
+
+	addr := fmt.Sprintf(":%s", port)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return false
@@ -296,6 +312,33 @@ func isRedirectURLPortUsed(redirectURL string) bool {
 	}()
 
 	return true
+}
+
+// excludedPortRange represents a range of excluded ports.
+type excludedPortRange struct {
+	start int
+	end   int
+}
+
+// isPortInExcludedRange checks if the given port is in any of the excluded ranges.
+func isPortInExcludedRange(port string, excludedRanges []excludedPortRange) bool {
+	if len(excludedRanges) == 0 {
+		return false
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		log.Debugf("invalid port number %s: %v", port, err)
+		return false
+	}
+
+	for _, r := range excludedRanges {
+		if portNum >= r.start && portNum <= r.end {
+			return true
+		}
+	}
+
+	return false
 }
 
 func renderPKCEFlowTmpl(w http.ResponseWriter, authError error) {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -103,6 +102,13 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		DnsLabels:           dnsLabelsReq,
 		ProfileName:         &activeProf.Name,
 		Username:            &username,
+	}
+
+	profileState, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginRequest.Hint = &profileState.Email
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -258,7 +264,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
 
-	err = foregroundLogin(ctx, cmd, config, setupKey)
+	err = foregroundLogin(ctx, cmd, config, setupKey, activeProf.Name)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -286,7 +292,7 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 	return nil
 }
 
-func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey string) error {
+func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey, profileName string) error {
 	needsLogin := false
 
 	err := WithBackOff(func() error {
@@ -303,7 +309,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 
 	jwtToken := ""
 	if setupKey == "" && needsLogin {
-		tokenInfo, err := foregroundGetTokenInfo(ctx, cmd, config)
+		tokenInfo, err := foregroundGetTokenInfo(ctx, cmd, config, profileName)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
@@ -332,8 +338,17 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 	return nil
 }
 
-func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop())
+func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, profileName string) (*auth.TokenInfo, error) {
+	hint := ""
+	pm := profilemanager.NewProfileManager()
+	profileState, err := pm.GetProfileState(profileName)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		hint = profileState.Email
+	}
+
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), false, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +389,7 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 	cmd.Println("")
 
 	if !noBrowser {
-		if err := open.Run(verificationURIComplete); err != nil {
+		if err := util.OpenBrowser(verificationURIComplete); err != nil {
 			cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}

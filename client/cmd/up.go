@@ -185,7 +185,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.Name)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -197,7 +197,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	connectClient := internal.NewConnectClient(ctx, config, r, false)
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
 	return connectClient.Run(nil)
@@ -286,6 +286,13 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	loginRequest.ProfileName = &activeProf.Name
 	loginRequest.Username = &username
 
+	profileState, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginRequest.Hint = &profileState.Email
+	}
+
 	var loginErr error
 	var loginResp *proto.LoginResponse
 
@@ -347,6 +354,25 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	}
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -430,6 +456,30 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
+	}
+
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
@@ -530,6 +580,31 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		loginRequest.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		loginRequest.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		loginRequest.DisableSSHAuth = &disableSSHAuth
+	}
+
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
