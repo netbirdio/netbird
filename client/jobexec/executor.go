@@ -60,7 +60,7 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
 
-	log.Infof("debug bundle has been generated well")
+	log.Infof("debug bundle has been generated successfully")
 	return key, nil
 }
 
