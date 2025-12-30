@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -3856,4 +3857,31 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 			assert.Equal(t, 0, count)
 		})
 	})
+}
+
+func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
+
+	ctx := context.Background()
+	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
+		// Sleep for 2 seconds to exceed the 1 second timeout
+		time.Sleep(2 * time.Second)
+		return nil
+	})
+
+	// The error should be a deadline exceeded error
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded), "expected context.DeadlineExceeded error, got: %v", err)
 }

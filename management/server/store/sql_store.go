@@ -2907,7 +2907,7 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
 	defer cancel()
 
 	startTime := time.Now()
