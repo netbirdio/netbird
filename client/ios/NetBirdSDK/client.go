@@ -263,7 +263,14 @@ func (c *Client) IsLoginRequired() bool {
 		return true
 	}
 
-	needsLogin, err := internal.IsLoginRequired(ctx, cfg)
+	authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
+	if err != nil {
+		log.Errorf("IsLoginRequired: failed to create auth client: %v", err)
+		return true // Assume login is required if we can't create auth client
+	}
+	defer authClient.Close()
+
+	needsLogin, err := authClient.IsLoginRequired(ctx)
 	if err != nil {
 		log.Errorf("IsLoginRequired: check failed: %v", err)
 		// If the check fails, assume login is required to be safe
@@ -314,16 +321,19 @@ func (c *Client) LoginForMobile() string {
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
 	go func() {
-		waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-		waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
-		defer cancel()
-		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+		tokenInfo, err := oAuthFlow.WaitToken(ctx, flowInfo)
 		if err != nil {
 			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
 			return
 		}
 		jwtToken := tokenInfo.GetTokenToUse()
-		if err := internal.Login(ctx, cfg, "", jwtToken); err != nil {
+		authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
+		if err != nil {
+			log.Errorf("LoginForMobile: failed to create auth client: %v", err)
+			return
+		}
+		defer authClient.Close()
+		if err, _ := authClient.Login(ctx, "", jwtToken); err != nil {
 			log.Errorf("LoginForMobile: Login failed: %v", err)
 			return
 		}

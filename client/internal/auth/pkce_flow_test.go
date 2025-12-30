@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/internal"
 	mgm "github.com/netbirdio/netbird/shared/management/client/common"
 )
 
@@ -50,7 +49,7 @@ func TestPromptLogin(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			config := internal.PKCEAuthProviderConfig{
+			config := PKCEAuthProviderConfig{
 				ClientID:              "test-client-id",
 				Audience:              "test-audience",
 				TokenEndpoint:         "https://test-token-endpoint.com/token",
