@@ -2937,6 +2937,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction exceeded 5 minute timeout after %v, stack: %s", time.Since(startTime), debug.Stack())
+		}
 		return err
 	}
 
@@ -2949,13 +2952,19 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}
 
 	err = tx.Commit().Error
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction commit exceeded 5 minute timeout after %v, stack: %s", time.Since(startTime), debug.Stack())
+		}
+		return err
+	}
 
 	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
 
-	return err
+	return nil
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
