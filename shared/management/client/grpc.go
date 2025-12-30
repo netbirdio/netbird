@@ -131,6 +131,7 @@ func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
 ) error {
+	backOff := defaultBackoff(ctx)
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -151,7 +152,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey)
 	}
 
-	err := backoff.Retry(operation, defaultBackoff(ctx))
+	err := backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}

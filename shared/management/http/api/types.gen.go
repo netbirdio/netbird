@@ -141,10 +141,11 @@ const (
 
 // Defines values for PolicyRuleProtocol.
 const (
-	PolicyRuleProtocolAll  PolicyRuleProtocol = "all"
-	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
-	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
-	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
+	PolicyRuleProtocolAll        PolicyRuleProtocol = "all"
+	PolicyRuleProtocolIcmp       PolicyRuleProtocol = "icmp"
+	PolicyRuleProtocolNetbirdSsh PolicyRuleProtocol = "netbird-ssh"
+	PolicyRuleProtocolTcp        PolicyRuleProtocol = "tcp"
+	PolicyRuleProtocolUdp        PolicyRuleProtocol = "udp"
 )
 
 // Defines values for PolicyRuleMinimumAction.
@@ -155,10 +156,11 @@ const (
 
 // Defines values for PolicyRuleMinimumProtocol.
 const (
-	PolicyRuleMinimumProtocolAll  PolicyRuleMinimumProtocol = "all"
-	PolicyRuleMinimumProtocolIcmp PolicyRuleMinimumProtocol = "icmp"
-	PolicyRuleMinimumProtocolTcp  PolicyRuleMinimumProtocol = "tcp"
-	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
+	PolicyRuleMinimumProtocolAll        PolicyRuleMinimumProtocol = "all"
+	PolicyRuleMinimumProtocolIcmp       PolicyRuleMinimumProtocol = "icmp"
+	PolicyRuleMinimumProtocolNetbirdSsh PolicyRuleMinimumProtocol = "netbird-ssh"
+	PolicyRuleMinimumProtocolTcp        PolicyRuleMinimumProtocol = "tcp"
+	PolicyRuleMinimumProtocolUdp        PolicyRuleMinimumProtocol = "udp"
 )
 
 // Defines values for PolicyRuleUpdateAction.
@@ -169,10 +171,11 @@ const (
 
 // Defines values for PolicyRuleUpdateProtocol.
 const (
-	PolicyRuleUpdateProtocolAll  PolicyRuleUpdateProtocol = "all"
-	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
-	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
-	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
+	PolicyRuleUpdateProtocolAll        PolicyRuleUpdateProtocol = "all"
+	PolicyRuleUpdateProtocolIcmp       PolicyRuleUpdateProtocol = "icmp"
+	PolicyRuleUpdateProtocolNetbirdSsh PolicyRuleUpdateProtocol = "netbird-ssh"
+	PolicyRuleUpdateProtocolTcp        PolicyRuleUpdateProtocol = "tcp"
+	PolicyRuleUpdateProtocolUdp        PolicyRuleUpdateProtocol = "udp"
 )
 
 // Defines values for ResourceType.
@@ -307,6 +310,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string               `json:"dns_domain,omitempty"`
 	Extra     *AccountExtraSettings `json:"extra,omitempty"`
@@ -1150,7 +1156,8 @@ type Peer struct {
 	LastLogin time.Time `json:"last_login"`
 
 	// LastSeen Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 
 	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
 	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
@@ -1240,7 +1247,8 @@ type PeerBatch struct {
 	LastLogin time.Time `json:"last_login"`
 
 	// LastSeen Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 
 	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
 	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
@@ -1268,6 +1276,39 @@ type PeerBatch struct {
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
+}
+
+// PeerLocalFlags defines model for PeerLocalFlags.
+type PeerLocalFlags struct {
+	// BlockInbound Indicates whether inbound traffic is blocked on this peer
+	BlockInbound *bool `json:"block_inbound,omitempty"`
+
+	// BlockLanAccess Indicates whether LAN access is blocked on this peer when used as a routing peer
+	BlockLanAccess *bool `json:"block_lan_access,omitempty"`
+
+	// DisableClientRoutes Indicates whether client routes are disabled on this peer or not
+	DisableClientRoutes *bool `json:"disable_client_routes,omitempty"`
+
+	// DisableDns Indicates whether DNS management is disabled on this peer or not
+	DisableDns *bool `json:"disable_dns,omitempty"`
+
+	// DisableFirewall Indicates whether firewall management is disabled on this peer or not
+	DisableFirewall *bool `json:"disable_firewall,omitempty"`
+
+	// DisableServerRoutes Indicates whether server routes are disabled on this peer or not
+	DisableServerRoutes *bool `json:"disable_server_routes,omitempty"`
+
+	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
+	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
+	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
+
+	// RosenpassPermissive Indicates whether Rosenpass is in permissive mode or not
+	RosenpassPermissive *bool `json:"rosenpass_permissive,omitempty"`
+
+	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not
+	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
@@ -1422,6 +1463,9 @@ type PolicyRule struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1466,6 +1510,9 @@ type PolicyRuleMinimum struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleMinimumAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1498,6 +1545,9 @@ type PolicyRuleMinimumProtocol string
 type PolicyRuleUpdate struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleUpdateAction `json:"action"`
+
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
 
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`

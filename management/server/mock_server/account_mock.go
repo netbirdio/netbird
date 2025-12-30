@@ -1012,3 +1012,7 @@ func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, ac
 	}
 	return nil
 }
+
+func (am *MockAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return "something", nil
+}

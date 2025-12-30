@@ -398,7 +398,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		}
 
 		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -2057,6 +2057,43 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {
+	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+
+	accountID := account.Id
+	userID := account.Users[account.CreatedBy].Id
+	ctx := context.Background()
+
+	newSettings := account.Settings.Copy()
+	newSettings.Extra = &types.ExtraSettings{
+		PeerApprovalEnabled: true,
+	}
+	_, err := manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
+	require.NoError(t, err)
+
+	peer1.Status.RequiresApproval = true
+	peer2.Status.RequiresApproval = true
+	peer3.Status.RequiresApproval = false
+
+	require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer1))
+	require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer2))
+	require.NoError(t, manager.Store.SavePeer(ctx, accountID, peer3))
+
+	newSettings = account.Settings.Copy()
+	newSettings.Extra = &types.ExtraSettings{
+		PeerApprovalEnabled: false,
+	}
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, newSettings)
+	require.NoError(t, err)
+
+	accountPeers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	require.NoError(t, err)
+
+	for _, peer := range accountPeers {
+		assert.False(t, peer.Status.RequiresApproval, "peer %s should not require approval after disabling peer approval", peer.ID)
+	}
 }
 
 func TestAccount_GetExpiredPeers(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
@@ -58,6 +59,7 @@ block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
 
 
 Anonymization Process
@@ -110,6 +112,9 @@ For example, to view the heap profile:
 go tool pprof -http=:8088 heap.prof
 
 This will open a web browser tab with the profiling information.
+
+Stack Trace
+The stack_trace.txt file contains a complete snapshot of all goroutine stack traces at the time the debug bundle was created.
 
 Routes
 The routes.txt file contains detailed routing table information in a tabular format:
@@ -319,6 +324,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
 	}
 
+	if err := g.addStackTrace(); err != nil {
+		log.Errorf("failed to add stack trace to debug bundle: %v", err)
+	}
+
 	if err := g.addSyncResponse(); err != nil {
 		return fmt.Errorf("add sync response: %w", err)
 	}
@@ -344,6 +353,10 @@ func (g *BundleGenerator) createArchive() error {
 		}
 	} else if err := g.trySystemdLogFallback(); err != nil {
 		log.Errorf("failed to add systemd logs: %v", err)
+	}
+
+	if err := g.addUpdateLogs(); err != nil {
+		log.Errorf("failed to add updater logs: %v", err)
 	}
 
 	return nil
@@ -529,6 +542,18 @@ func (g *BundleGenerator) addProf() (err error) {
 	return nil
 }
 
+func (g *BundleGenerator) addStackTrace() error {
+	buf := make([]byte, 5242880) // 5 MB buffer
+	n := runtime.Stack(buf, true)
+
+	stackTrace := bytes.NewReader(buf[:n])
+	if err := g.addFileToZip(stackTrace, "stack_trace.txt"); err != nil {
+		return fmt.Errorf("add stack trace file to zip: %w", err)
+	}
+
+	return nil
+}
+
 func (g *BundleGenerator) addInterfaces() error {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -634,6 +659,29 @@ func (g *BundleGenerator) addStateFile() error {
 		return fmt.Errorf("add state file to zip: %w", err)
 	}
 
+	return nil
+}
+
+func (g *BundleGenerator) addUpdateLogs() error {
+	inst := installer.New()
+	logFiles := inst.LogFiles()
+	if len(logFiles) == 0 {
+		return nil
+	}
+
+	log.Infof("adding updater logs")
+	for _, logFile := range logFiles {
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			log.Warnf("failed to read update log file %s: %v", logFile, err)
+			continue
+		}
+
+		baseName := filepath.Base(logFile)
+		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
+			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
+		}
+	}
 	return nil
 }
 

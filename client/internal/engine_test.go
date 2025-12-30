@@ -253,7 +253,8 @@ func TestEngine_SSH(t *testing.T) {
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
-		nil, nil,
+		nil,
+		nil,
 	)
 
 	engine.dnsServer = &dns.MockServer{

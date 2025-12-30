@@ -27,7 +27,6 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -381,7 +380,7 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountPersistenceDuration(took)
 	}
-	log.WithContext(ctx).Debugf("took %d ms to delete an account to the store", took.Milliseconds())
+	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
 }
@@ -504,6 +503,18 @@ func (s *SqlStore) SavePeerLocation(ctx context.Context, accountID string, peerW
 	}
 
 	return nil
+}
+
+// ApproveAccountPeers marks all peers that currently require approval in the given account as approved.
+func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (int, error) {
+	result := s.db.Model(&nbpeer.Peer{}).
+		Where("account_id = ? AND peer_status_requires_approval = ?", accountID, true).
+		Update("peer_status_requires_approval", false)
+	if result.Error != nil {
+		return 0, status.Errorf(status.Internal, "failed to approve pending account peers: %v", result.Error)
+	}
+
+	return int(result.RowsAffected), nil
 }
 
 // SaveUsers saves the given list of users to the database.
@@ -676,16 +687,13 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error) {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var user types.User
-	result := tx.WithContext(ctx).Take(&user, idQueryCondition, userID)
+	result := tx.Take(&user, idQueryCondition, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewUserNotFoundError(userID)
@@ -1995,16 +2003,17 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 	if len(policyIDs) == 0 {
 		return nil, nil
 	}
-	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges FROM policy_rules WHERE policy_id = ANY($1)`
+	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, query, policyIDs)
 	if err != nil {
 		return nil, err
 	}
 	rules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.PolicyRule, error) {
 		var r types.PolicyRule
-		var dest, destRes, sources, sourceRes, ports, portRanges []byte
+		var dest, destRes, sources, sourceRes, ports, portRanges, authorizedGroups []byte
 		var enabled, bidirectional sql.NullBool
-		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges)
+		var authorizedUser sql.NullString
+		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -2029,6 +2038,12 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 			}
 			if portRanges != nil {
 				_ = json.Unmarshal(portRanges, &r.PortRanges)
+			}
+			if authorizedGroups != nil {
+				_ = json.Unmarshal(authorizedGroups, &r.AuthorizedGroups)
+			}
+			if authorizedUser.Valid {
+				r.AuthorizedUser = authorizedUser.String
 			}
 		}
 		return &r, err
@@ -2245,16 +2260,13 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 }
 
 func (s *SqlStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Network, error) {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var accountNetwork types.AccountNetwork
-	if err := tx.WithContext(ctx).Model(&types.Account{}).Where(idQueryCondition, accountID).Take(&accountNetwork).Error; err != nil {
+	if err := tx.Model(&types.Account{}).Where(idQueryCondition, accountID).Take(&accountNetwork).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewAccountNotFoundError(accountID)
 		}
@@ -2264,16 +2276,13 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, lockStrength LockingSt
 }
 
 func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error) {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var peer nbpeer.Peer
-	result := tx.WithContext(ctx).Take(&peer, GetKeyQueryCondition(s), peerKey)
+	result := tx.Take(&peer, GetKeyQueryCondition(s), peerKey)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -2322,11 +2331,8 @@ func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength Locking
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	var user types.User
-	result := s.db.WithContext(ctx).Take(&user, accountAndIDQueryCondition, accountID, userID)
+	result := s.db.Take(&user, accountAndIDQueryCondition, accountID, userID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return status.NewUserNotFoundError(userID)
@@ -2584,16 +2590,13 @@ func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 }
 
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error) {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var setupKey types.SetupKey
-	result := tx.WithContext(ctx).
+	result := tx.
 		Take(&setupKey, GetKeyQueryCondition(s), key)
 
 	if result.Error != nil {
@@ -2607,10 +2610,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 }
 
 func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
-	result := s.db.WithContext(ctx).Model(&types.SetupKey{}).
+	result := s.db.Model(&types.SetupKey{}).
 		Where(idQueryCondition, setupKeyID).
 		Updates(map[string]interface{}{
 			"used_times": gorm.Expr("used_times + 1"),
@@ -2630,11 +2630,8 @@ func (s *SqlStore) IncrementSetupKeyUsage(ctx context.Context, setupKeyID string
 
 // AddPeerToAllGroup adds a peer to the 'All' group. Method always needs to run in a transaction
 func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	var groupID string
-	_ = s.db.WithContext(ctx).Model(types.Group{}).
+	_ = s.db.Model(types.Group{}).
 		Select("id").
 		Where("account_id = ? AND name = ?", accountID, "All").
 		Limit(1).
@@ -2662,9 +2659,6 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 
 // AddPeerToGroup adds a peer to a group
 func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupID string) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
 	peer := &types.GroupPeer{
 		AccountID: accountID,
 		GroupID:   groupID,
@@ -2861,10 +2855,7 @@ func (s *SqlStore) GetUserPeers(ctx context.Context, lockStrength LockingStrengt
 }
 
 func (s *SqlStore) AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
-	if err := s.db.WithContext(ctx).Create(peer).Error; err != nil {
+	if err := s.db.Create(peer).Error; err != nil {
 		return status.Errorf(status.Internal, "issue adding peer to account: %s", err)
 	}
 
@@ -2990,10 +2981,7 @@ func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID stri
 }
 
 func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string) error {
-	ctx, cancel := getDebuggingCtx(ctx)
-	defer cancel()
-
-	result := s.db.WithContext(ctx).Model(&types.Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
+	result := s.db.Model(&types.Account{}).Where(idQueryCondition, accountId).Update("network_serial", gorm.Expr("network_serial + 1"))
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to increment network serial count in store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to increment network serial count in store")
@@ -4115,36 +4103,6 @@ func (s *SqlStore) GetAccountGroupPeers(ctx context.Context, lockStrength Lockin
 	return groupPeers, nil
 }
 
-func getDebuggingCtx(grpcCtx context.Context) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	userID, ok := grpcCtx.Value(nbcontext.UserIDKey).(string)
-	if ok {
-		//nolint
-		ctx = context.WithValue(ctx, nbcontext.UserIDKey, userID)
-	}
-
-	requestID, ok := grpcCtx.Value(nbcontext.RequestIDKey).(string)
-	if ok {
-		//nolint
-		ctx = context.WithValue(ctx, nbcontext.RequestIDKey, requestID)
-	}
-
-	accountID, ok := grpcCtx.Value(nbcontext.AccountIDKey).(string)
-	if ok {
-		//nolint
-		ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
-	}
-
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-grpcCtx.Done():
-			log.WithContext(grpcCtx).Warnf("grpc context ended early, error: %v", grpcCtx.Err())
-		}
-	}()
-	return ctx, cancel
-}
-
 func (s *SqlStore) IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error) {
 	var info types.PrimaryAccountInfo
 	result := s.db.Model(&types.Account{}).
@@ -4184,7 +4142,7 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 		Network: &types.Network{Net: ipNet},
 	}
 
-	result := s.db.WithContext(ctx).
+	result := s.db.
 		Model(&types.Account{}).
 		Where(idQueryCondition, accountID).
 		Updates(&patch)
@@ -4216,6 +4174,24 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var userID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("user_id").
+		Take(&userID, GetKeyQueryCondition(s), peerKey)
+
+	if result.Error != nil {
+		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
+	}
+
+	return userID, nil
 }
 
 func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error) {
