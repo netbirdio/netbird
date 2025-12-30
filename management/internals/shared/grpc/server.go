@@ -184,8 +184,14 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
+	if err != nil {
+		s.syncSem.Add(-1)
+		return mapError(ctx, err)
+	}
+
 	metahashed := metaHash(peerMeta, sRealIP)
-	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
+	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
