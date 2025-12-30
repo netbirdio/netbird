@@ -4082,3 +4082,21 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 
 	return peers, nil
 }
+
+func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var userID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("user_id").
+		Take(&userID, GetKeyQueryCondition(s), peerKey)
+
+	if result.Error != nil {
+		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
+	}
+
+	return userID, nil
+}
