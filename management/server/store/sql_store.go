@@ -2947,7 +2947,7 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	if err != nil {
 		tx.Rollback()
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
-			log.WithContext(ctx).Warnf("transaction exceeded 5 minute timeout after %v, stack: %s", time.Since(startTime), debug.Stack())
+			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
 		}
 		return err
 	}
@@ -2963,7 +2963,7 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err = tx.Commit().Error
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
-			log.WithContext(ctx).Warnf("transaction commit exceeded 5 minute timeout after %v, stack: %s", time.Since(startTime), debug.Stack())
+			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
 		}
 		return err
 	}
