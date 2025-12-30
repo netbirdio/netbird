@@ -118,17 +118,15 @@ func (s *BaseServer) IdpManager() idp.Manager {
 }
 
 func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
-	return Create(s, func() idp.OAuthConfigProvider {
-		if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
-			return nil
-		}
-		// Reuse the EmbeddedIdPManager instance from IdpManager
-		// EmbeddedIdPManager implements both idp.Manager and idp.OAuthConfigProvider
-		if provider, ok := s.IdpManager().(idp.OAuthConfigProvider); ok {
-			return provider
-		}
+	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return nil
-	})
+	}
+	// Reuse the EmbeddedIdPManager instance from IdpManager
+	// EmbeddedIdPManager implements both idp.Manager and idp.OAuthConfigProvider
+	if provider, ok := s.IdpManager().(idp.OAuthConfigProvider); ok {
+		return provider
+	}
+	return nil
 }
 
 func (s *BaseServer) GroupsManager() groups.Manager {
