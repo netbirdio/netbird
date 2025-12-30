@@ -108,14 +108,14 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupK
 }
 
 func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
-	//nolint
-	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 	authClient, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
 	if err != nil {
 		return fmt.Errorf("failed to create auth client: %v", err)
 	}
 	defer authClient.Close()
 
+	//nolint
+	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 	err, _ = authClient.Login(ctxWithValues, setupKey, "")
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
