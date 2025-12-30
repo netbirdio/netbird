@@ -438,6 +438,12 @@ func setupSetConfigReqForLogin(cfg *proto.GetConfigResponse, profileName, userna
 	req.DisableNotifications = &cfg.DisableNotifications
 	req.LazyConnectionEnabled = &cfg.LazyConnectionEnabled
 	req.BlockInbound = &cfg.BlockInbound
+	req.DisableSSHAuth = &cfg.DisableSSHAuth
+	req.EnableSSHRoot = &cfg.EnableSSHRoot
+	req.EnableSSHSFTP = &cfg.EnableSSHSFTP
+	req.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
+	req.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
+	req.SshJWTCacheTTL = &cfg.SshJWTCacheTTL
 
 	return &req
 }
