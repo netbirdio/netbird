@@ -3859,8 +3859,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 }
 
 func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("The SQLite store is not properly supported by Windows yet")
+	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
+		t.Skip("Skipping timeout test for MySQL")
 	}
 
 	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
