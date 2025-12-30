@@ -2,8 +2,9 @@
 
 set -e
 
-# NetBird Getting Started with Dex IDP
-# This script sets up NetBird with Dex as the identity provider
+# NetBird Getting Started with Embedded IdP (Dex)
+# This script sets up NetBird with the embedded Dex identity provider
+# No separate Dex container or reverse proxy needed - IdP is built into management server
 
 # Sed pattern to strip base64 padding characters
 SED_STRIP_PADDING='s/=//g'
@@ -81,20 +82,20 @@ get_turn_external_ip() {
   return 0
 }
 
-wait_dex() {
+wait_management() {
   set +e
-  echo -n "Waiting for Dex to become ready (via $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN)"
+  echo -n "Waiting for Management server to become ready"
   counter=1
   while true; do
-    # Check Dex through Caddy proxy (also validates TLS is working)
-    if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/.well-known/openid-configuration" 2>/dev/null; then
+    # Check the embedded IdP endpoint
+    if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
       $DOCKER_COMPOSE_COMMAND logs --tail=20 caddy
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 dex
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 management
     fi
     echo -n " ."
     sleep 2
@@ -117,9 +118,6 @@ init_environment() {
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
-  # Generate secrets for Dex
-  DEX_DASHBOARD_CLIENT_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
-
   # Generate admin password
   NETBIRD_ADMIN_PASSWORD=$(openssl rand -base64 16 | sed "$SED_STRIP_PADDING")
 
@@ -140,33 +138,45 @@ init_environment() {
 
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
-  if [[ -f dex.yaml ]]; then
+  if [[ -f management.json ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dex.yaml dashboard.env turnserver.conf management.json relay.env"
+    echo "  rm -f docker-compose.yml Caddyfile dashboard.env turnserver.conf management.json relay.env"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
+  fi
+
+  # Generate bcrypt hash of the admin password
+  ADMIN_PASSWORD_HASH=""
+  if command -v htpasswd &> /dev/null; then
+    ADMIN_PASSWORD_HASH=$(htpasswd -bnBC 10 "" "$NETBIRD_ADMIN_PASSWORD" | tr -d ':\n')
+  elif command -v python3 &> /dev/null; then
+    ADMIN_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('$NETBIRD_ADMIN_PASSWORD'.encode(), bcrypt.gensalt(rounds=10)).decode())" 2>/dev/null || echo "")
+  fi
+
+  # Fallback to a known hash if we can't generate one
+  if [[ -z "$ADMIN_PASSWORD_HASH" ]]; then
+    # This is hash of "password" - user should change it
+    ADMIN_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
+    NETBIRD_ADMIN_PASSWORD="password"
+    echo "Warning: Could not generate password hash. Using default password: password" > /dev/stderr
   fi
 
   echo Rendering initial files...
   render_docker_compose > docker-compose.yml
   render_caddyfile > Caddyfile
-  render_dex_config > dex.yaml
   render_dashboard_env > dashboard.env
   render_management_json > management.json
   render_turn_server_conf > turnserver.conf
   render_relay_env > relay.env
 
-  echo -e "\nStarting Dex IDP\n"
-  $DOCKER_COMPOSE_COMMAND up -d caddy dex
-
-  # Wait for Dex to be ready (through caddy proxy)
-  sleep 3
-  wait_dex
-
   echo -e "\nStarting NetBird services\n"
   $DOCKER_COMPOSE_COMMAND up -d
+
+  # Wait for management (and embedded IdP) to be ready
+  sleep 3
+  wait_management
 
   echo -e "\nDone!\n"
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
@@ -175,8 +185,8 @@ init_environment() {
   echo "Email: admin@$NETBIRD_DOMAIN" | tee .env
   echo "Password: $NETBIRD_ADMIN_PASSWORD" | tee -a .env
   echo ""
-  echo "Dex admin UI is not available (Dex has no built-in UI)."
-  echo "To add more users, edit dex.yaml and restart: $DOCKER_COMPOSE_COMMAND restart dex"
+  echo "The embedded IdP is built into the management server."
+  echo "To add more users, use the NetBird dashboard or API."
   return 0
 }
 
@@ -206,110 +216,13 @@ render_caddyfile() {
     reverse_proxy /relay* relay:80
     # Signal
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
-    # Management
+    # Management API and embedded IdP (oauth2)
     reverse_proxy /api/* management:80
     reverse_proxy /management.ManagementService/* h2c://management:80
-    # Dex
-    reverse_proxy /dex/* dex:5556
+    reverse_proxy /oauth2/* management:80
     # Dashboard
     reverse_proxy /* dashboard:80
 }
-EOF
-  return 0
-}
-
-render_dex_config() {
-  # Generate bcrypt hash of the admin password
-  # Using a simple approach - htpasswd or python if available
-  ADMIN_PASSWORD_HASH=""
-  if command -v htpasswd &> /dev/null; then
-    ADMIN_PASSWORD_HASH=$(htpasswd -bnBC 10 "" "$NETBIRD_ADMIN_PASSWORD" | tr -d ':\n')
-  elif command -v python3 &> /dev/null; then
-    ADMIN_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('$NETBIRD_ADMIN_PASSWORD'.encode(), bcrypt.gensalt(rounds=10)).decode())" 2>/dev/null || echo "")
-  fi
-
-  # Fallback to a known hash if we can't generate one
-  if [[ -z "$ADMIN_PASSWORD_HASH" ]]; then
-    # This is hash of "password" - user should change it
-    ADMIN_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
-    NETBIRD_ADMIN_PASSWORD="password"
-    echo "Warning: Could not generate password hash. Using default password: password. Please change it in dex.yaml" > /dev/stderr
-  fi
-
-  cat <<EOF
-# Dex configuration for NetBird
-# Generated by getting-started-with-dex.sh
-
-issuer: $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex
-
-storage:
-  type: sqlite3
-  config:
-    file: /var/dex/dex.db
-
-web:
-  http: 0.0.0.0:5556
-
-# gRPC API for user management (used by NetBird IDP manager)
-grpc:
-  addr: 0.0.0.0:5557
-
-oauth2:
-  skipApprovalScreen: true
-
-# Static OAuth2 clients for NetBird
-staticClients:
-  # Dashboard client
-  - id: netbird-dashboard
-    name: NetBird Dashboard
-    secret: $DEX_DASHBOARD_CLIENT_SECRET
-    redirectURIs:
-      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth
-      - $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth
-
-  # CLI client (public - uses PKCE)
-  - id: netbird-cli
-    name: NetBird CLI
-    public: true
-    redirectURIs:
-      - http://localhost:53000/
-      - http://localhost:54000/
-
-# Enable password database for static users
-enablePasswordDB: true
-
-# Static users - add more users here as needed
-staticPasswords:
-  - email: "admin@$NETBIRD_DOMAIN"
-    hash: "$ADMIN_PASSWORD_HASH"
-    username: "admin"
-    userID: "$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "admin-user-id-001")"
-
-# Optional: Add external identity provider connectors
-# connectors:
-#   - type: github
-#     id: github
-#     name: GitHub
-#     config:
-#       clientID: \$GITHUB_CLIENT_ID
-#       clientSecret: \$GITHUB_CLIENT_SECRET
-#       redirectURI: $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/callback
-#
-#   - type: ldap
-#     id: ldap
-#     name: LDAP
-#     config:
-#       host: ldap.example.com:636
-#       insecureNoSSL: false
-#       bindDN: cn=admin,dc=example,dc=com
-#       bindPW: admin
-#       userSearch:
-#         baseDN: ou=users,dc=example,dc=com
-#         filter: "(objectClass=person)"
-#         username: uid
-#         idAttr: uid
-#         emailAttr: mail
-#         nameAttr: cn
 EOF
   return 0
 }
@@ -354,35 +267,31 @@ render_management_json() {
         "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
     },
     "HttpConfig": {
-        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex",
+        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
         "AuthAudience": "netbird-dashboard",
-        "OIDCConfigEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/.well-known/openid-configuration"
+        "OIDCConfigEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration"
     },
-    "IdpManagerConfig": {
-        "ManagerType": "dex",
-        "ClientConfig": {
-            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex"
+    "EmbeddedIdP": {
+        "Enabled": true,
+        "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
+        "Storage": {
+            "Type": "sqlite3",
+            "Config": {
+                "File": "/var/lib/netbird/idp.db"
+            }
         },
-        "ExtraConfig": {
-            "GRPCAddr": "dex:5557"
-        }
-    },
-    "DeviceAuthorizationFlow": {
-        "Provider": "hosted",
-        "ProviderConfig": {
-            "Audience": "netbird-cli",
-            "ClientID": "netbird-cli",
-            "Scope": "openid profile email offline_access",
-            "DeviceAuthEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/device/code",
-            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex/token"
-        }
-    },
-    "PKCEAuthorizationFlow": {
-        "ProviderConfig": {
-            "Audience": "netbird-cli",
-            "ClientID": "netbird-cli",
-            "Scope": "openid profile email offline_access",
-            "RedirectURLs": ["http://localhost:53000/", "http://localhost:54000/"]
+        "DashboardRedirectURIs": [
+            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth",
+            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
+        ],
+        "CLIRedirectURIs": [
+            "http://localhost:53000/",
+            "http://localhost:54000/"
+        ],
+        "Owner": {
+            "Email": "admin@$NETBIRD_DOMAIN",
+            "Hash": "$ADMIN_PASSWORD_HASH",
+            "Username": "NetBird Admin"
         }
     }
 }
@@ -395,11 +304,11 @@ render_dashboard_env() {
 # Endpoints
 NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
 NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
-# OIDC
+# OIDC - using embedded IdP
 AUTH_AUDIENCE=netbird-dashboard
 AUTH_CLIENT_ID=netbird-dashboard
-AUTH_CLIENT_SECRET=$DEX_DASHBOARD_CLIENT_SECRET
-AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/dex
+AUTH_CLIENT_SECRET=
+AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
 USE_AUTH0=false
 AUTH_SUPPORTED_SCOPES=openid profile email offline_access
 AUTH_REDIRECT_URI=/nb-auth
@@ -438,22 +347,6 @@ services:
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Dex - identity provider
-  dex:
-    image: ghcr.io/dexidp/dex:v2.38.0
-    container_name: netbird-dex
-    restart: unless-stopped
-    networks: [netbird]
-    volumes:
-      - ./dex.yaml:/etc/dex/config.docker.yaml:ro
-      - netbird_dex_data:/var/dex
-    command: ["dex", "serve", "/etc/dex/config.docker.yaml"]
     logging:
       driver: "json-file"
       options:
@@ -500,7 +393,7 @@ services:
         max-size: "500m"
         max-file: "2"
 
-  # Management
+  # Management (includes embedded IdP)
   management:
     image: netbirdio/management:latest
     container_name: netbird-management
@@ -542,7 +435,6 @@ services:
 
 volumes:
   netbird_caddy_data:
-  netbird_dex_data:
   netbird_management:
 
 networks:
