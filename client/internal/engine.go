@@ -1121,6 +1121,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
+	// Filter out own peer from the remote peers list
+	localPubKey := e.config.WgPrivateKey.PublicKey().String()
+	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
+	for _, p := range networkMap.GetRemotePeers() {
+		if p.GetWgPubKey() != localPubKey {
+			remotePeers = append(remotePeers, p)
+		}
+	}
+
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
@@ -1129,26 +1138,26 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			return err
 		}
 	} else {
-		err := e.removePeers(networkMap.GetRemotePeers())
+		err := e.removePeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
-		err = e.modifyPeers(networkMap.GetRemotePeers())
+		err = e.modifyPeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
-		err = e.addNewPeers(networkMap.GetRemotePeers())
+		err = e.addNewPeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
 		e.statusRecorder.FinishPeerListModifications()
 
-		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
+		e.updatePeerSSHHostKeys(remotePeers)
 
-		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
+		if err := e.updateSSHClientConfig(remotePeers); err != nil {
 			log.Warnf("failed to update SSH client config: %v", err)
 		}
 
@@ -1156,7 +1165,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, networkMap.GetRemotePeers())
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
 	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
 
 	e.networkSerial = serial
