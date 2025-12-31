@@ -56,7 +56,6 @@ func (h *NetbirdHandler) AddPeer(pid rp.PeerID, intf string, pk rp.Key) {
 		Interface: intf,
 		PublicKey: pk,
 	}
-	log.Debugf("rosenpass: added peer ID %v to handler (WG key: %s)", pid, wgtypes.Key(pk).String())
 }
 
 func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
@@ -64,19 +63,15 @@ func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
 }
 
 func (h *NetbirdHandler) HandshakeCompleted(pid rp.PeerID, key rp.Key) {
-	log.Debugf("rosenpass: Handshake complete for peer ID %v", pid)
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
 func (h *NetbirdHandler) HandshakeExpired(pid rp.PeerID) {
 	key, _ := rp.GeneratePresharedKey()
-	log.Debugf("rosenpass: Handshake expired for peer ID %v", pid)
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
 func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.Key) {
-	log.Debugf("rosenpass: outputKey called for peer ID %v", pid)
-
 	if h.configurer == nil {
 		log.Warn("rosenpass: WGConfigurer not set, cannot update preshared key")
 		return
@@ -84,12 +79,10 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 
 	wg, ok := h.peers[pid]
 	if !ok {
-		log.Warnf("rosenpass: peer ID %v not found in handler peers map (have %d peers)", pid, len(h.peers))
 		return
 	}
 
 	peerKey := wgtypes.Key(wg.PublicKey).String()
-	log.Debugf("rosenpass: updating PSK for WireGuard peer %s", peerKey)
 
 	stats, err := h.configurer.FullStats()
 	if err != nil {
@@ -120,13 +113,9 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		endpoint = &peer.Endpoint
 	}
 
-	log.Debugf("rosenpass: peer %s has PresharedKey=%v, endpoint=%v, allowedIPs=%d",
-		peerKey, peer.PresharedKey, endpoint, len(allowedIPs))
-
 	// If no preshared key is set or it's the original NetBird preshared key,
 	// we need to restart the connection by removing and re-adding the peer
 	if !peer.PresharedKey || h.isOriginalPresharedKey(peer) {
-		log.Debugf("rosenpass: restarting WireGuard connection to peer %s (no PSK set)", peerKey)
 
 		// Remove the peer first
 		if err := h.configurer.RemovePeer(peerKey); err != nil {
@@ -138,17 +127,16 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		if err := h.configurer.UpdatePeer(peerKey, allowedIPs, 0, endpoint, pskKey); err != nil {
 			log.Errorf("rosenpass: failed to re-add peer with PSK: %v", err)
 		} else {
-			log.Infof("rosenpass: successfully applied PSK to peer %s (restart)", peerKey)
+			log.Infof("rosenpass: applied PSK to peer %s", peerKey)
 		}
 		return
 	}
 
 	// Just update the preshared key
-	log.Debugf("rosenpass: updating existing PSK for peer %s", peerKey)
 	if err := h.configurer.UpdatePeer(peerKey, allowedIPs, 0, endpoint, pskKey); err != nil {
 		log.Errorf("rosenpass: failed to update PSK: %v", err)
 	} else {
-		log.Infof("rosenpass: successfully updated PSK for peer %s", peerKey)
+		log.Infof("rosenpass: updated PSK for peer %s", peerKey)
 	}
 }
 
