@@ -3857,3 +3857,30 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 		})
 	})
 }
+
+func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
+		t.Skip("Skipping timeout test for MySQL")
+	}
+
+	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
+
+	ctx := context.Background()
+	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
+		// Sleep for 2 seconds to exceed the 1 second timeout
+		time.Sleep(2 * time.Second)
+		return nil
+	})
+
+	// The transaction should fail with an error (either timeout or already rolled back)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transaction has already been committed or rolled back", "expected transaction rolled back error, got: %v", err)
+}

@@ -276,6 +276,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	unlock()
 	unlock = nil
 
+	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
+
 	s.syncSem.Add(-1)
 
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
@@ -565,6 +567,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
 		}
+		log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
 	}()
 
 	if loginReq.GetMeta() == nil {
