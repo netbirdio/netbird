@@ -63,6 +63,8 @@ type SqlStore struct {
 	installationPK    int
 	storeEngine       types.Engine
 	pool              *pgxpool.Pool
+
+	transactionTimeout time.Duration
 }
 
 type installation struct {
@@ -84,6 +86,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
+	transactionTimeout := 5 * time.Minute
+	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			transactionTimeout = parsed
+		}
+	}
+	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
+
 	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -101,7 +111,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
@@ -120,7 +130,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -2897,8 +2907,11 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
+	defer cancel()
+
 	startTime := time.Now()
-	tx := s.db.Begin()
+	tx := s.db.WithContext(timeoutCtx).Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
@@ -2933,6 +2946,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
 		return err
 	}
 
@@ -2945,13 +2961,19 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}
 
 	err = tx.Commit().Error
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
+		return err
+	}
 
 	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
 
-	return err
+	return nil
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
