@@ -806,6 +806,14 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	return s.getAccountGorm(ctx, accountID)
 }
 
+// GetAccountLight returns account without users, setup keys, and onboarding data
+func (s *SqlStore) GetAccountLight(ctx context.Context, accountID string) (*types.Account, error) {
+	if s.pool != nil {
+		return s.getAccountLightPgx(ctx, accountID)
+	}
+	return s.getAccountLightGorm(ctx, accountID)
+}
+
 func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
 	start := time.Now()
 	defer func() {
@@ -870,6 +878,82 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		user.PATsG = nil
 	}
 	account.UsersG = nil
+	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
+	for _, group := range account.GroupsG {
+		group.Peers = make([]string, len(group.GroupPeers))
+		for i, gp := range group.GroupPeers {
+			group.Peers[i] = gp.PeerID
+		}
+		if group.Resources == nil {
+			group.Resources = []types.Resource{}
+		}
+		account.Groups[group.ID] = group
+	}
+	account.GroupsG = nil
+
+	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
+	for _, route := range account.RoutesG {
+		account.Routes[route.ID] = &route
+	}
+	account.RoutesG = nil
+	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
+	for _, ns := range account.NameServerGroupsG {
+		ns.AccountID = ""
+		if ns.NameServers == nil {
+			ns.NameServers = []nbdns.NameServer{}
+		}
+		if ns.Groups == nil {
+			ns.Groups = []string{}
+		}
+		if ns.Domains == nil {
+			ns.Domains = []string{}
+		}
+		account.NameServerGroups[ns.ID] = &ns
+	}
+	account.NameServerGroupsG = nil
+	account.InitOnce()
+	return &account, nil
+}
+
+func (s *SqlStore) getAccountLightGorm(ctx context.Context, accountID string) (*types.Account, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("GetAccountLight for account %s exceeded 1s, took: %v", accountID, elapsed)
+		}
+	}()
+
+	var account types.Account
+	result := s.db.Model(&account).
+		Preload("Policies.Rules").
+		Preload("PeersG").
+		Preload("GroupsG.GroupPeers").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Take(&account, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	account.SetupKeys = make(map[string]*types.SetupKey)
+
+	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
+	for _, peer := range account.PeersG {
+		account.Peers[peer.ID] = &peer
+	}
+	account.PeersG = nil
+
+	account.Users = make(map[string]*types.User)
+
 	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		group.Peers = make([]string, len(group.GroupPeers))
@@ -1150,6 +1234,221 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		}
 		account.Users[user.Id] = user
 	}
+
+	for i := range account.Policies {
+		policy := account.Policies[i]
+		if policyRules, ok := rulesByPolicyID[policy.ID]; ok {
+			policy.Rules = policyRules
+		}
+	}
+
+	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
+	for i := range account.GroupsG {
+		group := account.GroupsG[i]
+		if peerIDs, ok := peersByGroupID[group.ID]; ok {
+			group.Peers = peerIDs
+		}
+		account.Groups[group.ID] = group
+	}
+
+	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
+	for i := range account.RoutesG {
+		route := &account.RoutesG[i]
+		account.Routes[route.ID] = route
+	}
+
+	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
+	for i := range account.NameServerGroupsG {
+		nsg := &account.NameServerGroupsG[i]
+		nsg.AccountID = ""
+		account.NameServerGroups[nsg.ID] = nsg
+	}
+
+	account.SetupKeysG = nil
+	account.PeersG = nil
+	account.UsersG = nil
+	account.GroupsG = nil
+	account.RoutesG = nil
+	account.NameServerGroupsG = nil
+
+	return account, nil
+}
+
+func (s *SqlStore) getAccountLightPgx(ctx context.Context, accountID string) (*types.Account, error) {
+	account, err := s.getAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, 9)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		peers, err := s.getPeers(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.PeersG = peers
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		groups, err := s.getGroups(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.GroupsG = groups
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		policies, err := s.getPolicies(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.Policies = policies
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		routes, err := s.getRoutes(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.RoutesG = routes
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		nsgs, err := s.getNameServerGroups(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.NameServerGroupsG = nsgs
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		checks, err := s.getPostureChecks(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.PostureChecks = checks
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		networks, err := s.getNetworks(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.Networks = networks
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		routers, err := s.getNetworkRouters(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.NetworkRouters = routers
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resources, err := s.getNetworkResources(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.NetworkResources = resources
+	}()
+
+	wg.Wait()
+	close(errChan)
+	for e := range errChan {
+		if e != nil {
+			return nil, e
+		}
+	}
+
+	var policyIDs []string
+	for _, p := range account.Policies {
+		policyIDs = append(policyIDs, p.ID)
+	}
+	var groupIDs []string
+	for _, g := range account.GroupsG {
+		groupIDs = append(groupIDs, g.ID)
+	}
+
+	wg.Add(2)
+	errChan = make(chan error, 2)
+
+	var rules []*types.PolicyRule
+	go func() {
+		defer wg.Done()
+		var err error
+		rules, err = s.getPolicyRules(ctx, policyIDs)
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	var groupPeers []types.GroupPeer
+	go func() {
+		defer wg.Done()
+		var err error
+		groupPeers, err = s.getGroupPeers(ctx, groupIDs)
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	wg.Wait()
+	close(errChan)
+	for e := range errChan {
+		if e != nil {
+			return nil, e
+		}
+	}
+
+	rulesByPolicyID := make(map[string][]*types.PolicyRule)
+	for _, rule := range rules {
+		rulesByPolicyID[rule.PolicyID] = append(rulesByPolicyID[rule.PolicyID], rule)
+	}
+
+	peersByGroupID := make(map[string][]string)
+	for _, gp := range groupPeers {
+		peersByGroupID[gp.GroupID] = append(peersByGroupID[gp.GroupID], gp.PeerID)
+	}
+
+	account.SetupKeys = make(map[string]*types.SetupKey)
+
+	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
+	for i := range account.PeersG {
+		peer := &account.PeersG[i]
+		account.Peers[peer.ID] = peer
+	}
+
+	account.Users = make(map[string]*types.User)
 
 	for i := range account.Policies {
 		policy := account.Policies[i]
