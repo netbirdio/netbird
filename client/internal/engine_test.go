@@ -213,6 +213,10 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	return nil
 }
 
+func (m *MockWGIface) GetConfigurer() device.WGConfigurer {
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()

@@ -109,7 +109,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey, m.ifaceName)
+	m.rpWgHandler = NewNetbirdHandler(m.preSharedKey)
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
@@ -170,6 +170,18 @@ func (m *Manager) Close() error {
 		m.server = nil
 	}
 	return nil
+}
+
+// SetConfigurer sets the WireGuard configurer for the rosenpass handler.
+// This must be called after the WireGuard interface is created and before
+// any peer connections are established.
+func (m *Manager) SetConfigurer(configurer WGConfigurer) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.rpWgHandler != nil {
+		m.rpWgHandler.SetConfigurer(configurer)
+	}
 }
 
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes

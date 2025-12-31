@@ -297,6 +297,13 @@ func (w *WGIface) FullStats() (*configurer.Stats, error) {
 	return w.configurer.FullStats()
 }
 
+// GetConfigurer returns the WireGuard configurer for direct peer configuration.
+func (w *WGIface) GetConfigurer() device.WGConfigurer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.configurer
+}
+
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
 	timeout := time.NewTimer(maxWaitTime)

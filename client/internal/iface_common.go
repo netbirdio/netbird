@@ -42,4 +42,5 @@ type wgIfaceBase interface {
 	GetNet() *netstack.Net
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
+	GetConfigurer() device.WGConfigurer
 }
