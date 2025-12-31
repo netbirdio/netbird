@@ -32,6 +32,7 @@ import (
 	nbroute "github.com/netbirdio/netbird/route"
 	route2 "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
@@ -3112,6 +3113,86 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	user, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, users[1].Id)
 	require.NoError(t, err)
 	require.Equal(t, users[1].AutoGroups, user.AutoGroups)
+}
+
+func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	// Enable encryption
+	key, err := crypt.GenerateKey()
+	require.NoError(t, err)
+	fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+	require.NoError(t, err)
+	store.SetFieldEncrypt(fieldEncrypt)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	t.Run("save user with empty email and name", func(t *testing.T) {
+		user := &types.User{
+			Id:         "user-empty-fields",
+			AccountID:  accountID,
+			Role:       types.UserRoleUser,
+			Email:      "",
+			Name:       "",
+			AutoGroups: []string{"groupA"},
+		}
+		err = store.SaveUser(context.Background(), user)
+		require.NoError(t, err)
+
+		savedUser, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, user.Id)
+		require.NoError(t, err)
+		require.Equal(t, "", savedUser.Email)
+		require.Equal(t, "", savedUser.Name)
+	})
+
+	t.Run("save user with email and name", func(t *testing.T) {
+		user := &types.User{
+			Id:         "user-with-fields",
+			AccountID:  accountID,
+			Role:       types.UserRoleAdmin,
+			Email:      "test@example.com",
+			Name:       "Test User",
+			AutoGroups: []string{"groupB"},
+		}
+		err = store.SaveUser(context.Background(), user)
+		require.NoError(t, err)
+
+		savedUser, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, user.Id)
+		require.NoError(t, err)
+		require.Equal(t, "test@example.com", savedUser.Email)
+		require.Equal(t, "Test User", savedUser.Name)
+	})
+
+	t.Run("save multiple users with mixed fields", func(t *testing.T) {
+		users := []*types.User{
+			{
+				Id:        "batch-user-1",
+				AccountID: accountID,
+				Email:     "",
+				Name:      "",
+			},
+			{
+				Id:        "batch-user-2",
+				AccountID: accountID,
+				Email:     "batch@example.com",
+				Name:      "Batch User",
+			},
+		}
+		err = store.SaveUsers(context.Background(), users)
+		require.NoError(t, err)
+
+		savedUser1, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, "batch-user-1")
+		require.NoError(t, err)
+		require.Equal(t, "", savedUser1.Email)
+		require.Equal(t, "", savedUser1.Name)
+
+		savedUser2, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, "batch-user-2")
+		require.NoError(t, err)
+		require.Equal(t, "batch@example.com", savedUser2.Email)
+		require.Equal(t, "Batch User", savedUser2.Name)
+	})
 }
 
 func TestSqlStore_DeleteUser(t *testing.T) {
