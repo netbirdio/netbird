@@ -227,10 +227,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	defer func() {
-		log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
-	}()
-
 	start := time.Now()
 	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
 	defer func() {
@@ -279,6 +275,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	unlock()
 	unlock = nil
+
+	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
 
 	s.syncSem.Add(-1)
 
