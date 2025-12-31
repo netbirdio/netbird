@@ -118,9 +118,6 @@ init_environment() {
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
-  # Generate admin password
-  NETBIRD_ADMIN_PASSWORD=$(openssl rand -base64 16 | sed "$SED_STRIP_PADDING")
-
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
@@ -147,22 +144,6 @@ init_environment() {
     exit 1
   fi
 
-  # Generate bcrypt hash of the admin password
-  ADMIN_PASSWORD_HASH=""
-  if command -v htpasswd &> /dev/null; then
-    ADMIN_PASSWORD_HASH=$(htpasswd -bnBC 10 "" "$NETBIRD_ADMIN_PASSWORD" | tr -d ':\n')
-  elif command -v python3 &> /dev/null; then
-    ADMIN_PASSWORD_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw('$NETBIRD_ADMIN_PASSWORD'.encode(), bcrypt.gensalt(rounds=10)).decode())" 2>/dev/null || echo "")
-  fi
-
-  # Fallback to a known hash if we can't generate one
-  if [[ -z "$ADMIN_PASSWORD_HASH" ]]; then
-    # This is hash of "password" - user should change it
-    ADMIN_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
-    NETBIRD_ADMIN_PASSWORD="password"
-    echo "Warning: Could not generate password hash. Using default password: password" > /dev/stderr
-  fi
-
   echo Rendering initial files...
   render_docker_compose > docker-compose.yml
   render_caddyfile > Caddyfile
@@ -180,13 +161,7 @@ init_environment() {
 
   echo -e "\nDone!\n"
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-  echo ""
-  echo "Login with the following credentials:"
-  echo "Email: admin@$NETBIRD_DOMAIN" | tee .env
-  echo "Password: $NETBIRD_ADMIN_PASSWORD" | tee -a .env
-  echo ""
-  echo "The embedded IdP is built into the management server."
-  echo "To add more users, use the NetBird dashboard or API."
+  echo "Follow the onboarding steps to set up your NetBird instance."
   return 0
 }
 
@@ -287,12 +262,7 @@ render_management_json() {
         "CLIRedirectURIs": [
             "http://localhost:53000/",
             "http://localhost:54000/"
-        ],
-        "Owner": {
-            "Email": "admin@$NETBIRD_DOMAIN",
-            "Hash": "$ADMIN_PASSWORD_HASH",
-            "Username": "NetBird Admin"
-        }
+        ]
     }
 }
 EOF
