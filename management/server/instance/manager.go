@@ -55,8 +55,18 @@ func (m *DefaultManager) IsSetupRequired(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to get accounts count: %w", err)
 	}
 
+	if count == 0 {
+		// if no accounts exist, check if embedded IdP has any users as we may have already an owner created but the owner
+		// didn't log in.
+		users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
+		if err != nil {
+			return false, err
+		}
+		return len(users) == 0, nil
+	}
+
 	// Setup is required if no accounts exist
-	return count == 0, nil
+	return false, nil
 }
 
 // CreateOwnerUser creates the initial owner user in the embedded IDP.
