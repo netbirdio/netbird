@@ -114,6 +114,7 @@ init_environment() {
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
+  DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
@@ -241,6 +242,8 @@ render_management_json() {
         "Proto": "$NETBIRD_HTTP_PROTOCOL",
         "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
     },
+    "Datadir": "/var/lib/netbird",
+    "DataStoreEncryptionKey": "$DATASTORE_ENCRYPTION_KEY",
     "HttpConfig": {
         "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
         "AuthAudience": "netbird-dashboard",

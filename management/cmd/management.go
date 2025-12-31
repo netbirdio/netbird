@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
@@ -206,6 +207,21 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 
 	if loadedConfig.Relay != nil {
 		log.Infof("Relay addresses: %v", loadedConfig.Relay.Addresses)
+	}
+
+	// Generate DataStoreEncryptionKey if not set
+	if loadedConfig.DataStoreEncryptionKey == "" {
+		log.WithContext(ctx).Infof("DataStoreEncryptionKey is not set, generating a new key")
+		key, err := crypt.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate datastore encryption key: %v", err)
+		}
+		loadedConfig.DataStoreEncryptionKey = key
+
+		if err := util.DirectWriteJson(ctx, mgmtConfigPath, loadedConfig); err != nil {
+			return nil, fmt.Errorf("failed to save config with new encryption key: %v", err)
+		}
+		log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
 	}
 
 	return loadedConfig, err
