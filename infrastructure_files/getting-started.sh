@@ -114,7 +114,8 @@ init_environment() {
   TURN_USER="self"
   TURN_PASSWORD=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
-  DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
+  # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
+  DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
   TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
