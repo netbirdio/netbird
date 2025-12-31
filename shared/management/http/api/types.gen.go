@@ -5,6 +5,8 @@ package api
 
 import (
 	"time"
+
+	openapi_types "github.com/deepmap/oapi-codegen/pkg/types"
 )
 
 const (
@@ -705,6 +707,12 @@ type IngressPortAllocationRequestPortRange struct {
 
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
+
+// InstanceStatus Instance status information
+type InstanceStatus struct {
+	// SetupRequired Indicates whether the instance requires initial setup
+	SetupRequired bool `json:"setup_required"`
+}
 
 // Location Describe geographical location information
 type Location struct {
@@ -1842,6 +1850,27 @@ type SetupKeyRequest struct {
 	Revoked bool `json:"revoked"`
 }
 
+// SetupRequest Request to set up the initial admin user
+type SetupRequest struct {
+	// Email Email address for the admin user
+	Email openapi_types.Email `json:"email"`
+
+	// Name Display name for the admin user (defaults to email if not provided)
+	Name *string `json:"name,omitempty"`
+
+	// Password Password for the admin user (minimum 8 characters)
+	Password string `json:"password"`
+}
+
+// SetupResponse Response after successful instance setup
+type SetupResponse struct {
+	// Email Email address of the created user
+	Email string `json:"email"`
+
+	// UserId The ID of the created user
+	UserId string `json:"user_id"`
+}
+
 // User defines model for User.
 type User struct {
 	// AutoGroups Group IDs to auto-assign to peers registered by this user
@@ -2077,6 +2106,9 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
+
+// PostApiSetupJSONRequestBody defines body for PostApiSetup for application/json ContentType.
+type PostApiSetupJSONRequestBody = SetupRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = CreateSetupKeyRequest

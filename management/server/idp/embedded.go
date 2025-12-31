@@ -349,6 +349,44 @@ func (m *EmbeddedIdPManager) GetUserByEmail(ctx context.Context, email string) (
 	}, nil
 }
 
+// CreateUserWithPassword creates a new user in the embedded IdP with a provided password.
+// Unlike CreateUser which auto-generates a password, this method uses the provided password.
+// This is useful for instance setup where the user provides their own password.
+func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, password, name string) (*UserData, error) {
+	if m.appMetrics != nil {
+		m.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	// Check if user already exists
+	_, err := m.provider.GetUser(ctx, email)
+	if err == nil {
+		return nil, fmt.Errorf("user with email %s already exists", email)
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to check existing user: %w", err)
+	}
+
+	// Create the user via provider with the provided password
+	userID, err := m.provider.CreateUser(ctx, email, name, password)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
+	}
+
+	log.WithContext(ctx).Debugf("created user %s in embedded IdP with provided password", email)
+
+	return &UserData{
+		Email: email,
+		Name:  name,
+		ID:    userID,
+	}, nil
+}
+
 // InviteUserByID resends an invitation to a user.
 func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) error {
 	// TODO: implement

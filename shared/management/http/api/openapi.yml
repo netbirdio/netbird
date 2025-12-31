@@ -34,6 +34,8 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
+  - name: Instance
+    description: Instance setup and status endpoints for initial configuration.
 components:
   schemas:
     Account:
@@ -2281,6 +2283,53 @@ components:
         - issuer
         - client_id
         - client_secret
+    InstanceStatus:
+      type: object
+      description: Instance status information
+      properties:
+        setup_required:
+          description: Indicates whether the instance requires initial setup
+          type: boolean
+          example: true
+      required:
+        - setup_required
+    SetupRequest:
+      type: object
+      description: Request to set up the initial admin user
+      properties:
+        email:
+          description: Email address for the admin user
+          type: string
+          format: email
+          example: admin@example.com
+        password:
+          description: Password for the admin user (minimum 8 characters)
+          type: string
+          format: password
+          minLength: 8
+          example: securepassword123
+        name:
+          description: Display name for the admin user (defaults to email if not provided)
+          type: string
+          example: Admin User
+      required:
+        - email
+        - password
+    SetupResponse:
+      type: object
+      description: Response after successful instance setup
+      properties:
+        user_id:
+          description: The ID of the created user
+          type: string
+          example: abc123def456
+        email:
+          description: Email address of the created user
+          type: string
+          example: admin@example.com
+      required:
+        - user_id
+        - email
   responses:
     not_found:
       description: Resource not found
@@ -2318,6 +2367,48 @@ security:
   - BearerAuth: [ ]
   - TokenAuth: [ ]
 paths:
+  /api/instance:
+    get:
+      summary: Get Instance Status
+      description: Returns the instance status including whether initial setup is required. This endpoint does not require authentication.
+      tags: [ Instance ]
+      security: [ ]
+      responses:
+        '200':
+          description: Instance status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceStatus'
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/setup:
+    post:
+      summary: Setup Instance
+      description: Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+      tags: [ Instance ]
+      security: [ ]
+      requestBody:
+        description: Initial admin user details
+        required: true
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '200':
+          description: Setup completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '412':
+          description: Setup already completed
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/accounts:
     get:
       summary: List all Accounts

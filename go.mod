@@ -41,6 +41,7 @@ require (
 	github.com/coder/websocket v1.8.13
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
+	github.com/deepmap/oapi-codegen v1.16.3
 	github.com/dexidp/dex v0.0.0-00010101000000-000000000000
 	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/eko/gocache/lib/v4 v4.2.0
