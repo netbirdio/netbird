@@ -151,6 +151,11 @@ components:
           description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
           type: string
           example: "0.51.2"
+        embedded_idp_enabled:
+          description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+          type: boolean
+          readOnly: true
+          example: false
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration

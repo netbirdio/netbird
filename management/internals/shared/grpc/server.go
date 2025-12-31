@@ -16,6 +16,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -769,7 +770,6 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 				DeviceAuthEndpoint: s.oAuthConfigProvider.GetDeviceAuthEndpoint(),
 				TokenEndpoint:      s.oAuthConfigProvider.GetTokenEndpoint(),
 				Scope:              s.oAuthConfigProvider.GetDefaultScopes(),
-				UseIDToken:         true,
 			},
 		}
 	} else {
@@ -845,7 +845,7 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 				AuthorizationEndpoint: s.oAuthConfigProvider.GetAuthorizationEndpoint(),
 				Scope:                 s.oAuthConfigProvider.GetDefaultScopes(),
 				RedirectURLs:          s.oAuthConfigProvider.GetCLIRedirectURLs(),
-				UseIDToken:            true,
+				LoginFlag:             uint32(common.LoginFlagPromptLogin),
 			},
 		}
 	} else {

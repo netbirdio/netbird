@@ -306,8 +306,11 @@ type AccountSettings struct {
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
 	// DnsDomain Allows to define a custom dns domain for the account
-	DnsDomain *string               `json:"dns_domain,omitempty"`
-	Extra     *AccountExtraSettings `json:"extra,omitempty"`
+	DnsDomain *string `json:"dns_domain,omitempty"`
+
+	// EmbeddedIdpEnabled Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+	EmbeddedIdpEnabled *bool                 `json:"embedded_idp_enabled,omitempty"`
+	Extra              *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`

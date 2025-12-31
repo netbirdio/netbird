@@ -432,7 +432,7 @@ func (s *Server) extractAndValidateUser(token *gojwt.Token) (*auth.UserAuth, err
 		return nil, fmt.Errorf("JWT extractor not initialized (user=%s)", userID)
 	}
 
-	userAuth, err := jwtExtractor.ToUserAuth(context.Background(), token)
+	userAuth, err := jwtExtractor.ToUserAuth(token)
 	if err != nil {
 		userID := extractUserID(token)
 		return nil, fmt.Errorf("extract user from token (user=%s): %w", userID, err)

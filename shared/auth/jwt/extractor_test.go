@@ -1,7 +1,6 @@
 package jwt
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -146,7 +145,7 @@ func TestClaimsExtractor_ToUserAuth_ExtractsEmailAndName(t *testing.T) {
 			}
 
 			// Extract user auth
-			userAuth, err := extractor.ToUserAuth(context.Background(), token)
+			userAuth, err := extractor.ToUserAuth(token)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -173,7 +172,7 @@ func TestClaimsExtractor_ToUserAuth_PreferredUsername(t *testing.T) {
 
 	token := &jwt.Token{Claims: claims}
 
-	userAuth, err := extractor.ToUserAuth(context.Background(), token)
+	userAuth, err := extractor.ToUserAuth(token)
 	require.NoError(t, err)
 
 	assert.Equal(t, "user-123", userAuth.UserId)
@@ -198,7 +197,7 @@ func TestClaimsExtractor_ToUserAuth_LastLogin(t *testing.T) {
 
 	token := &jwt.Token{Claims: claims}
 
-	userAuth, err := extractor.ToUserAuth(context.Background(), token)
+	userAuth, err := extractor.ToUserAuth(token)
 	require.NoError(t, err)
 
 	assert.Equal(t, expectedTime, userAuth.LastLogin)
@@ -218,7 +217,7 @@ func TestClaimsExtractor_ToUserAuth_Invited(t *testing.T) {
 
 	token := &jwt.Token{Claims: claims}
 
-	userAuth, err := extractor.ToUserAuth(context.Background(), token)
+	userAuth, err := extractor.ToUserAuth(token)
 	require.NoError(t, err)
 
 	assert.True(t, userAuth.Invited)
@@ -290,7 +289,7 @@ func TestClaimsExtractor_DefaultUserIDClaim(t *testing.T) {
 
 	token := &jwt.Token{Claims: claims}
 
-	userAuth, err := extractor.ToUserAuth(context.Background(), token)
+	userAuth, err := extractor.ToUserAuth(token)
 	require.NoError(t, err)
 
 	assert.Equal(t, "default-user-id", userAuth.UserId)
@@ -312,7 +311,7 @@ func TestClaimsExtractor_DexUserIDFormat(t *testing.T) {
 
 	token := &jwt.Token{Claims: claims}
 
-	userAuth, err := extractor.ToUserAuth(context.Background(), token)
+	userAuth, err := extractor.ToUserAuth(token)
 	require.NoError(t, err)
 
 	// The extractor should pass through the encoded ID as-is

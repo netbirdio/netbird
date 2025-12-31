@@ -108,7 +108,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, router)
+	// Check if embedded IdP is enabled
+	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
+
+	accounts.AddEndpoints(accountManager, settingsManager, embeddedIdpEnabled, router)
 	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
@@ -123,7 +126,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	idp.AddEndpoints(accountManager, router)
 
 	// Mount embedded IdP handler at /oauth2 path if configured
-	if embeddedIdP, ok := idpManager.(*idpmanager.EmbeddedIdPManager); ok {
+	if embeddedIdpEnabled {
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
 

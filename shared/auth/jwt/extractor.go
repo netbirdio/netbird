@@ -1,7 +1,6 @@
 package jwt
 
 import (
-	"context"
 	"errors"
 	"net/url"
 	"time"
@@ -91,7 +90,7 @@ func (c *ClaimsExtractor) audienceClaim(claimName string) string {
 // ToUserAuth extracts user authentication information from a JWT token.
 // The token should contain standard claims like email, name, preferred_username.
 // When using Dex, make sure to set getUserInfo: true to have these claims populated.
-func (c *ClaimsExtractor) ToUserAuth(ctx context.Context, token *jwt.Token) (auth.UserAuth, error) {
+func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	userAuth := auth.UserAuth{}
 

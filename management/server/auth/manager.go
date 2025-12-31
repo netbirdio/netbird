@@ -61,7 +61,7 @@ func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (auth
 		return auth.UserAuth{}, nil, err
 	}
 
-	userAuth, err := m.extractor.ToUserAuth(ctx, token)
+	userAuth, err := m.extractor.ToUserAuth(token)
 	if err != nil {
 		return auth.UserAuth{}, nil, err
 	}
