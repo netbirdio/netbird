@@ -85,7 +85,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 
 **Infrastructure requirements:**
 - A Linux VM with at least **1CPU** and **2GB** of memory.
-- The VM should be publicly accessible on TCP ports **80** and **443** and UDP ports: **3478**, **49152-65535**.
+- The VM should be publicly accessible on TCP ports **80**, **443**, **33073**, **10000** and **33080** and UDP ports: **3478**, **49152-65535**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
