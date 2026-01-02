@@ -135,10 +135,11 @@ func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) 
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		httpClient := &http.Client{
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+
 	helper := JsonParser{}
 
 	if config.AuthIssuer == "" {
