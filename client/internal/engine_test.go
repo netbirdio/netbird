@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
 
+	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -49,7 +50,9 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
@@ -401,6 +404,303 @@ func TestEngine_SSHServerConsistency(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Nil(t, engine.sshServer)
 	})
+}
+
+func TestEngine_UpdateSelfPeerIP(t *testing.T) {
+	t.Run("same address does nothing", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.1/24")
+		assert.NoError(t, err)
+		assert.Equal(t, "100.64.0.1/24", engine.config.WgAddr)
+	})
+
+	t.Run("updates address successfully", func(t *testing.T) {
+		updateAddrCalled := false
+		oldAddr, _ := wgaddr.ParseWGAddress("100.64.0.1/24")
+		newAddr, _ := wgaddr.ParseWGAddress("100.64.0.2/24")
+		currentAddr := oldAddr
+
+		wgIface := &MockWGIface{
+			AddressFunc: func() wgaddr.Address {
+				return currentAddr
+			},
+			UpdateAddrFunc: func(addr string) error {
+				updateAddrCalled = true
+				assert.Equal(t, "100.64.0.2/24", addr)
+				currentAddr = newAddr
+				return nil
+			},
+		}
+
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.NoError(t, err)
+		assert.True(t, updateAddrCalled)
+		assert.Equal(t, "100.64.0.2/24", engine.config.WgAddr)
+	})
+
+	t.Run("returns error on interface update failure", func(t *testing.T) {
+		oldAddr, _ := wgaddr.ParseWGAddress("100.64.0.1/24")
+
+		wgIface := &MockWGIface{
+			AddressFunc: func() wgaddr.Address {
+				return oldAddr
+			},
+			UpdateAddrFunc: func(newAddr string) error {
+				return fmt.Errorf("mock update error")
+			},
+		}
+
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "mock update error")
+		// Config should not be updated on failure
+		assert.Equal(t, "100.64.0.1/24", engine.config.WgAddr)
+	})
+
+	t.Run("restarts SSH server on address change", func(t *testing.T) {
+		oldAddr, _ := wgaddr.ParseWGAddress("100.64.0.1/24")
+		newAddr, _ := wgaddr.ParseWGAddress("100.64.0.2/24")
+		currentAddr := oldAddr
+
+		wgIface := &MockWGIface{
+			AddressFunc: func() wgaddr.Address {
+				return currentAddr
+			},
+			UpdateAddrFunc: func(addr string) error {
+				currentAddr = newAddr
+				return nil
+			},
+		}
+
+		sshRestartCalled := false
+		var restartAddr netip.AddrPort
+		mockSSH := &mockSSHServer{
+			restartFunc: func(ctx context.Context, addr netip.AddrPort) error {
+				sshRestartCalled = true
+				restartAddr = addr
+				return nil
+			},
+		}
+
+		removeDNATCalled := false
+		addDNATCalled := false
+		mockFirewall := &mockFirewallManager{
+			removeInboundDNATFunc: func(ip netip.Addr, protocol firewallManager.Protocol, port uint16, targetPort uint16) error {
+				removeDNATCalled = true
+				assert.Equal(t, oldAddr.IP, ip)
+				assert.Equal(t, uint16(22), port)
+				assert.Equal(t, uint16(22022), targetPort)
+				return nil
+			},
+			addInboundDNATFunc: func(ip netip.Addr, protocol firewallManager.Protocol, port uint16, targetPort uint16) error {
+				addDNATCalled = true
+				assert.Equal(t, newAddr.IP, ip)
+				assert.Equal(t, uint16(22), port)
+				assert.Equal(t, uint16(22022), targetPort)
+				return nil
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		engine := &Engine{
+			ctx: ctx,
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+			sshServer:   mockSSH,
+			firewall:    mockFirewall,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.NoError(t, err)
+		assert.True(t, removeDNATCalled, "RemoveInboundDNAT should be called")
+		assert.True(t, sshRestartCalled, "SSH server Restart should be called")
+		assert.True(t, addDNATCalled, "AddInboundDNAT should be called")
+		assert.Equal(t, newAddr.IP, restartAddr.Addr(), "SSH should restart on new IP")
+		assert.Equal(t, uint16(22022), restartAddr.Port(), "SSH should restart on port 22022")
+	})
+
+	t.Run("skips SSH restart when SSH server is nil", func(t *testing.T) {
+		oldAddr, _ := wgaddr.ParseWGAddress("100.64.0.1/24")
+		newAddr, _ := wgaddr.ParseWGAddress("100.64.0.2/24")
+		currentAddr := oldAddr
+
+		wgIface := &MockWGIface{
+			AddressFunc: func() wgaddr.Address {
+				return currentAddr
+			},
+			UpdateAddrFunc: func(addr string) error {
+				currentAddr = newAddr
+				return nil
+			},
+		}
+
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+			sshServer:   nil,
+			firewall:    nil,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.NoError(t, err)
+		assert.Equal(t, "100.64.0.2/24", engine.config.WgAddr)
+	})
+}
+
+// mockSSHServer implements the sshServer interface for testing
+type mockSSHServer struct {
+	startFunc     func(ctx context.Context, addr netip.AddrPort) error
+	stopFunc      func() error
+	restartFunc   func(ctx context.Context, newAddr netip.AddrPort) error
+	getStatusFunc func() (bool, []sshserver.SessionInfo)
+}
+
+func (m *mockSSHServer) Start(ctx context.Context, addr netip.AddrPort) error {
+	if m.startFunc != nil {
+		return m.startFunc(ctx, addr)
+	}
+	return nil
+}
+
+func (m *mockSSHServer) Stop() error {
+	if m.stopFunc != nil {
+		return m.stopFunc()
+	}
+	return nil
+}
+
+func (m *mockSSHServer) Restart(ctx context.Context, newAddr netip.AddrPort) error {
+	if m.restartFunc != nil {
+		return m.restartFunc(ctx, newAddr)
+	}
+	return nil
+}
+
+func (m *mockSSHServer) GetStatus() (bool, []sshserver.SessionInfo) {
+	if m.getStatusFunc != nil {
+		return m.getStatusFunc()
+	}
+	return false, nil
+}
+
+// mockFirewallManager implements a minimal firewall manager for testing
+type mockFirewallManager struct {
+	addInboundDNATFunc    func(ip netip.Addr, protocol firewallManager.Protocol, port uint16, targetPort uint16) error
+	removeInboundDNATFunc func(ip netip.Addr, protocol firewallManager.Protocol, port uint16, targetPort uint16) error
+}
+
+func (m *mockFirewallManager) Init(*statemanager.Manager) error {
+	return nil
+}
+
+func (m *mockFirewallManager) AllowNetbird() error {
+	return nil
+}
+
+func (m *mockFirewallManager) AddPeerFiltering(id []byte, ip net.IP, proto firewallManager.Protocol, sPort, dPort *firewallManager.Port, action firewallManager.Action, ipsetName string) ([]firewallManager.Rule, error) {
+	return nil, nil
+}
+
+func (m *mockFirewallManager) DeletePeerRule(rule firewallManager.Rule) error {
+	return nil
+}
+
+func (m *mockFirewallManager) IsServerRouteSupported() bool {
+	return true
+}
+
+func (m *mockFirewallManager) IsStateful() bool {
+	return false
+}
+
+func (m *mockFirewallManager) AddRouteFiltering(id []byte, sources []netip.Prefix, dest firewallManager.Network, proto firewallManager.Protocol, sPort, dPort *firewallManager.Port, action firewallManager.Action) (firewallManager.Rule, error) {
+	return nil, nil
+}
+
+func (m *mockFirewallManager) DeleteRouteRule(rule firewallManager.Rule) error {
+	return nil
+}
+
+func (m *mockFirewallManager) AddNatRule(pair firewallManager.RouterPair) error {
+	return nil
+}
+
+func (m *mockFirewallManager) RemoveNatRule(pair firewallManager.RouterPair) error {
+	return nil
+}
+
+func (m *mockFirewallManager) SetLegacyManagement(legacy bool) error {
+	return nil
+}
+
+func (m *mockFirewallManager) Close(stateManager *statemanager.Manager) error {
+	return nil
+}
+
+func (m *mockFirewallManager) Flush() error {
+	return nil
+}
+
+func (m *mockFirewallManager) SetLogLevel(level log.Level) {
+}
+
+func (m *mockFirewallManager) EnableRouting() error {
+	return nil
+}
+
+func (m *mockFirewallManager) DisableRouting() error {
+	return nil
+}
+
+func (m *mockFirewallManager) AddDNATRule(rule firewallManager.ForwardRule) (firewallManager.Rule, error) {
+	return nil, nil
+}
+
+func (m *mockFirewallManager) DeleteDNATRule(rule firewallManager.Rule) error {
+	return nil
+}
+
+func (m *mockFirewallManager) UpdateSet(hash firewallManager.Set, prefixes []netip.Prefix) error {
+	return nil
+}
+
+func (m *mockFirewallManager) AddInboundDNAT(ip netip.Addr, proto firewallManager.Protocol, port uint16, targetPort uint16) error {
+	if m.addInboundDNATFunc != nil {
+		return m.addInboundDNATFunc(ip, proto, port, targetPort)
+	}
+	return nil
+}
+
+func (m *mockFirewallManager) RemoveInboundDNAT(ip netip.Addr, proto firewallManager.Protocol, port uint16, targetPort uint16) error {
+	if m.removeInboundDNATFunc != nil {
+		return m.removeInboundDNATFunc(ip, proto, port, targetPort)
+	}
+	return nil
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {

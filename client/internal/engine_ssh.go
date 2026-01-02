@@ -21,6 +21,7 @@ import (
 type sshServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
+	Restart(ctx context.Context, newAddr netip.AddrPort) error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
 }
