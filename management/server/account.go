@@ -1470,21 +1470,19 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 	}
 
-	if settings.GroupsPropagationEnabled {
-		removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, removeOldGroups)
-		if err != nil {
-			return err
-		}
+	removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, removeOldGroups)
+	if err != nil {
+		return err
+	}
 
-		newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, addNewGroups)
-		if err != nil {
-			return err
-		}
+	newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, addNewGroups)
+	if err != nil {
+		return err
+	}
 
-		if removedGroupAffectsPeers || newGroupsAffectsPeers {
-			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-			am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
-		}
+	if removedGroupAffectsPeers || newGroupsAffectsPeers {
+		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
+		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
 	}
 
 	return nil
@@ -2171,4 +2169,8 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
 
 	return nil
+}
+
+func (am *DefaultAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return am.Store.GetUserIDByPeerKey(ctx, store.LockingStrengthNone, peerKey)
 }

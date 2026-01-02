@@ -1383,11 +1383,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	// Creating a new regular user should not update account peers and not send peer update
+	// Creating a new regular user should send peer update (as users are not filtered yet)
 	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1406,11 +1406,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// updating user with no linked peers should not update account peers and not send peer update
+	// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
 	t.Run("updating user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 

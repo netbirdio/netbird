@@ -505,6 +505,8 @@ components:
               description: Indicates whether the peer is ephemeral or not
               type: boolean
               example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
           required:
             - city_name
             - connected
@@ -531,6 +533,49 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
     PeerTemporaryAccessRequest:
       type: object
       properties:
@@ -953,7 +998,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp"]
+          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -966,6 +1011,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
+        authorized_groups:
+          description: Map of user group ids to a list of local users
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              example: "group1"
       required:
         - name
         - enabled

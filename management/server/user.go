@@ -561,16 +561,14 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
+			_, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 
-			if userHadPeers {
-				updateAccountPeers = true
-			}
+			updateAccountPeers = true
 
 			err = transaction.SaveUser(ctx, updatedUser)
 			if err != nil {
@@ -619,7 +617,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		}
 	}
 
-	if settings.GroupsPropagationEnabled && updateAccountPeers {
+	if updateAccountPeers {
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
