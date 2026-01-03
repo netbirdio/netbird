@@ -267,4 +267,5 @@ func (s *FileStore) GetStoreEngine() types.Engine {
 
 // SetFieldEncrypt is a no-op for FileStore as it doesn't support field encryption.
 func (s *FileStore) SetFieldEncrypt(_ *crypt.FieldEncrypt) {
+	// no-op: FileStore stores data in plaintext JSON; encryption is not supported
 }

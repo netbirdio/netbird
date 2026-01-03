@@ -194,8 +194,7 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 		if file == "" {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
-		cfg := &sql.SQLite3{File: file}
-		return cfg.Open(logger)
+		return (&sql.SQLite3{File: file}).Open(logger)
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", s.Type)
 	}

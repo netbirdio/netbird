@@ -132,127 +132,22 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Open storage based on config
 	stor, err := yamlConfig.Storage.OpenStorage(logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open storage: %w", err)
 	}
 
-	// Ensure a local connector exists if password DB is enabled
-	if yamlConfig.EnablePasswordDB {
-		if err := ensureLocalConnector(ctx, stor); err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to ensure local connector: %w", err)
-		}
+	if err := initializeStorage(ctx, stor, yamlConfig); err != nil {
+		stor.Close()
+		return nil, err
 	}
 
-	// Create static passwords if provided
-	for _, pw := range yamlConfig.StaticPasswords {
-		existing, err := stor.GetPassword(ctx, pw.Email)
-		if errors.Is(err, storage.ErrNotFound) {
-			if err := stor.CreatePassword(ctx, storage.Password(pw)); err != nil {
-				stor.Close()
-				return nil, fmt.Errorf("failed to create password for %s: %w", pw.Email, err)
-			}
-			continue
-		}
-		if err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to get password for %s: %w", pw.Email, err)
-		}
-		// Update existing user if hash changed
-		if string(existing.Hash) != string(pw.Hash) {
-			if err := stor.UpdatePassword(ctx, pw.Email, func(old storage.Password) (storage.Password, error) {
-				old.Hash = pw.Hash
-				old.Username = pw.Username
-				return old, nil
-			}); err != nil {
-				stor.Close()
-				return nil, fmt.Errorf("failed to update password for %s: %w", pw.Email, err)
-			}
-		}
-	}
-
-	// Create static clients if provided
-	for _, client := range yamlConfig.StaticClients {
-		_, err := stor.GetClient(ctx, client.ID)
-		if err == storage.ErrNotFound {
-			if err := stor.CreateClient(ctx, client); err != nil {
-				stor.Close()
-				return nil, fmt.Errorf("failed to create client %s: %w", client.ID, err)
-			}
-			continue
-		}
-		if err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to get client %s: %w", client.ID, err)
-		}
-		// Update if exists
-		if err := stor.UpdateClient(ctx, client.ID, func(old storage.Client) (storage.Client, error) {
-			old.RedirectURIs = client.RedirectURIs
-			old.Name = client.Name
-			old.Public = client.Public
-			return old, nil
-		}); err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to update client %s: %w", client.ID, err)
-		}
-	}
-
-	// Create connectors if provided
-	for _, conn := range yamlConfig.StaticConnectors {
-		storConn, err := conn.ToStorageConnector()
-		if err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to convert connector %s: %w", conn.ID, err)
-		}
-		_, err = stor.GetConnector(ctx, conn.ID)
-		if err == storage.ErrNotFound {
-			if err := stor.CreateConnector(ctx, storConn); err != nil {
-				stor.Close()
-				return nil, fmt.Errorf("failed to create connector %s: %w", conn.ID, err)
-			}
-			continue
-		}
-		if err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to get connector %s: %w", conn.ID, err)
-		}
-		// Update if exists
-		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
-			old.Name = storConn.Name
-			old.Config = storConn.Config
-			return old, nil
-		}); err != nil {
-			stor.Close()
-			return nil, fmt.Errorf("failed to update connector %s: %w", conn.ID, err)
-		}
-	}
-
-	// Build Dex server config
-	dexConfig := yamlConfig.ToServerConfig(stor, logger)
-	dexConfig.PrometheusRegistry = prometheus.NewRegistry()
-	// Set defaults only if not configured in YAML
-	if dexConfig.RotateKeysAfter == 0 {
-		dexConfig.RotateKeysAfter = 24 * 30 * time.Hour
-	}
-	if dexConfig.IDTokensValidFor == 0 {
-		dexConfig.IDTokensValidFor = 24 * time.Hour
-	}
-	if dexConfig.Web.Issuer == "" {
-		dexConfig.Web.Issuer = "NetBird"
-	}
-	if len(dexConfig.SupportedResponseTypes) == 0 {
-		dexConfig.SupportedResponseTypes = []string{"code"}
-	}
-
-	// Create RefreshTokenPolicy from YAML config or use defaults
-	refreshPolicy, err := yamlConfig.GetRefreshTokenPolicy(logger)
+	dexConfig := buildDexConfig(yamlConfig, stor, logger)
+	dexConfig.RefreshTokenPolicy, err = yamlConfig.GetRefreshTokenPolicy(logger)
 	if err != nil {
 		stor.Close()
 		return nil, fmt.Errorf("failed to create refresh token policy: %w", err)
 	}
-	dexConfig.RefreshTokenPolicy = refreshPolicy
 
 	dexSrv, err := server.NewServer(ctx, dexConfig)
 	if err != nil {
@@ -260,19 +155,127 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 		return nil, fmt.Errorf("failed to create dex server: %w", err)
 	}
 
-	// Convert YAMLConfig to Config for internal use
-	config := &Config{
-		Issuer:   yamlConfig.Issuer,
-		GRPCAddr: yamlConfig.GRPC.Addr,
-	}
-
 	return &Provider{
-		config:     config,
+		config:     &Config{Issuer: yamlConfig.Issuer, GRPCAddr: yamlConfig.GRPC.Addr},
 		yamlConfig: yamlConfig,
 		dexServer:  dexSrv,
 		storage:    stor,
 		logger:     logger,
 	}, nil
+}
+
+// initializeStorage sets up connectors, passwords, and clients in storage
+func initializeStorage(ctx context.Context, stor storage.Storage, cfg *YAMLConfig) error {
+	if cfg.EnablePasswordDB {
+		if err := ensureLocalConnector(ctx, stor); err != nil {
+			return fmt.Errorf("failed to ensure local connector: %w", err)
+		}
+	}
+	if err := ensureStaticPasswords(ctx, stor, cfg.StaticPasswords); err != nil {
+		return err
+	}
+	if err := ensureStaticClients(ctx, stor, cfg.StaticClients); err != nil {
+		return err
+	}
+	return ensureStaticConnectors(ctx, stor, cfg.StaticConnectors)
+}
+
+// ensureStaticPasswords creates or updates static passwords in storage
+func ensureStaticPasswords(ctx context.Context, stor storage.Storage, passwords []Password) error {
+	for _, pw := range passwords {
+		existing, err := stor.GetPassword(ctx, pw.Email)
+		if errors.Is(err, storage.ErrNotFound) {
+			if err := stor.CreatePassword(ctx, storage.Password(pw)); err != nil {
+				return fmt.Errorf("failed to create password for %s: %w", pw.Email, err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get password for %s: %w", pw.Email, err)
+		}
+		if string(existing.Hash) != string(pw.Hash) {
+			if err := stor.UpdatePassword(ctx, pw.Email, func(old storage.Password) (storage.Password, error) {
+				old.Hash = pw.Hash
+				old.Username = pw.Username
+				return old, nil
+			}); err != nil {
+				return fmt.Errorf("failed to update password for %s: %w", pw.Email, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ensureStaticClients creates or updates static clients in storage
+func ensureStaticClients(ctx context.Context, stor storage.Storage, clients []storage.Client) error {
+	for _, client := range clients {
+		_, err := stor.GetClient(ctx, client.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			if err := stor.CreateClient(ctx, client); err != nil {
+				return fmt.Errorf("failed to create client %s: %w", client.ID, err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get client %s: %w", client.ID, err)
+		}
+		if err := stor.UpdateClient(ctx, client.ID, func(old storage.Client) (storage.Client, error) {
+			old.RedirectURIs = client.RedirectURIs
+			old.Name = client.Name
+			old.Public = client.Public
+			return old, nil
+		}); err != nil {
+			return fmt.Errorf("failed to update client %s: %w", client.ID, err)
+		}
+	}
+	return nil
+}
+
+// ensureStaticConnectors creates or updates static connectors in storage
+func ensureStaticConnectors(ctx context.Context, stor storage.Storage, connectors []Connector) error {
+	for _, conn := range connectors {
+		storConn, err := conn.ToStorageConnector()
+		if err != nil {
+			return fmt.Errorf("failed to convert connector %s: %w", conn.ID, err)
+		}
+		_, err = stor.GetConnector(ctx, conn.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			if err := stor.CreateConnector(ctx, storConn); err != nil {
+				return fmt.Errorf("failed to create connector %s: %w", conn.ID, err)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get connector %s: %w", conn.ID, err)
+		}
+		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
+			old.Name = storConn.Name
+			old.Config = storConn.Config
+			return old, nil
+		}); err != nil {
+			return fmt.Errorf("failed to update connector %s: %w", conn.ID, err)
+		}
+	}
+	return nil
+}
+
+// buildDexConfig creates a server.Config with defaults applied
+func buildDexConfig(yamlConfig *YAMLConfig, stor storage.Storage, logger *slog.Logger) server.Config {
+	cfg := yamlConfig.ToServerConfig(stor, logger)
+	cfg.PrometheusRegistry = prometheus.NewRegistry()
+	if cfg.RotateKeysAfter == 0 {
+		cfg.RotateKeysAfter = 24 * 30 * time.Hour
+	}
+	if cfg.IDTokensValidFor == 0 {
+		cfg.IDTokensValidFor = 24 * time.Hour
+	}
+	if cfg.Web.Issuer == "" {
+		cfg.Web.Issuer = "NetBird"
+	}
+	if len(cfg.SupportedResponseTypes) == 0 {
+		cfg.SupportedResponseTypes = []string{"code"}
+	}
+	return cfg
 }
 
 // Start starts the HTTP server and optionally the gRPC API server
@@ -734,84 +737,72 @@ func (p *Provider) DeleteConnector(ctx context.Context, id string) error {
 // buildStorageConnector creates a storage.Connector from ConnectorConfig.
 // It handles the type-specific configuration for each connector type.
 func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connector, error) {
-	var configData []byte
-	var dexType string
+	redirectURI := p.resolveRedirectURI(cfg.RedirectURI)
 
-	// Determine the redirect URI - default to oauth2 callback
-	redirectURI := cfg.RedirectURI
-	if redirectURI == "" && p.config != nil {
-		issuer := strings.TrimSuffix(p.config.Issuer, "/")
-		if !strings.HasSuffix(issuer, "/oauth2") {
-			issuer = issuer + "/oauth2"
-		}
-		redirectURI = issuer + "/callback"
-	}
+	var dexType string
+	var configData []byte
+	var err error
 
 	switch cfg.Type {
 	case "oidc", "zitadel", "entra", "okta", "pocketid":
-		// All these types use the OIDC connector in Dex
 		dexType = "oidc"
-		oidcConfig := map[string]interface{}{
-			"issuer":       cfg.Issuer,
-			"clientID":     cfg.ClientID,
-			"clientSecret": cfg.ClientSecret,
-			"redirectURI":  redirectURI,
-			"scopes":       []string{"openid", "profile", "email"},
-		}
-		// Type-specific configurations
-		switch cfg.Type {
-		case "zitadel":
-			oidcConfig["getUserInfo"] = true
-		case "entra":
-			oidcConfig["insecureSkipEmailVerified"] = true
-			oidcConfig["claimMapping"] = map[string]string{
-				"email": "preferred_username",
-			}
-		case "okta":
-			oidcConfig["insecureSkipEmailVerified"] = true
-		}
-		var err error
-		configData, err = encodeConnectorConfig(oidcConfig)
-		if err != nil {
-			return storage.Connector{}, err
-		}
-
+		configData, err = buildOIDCConnectorConfig(cfg, redirectURI)
 	case "google":
 		dexType = "google"
-		googleConfig := map[string]interface{}{
-			"clientID":     cfg.ClientID,
-			"clientSecret": cfg.ClientSecret,
-			"redirectURI":  redirectURI,
-		}
-		var err error
-		configData, err = encodeConnectorConfig(googleConfig)
-		if err != nil {
-			return storage.Connector{}, err
-		}
-
+		configData, err = buildOAuth2ConnectorConfig(cfg, redirectURI)
 	case "microsoft":
 		dexType = "microsoft"
-		msConfig := map[string]interface{}{
-			"clientID":     cfg.ClientID,
-			"clientSecret": cfg.ClientSecret,
-			"redirectURI":  redirectURI,
-		}
-		var err error
-		configData, err = encodeConnectorConfig(msConfig)
-		if err != nil {
-			return storage.Connector{}, err
-		}
-
+		configData, err = buildOAuth2ConnectorConfig(cfg, redirectURI)
 	default:
 		return storage.Connector{}, fmt.Errorf("unsupported connector type: %s", cfg.Type)
 	}
+	if err != nil {
+		return storage.Connector{}, err
+	}
 
-	return storage.Connector{
-		ID:     cfg.ID,
-		Type:   dexType,
-		Name:   cfg.Name,
-		Config: configData,
-	}, nil
+	return storage.Connector{ID: cfg.ID, Type: dexType, Name: cfg.Name, Config: configData}, nil
+}
+
+// resolveRedirectURI returns the redirect URI, using a default if not provided
+func (p *Provider) resolveRedirectURI(redirectURI string) string {
+	if redirectURI != "" || p.config == nil {
+		return redirectURI
+	}
+	issuer := strings.TrimSuffix(p.config.Issuer, "/")
+	if !strings.HasSuffix(issuer, "/oauth2") {
+		issuer = issuer + "/oauth2"
+	}
+	return issuer + "/callback"
+}
+
+// buildOIDCConnectorConfig creates config for OIDC-based connectors
+func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte, error) {
+	oidcConfig := map[string]interface{}{
+		"issuer":       cfg.Issuer,
+		"clientID":     cfg.ClientID,
+		"clientSecret": cfg.ClientSecret,
+		"redirectURI":  redirectURI,
+		"scopes":       []string{"openid", "profile", "email"},
+	}
+	switch cfg.Type {
+	case "zitadel":
+		oidcConfig["getUserInfo"] = true
+	case "entra":
+		oidcConfig["insecureSkipEmailVerified"] = true
+		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
+	case "okta":
+		oidcConfig["insecureSkipEmailVerified"] = true
+	}
+	return encodeConnectorConfig(oidcConfig)
+}
+
+// buildOAuth2ConnectorConfig creates config for OAuth2 connectors (google, microsoft)
+func buildOAuth2ConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte, error) {
+	return encodeConnectorConfig(map[string]interface{}{
+		"clientID":     cfg.ClientID,
+		"clientSecret": cfg.ClientSecret,
+		"redirectURI":  redirectURI,
+	})
 }
 
 // parseStorageConnector converts a storage.Connector back to ConnectorConfig.
@@ -854,31 +845,22 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 
 // inferIdentityProviderType determines the original identity provider type
 // based on the Dex connector type, connector ID, and configuration.
-func inferIdentityProviderType(dexType, connectorID string, config map[string]interface{}) string {
-	connectorIDLower := strings.ToLower(connectorID)
-
-	switch dexType {
-	case "oidc":
-		// Check connector ID for specific provider hints
-		switch {
-		case strings.Contains(connectorIDLower, "pocketid"):
-			return "pocketid"
-		case strings.Contains(connectorIDLower, "zitadel"):
-			return "zitadel"
-		case strings.Contains(connectorIDLower, "entra"):
-			return "entra"
-		case strings.Contains(connectorIDLower, "okta"):
-			return "okta"
-		default:
-			return "oidc"
-		}
-	case "google":
-		return "google"
-	case "microsoft":
-		return "microsoft"
-	default:
+func inferIdentityProviderType(dexType, connectorID string, _ map[string]interface{}) string {
+	if dexType != "oidc" {
 		return dexType
 	}
+	return inferOIDCProviderType(connectorID)
+}
+
+// inferOIDCProviderType infers the specific OIDC provider from connector ID
+func inferOIDCProviderType(connectorID string) string {
+	connectorIDLower := strings.ToLower(connectorID)
+	for _, provider := range []string{"pocketid", "zitadel", "entra", "okta"} {
+		if strings.Contains(connectorIDLower, provider) {
+			return provider
+		}
+	}
+	return "oidc"
 }
 
 // encodeConnectorConfig serializes connector config to JSON bytes.

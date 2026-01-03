@@ -136,95 +136,139 @@ var (
 
 func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
 	loadedConfig := &nbconfig.Config{}
-	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
-	if err != nil {
+	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
 		return nil, err
 	}
+
+	applyCommandLineOverrides(loadedConfig)
+
+	if err := applyOIDCConfig(ctx, loadedConfig); err != nil {
+		return nil, err
+	}
+
+	logConfigInfo(loadedConfig)
+
+	if err := ensureEncryptionKey(ctx, mgmtConfigPath, loadedConfig); err != nil {
+		return nil, err
+	}
+
+	return loadedConfig, nil
+}
+
+// applyCommandLineOverrides applies command-line flag overrides to the config
+func applyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
-		loadedConfig.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
+		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
-		loadedConfig.Datadir = mgmtDataDir
+		cfg.Datadir = mgmtDataDir
 	}
-
 	if certKey != "" && certFile != "" {
-		loadedConfig.HttpConfig.CertFile = certFile
-		loadedConfig.HttpConfig.CertKey = certKey
+		cfg.HttpConfig.CertFile = certFile
+		cfg.HttpConfig.CertKey = certKey
+	}
+}
+
+// applyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
+func applyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
+	oidcEndpoint := cfg.HttpConfig.OIDCConfigEndpoint
+	if oidcEndpoint == "" || cfg.EmbeddedIdP != nil {
+		return nil
 	}
 
-	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
-	if oidcEndpoint != "" && loadedConfig.EmbeddedIdP == nil {
-		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
-		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
-		oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
-		if err != nil {
-			return nil, err
-		}
-		log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+	log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
+	oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
+	if err != nil {
+		return err
+	}
+	log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
 
-		log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
-			oidcConfig.Issuer, loadedConfig.HttpConfig.AuthIssuer)
-		loadedConfig.HttpConfig.AuthIssuer = oidcConfig.Issuer
+	log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
+		oidcConfig.Issuer, cfg.HttpConfig.AuthIssuer)
+	cfg.HttpConfig.AuthIssuer = oidcConfig.Issuer
 
-		log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
-			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
-		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
+	log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
+		oidcConfig.JwksURI, cfg.HttpConfig.AuthKeysLocation)
+	cfg.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE)) {
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.DeviceAuthEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
+	if err := applyDeviceAuthFlowConfig(ctx, cfg, &oidcConfig, oidcEndpoint); err != nil {
+		return err
+	}
+	applyPKCEFlowConfig(ctx, cfg, &oidcConfig)
 
-			u, err := url.Parse(oidcEndpoint)
-			if err != nil {
-				return nil, err
-			}
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
-				u.Host, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+	return nil
+}
 
-			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = nbconfig.DefaultDeviceAuthFlowScope
-			}
-		}
-
-		if loadedConfig.PKCEAuthorizationFlow != nil {
-			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
-			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
-		}
+// applyDeviceAuthFlowConfig applies OIDC config to DeviceAuthorizationFlow if enabled
+func applyDeviceAuthFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse, oidcEndpoint string) error {
+	if cfg.DeviceAuthorizationFlow == nil || strings.ToLower(cfg.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE) {
+		return nil
 	}
 
-	if loadedConfig.EmbeddedIdP != nil {
-		log.Infof("running with the embedded IdP: %v", loadedConfig.EmbeddedIdP.Issuer)
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.TokenEndpoint, cfg.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.DeviceAuthEndpoint, cfg.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
+
+	u, err := url.Parse(oidcEndpoint)
+	if err != nil {
+		return err
+	}
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
+		u.Host, cfg.DeviceAuthorizationFlow.ProviderConfig.Domain)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+
+	if cfg.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
+		cfg.DeviceAuthorizationFlow.ProviderConfig.Scope = nbconfig.DefaultDeviceAuthFlowScope
+	}
+	return nil
+}
+
+// applyPKCEFlowConfig applies OIDC config to PKCEAuthorizationFlow if configured
+func applyPKCEFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse) {
+	if cfg.PKCEAuthorizationFlow == nil {
+		return
+	}
+	log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.TokenEndpoint, cfg.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
+	cfg.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+
+	log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.AuthorizationEndpoint, cfg.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
+	cfg.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
+}
+
+// logConfigInfo logs informational messages about the loaded configuration
+func logConfigInfo(cfg *nbconfig.Config) {
+	if cfg.EmbeddedIdP != nil {
+		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
+	}
+	if cfg.Relay != nil {
+		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+	}
+}
+
+// ensureEncryptionKey generates and saves a DataStoreEncryptionKey if not set
+func ensureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.Config) error {
+	if cfg.DataStoreEncryptionKey != "" {
+		return nil
 	}
 
-	if loadedConfig.Relay != nil {
-		log.Infof("Relay addresses: %v", loadedConfig.Relay.Addresses)
+	log.WithContext(ctx).Infof("DataStoreEncryptionKey is not set, generating a new key")
+	key, err := crypt.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("failed to generate datastore encryption key: %v", err)
 	}
+	cfg.DataStoreEncryptionKey = key
 
-	// Generate DataStoreEncryptionKey if not set
-	if loadedConfig.DataStoreEncryptionKey == "" {
-		log.WithContext(ctx).Infof("DataStoreEncryptionKey is not set, generating a new key")
-		key, err := crypt.GenerateKey()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate datastore encryption key: %v", err)
-		}
-		loadedConfig.DataStoreEncryptionKey = key
-
-		if err := util.DirectWriteJson(ctx, mgmtConfigPath, loadedConfig); err != nil {
-			return nil, fmt.Errorf("failed to save config with new encryption key: %v", err)
-		}
-		log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
+	if err := util.DirectWriteJson(ctx, configPath, cfg); err != nil {
+		return fmt.Errorf("failed to save config with new encryption key: %v", err)
 	}
-
-	return loadedConfig, err
+	log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
+	return nil
 }
 
 // OIDCConfigResponse used for parsing OIDC config response

@@ -181,29 +181,32 @@ func validateIdentityProvider(idpConfig *types.IdentityProvider) error {
 	if idpConfig.Type == "" {
 		return status.Errorf(status.InvalidArgument, "identity provider type is required")
 	}
-	// Validate type is supported
-	switch idpConfig.Type {
-	case types.IdentityProviderTypeOIDC,
-		types.IdentityProviderTypeZitadel,
-		types.IdentityProviderTypeEntra,
-		types.IdentityProviderTypeGoogle,
-		types.IdentityProviderTypeOkta,
-		types.IdentityProviderTypePocketID,
-		types.IdentityProviderTypeMicrosoft:
-		// Valid types
-	default:
+	if !isValidIdentityProviderType(idpConfig.Type) {
 		return status.Errorf(status.InvalidArgument, "unsupported identity provider type: %s", idpConfig.Type)
 	}
-	// Issuer is required for OIDC-based types
-	if idpConfig.Type != types.IdentityProviderTypeGoogle && idpConfig.Type != types.IdentityProviderTypeMicrosoft {
-		if idpConfig.Issuer == "" {
-			return status.Errorf(status.InvalidArgument, "identity provider issuer is required")
-		}
+	if !identityProviderTypeHasBuiltInIssuer(idpConfig.Type) && idpConfig.Issuer == "" {
+		return status.Errorf(status.InvalidArgument, "identity provider issuer is required")
 	}
 	if idpConfig.ClientID == "" {
 		return status.Errorf(status.InvalidArgument, "identity provider client ID is required")
 	}
 	return nil
+}
+
+// isValidIdentityProviderType checks if the given type is a supported identity provider type
+func isValidIdentityProviderType(t types.IdentityProviderType) bool {
+	switch t {
+	case types.IdentityProviderTypeOIDC, types.IdentityProviderTypeZitadel, types.IdentityProviderTypeEntra,
+		types.IdentityProviderTypeGoogle, types.IdentityProviderTypeOkta, types.IdentityProviderTypePocketID,
+		types.IdentityProviderTypeMicrosoft:
+		return true
+	}
+	return false
+}
+
+// identityProviderTypeHasBuiltInIssuer returns true for types that don't require an issuer URL
+func identityProviderTypeHasBuiltInIssuer(t types.IdentityProviderType) bool {
+	return t == types.IdentityProviderTypeGoogle || t == types.IdentityProviderTypeMicrosoft
 }
 
 // connectorConfigToIdentityProvider converts a dex.ConnectorConfig to types.IdentityProvider
