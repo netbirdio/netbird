@@ -88,7 +88,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 	// Ensure issuer ends with /oauth2 for proper path mounting
 	issuer := strings.TrimSuffix(config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
-		issuer = issuer + "/oauth2"
+		issuer += "/oauth2"
 	}
 
 	// Build refresh token policy (required to avoid nil pointer panics)
@@ -770,7 +770,7 @@ func (p *Provider) resolveRedirectURI(redirectURI string) string {
 	}
 	issuer := strings.TrimSuffix(p.config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
-		issuer = issuer + "/oauth2"
+		issuer += "/oauth2"
 	}
 	return issuer + "/callback"
 }
@@ -880,7 +880,7 @@ func (p *Provider) GetRedirectURI() string {
 	}
 	issuer := strings.TrimSuffix(p.config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
-		issuer = issuer + "/oauth2"
+		issuer += "/oauth2"
 	}
 	return issuer + "/callback"
 }
@@ -892,7 +892,7 @@ func (p *Provider) GetIssuer() string {
 	}
 	issuer := strings.TrimSuffix(p.config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
-		issuer = issuer + "/oauth2"
+		issuer += "/oauth2"
 	}
 	return issuer
 }

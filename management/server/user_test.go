@@ -1890,20 +1890,22 @@ func TestUser_CreateUser_WithEmbeddedIDP(t *testing.T) {
 	dexDataDir := tmpDir + "/dex"
 	require.NoError(t, os.MkdirAll(dexDataDir, 0700))
 
-	// Create the Dex provider
-	provider, err := dex.NewProvider(ctx, &dex.Config{
+	// Create embedded IDP config
+	embeddedIdPConfig := &idp.EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: dexDataDir,
-	})
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
+		Storage: idp.EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: idp.EmbeddedStorageTypeConfig{
+				File: dexDataDir + "/dex.db",
+			},
+		},
+	}
 
 	// Create embedded IDP manager
-	embeddedIdp, err := idp.NewEmbeddedIdPManager(idp.EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	embeddedIdp, err := idp.NewEmbeddedIdPManager(ctx, embeddedIdPConfig, nil)
 	require.NoError(t, err)
+	defer func() { _ = embeddedIdp.Stop(ctx) }()
 
 	// Create test store
 	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", tmpDir)

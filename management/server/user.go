@@ -202,7 +202,7 @@ func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, acco
 	}
 
 	for _, user := range existingUsers {
-		if strings.ToLower(user.Email) == strings.ToLower(invite.Email) {
+		if strings.EqualFold(user.Email, invite.Email) {
 			return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 		}
 	}

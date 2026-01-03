@@ -27,7 +27,7 @@ func TestUserCreationFlow(t *testing.T) {
 
 	provider, err := NewProvider(ctx, config)
 	require.NoError(t, err)
-	defer provider.Stop(ctx)
+	defer func() { _ = provider.Stop(ctx) }()
 
 	// Test user data
 	email := "test@example.com"
@@ -169,7 +169,7 @@ enablePasswordDB: true
 
 	provider, err := NewProviderFromYAML(ctx, yamlConfig)
 	require.NoError(t, err)
-	defer provider.Stop(ctx)
+	defer func() { _ = provider.Stop(ctx) }()
 
 	// Create user
 	email := "newuser@example.com"

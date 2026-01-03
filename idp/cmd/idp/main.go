@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +15,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	var (
 		configFile = flag.String("config", "", "Path to YAML config file (dex-compatible format)")
 		addUser    = flag.String("add-user", "", "Add a user (format: email:password)")
@@ -24,58 +29,57 @@ func main() {
 	flag.Parse()
 
 	if *configFile == "" {
-		log.Fatal("--config flag is required. Please provide a YAML configuration file.")
+		return errConfigRequired
+	}
+
+	yamlConfig, err := dex.LoadConfig(*configFile)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Load YAML config
-	yamlConfig, err := dex.LoadConfig(*configFile)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
 	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
-		log.Fatalf("Failed to create provider: %v", err)
+		return err
 	}
 
 	// Handle --list-users
 	if *listUsers {
 		users, err := provider.ListUsers(ctx)
 		if err != nil {
-			log.Fatalf("Failed to list users: %v", err)
+			return err
 		}
 		if len(users) == 0 {
-			fmt.Println("No users found")
+			log.Println("No users found")
 		} else {
-			fmt.Printf("Users (%d):\n", len(users))
+			log.Printf("Users (%d):\n", len(users))
 			for _, u := range users {
-				fmt.Printf("  - %s (%s)\n", u.Email, u.Username)
+				log.Printf("  - %s (%s)\n", u.Email, u.Username)
 			}
 		}
-		return
+		return nil
 	}
 
 	// Handle --add-user
 	if *addUser != "" {
 		parts := strings.SplitN(*addUser, ":", 2)
 		if len(parts) != 2 {
-			log.Fatalf("Invalid --add-user format. Use: email:password")
+			return errInvalidAddUserFormat
 		}
 		email, password := parts[0], parts[1]
 		username := strings.Split(email, "@")[0] // Use part before @ as username
 
 		userID, err := provider.CreateUser(ctx, email, username, password)
 		if err != nil {
-			log.Fatalf("Failed to create user: %v", err)
+			return err
 		}
 		log.Infof("Created user: %s (ID: %s)", email, userID)
 	}
 
 	if err := provider.Start(ctx); err != nil {
-		log.Fatalf("Failed to start: %v", err)
+		return err
 	}
 
 	log.Infof("OIDC Provider: %s", yamlConfig.Issuer)
@@ -93,4 +97,15 @@ func main() {
 	if err := provider.Stop(ctx); err != nil {
 		log.Errorf("Shutdown error: %v", err)
 	}
+
+	return nil
 }
+
+type configError string
+
+func (e configError) Error() string { return string(e) }
+
+const (
+	errConfigRequired       = configError("--config flag is required. Please provide a YAML configuration file.")
+	errInvalidAddUserFormat = configError("Invalid --add-user format. Use: email:password")
+)

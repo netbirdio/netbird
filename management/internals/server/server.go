@@ -23,7 +23,6 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -249,10 +248,6 @@ func (s *BaseServer) SetContainer(key string, container any) {
 	}
 	s.container[key] = container
 	log.Tracef("container with key %s set successfully", key)
-}
-
-func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config) error {
-	return util.DirectWriteJson(ctx, path, config)
 }
 
 func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {

@@ -3,6 +3,7 @@ package idp
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,22 +20,22 @@ func TestEmbeddedIdPManager_CreateUser_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create the Dex provider
-	dexConfig := &dex.Config{
+	// Create the embedded IDP config
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: tmpDir,
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
 	}
 
-	provider, err := dex.NewProvider(ctx, dexConfig)
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
-
 	// Create the embedded IDP manager
-	manager, err := NewEmbeddedIdPManager(EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
 	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
 
 	// Test data
 	email := "newuser@example.com"
@@ -90,18 +91,20 @@ func TestEmbeddedIdPManager_GetUserDataByID_WithEncodedID(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	provider, err := dex.NewProvider(ctx, &dex.Config{
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: tmpDir,
-	})
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
+	}
 
-	manager, err := NewEmbeddedIdPManager(EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
 	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
 
 	// Create a user first
 	userData, err := manager.CreateUser(ctx, "test@example.com", "Test User", "account1", "admin@example.com")
@@ -124,18 +127,20 @@ func TestEmbeddedIdPManager_DeleteUser(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	provider, err := dex.NewProvider(ctx, &dex.Config{
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: tmpDir,
-	})
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
+	}
 
-	manager, err := NewEmbeddedIdPManager(EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
 	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
 
 	// Create a user
 	userData, err := manager.CreateUser(ctx, "delete-me@example.com", "Delete Me", "account1", "admin@example.com")
@@ -157,18 +162,20 @@ func TestEmbeddedIdPManager_GetAccount(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	provider, err := dex.NewProvider(ctx, &dex.Config{
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: tmpDir,
-	})
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
+	}
 
-	manager, err := NewEmbeddedIdPManager(EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
 	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
 
 	// Create multiple users
 	_, err = manager.CreateUser(ctx, "user1@example.com", "User 1", "account1", "admin@example.com")
@@ -199,18 +206,20 @@ func TestEmbeddedIdPManager_UserIDFormat_MatchesJWT(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	provider, err := dex.NewProvider(ctx, &dex.Config{
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
 		Issuer:  "http://localhost:5556/dex",
-		Port:    5556,
-		DataDir: tmpDir,
-	})
-	require.NoError(t, err)
-	defer provider.Stop(ctx)
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
+	}
 
-	manager, err := NewEmbeddedIdPManager(EmbeddedIdPConfig{
-		Provider: provider,
-	}, nil)
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
 	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
 
 	// Create a user
 	userData, err := manager.CreateUser(ctx, "jwt-test@example.com", "JWT Test", "account1", "admin@example.com")
