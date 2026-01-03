@@ -102,8 +102,8 @@ type User struct {
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 
-	Name  string
-	Email string
+	Name  string `gorm:"default:''"`
+	Email string `gorm:"default:''"`
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
