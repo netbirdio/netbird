@@ -245,11 +245,6 @@ render_management_json() {
     },
     "Datadir": "/var/lib/netbird",
     "DataStoreEncryptionKey": "$DATASTORE_ENCRYPTION_KEY",
-    "HttpConfig": {
-        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
-        "AuthAudience": "netbird-dashboard",
-        "OIDCConfigEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration"
-    },
     "EmbeddedIdP": {
         "Enabled": true,
         "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",

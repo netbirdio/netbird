@@ -142,6 +142,9 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 
 	applyCommandLineOverrides(loadedConfig)
 
+	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
+	applyEmbeddedIdPConfig(loadedConfig)
+
 	if err := applyOIDCConfig(ctx, loadedConfig); err != nil {
 		return nil, err
 	}
@@ -166,6 +169,51 @@ func applyCommandLineOverrides(cfg *nbconfig.Config) {
 	if certKey != "" && certFile != "" {
 		cfg.HttpConfig.CertFile = certFile
 		cfg.HttpConfig.CertKey = certKey
+	}
+}
+
+// applyEmbeddedIdPConfig populates HttpConfig from EmbeddedIdP settings when embedded IdP is enabled.
+// This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
+func applyEmbeddedIdPConfig(cfg *nbconfig.Config) {
+	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
+		return
+	}
+
+	// Ensure HttpConfig exists
+	if cfg.HttpConfig == nil {
+		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
+	}
+
+	issuer := cfg.EmbeddedIdP.Issuer
+
+	// Set AuthIssuer from EmbeddedIdP issuer
+	if cfg.HttpConfig.AuthIssuer == "" {
+		cfg.HttpConfig.AuthIssuer = issuer
+	}
+
+	// Set AuthAudience to the dashboard client ID
+	if cfg.HttpConfig.AuthAudience == "" {
+		cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	}
+
+	// Set AuthUserIDClaim to "sub" (standard OIDC claim)
+	if cfg.HttpConfig.AuthUserIDClaim == "" {
+		cfg.HttpConfig.AuthUserIDClaim = "sub"
+	}
+
+	// Set AuthKeysLocation to the JWKS endpoint
+	if cfg.HttpConfig.AuthKeysLocation == "" {
+		cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
+	}
+
+	// Set OIDCConfigEndpoint to the discovery endpoint
+	if cfg.HttpConfig.OIDCConfigEndpoint == "" {
+		cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
+	}
+
+	// Copy SignKeyRefreshEnabled from EmbeddedIdP config
+	if cfg.EmbeddedIdP.SignKeyRefreshEnabled {
+		cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
 	}
 }
 
