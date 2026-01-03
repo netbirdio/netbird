@@ -172,7 +172,7 @@ func applyCommandLineOverrides(cfg *nbconfig.Config) {
 	}
 }
 
-// applyEmbeddedIdPConfig populates HttpConfig from EmbeddedIdP settings when embedded IdP is enabled.
+// applyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
 // This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
 func applyEmbeddedIdPConfig(cfg *nbconfig.Config) {
 	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
@@ -182,6 +182,14 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) {
 	// Ensure HttpConfig exists
 	if cfg.HttpConfig == nil {
 		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
+	}
+
+	// Set storage defaults based on Datadir
+	if cfg.EmbeddedIdP.Storage.Type == "" {
+		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
+	}
+	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
+		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer

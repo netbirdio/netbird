@@ -21,8 +21,6 @@ const (
 	defaultCLIRedirectURL2 = "http://localhost:54000/"
 	defaultScopes          = "openid profile email offline_access"
 	defaultUserIDClaim     = "sub"
-	defaultStorageType     = "sqlite3"
-	defaultStorageFile     = "/var/lib/netbird/idp.db"
 )
 
 // EmbeddedIdPConfig contains configuration for the embedded Dex OIDC identity provider
@@ -168,17 +166,10 @@ type EmbeddedIdPManager struct {
 
 // NewEmbeddedIdPManager creates a new instance of EmbeddedIdPManager from a configuration.
 // It instantiates the underlying Dex provider internally.
+// Note: Storage defaults are applied in config loading (applyEmbeddedIdPConfig) based on Datadir.
 func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMetrics telemetry.AppMetrics) (*EmbeddedIdPManager, error) {
 	if config == nil {
 		return nil, fmt.Errorf("embedded IdP config is required")
-	}
-
-	// Apply defaults for storage
-	if config.Storage.Type == "" {
-		config.Storage.Type = defaultStorageType
-	}
-	if config.Storage.Config.File == "" {
-		config.Storage.Config.File = defaultStorageFile
 	}
 
 	// Apply defaults for CLI redirect URIs
