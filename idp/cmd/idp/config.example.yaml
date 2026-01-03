@@ -43,7 +43,7 @@ enablePasswordDB: true
 # Generate password hash with: htpasswd -bnBC 10 "" YOUR_PASSWORD | tr -d ':\n'
 staticPasswords:
   - email: "admin@example.com"
-    hash: "$2b$10$Z.VZX/2WLt/ICVumQ0UVTeE6DCTjF97c40PjAVJ6mHF7M4XrMkFVW"
+    hash: "hashed-password
     username: "admin"
     userID: "8ec9f38f-bb87-46ea-a5f1-fd041e7c728a"
 

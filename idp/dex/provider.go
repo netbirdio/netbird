@@ -234,7 +234,7 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 	dexConfig.PrometheusRegistry = prometheus.NewRegistry()
 	// Set defaults only if not configured in YAML
 	if dexConfig.RotateKeysAfter == 0 {
-		dexConfig.RotateKeysAfter = 6 * time.Hour
+		dexConfig.RotateKeysAfter = 24 * 30 * time.Hour
 	}
 	if dexConfig.IDTokensValidFor == 0 {
 		dexConfig.IDTokensValidFor = 24 * time.Hour
