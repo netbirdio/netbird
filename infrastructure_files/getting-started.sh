@@ -253,19 +253,9 @@ render_management_json() {
     "EmbeddedIdP": {
         "Enabled": true,
         "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
-        "Storage": {
-            "Type": "sqlite3",
-            "Config": {
-                "File": "/var/lib/netbird/idp.db"
-            }
-        },
         "DashboardRedirectURIs": [
             "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth",
             "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
-        ],
-        "CLIRedirectURIs": [
-            "http://localhost:53000/",
-            "http://localhost:54000/"
         ]
     }
 }
