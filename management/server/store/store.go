@@ -344,6 +344,12 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "name", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "email", "")
+		},
 	}
 } // migratePostAuto migrates the SQLite database to the latest schema
 func migratePostAuto(ctx context.Context, db *gorm.DB) error {
