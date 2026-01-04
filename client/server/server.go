@@ -145,10 +145,10 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
-	// set the default config if not exists
-	if err := s.setDefaultConfigIfNotExists(ctx); err != nil {
-		log.Errorf("failed to set default config: %v", err)
-		return fmt.Errorf("failed to set default config: %w", err)
+	// copy old default config
+	_, err = s.profileManager.CopyDefaultProfileIfNotExists()
+	if err != nil && !errors.Is(err, profilemanager.ErrorOldDefaultConfigNotFound) {
+		return err
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
@@ -160,19 +160,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name:     "default",
-			Username: "",
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return fmt.Errorf("failed to set active profile state: %w", err)
-		}
-
-		config, err = profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
-		if err != nil {
-			log.Errorf("failed to get default profile config: %v", err)
-			return fmt.Errorf("failed to get default profile config: %w", err)
-		}
+		return err
 	}
 	s.config = config
 
@@ -185,7 +173,14 @@ func (s *Server) Start() error {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 
-	if config.DisableAutoConnect && !existingConfig {
+	if config.DisableAutoConnect {
+		state.Set(internal.StatusIdle)
+		return nil
+	}
+
+	if !existingConfig {
+		log.Warnf("not trying to connect when configuration was just created")
+		state.Set(internal.StatusNeedsLogin)
 		return nil
 	}
 
@@ -193,30 +188,6 @@ func (s *Server) Start() error {
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, false, s.clientRunningChan, s.clientGiveUpChan)
-	return nil
-}
-
-func (s *Server) setDefaultConfigIfNotExists(ctx context.Context) error {
-	ok, err := s.profileManager.CopyDefaultProfileIfNotExists()
-	if err != nil {
-		if err := s.profileManager.CreateDefaultProfile(); err != nil {
-			log.Errorf("failed to create default profile: %v", err)
-			return fmt.Errorf("failed to create default profile: %w", err)
-		}
-
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name:     "default",
-			Username: "",
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return fmt.Errorf("failed to set active profile state: %w", err)
-		}
-	}
-	if ok {
-		state := internal.CtxGetState(ctx)
-		state.Set(internal.StatusNeedsLogin)
-	}
-
 	return nil
 }
 
@@ -942,7 +913,9 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	_, err = os.Stat(cfgPath)
 	configExisted := !os.IsNotExist(err)
 
-	config, err := profilemanager.GetConfig(cfgPath)
+	log.Infof("active profile config existed: %t, err %v", configExisted, err)
+
+	config, err := profilemanager.ReadConfig(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
