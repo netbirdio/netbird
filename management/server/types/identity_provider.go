@@ -18,6 +18,10 @@ const (
 	IdentityProviderTypePocketID IdentityProviderType = "pocketid"
 	// IdentityProviderTypeMicrosoft is the Microsoft identity provider
 	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
+	// IdentityProviderTypeAuthentik is the Authentik identity provider
+	IdentityProviderTypeAuthentik IdentityProviderType = "authentik"
+	// IdentityProviderTypeKeycloak is the Keycloak identity provider
+	IdentityProviderTypeKeycloak IdentityProviderType = "keycloak"
 )
 
 // IdentityProvider represents an identity provider configuration

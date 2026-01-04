@@ -198,7 +198,7 @@ func isValidIdentityProviderType(t types.IdentityProviderType) bool {
 	switch t {
 	case types.IdentityProviderTypeOIDC, types.IdentityProviderTypeZitadel, types.IdentityProviderTypeEntra,
 		types.IdentityProviderTypeGoogle, types.IdentityProviderTypeOkta, types.IdentityProviderTypePocketID,
-		types.IdentityProviderTypeMicrosoft:
+		types.IdentityProviderTypeMicrosoft, types.IdentityProviderTypeAuthentik, types.IdentityProviderTypeKeycloak:
 		return true
 	}
 	return false
@@ -254,6 +254,10 @@ func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 		return "pocketid-" + id
 	case types.IdentityProviderTypeMicrosoft:
 		return "microsoft-" + id
+	case types.IdentityProviderTypeAuthentik:
+		return "authentik-" + id
+	case types.IdentityProviderTypeKeycloak:
+		return "keycloak-" + id
 	default:
 		// Generic OIDC - no prefix
 		return id
