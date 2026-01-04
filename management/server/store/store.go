@@ -205,6 +205,13 @@ type Store interface {
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
+	CreatePeerJob(ctx context.Context, job *types.Job) error
+	CompletePeerJob(ctx context.Context, job *types.Job) error
+	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 }
 
 const (

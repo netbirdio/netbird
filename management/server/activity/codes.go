@@ -183,6 +183,8 @@ const (
 
 	AccountAutoUpdateVersionUpdated Activity = 92
 
+	JobCreatedByUser           Activity = 93
+
 	AccountDeleted Activity = 99999
 )
 
@@ -295,6 +297,8 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 }
 
 // StringCode returns a string code of the activity
