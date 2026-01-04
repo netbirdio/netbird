@@ -36,22 +36,24 @@ const (
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager  account.Manager
-	settingsManager settings.Manager
+	accountManager     account.Manager
+	settingsManager    settings.Manager
+	embeddedIdpEnabled bool
 }
 
-func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
-	accountsHandler := newHandler(accountManager, settingsManager)
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, embeddedIdpEnabled bool, router *mux.Router) {
+	accountsHandler := newHandler(accountManager, settingsManager, embeddedIdpEnabled)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager account.Manager, settingsManager settings.Manager) *handler {
+func newHandler(accountManager account.Manager, settingsManager settings.Manager, embeddedIdpEnabled bool) *handler {
 	return &handler{
-		accountManager:  accountManager,
-		settingsManager: settingsManager,
+		accountManager:     accountManager,
+		settingsManager:    settingsManager,
+		embeddedIdpEnabled: embeddedIdpEnabled,
 	}
 }
 
@@ -163,7 +165,7 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, settings, meta, onboarding)
+	resp := toAccountResponse(accountID, settings, meta, onboarding, h.embeddedIdpEnabled)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
@@ -290,7 +292,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
+	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding, h.embeddedIdpEnabled)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -319,7 +321,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding, embeddedIdpEnabled bool) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -339,6 +341,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
+		EmbeddedIdpEnabled:              &embeddedIdpEnabled,
 	}
 
 	if settings.NetworkRange.IsValid() {

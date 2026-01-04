@@ -1,0 +1,34 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <h1 class="nb-heading">Device Login</h1>
+    <p class="nb-subheading">Enter the code shown on your device</p>
+
+    <form method="post" action="{{ .PostURL }}">
+        {{ if .Invalid }}
+        <div class="nb-error">
+            Invalid user code.
+        </div>
+        {{ end }}
+
+        <div class="nb-form-group">
+            <label class="nb-label" for="user_code">Device Code</label>
+            <input
+                type="text"
+                id="user_code"
+                name="user_code"
+                class="nb-input"
+                placeholder="XXXX-XXXX"
+                {{ if .UserCode }}value="{{ .UserCode }}"{{ end }}
+                required
+                autofocus
+            >
+        </div>
+
+        <button type="submit" class="nb-btn">
+            Continue
+        </button>
+    </form>
+</div>
+
+{{ template "footer.html" . }}

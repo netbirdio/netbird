@@ -1,0 +1,283 @@
+package instance
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/idp"
+	nbinstance "github.com/netbirdio/netbird/management/server/instance"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+)
+
+// mockInstanceManager implements instance.Manager for testing
+type mockInstanceManager struct {
+	isSetupRequired   bool
+	isSetupRequiredFn func(ctx context.Context) (bool, error)
+	createOwnerUserFn func(ctx context.Context, email, password, name string) (*idp.UserData, error)
+}
+
+func (m *mockInstanceManager) IsSetupRequired(ctx context.Context) (bool, error) {
+	if m.isSetupRequiredFn != nil {
+		return m.isSetupRequiredFn(ctx)
+	}
+	return m.isSetupRequired, nil
+}
+
+func (m *mockInstanceManager) CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+	if m.createOwnerUserFn != nil {
+		return m.createOwnerUserFn(ctx, email, password, name)
+	}
+	return &idp.UserData{
+		ID:    "test-user-id",
+		Email: email,
+		Name:  name,
+	}, nil
+}
+
+var _ nbinstance.Manager = (*mockInstanceManager)(nil)
+
+func setupTestRouter(manager nbinstance.Manager) *mux.Router {
+	router := mux.NewRouter()
+	AddEndpoints(manager, router)
+	return router
+}
+
+func TestGetInstanceStatus_SetupRequired(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response api.InstanceStatus
+	err := json.NewDecoder(rec.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.True(t, response.SetupRequired)
+}
+
+func TestGetInstanceStatus_SetupNotRequired(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: false}
+	router := setupTestRouter(manager)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response api.InstanceStatus
+	err := json.NewDecoder(rec.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.False(t, response.SetupRequired)
+}
+
+func TestGetInstanceStatus_Error(t *testing.T) {
+	manager := &mockInstanceManager{
+		isSetupRequiredFn: func(ctx context.Context) (bool, error) {
+			return false, errors.New("database error")
+		},
+	}
+	router := setupTestRouter(manager)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestSetup_Success(t *testing.T) {
+	manager := &mockInstanceManager{
+		isSetupRequired: true,
+		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+			assert.Equal(t, "admin@example.com", email)
+			assert.Equal(t, "securepassword123", password)
+			assert.Equal(t, "Admin User", name)
+			return &idp.UserData{
+				ID:    "created-user-id",
+				Email: email,
+				Name:  name,
+			}, nil
+		},
+	}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin User"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response api.SetupResponse
+	err := json.NewDecoder(rec.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, "created-user-id", response.UserId)
+	assert.Equal(t, "admin@example.com", response.Email)
+}
+
+func TestSetup_SuccessWithoutName(t *testing.T) {
+	manager := &mockInstanceManager{
+		isSetupRequired: true,
+		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+			assert.Equal(t, "admin@example.com", email)
+			assert.Equal(t, "securepassword123", password)
+			assert.Equal(t, "admin@example.com", name) // Name defaults to email
+			return &idp.UserData{
+				ID:    "created-user-id",
+				Email: email,
+				Name:  name,
+			}, nil
+		},
+	}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSetup_AlreadyCompleted(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: false}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusPreconditionFailed, rec.Code)
+}
+
+func TestSetup_MissingEmail(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	body := `{"password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+func TestSetup_InvalidEmail(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "not-an-email", "password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	// Note: Invalid email format uses mail.ParseAddress which is treated differently
+	// and returns 400 Bad Request instead of 422 Unprocessable Entity
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSetup_MissingPassword(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+func TestSetup_PasswordTooShort(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "short"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+func TestSetup_InvalidJSON(t *testing.T) {
+	manager := &mockInstanceManager{isSetupRequired: true}
+	router := setupTestRouter(manager)
+
+	body := `{invalid json}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSetup_CreateUserError(t *testing.T) {
+	manager := &mockInstanceManager{
+		isSetupRequired: true,
+		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+			return nil, errors.New("user creation failed")
+		},
+	}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestSetup_CheckSetupRequiredError(t *testing.T) {
+	manager := &mockInstanceManager{
+		isSetupRequiredFn: func(ctx context.Context) (bool, error) {
+			return false, errors.New("database error")
+		},
+	}
+	router := setupTestRouter(manager)
+
+	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}

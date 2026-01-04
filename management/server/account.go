@@ -243,7 +243,7 @@ func BuildManager(
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 
-	if !isNil(am.idpManager) {
+	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
 			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
@@ -556,7 +556,7 @@ func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx co
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
 // If ID is already in use (due to collision) we try one more time before returning error
-func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain, email, name string) (*types.Account, error) {
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
@@ -567,7 +567,7 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 			continue
 		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
+			newAccount := newAccountWithId(ctx, accountId, userID, domain, email, name, am.disableDefaultPolicy)
 			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		default:
@@ -763,13 +763,23 @@ func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userI
 	return accountID, nil
 }
 
-func isNil(i idp.Manager) bool {
+func IsNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
+}
+
+// IsEmbeddedIdp checks if the IDP manager is an embedded IDP (data stored locally in DB).
+// When true, user cache should be skipped and data fetched directly from the IDP manager.
+func IsEmbeddedIdp(i idp.Manager) bool {
+	if IsNil(i) {
+		return false
+	}
+	_, ok := i.(*idp.EmbeddedIdPManager)
+	return ok
 }
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
-	if !isNil(am.idpManager) {
+	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
 		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
@@ -1015,6 +1025,9 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accountID, userID string) error {
+	if IsEmbeddedIdp(am.idpManager) {
+		return nil
+	}
 	data, err := am.getAccountFromCache(ctx, accountID, false)
 	if err != nil {
 		return err
@@ -1106,7 +1119,7 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 
 	lowerDomain := strings.ToLower(userAuth.Domain)
 
-	newAccount, err := am.newAccount(ctx, userAuth.UserId, lowerDomain)
+	newAccount, err := am.newAccount(ctx, userAuth.UserId, lowerDomain, userAuth.Email, userAuth.Name)
 	if err != nil {
 		return "", err
 	}
@@ -1131,7 +1144,7 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 }
 
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth auth.UserAuth) (string, error) {
-	newUser := types.NewRegularUser(userAuth.UserId)
+	newUser := types.NewRegularUser(userAuth.UserId, userAuth.Email, userAuth.Name)
 	newUser.AccountID = domainAccountID
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, domainAccountID)
@@ -1314,6 +1327,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
+		log.Errorf("failed to get user by ID %s: %v", userAuth.UserId, err)
 		return "", "", status.Errorf(status.NotFound, "user %s not found", userAuth.UserId)
 	}
 
@@ -1733,7 +1747,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
+func newAccountWithId(ctx context.Context, accountID, userID, domain, email, name string, disableDefaultPolicy bool) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
 	network := types.NewNetwork()
@@ -1743,7 +1757,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := types.NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID, email, name)
 	owner.AccountID = accountID
 	users[userID] = owner
 

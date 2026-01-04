@@ -134,6 +134,9 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		userAuth.IsChild = ok
 	}
 
+	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
+	// Available as userAuth.Email
+
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 	accountId, _, err := m.ensureAccount(ctx, userAuth)
 	if err != nil {
