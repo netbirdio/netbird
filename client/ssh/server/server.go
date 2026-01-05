@@ -581,32 +581,38 @@ func (s *Server) parseTokenWithoutValidation(tokenString string) (map[string]int
 func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 	osUsername := ctx.User()
 	remoteAddr := ctx.RemoteAddr()
+	logger := s.getRequestLogger(ctx)
 
 	if err := s.ensureJWTValidator(); err != nil {
-		log.Errorf("JWT validator initialization failed for user %s from %s: %v", osUsername, remoteAddr, err)
+		logger.Errorf("JWT validator initialization failed: %v", err)
 		return false
 	}
 
 	token, err := s.validateJWTToken(password)
 	if err != nil {
-		log.Warnf("JWT authentication failed for user %s from %s: %v", osUsername, remoteAddr, err)
+		logger.Warnf("JWT authentication failed: %v", err)
 		return false
 	}
 
 	userAuth, err := s.extractAndValidateUser(token)
 	if err != nil {
-		log.Warnf("User validation failed for user %s from %s: %v", osUsername, remoteAddr, err)
+		logger.Warnf("user validation failed: %v", err)
 		return false
 	}
+
+	logger = logger.WithField("jwt_user", userAuth.UserId)
 
 	s.mu.RLock()
 	authorizer := s.authorizer
 	s.mu.RUnlock()
 
-	if err := authorizer.Authorize(userAuth.UserId, osUsername); err != nil {
-		log.Warnf("SSH authorization denied for user %s (JWT user ID: %s) from %s: %v", osUsername, userAuth.UserId, remoteAddr, err)
+	msg, err := authorizer.Authorize(userAuth.UserId, osUsername)
+	if err != nil {
+		logger.Warnf("SSH auth denied: %v", err)
 		return false
 	}
+
+	logger.Infof("SSH auth %s", msg)
 
 	key := newAuthKey(osUsername, remoteAddr)
 	remoteAddrStr := ctx.RemoteAddr().String()
@@ -619,7 +625,6 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 	}
 	s.mu.Unlock()
 
-	log.Infof("JWT authentication successful for user %s (JWT user ID: %s) from %s", osUsername, userAuth.UserId, remoteAddr)
 	return true
 }
 
