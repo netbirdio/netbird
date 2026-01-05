@@ -550,7 +550,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 	defer func() {
 		if err := localConn.Close(); err != nil {
-			log.Debugf("local connection close error: %v", err)
+			log.Debugf("local port forwarding: close local connection: %v", err)
 		}
 	}()
 
@@ -566,11 +566,11 @@ func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 	}
 	defer func() {
 		if err := channel.Close(); err != nil {
-			log.Debugf("remote channel close error: %v", err)
+			log.Debugf("local port forwarding: close remote channel: %v", err)
 		}
 	}()
 
-	nbssh.BidirectionalCopy(localConn, channel)
+	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
 }
 
 // RemotePortForward sets up remote port forwarding, binding on remote and forwarding to localAddr
@@ -668,7 +668,7 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 	}
 	defer func() {
 		if err := channel.Close(); err != nil {
-			log.Debugf("remote channel close error: %v", err)
+			log.Debugf("remote port forwarding: close remote channel: %v", err)
 		}
 	}()
 
@@ -680,11 +680,11 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 	}
 	defer func() {
 		if err := localConn.Close(); err != nil {
-			log.Debugf("local connection close error: %v", err)
+			log.Debugf("remote port forwarding: close local connection: %v", err)
 		}
 	}()
 
-	nbssh.BidirectionalCopy(localConn, channel)
+	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
 }
 
 // tcpipForwardMsg represents the structure for tcpip-forward requests

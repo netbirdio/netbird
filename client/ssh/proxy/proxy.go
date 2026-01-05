@@ -207,6 +207,8 @@ func (p *SSHProxy) handleProxyExitCode(session ssh.Session, err error) {
 }
 
 func (p *SSHProxy) handleNonInteractiveSession(session ssh.Session, sshClient *cryptossh.Client) {
+	// Create a backend session to mirror the client's session request.
+	// This keeps the connection alive on the server side while port forwarding channels operate.
 	serverSession, err := sshClient.NewSession()
 	if err != nil {
 		_, _ = fmt.Fprintf(p.stderr, "create server session: %v\n", err)
@@ -303,7 +305,8 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 		return
 	}
 
-	log.Debugf("local port forwarding: %s:%d", payload.DestAddr, payload.DestPort)
+	dest := fmt.Sprintf("%s:%d", payload.DestAddr, payload.DestPort)
+	log.Debugf("local port forwarding: %s", dest)
 
 	backendClient, err := p.getOrCreateBackendClient(sshCtx, sshCtx.User())
 	if err != nil {
@@ -314,7 +317,7 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 
 	backendChan, backendReqs, err := backendClient.OpenChannel("direct-tcpip", newChan.ExtraData())
 	if err != nil {
-		_, _ = fmt.Fprintf(p.stderr, "open backend channel for %s:%d: %v\n", payload.DestAddr, payload.DestPort, err)
+		_, _ = fmt.Fprintf(p.stderr, "open backend channel for %s: %v\n", dest, err)
 		var openErr *cryptossh.OpenChannelError
 		if errors.As(err, &openErr) {
 			_ = newChan.Reject(openErr.Reason, openErr.Message)
@@ -327,13 +330,13 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 
 	clientChan, clientReqs, err := newChan.Accept()
 	if err != nil {
-		log.Debugf("accept direct-tcpip channel: %v", err)
+		log.Debugf("local port forwarding: accept channel: %v", err)
 		_ = backendChan.Close()
 		return
 	}
 	go cryptossh.DiscardRequests(clientReqs)
 
-	nbssh.BidirectionalCopyWithContext(sshCtx, clientChan, backendChan)
+	nbssh.BidirectionalCopyWithContext(log.NewEntry(log.StandardLogger()), sshCtx, clientChan, backendChan)
 }
 
 func (p *SSHProxy) sftpSubsystemHandler(s ssh.Session, jwtToken string) {
@@ -559,20 +562,20 @@ func (p *SSHProxy) handleForwardedChannels(sshCtx ssh.Context, backendClient *cr
 func (p *SSHProxy) handleForwardedChannel(sshCtx ssh.Context, sshConn *cryptossh.ServerConn, newChannel cryptossh.NewChannel) {
 	backendChan, backendReqs, err := newChannel.Accept()
 	if err != nil {
-		log.Debugf("accept forwarded-tcpip from backend: %v", err)
+		log.Debugf("remote port forwarding: accept from backend: %v", err)
 		return
 	}
 	go cryptossh.DiscardRequests(backendReqs)
 
 	clientChan, clientReqs, err := sshConn.OpenChannel("forwarded-tcpip", newChannel.ExtraData())
 	if err != nil {
-		log.Debugf("open forwarded-tcpip to client: %v", err)
+		log.Debugf("remote port forwarding: open to client: %v", err)
 		_ = backendChan.Close()
 		return
 	}
 	go cryptossh.DiscardRequests(clientReqs)
 
-	nbssh.BidirectionalCopyWithContext(sshCtx, clientChan, backendChan)
+	nbssh.BidirectionalCopyWithContext(log.NewEntry(log.StandardLogger()), sshCtx, clientChan, backendChan)
 }
 
 func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string) (*cryptossh.Client, error) {

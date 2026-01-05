@@ -363,7 +363,7 @@ func (s *Server) handleRemoteForwardConnection(ctx ssh.Context, conn net.Conn, h
 		return
 	}
 
-	nbssh.BidirectionalCopyWithContext(ctx, conn, channel)
+	nbssh.BidirectionalCopyWithContext(logger, ctx, conn, channel)
 }
 
 // openForwardChannel creates an SSH forwarded-tcpip channel

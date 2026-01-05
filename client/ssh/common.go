@@ -197,16 +197,20 @@ func buildAddressList(hostname string, remote net.Addr) []string {
 // BidirectionalCopy copies data bidirectionally between two io.ReadWriter connections.
 // It waits for both directions to complete before returning.
 // The caller is responsible for closing the connections.
-func BidirectionalCopy(rw1, rw2 io.ReadWriter) {
+func BidirectionalCopy(logger *log.Entry, rw1, rw2 io.ReadWriter) {
 	done := make(chan struct{}, 2)
 
 	go func() {
-		_, _ = io.Copy(rw2, rw1)
+		if _, err := io.Copy(rw2, rw1); err != nil && !isExpectedCopyError(err) {
+			logger.Debugf("copy error (1->2): %v", err)
+		}
 		done <- struct{}{}
 	}()
 
 	go func() {
-		_, _ = io.Copy(rw1, rw2)
+		if _, err := io.Copy(rw1, rw2); err != nil && !isExpectedCopyError(err) {
+			logger.Debugf("copy error (2->1): %v", err)
+		}
 		done <- struct{}{}
 	}()
 
@@ -214,19 +218,27 @@ func BidirectionalCopy(rw1, rw2 io.ReadWriter) {
 	<-done
 }
 
+func isExpectedCopyError(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, context.Canceled)
+}
+
 // BidirectionalCopyWithContext copies data bidirectionally between two io.ReadWriteCloser connections.
 // It waits for both directions to complete or for context cancellation before returning.
 // Both connections are closed when the function returns.
-func BidirectionalCopyWithContext(ctx context.Context, conn1, conn2 io.ReadWriteCloser) {
+func BidirectionalCopyWithContext(logger *log.Entry, ctx context.Context, conn1, conn2 io.ReadWriteCloser) {
 	done := make(chan struct{}, 2)
 
 	go func() {
-		_, _ = io.Copy(conn2, conn1)
+		if _, err := io.Copy(conn2, conn1); err != nil && !isExpectedCopyError(err) {
+			logger.Debugf("copy error (1->2): %v", err)
+		}
 		done <- struct{}{}
 	}()
 
 	go func() {
-		_, _ = io.Copy(conn1, conn2)
+		if _, err := io.Copy(conn1, conn2); err != nil && !isExpectedCopyError(err) {
+			logger.Debugf("copy error (2->1): %v", err)
+		}
 		done <- struct{}{}
 	}()
 
