@@ -189,12 +189,14 @@ render_caddyfile() {
 
 :80${CADDY_SECURE_DOMAIN} {
     import security_headers
-    # Relay
+    # relay
     reverse_proxy /relay* relay:80
     # Signal
+    reverse_proxy /ws-proxy/signal* signal:80
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
-    # Management API and embedded IdP (oauth2)
+    # Management
     reverse_proxy /api/* management:80
+    reverse_proxy /ws-proxy/management* management:80
     reverse_proxy /management.ManagementService/* h2c://management:80
     reverse_proxy /oauth2/* management:80
     # Dashboard
