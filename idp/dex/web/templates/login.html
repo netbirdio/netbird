@@ -4,11 +4,25 @@
     <h1 class="nb-heading">Sign in</h1>
     <p class="nb-subheading">Choose your login method</p>
 
+    {{/* First pass: render Email/Local connectors at the top */}}
     {{ range $c := .Connectors }}
+    {{- $nameLower := lower $c.Name -}}
+    {{- $idLower := lower $c.ID -}}
+    {{- if or (contains "email" $nameLower) (contains "email" $idLower) (contains "local" $nameLower) (contains "local" $idLower) -}}
+    <a href="{{ $c.URL }}" class="nb-btn-connector">
+        <span class="nb-icon nb-icon-email"></span>
+        <span>Continue with {{ $c.Name }}</span>
+    </a>
+    {{- end -}}
+    {{ end }}
+
+    {{/* Second pass: render all other connectors */}}
+    {{ range $c := .Connectors }}
+    {{- $nameLower := lower $c.Name -}}
+    {{- $idLower := lower $c.ID -}}
+    {{- if not (or (contains "email" $nameLower) (contains "email" $idLower) (contains "local" $nameLower) (contains "local" $idLower)) -}}
     <a href="{{ $c.URL }}" class="nb-btn-connector">
         {{- $iconClass := "nb-icon-default" -}}
-        {{- $nameLower := lower $c.Name -}}
-        {{- $idLower := lower $c.ID -}}
         {{- if or (contains "google" $nameLower) (contains "google" $idLower) -}}
             {{- $iconClass = "nb-icon-google" -}}
         {{- else if or (contains "github" $nameLower) (contains "github" $idLower) -}}
@@ -35,6 +49,7 @@
         <span class="nb-icon {{ $iconClass }}"></span>
         <span>Continue with {{ $c.Name }}</span>
     </a>
+    {{- end -}}
     {{ end }}
 </div>
 
