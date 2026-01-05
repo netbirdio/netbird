@@ -2,10 +2,11 @@ package mock_server
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/shared/auth"
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -987,4 +988,8 @@ func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, ac
 		return am.RecalculateNetworkMapCacheFunc(ctx, accountID)
 	}
 	return nil
+}
+
+func (am *MockAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return "something", nil
 }

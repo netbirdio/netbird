@@ -48,9 +48,11 @@ const (
 
 	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
 	ipTCPHeaderMinSize = 40
-)
 
-const refreshRulesMapError = "refresh rules map: %w"
+	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
+	maxPrefixesSet       = 1500
+	refreshRulesMapError = "refresh rules map: %w"
+)
 
 var (
 	errFilterTableNotFound = fmt.Errorf("'filter' table not found")
@@ -513,16 +515,35 @@ func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, err
 	}
 
 	elements := convertPrefixesToSet(prefixes)
-	if err := r.conn.AddSet(nfset, elements); err != nil {
-		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
-	}
+	nElements := len(elements)
 
+	maxElements := maxPrefixesSet * 2
+	initialElements := elements[:min(maxElements, nElements)]
+
+	if err := r.conn.AddSet(nfset, initialElements); err != nil {
+		return nil, fmt.Errorf("error adding set %s: %w", setName, err)
+	}
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf("flush error: %w", err)
 	}
+	log.Debugf("Created new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
 
-	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+	var subEnd int
+	for subStart := maxElements; subStart < nElements; subStart += maxElements {
+		subEnd = min(subStart+maxElements, nElements)
+		subElement := elements[subStart:subEnd]
+		nSubPrefixes := len(subElement) / 2
+		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+		if err := r.conn.SetAddElements(nfset, subElement); err != nil {
+			return nil, fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, setName, err)
+		}
+		if err := r.conn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush error: %w", err)
+		}
+		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+	}
 
+	log.Infof("Created new ipset: %s with %d prefixes", setName, len(prefixes))
 	return nfset, nil
 }
 

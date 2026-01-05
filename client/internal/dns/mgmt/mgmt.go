@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -24,6 +25,11 @@ type Resolver struct {
 	mgmtDomain    *domain.Domain
 	serverDomains *dnsconfig.ServerDomains
 	mutex         sync.RWMutex
+}
+
+type ipsResponse struct {
+	ips []netip.Addr
+	err error
 }
 
 // NewResolver creates a new management domains cache resolver.
@@ -99,9 +105,9 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
+	ips, err := lookupIPWithExtraTimeout(ctx, d)
 	if err != nil {
-		return fmt.Errorf("resolve domain %s: %w", d.SafeString(), err)
+		return err
 	}
 
 	var aRecords, aaaaRecords []dns.RR
@@ -157,6 +163,36 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 		d.SafeString(), len(aRecords), len(aaaaRecords))
 
 	return nil
+}
+
+func lookupIPWithExtraTimeout(ctx context.Context, d domain.Domain) ([]netip.Addr, error) {
+	log.Infof("looking up IP for mgmt domain=%s", d.SafeString())
+	defer log.Infof("done looking up IP for mgmt domain=%s", d.SafeString())
+	resultChan := make(chan *ipsResponse, 1)
+
+	go func() {
+		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
+		resultChan <- &ipsResponse{
+			err: err,
+			ips: ips,
+		}
+	}()
+
+	var resp *ipsResponse
+
+	select {
+	case <-time.After(dnsTimeout + time.Millisecond*500):
+		log.Warnf("timed out waiting for IP for mgmt domain=%s", d.SafeString())
+		return nil, fmt.Errorf("timed out waiting for ips to be available for domain %s", d.SafeString())
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case resp = <-resultChan:
+	}
+
+	if resp.err != nil {
+		return nil, fmt.Errorf("resolve domain %s: %w", d.SafeString(), resp.err)
+	}
+	return resp.ips, nil
 }
 
 // PopulateFromConfig extracts and caches domains from the client configuration.
