@@ -5,8 +5,6 @@ package api
 
 import (
 	"time"
-
-	openapi_types "github.com/deepmap/oapi-codegen/pkg/types"
 )
 
 const (
@@ -1900,7 +1898,7 @@ type SetupKeyRequest struct {
 // SetupRequest Request to set up the initial admin user
 type SetupRequest struct {
 	// Email Email address for the admin user
-	Email openapi_types.Email `json:"email"`
+	Email string `json:"email"`
 
 	// Name Display name for the admin user (defaults to email if not provided)
 	Name *string `json:"name,omitempty"`

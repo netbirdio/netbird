@@ -116,6 +116,7 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	})
 }
 
+// OAuthConfigProvider is only relevant when we have an embedded IdP manager. Otherwise must be nil
 func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return nil
