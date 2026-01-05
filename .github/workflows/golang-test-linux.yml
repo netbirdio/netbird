@@ -259,7 +259,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
-            -timeout 10m ./relay/... ./shared/relay/...
+            -timeout 10m -p 1 ./relay/... ./shared/relay/...
 
   test_signal:
     name: "Signal / Unit"
