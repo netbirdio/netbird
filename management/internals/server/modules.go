@@ -95,7 +95,6 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
-
 		// Use embedded IdP manager if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
 		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
@@ -121,9 +120,15 @@ func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return nil
 	}
+
+	idpManager := s.IdpManager()
+	if idpManager == nil {
+		return nil
+	}
+
 	// Reuse the EmbeddedIdPManager instance from IdpManager
 	// EmbeddedIdPManager implements both idp.Manager and idp.OAuthConfigProvider
-	if provider, ok := s.IdpManager().(idp.OAuthConfigProvider); ok {
+	if provider, ok := idpManager.(idp.OAuthConfigProvider); ok {
 		return provider
 	}
 	return nil

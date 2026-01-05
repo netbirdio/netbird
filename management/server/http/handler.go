@@ -121,7 +121,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 
 	// Check if embedded IdP is enabled
 	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
-	instanceManager := nbinstance.NewManager(accountManager.GetStore(), idpManager)
+	instanceManager := nbinstance.NewManager(accountManager.GetStore(), embeddedIdP)
 
 	accounts.AddEndpoints(accountManager, settingsManager, embeddedIdpEnabled, router)
 	peers.AddEndpoints(accountManager, router, networkMapController)

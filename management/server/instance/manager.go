@@ -32,7 +32,7 @@ type DefaultManager struct {
 // If idpManager is not an EmbeddedIdPManager, setup-related operations will return appropriate defaults.
 func NewManager(store store.Store, idpManager idp.Manager) Manager {
 	embeddedIdp, _ := idpManager.(*idp.EmbeddedIdPManager)
-
+	//todo call to check whether IsSetupRequired
 	return &DefaultManager{
 		store:              store,
 		embeddedIdpManager: embeddedIdp,
@@ -70,6 +70,8 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
 	}
+
+	//todo update shared field
 
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
