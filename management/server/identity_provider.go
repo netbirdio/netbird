@@ -128,22 +128,8 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
 	}
 
-	// Get existing connector
-	existingConn, err := embeddedManager.GetConnector(ctx, idpID)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return nil, status.Errorf(status.NotFound, "identity provider not found")
-		}
-		return nil, status.Errorf(status.Internal, "failed to get identity provider: %v", err)
-	}
-
 	idpConfig.ID = idpID
 	idpConfig.AccountID = accountID
-
-	// Preserve existing secret if not provided in update
-	if idpConfig.ClientSecret == "" {
-		idpConfig.ClientSecret = existingConn.ClientSecret
-	}
 
 	connCfg := identityProviderToConnectorConfig(idpConfig)
 

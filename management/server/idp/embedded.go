@@ -441,6 +441,14 @@ func (m *EmbeddedIdPManager) ListConnectors(ctx context.Context) ([]*dex.Connect
 
 // UpdateConnector updates an existing identity provider connector.
 func (m *EmbeddedIdPManager) UpdateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
+	// Preserve existing secret if not provided in update
+	if cfg.ClientSecret == "" {
+		existing, err := m.provider.GetConnector(ctx, cfg.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get existing connector: %w", err)
+		}
+		cfg.ClientSecret = existing.ClientSecret
+	}
 	return m.provider.UpdateConnector(ctx, cfg)
 }
 
