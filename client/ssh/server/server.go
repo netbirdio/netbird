@@ -115,6 +115,7 @@ func newAuthKey(username string, remoteAddr net.Addr) authKey {
 
 type Server struct {
 	sshServer       *ssh.Server
+	listener        net.Listener
 	mu              sync.RWMutex
 	hostKeyPEM      []byte
 	sessions        map[SessionKey]ssh.Session
@@ -211,6 +212,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 		return fmt.Errorf("create SSH server: %w", err)
 	}
 
+	s.listener = ln
 	s.sshServer = sshServer
 	log.Infof("SSH server started on %s", addrDesc)
 
@@ -263,6 +265,7 @@ func (s *Server) Stop() error {
 	}
 
 	s.sshServer = nil
+	s.listener = nil
 
 	maps.Clear(s.sessions)
 	maps.Clear(s.sessionJWTUsers)
@@ -282,6 +285,18 @@ func (s *Server) Stop() error {
 	maps.Clear(s.remoteForwardListeners)
 
 	return nil
+}
+
+// Addr returns the address the SSH server is listening on, or nil if the server is not running
+func (s *Server) Addr() net.Addr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.listener == nil {
+		return nil
+	}
+
+	return s.listener.Addr()
 }
 
 // GetStatus returns the current status of the SSH server and active sessions
