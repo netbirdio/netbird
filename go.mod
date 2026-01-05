@@ -2,7 +2,7 @@ module github.com/netbirdio/netbird
 
 go 1.25
 
-toolchain go1.25.3
+toolchain go1.25.5
 
 require (
 	cunicu.li/go-rosenpass v0.4.0
