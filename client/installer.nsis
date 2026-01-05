@@ -228,6 +228,9 @@ Section -MainProgram
     !else
         File /r "..\\dist\\netbird_windows_amd64\\"
     !endif
+
+    # copy icon file for shortcuts
+    File "ui\\assets\\netbird.ico"
 SectionEnd
 ######################################################################
 
@@ -238,7 +241,7 @@ WriteUninstaller "$INSTDIR\netbird_uninstall.exe"
 WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
-WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\netbird.ico"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
@@ -258,8 +261,8 @@ EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
 SetShellVarContext all
-CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
-CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}" "" "$INSTDIR\netbird.ico" 0
+CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}" "" "$INSTDIR\netbird.ico" 0
 SectionEnd
 
 Section -Post
@@ -309,6 +312,7 @@ Delete "$INSTDIR\wintun.dll"
 !if ${ARCH} == "amd64"
 Delete "$INSTDIR\opengl32.dll"
 !endif
+Delete "$INSTDIR\netbird.ico"
 DetailPrint "Removing application directory..."
 RmDir /r "$INSTDIR"
 
