@@ -197,7 +197,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	connectClient := internal.NewConnectClient(ctx, config, r, false)
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
 	return connectClient.Run(nil)

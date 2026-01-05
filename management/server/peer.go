@@ -91,7 +91,7 @@ func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, acc
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap)
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap, account.GetActiveGroupUsers())
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -172,7 +172,7 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 		}
 	}
 
-	log.WithContext(ctx).Tracef("saving peer status for peer %s is connected: %t", peer.ID, connected)
+	log.WithContext(ctx).Debugf("saving peer status for peer %s is connected: %t", peer.ID, connected)
 
 	err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *newStatus)
 	if err != nil {
@@ -783,7 +783,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
-	startTransaction := time.Now()
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 		if err != nil {
@@ -852,8 +851,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	log.WithContext(ctx).Debugf("LoginPeer: transaction took %v", time.Since(startTransaction))
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
@@ -1060,7 +1057,7 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap)
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap, account.GetActiveGroupUsers())
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peer.ID {
 				return peer, nil

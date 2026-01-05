@@ -110,7 +110,6 @@ func wakeUpListen(ctx context.Context) {
 			}
 
 			if newHash == initialHash {
-				log.Tracef("no wakeup detected")
 				continue
 			}
 

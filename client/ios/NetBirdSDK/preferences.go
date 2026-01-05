@@ -1,3 +1,5 @@
+//go:build ios
+
 package NetBirdSDK
 
 import (
@@ -110,6 +112,8 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 
 // Commit write out the changes into config file
 func (p *Preferences) Commit() error {
-	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	_, err := profilemanager.DirectUpdateOrCreateConfig(p.configInput)
 	return err
 }

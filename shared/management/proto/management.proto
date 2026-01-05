@@ -280,6 +280,18 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // Auto-update config
+  AutoUpdateSettings autoUpdate = 8;
+}
+
+message AutoUpdateSettings {
+  string version = 1;
+  /*
+    alwaysUpdate = true → Updates happen automatically in the background
+    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+   */
+  bool alwaysUpdate = 2;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -320,6 +332,24 @@ message NetworkMap {
   bool routesFirewallRulesIsEmpty = 11;
 
   repeated ForwardingRule forwardingRules = 12;
+
+  // SSHAuth represents SSH authorization configuration
+  SSHAuth sshAuth = 13;
+}
+
+message SSHAuth {
+  // UserIDClaim is the JWT claim to be used to get the users ID
+  string UserIDClaim = 1;
+
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via SSH
+  repeated bytes AuthorizedUsers = 2;
+
+  // MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
+  map<string, MachineUserIndexes> machine_users = 3;
+}
+
+message MachineUserIndexes {
+  repeated uint32 indexes = 1;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.

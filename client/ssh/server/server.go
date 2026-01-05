@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"
@@ -138,7 +139,10 @@ type Server struct {
 	jwtExtractor *jwt.ClaimsExtractor
 	jwtConfig    *JWTConfig
 
-	suSupportsPty bool
+	authorizer *sshauth.Authorizer
+
+	suSupportsPty    bool
+	loginIsUtilLinux bool
 }
 
 type JWTConfig struct {
@@ -178,6 +182,7 @@ func New(config *Config) *Server {
 		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
+		authorizer:             sshauth.NewAuthorizer(), // Initialize with empty config
 	}
 
 	return s
@@ -193,6 +198,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	}
 
 	s.suSupportsPty = s.detectSuPtySupport(ctx)
+	s.loginIsUtilLinux = s.detectUtilLinuxLogin(ctx)
 
 	ln, addrDesc, err := s.createListener(ctx, addr)
 	if err != nil {
@@ -318,6 +324,19 @@ func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
 	s.wgAddress = addr
 }
 
+// UpdateSSHAuth updates the SSH fine-grained access control configuration
+// This should be called when network map updates include new SSH auth configuration
+func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reset JWT validator/extractor to pick up new userIDClaim
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
+
+	s.authorizer.Update(config)
+}
+
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
 func (s *Server) ensureJWTValidator() error {
 	s.mu.RLock()
@@ -326,6 +345,7 @@ func (s *Server) ensureJWTValidator() error {
 		return nil
 	}
 	config := s.jwtConfig
+	authorizer := s.authorizer
 	s.mu.RUnlock()
 
 	if config == nil {
@@ -341,9 +361,16 @@ func (s *Server) ensureJWTValidator() error {
 		true,
 	)
 
-	extractor := jwt.NewClaimsExtractor(
+	// Use custom userIDClaim from authorizer if available
+	extractorOptions := []jwt.ClaimsExtractorOption{
 		jwt.WithAudience(config.Audience),
-	)
+	}
+	if authorizer.GetUserIDClaim() != "" {
+		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))
+		log.Debugf("Using custom user ID claim: %s", authorizer.GetUserIDClaim())
+	}
+
+	extractor := jwt.NewClaimsExtractor(extractorOptions...)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -491,29 +518,41 @@ func (s *Server) parseTokenWithoutValidation(tokenString string) (map[string]int
 }
 
 func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
+	osUsername := ctx.User()
+	remoteAddr := ctx.RemoteAddr()
+
 	if err := s.ensureJWTValidator(); err != nil {
-		log.Errorf("JWT validator initialization failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		log.Errorf("JWT validator initialization failed for user %s from %s: %v", osUsername, remoteAddr, err)
 		return false
 	}
 
 	token, err := s.validateJWTToken(password)
 	if err != nil {
-		log.Warnf("JWT authentication failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		log.Warnf("JWT authentication failed for user %s from %s: %v", osUsername, remoteAddr, err)
 		return false
 	}
 
 	userAuth, err := s.extractAndValidateUser(token)
 	if err != nil {
-		log.Warnf("User validation failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		log.Warnf("User validation failed for user %s from %s: %v", osUsername, remoteAddr, err)
 		return false
 	}
 
-	key := newAuthKey(ctx.User(), ctx.RemoteAddr())
+	s.mu.RLock()
+	authorizer := s.authorizer
+	s.mu.RUnlock()
+
+	if err := authorizer.Authorize(userAuth.UserId, osUsername); err != nil {
+		log.Warnf("SSH authorization denied for user %s (JWT user ID: %s) from %s: %v", osUsername, userAuth.UserId, remoteAddr, err)
+		return false
+	}
+
+	key := newAuthKey(osUsername, remoteAddr)
 	s.mu.Lock()
 	s.pendingAuthJWT[key] = userAuth.UserId
 	s.mu.Unlock()
 
-	log.Infof("JWT authentication successful for user %s (JWT user ID: %s) from %s", ctx.User(), userAuth.UserId, ctx.RemoteAddr())
+	log.Infof("JWT authentication successful for user %s (JWT user ID: %s) from %s", osUsername, userAuth.UserId, remoteAddr)
 	return true
 }
 

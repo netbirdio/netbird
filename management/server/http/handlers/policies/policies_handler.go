@@ -221,6 +221,8 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 			pr.Protocol = types.PolicyRuleProtocolUDP
 		case api.PolicyRuleUpdateProtocolIcmp:
 			pr.Protocol = types.PolicyRuleProtocolICMP
+		case api.PolicyRuleUpdateProtocolNetbirdSsh:
+			pr.Protocol = types.PolicyRuleProtocolNetbirdSSH
 		default:
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "unknown protocol type: %v", rule.Protocol), w)
 			return
@@ -252,6 +254,17 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 					End:   uint16(portRange.End),
 				})
 			}
+		}
+
+		if pr.Protocol == types.PolicyRuleProtocolNetbirdSSH && rule.AuthorizedGroups != nil && len(*rule.AuthorizedGroups) != 0 {
+			for _, sourceGroupID := range pr.Sources {
+				_, ok := (*rule.AuthorizedGroups)[sourceGroupID]
+				if !ok {
+					util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "authorized group for netbird-ssh protocol should be specified for each source group"), w)
+					return
+				}
+			}
+			pr.AuthorizedGroups = *rule.AuthorizedGroups
 		}
 
 		// validate policy object
@@ -378,6 +391,11 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 			Action:              api.PolicyRuleAction(r.Action),
 			SourceResource:      r.SourceResource.ToAPIResponse(),
 			DestinationResource: r.DestinationResource.ToAPIResponse(),
+		}
+
+		if len(r.AuthorizedGroups) != 0 {
+			authorizedGroupsCopy := r.AuthorizedGroups
+			rule.AuthorizedGroups = &authorizedGroupsCopy
 		}
 
 		if len(r.Ports) != 0 {

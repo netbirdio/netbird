@@ -427,7 +427,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthUpdate, accountID, groupID)
+			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
 				allErrors = errors.Join(allErrors, err)
 				continue
@@ -440,6 +440,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 			groupIDsToDelete = append(groupIDsToDelete, groupID)
 			deletedGroups = append(deletedGroups, group)
+		}
+
+		if len(groupIDsToDelete) == 0 {
+			return allErrors
 		}
 
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {

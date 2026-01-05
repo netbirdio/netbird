@@ -167,7 +167,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountI
 		relayCancel := make(chan struct{}, 1)
 		m.relayCancelMap[peerID] = relayCancel
 		go m.refreshRelayTokens(ctx, accountID, peerID, relayCancel)
-		log.WithContext(ctx).Debugf("starting relay refresh for %s", peerID)
+		log.WithContext(ctx).Tracef("starting relay refresh for %s", peerID)
 	}
 }
 
@@ -178,7 +178,7 @@ func (m *TimeBasedAuthSecretsManager) refreshTURNTokens(ctx context.Context, acc
 	for {
 		select {
 		case <-cancel:
-			log.WithContext(ctx).Debugf("stopping TURN refresh for %s", peerID)
+			log.WithContext(ctx).Tracef("stopping TURN refresh for %s", peerID)
 			return
 		case <-ticker.C:
 			m.pushNewTURNAndRelayTokens(ctx, accountID, peerID)
@@ -193,7 +193,7 @@ func (m *TimeBasedAuthSecretsManager) refreshRelayTokens(ctx context.Context, ac
 	for {
 		select {
 		case <-cancel:
-			log.WithContext(ctx).Debugf("stopping relay refresh for %s", peerID)
+			log.WithContext(ctx).Tracef("stopping relay refresh for %s", peerID)
 			return
 		case <-ticker.C:
 			m.pushNewRelayTokens(ctx, accountID, peerID)
