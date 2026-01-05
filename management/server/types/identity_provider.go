@@ -1,5 +1,16 @@
 package types
 
+import "errors"
+
+// Identity provider validation errors
+var (
+	ErrIdentityProviderNameRequired     = errors.New("identity provider name is required")
+	ErrIdentityProviderTypeRequired     = errors.New("identity provider type is required")
+	ErrIdentityProviderTypeUnsupported  = errors.New("unsupported identity provider type")
+	ErrIdentityProviderIssuerRequired   = errors.New("identity provider issuer is required")
+	ErrIdentityProviderClientIDRequired = errors.New("identity provider client ID is required")
+)
+
 // IdentityProviderType is the type of identity provider
 type IdentityProviderType string
 
@@ -65,4 +76,40 @@ func (idp *IdentityProvider) EventMeta() map[string]any {
 		"type":   string(idp.Type),
 		"issuer": idp.Issuer,
 	}
+}
+
+// Validate validates the identity provider configuration
+func (idp *IdentityProvider) Validate() error {
+	if idp.Name == "" {
+		return ErrIdentityProviderNameRequired
+	}
+	if idp.Type == "" {
+		return ErrIdentityProviderTypeRequired
+	}
+	if !idp.Type.IsValid() {
+		return ErrIdentityProviderTypeUnsupported
+	}
+	if !idp.Type.HasBuiltInIssuer() && idp.Issuer == "" {
+		return ErrIdentityProviderIssuerRequired
+	}
+	if idp.ClientID == "" {
+		return ErrIdentityProviderClientIDRequired
+	}
+	return nil
+}
+
+// IsValid checks if the given type is a supported identity provider type
+func (t IdentityProviderType) IsValid() bool {
+	switch t {
+	case IdentityProviderTypeOIDC, IdentityProviderTypeZitadel, IdentityProviderTypeEntra,
+		IdentityProviderTypeGoogle, IdentityProviderTypeOkta, IdentityProviderTypePocketID,
+		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak:
+		return true
+	}
+	return false
+}
+
+// HasBuiltInIssuer returns true for types that don't require an issuer URL
+func (t IdentityProviderType) HasBuiltInIssuer() bool {
+	return t == IdentityProviderTypeGoogle || t == IdentityProviderTypeMicrosoft
 }

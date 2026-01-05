@@ -81,8 +81,8 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := validateIdentityProvider(idpConfig); err != nil {
-		return nil, err
+	if err := idpConfig.Validate(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, err.Error())
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
@@ -119,8 +119,8 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := validateIdentityProvider(idpConfig); err != nil {
-		return nil, err
+	if err := idpConfig.Validate(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, err.Error())
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
@@ -163,41 +163,6 @@ func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, acc
 	}
 
 	return nil
-}
-
-func validateIdentityProvider(idpConfig *types.IdentityProvider) error {
-	if idpConfig.Name == "" {
-		return status.Errorf(status.InvalidArgument, "identity provider name is required")
-	}
-	if idpConfig.Type == "" {
-		return status.Errorf(status.InvalidArgument, "identity provider type is required")
-	}
-	if !isValidIdentityProviderType(idpConfig.Type) {
-		return status.Errorf(status.InvalidArgument, "unsupported identity provider type: %s", idpConfig.Type)
-	}
-	if !identityProviderTypeHasBuiltInIssuer(idpConfig.Type) && idpConfig.Issuer == "" {
-		return status.Errorf(status.InvalidArgument, "identity provider issuer is required")
-	}
-	if idpConfig.ClientID == "" {
-		return status.Errorf(status.InvalidArgument, "identity provider client ID is required")
-	}
-	return nil
-}
-
-// isValidIdentityProviderType checks if the given type is a supported identity provider type
-func isValidIdentityProviderType(t types.IdentityProviderType) bool {
-	switch t {
-	case types.IdentityProviderTypeOIDC, types.IdentityProviderTypeZitadel, types.IdentityProviderTypeEntra,
-		types.IdentityProviderTypeGoogle, types.IdentityProviderTypeOkta, types.IdentityProviderTypePocketID,
-		types.IdentityProviderTypeMicrosoft, types.IdentityProviderTypeAuthentik, types.IdentityProviderTypeKeycloak:
-		return true
-	}
-	return false
-}
-
-// identityProviderTypeHasBuiltInIssuer returns true for types that don't require an issuer URL
-func identityProviderTypeHasBuiltInIssuer(t types.IdentityProviderType) bool {
-	return t == types.IdentityProviderTypeGoogle || t == types.IdentityProviderTypeMicrosoft
 }
 
 // connectorConfigToIdentityProvider converts a dex.ConnectorConfig to types.IdentityProvider
