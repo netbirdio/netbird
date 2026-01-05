@@ -169,10 +169,6 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Try handlers in priority order
 	for _, entry := range handlers {
-		log.Tracef("checking handler: domain=%s -> pattern=%s wildcard=%v match_subdomain=%v priority=%d",
-			qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
-	}
-	for _, entry := range handlers {
 		matched := c.isHandlerMatch(qname, entry)
 
 		if matched {
