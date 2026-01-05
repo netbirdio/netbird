@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -317,7 +318,7 @@ func TestDNSForwarder_UnauthorizedDomainAccess(t *testing.T) {
 			query.SetQuestion(dns.Fqdn(tt.queryDomain), dns.TypeA)
 
 			mockWriter := &test.MockResponseWriter{}
-			resp := forwarder.handleDNSQuery(mockWriter, query)
+			resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 			if tt.shouldResolve {
 				require.NotNil(t, resp, "Expected response for authorized domain")
@@ -465,7 +466,7 @@ func TestDNSForwarder_FirewallSetUpdates(t *testing.T) {
 			dnsQuery.SetQuestion(dns.Fqdn(tt.query), dns.TypeA)
 
 			mockWriter := &test.MockResponseWriter{}
-			resp := forwarder.handleDNSQuery(mockWriter, dnsQuery)
+			resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, dnsQuery)
 
 			// Verify response
 			if tt.shouldResolve {
@@ -527,7 +528,7 @@ func TestDNSForwarder_MultipleIPsInSingleUpdate(t *testing.T) {
 	query.SetQuestion("example.com.", dns.TypeA)
 
 	mockWriter := &test.MockResponseWriter{}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 	// Verify response contains all IPs
 	require.NotNil(t, resp)
@@ -604,7 +605,7 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 				},
 			}
 
-			_ = forwarder.handleDNSQuery(mockWriter, query)
+			_ = forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 			// Check the response written to the writer
 			require.NotNil(t, writtenResp, "Expected response to be written")
@@ -674,7 +675,7 @@ func TestDNSForwarder_ServeFromCacheOnUpstreamFailure(t *testing.T) {
 	q1 := &dns.Msg{}
 	q1.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
 	w1 := &test.MockResponseWriter{}
-	resp1 := forwarder.handleDNSQuery(w1, q1)
+	resp1 := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w1, q1)
 	require.NotNil(t, resp1)
 	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
 	require.Len(t, resp1.Answer, 1)
@@ -684,7 +685,7 @@ func TestDNSForwarder_ServeFromCacheOnUpstreamFailure(t *testing.T) {
 	q2.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
 	var writtenResp *dns.Msg
 	w2 := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { writtenResp = m; return nil }}
-	_ = forwarder.handleDNSQuery(w2, q2)
+	_ = forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w2, q2)
 
 	require.NotNil(t, writtenResp, "expected response to be written")
 	require.Equal(t, dns.RcodeSuccess, writtenResp.Rcode)
@@ -714,7 +715,7 @@ func TestDNSForwarder_CacheNormalizationCasingAndDot(t *testing.T) {
 	q1 := &dns.Msg{}
 	q1.SetQuestion(mixedQuery+".", dns.TypeA)
 	w1 := &test.MockResponseWriter{}
-	resp1 := forwarder.handleDNSQuery(w1, q1)
+	resp1 := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w1, q1)
 	require.NotNil(t, resp1)
 	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
 	require.Len(t, resp1.Answer, 1)
@@ -728,7 +729,7 @@ func TestDNSForwarder_CacheNormalizationCasingAndDot(t *testing.T) {
 	q2.SetQuestion("EXAMPLE.COM", dns.TypeA)
 	var writtenResp *dns.Msg
 	w2 := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { writtenResp = m; return nil }}
-	_ = forwarder.handleDNSQuery(w2, q2)
+	_ = forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w2, q2)
 
 	require.NotNil(t, writtenResp)
 	require.Equal(t, dns.RcodeSuccess, writtenResp.Rcode)
@@ -783,7 +784,7 @@ func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	query.SetQuestion("smtp.mail.example.com.", dns.TypeA)
 
 	mockWriter := &test.MockResponseWriter{}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 	require.NotNil(t, resp)
 	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
@@ -904,7 +905,7 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 				},
 			}
 
-			resp := forwarder.handleDNSQuery(mockWriter, query)
+			resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 			// If a response was returned, it means it should be written (happens in wrapper functions)
 			if resp != nil && writtenResp == nil {
@@ -937,7 +938,7 @@ func TestDNSForwarder_EmptyQuery(t *testing.T) {
 			return nil
 		},
 	}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	resp := forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query)
 
 	assert.Nil(t, resp, "Should return nil for empty query")
 	assert.False(t, writeCalled, "Should not write response for empty query")

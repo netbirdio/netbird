@@ -1,8 +1,14 @@
 package local
 
 import (
+	"context"
+	"fmt"
+	"net"
+	"net/netip"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -10,7 +16,20 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
+
+// mockResolver implements resolver for testing
+type mockResolver struct {
+	lookupFunc func(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+func (m *mockResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	if m.lookupFunc != nil {
+		return m.lookupFunc(ctx, network, host)
+	}
+	return nil, nil
+}
 
 func TestLocalResolver_ServeDNS(t *testing.T) {
 	recordA := nbdns.SimpleRecord{
@@ -110,7 +129,7 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 	update2 := []nbdns.SimpleRecord{record2}
 
 	// Apply first update
-	resolver.Update(update1)
+	resolver.Update(update1, nil)
 
 	// Verify first update
 	resolver.mu.RLock()
@@ -122,7 +141,7 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 	assert.Contains(t, rrSlice1[0].String(), record1.RData, "Record after first update should be %s", record1.RData)
 
 	// Apply second update
-	resolver.Update(update2)
+	resolver.Update(update2, nil)
 
 	// Verify second update
 	resolver.mu.RLock()
@@ -154,7 +173,7 @@ func TestLocalResolver_MultipleRecords_SameQuestion(t *testing.T) {
 	update := []nbdns.SimpleRecord{record1, record2}
 
 	// Apply update with both records
-	resolver.Update(update)
+	resolver.Update(update, nil)
 
 	// Create question that matches both records
 	question := dns.Question{
@@ -198,7 +217,7 @@ func TestLocalResolver_RecordRotation(t *testing.T) {
 	update := []nbdns.SimpleRecord{record1, record2, record3}
 
 	// Apply update with all three records
-	resolver.Update(update)
+	resolver.Update(update, nil)
 
 	msg := new(dns.Msg).SetQuestion(recordName, recordType)
 
@@ -264,7 +283,7 @@ func TestLocalResolver_CaseInsensitiveMatching(t *testing.T) {
 	}
 
 	// Update resolver with the records
-	resolver.Update([]nbdns.SimpleRecord{lowerCaseRecord, mixedCaseRecord})
+	resolver.Update([]nbdns.SimpleRecord{lowerCaseRecord, mixedCaseRecord}, nil)
 
 	testCases := []struct {
 		name          string
@@ -379,7 +398,7 @@ func TestLocalResolver_CNAMEFallback(t *testing.T) {
 	}
 
 	// Update resolver with both records
-	resolver.Update([]nbdns.SimpleRecord{cnameRecord, targetRecord})
+	resolver.Update([]nbdns.SimpleRecord{cnameRecord, targetRecord}, nil)
 
 	testCases := []struct {
 		name          string
@@ -476,6 +495,20 @@ func TestLocalResolver_CNAMEFallback(t *testing.T) {
 // with 0 records instead of NXDOMAIN
 func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 	resolver := NewResolver()
+	// Mock external resolver for CNAME target resolution
+	resolver.resolver = &mockResolver{
+		lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+			if host == "target.example.com." {
+				if network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				if network == "ip6" {
+					return []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")}, nil
+				}
+			}
+			return nil, &net.DNSError{IsNotFound: true, Name: host}
+		},
+	}
 
 	recordA := nbdns.SimpleRecord{
 		Name:  "example.netbird.cloud.",
@@ -493,7 +526,7 @@ func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 		RData: "target.example.com.",
 	}
 
-	resolver.Update([]nbdns.SimpleRecord{recordA, recordCNAME})
+	resolver.Update([]nbdns.SimpleRecord{recordA, recordCNAME}, nil)
 
 	testCases := []struct {
 		name           string
@@ -581,4 +614,556 @@ func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLocalResolver_CNAMEChainResolution tests comprehensive CNAME chain following
+func TestLocalResolver_CNAMEChainResolution(t *testing.T) {
+	t.Run("simple internal CNAME chain", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+			{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.1"},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 2)
+
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "target.example.com.", cname.Target)
+
+		a, ok := resp.Answer[1].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "192.168.1.1", a.A.String())
+	})
+
+	t.Run("multi-hop CNAME chain", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "hop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop2.test."},
+			{Name: "hop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop3.test."},
+			{Name: "hop3.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("hop1.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 3)
+	})
+
+	t.Run("CNAME to non-existent internal target returns only CNAME", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.test."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Len(t, resp.Answer, 1)
+		_, ok := resp.Answer[0].(*dns.CNAME)
+		assert.True(t, ok)
+	})
+}
+
+// TestLocalResolver_CNAMEMaxDepth tests the maximum depth limit for CNAME chains
+func TestLocalResolver_CNAMEMaxDepth(t *testing.T) {
+	t.Run("chain at max depth resolves", func(t *testing.T) {
+		resolver := NewResolver()
+		var records []nbdns.SimpleRecord
+		// Create chain of 7 CNAMEs (under max of 8)
+		for i := 1; i <= 7; i++ {
+			records = append(records, nbdns.SimpleRecord{
+				Name:  fmt.Sprintf("hop%d.test.", i),
+				Type:  int(dns.TypeCNAME),
+				Class: nbdns.DefaultClass,
+				TTL:   300,
+				RData: fmt.Sprintf("hop%d.test.", i+1),
+			})
+		}
+		records = append(records, nbdns.SimpleRecord{
+			Name: "hop8.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.10.10",
+		})
+
+		resolver.Update(records, nil)
+
+		msg := new(dns.Msg).SetQuestion("hop1.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 8)
+	})
+
+	t.Run("chain exceeding max depth stops", func(t *testing.T) {
+		resolver := NewResolver()
+		var records []nbdns.SimpleRecord
+		// Create chain of 10 CNAMEs (exceeds max of 8)
+		for i := 1; i <= 10; i++ {
+			records = append(records, nbdns.SimpleRecord{
+				Name:  fmt.Sprintf("deep%d.test.", i),
+				Type:  int(dns.TypeCNAME),
+				Class: nbdns.DefaultClass,
+				TTL:   300,
+				RData: fmt.Sprintf("deep%d.test.", i+1),
+			})
+		}
+		records = append(records, nbdns.SimpleRecord{
+			Name: "deep11.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.10.10",
+		})
+
+		resolver.Update(records, nil)
+
+		msg := new(dns.Msg).SetQuestion("deep1.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		// Should NOT have the final A record (chain too deep)
+		assert.LessOrEqual(t, len(resp.Answer), 8)
+	})
+
+	t.Run("circular CNAME is protected by max depth", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "loop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop2.test."},
+			{Name: "loop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop1.test."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("loop1.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.LessOrEqual(t, len(resp.Answer), 8)
+	})
+}
+
+// TestLocalResolver_ExternalCNAMEResolution tests CNAME resolution to external domains
+func TestLocalResolver_ExternalCNAMEResolution(t *testing.T) {
+	t.Run("CNAME to external domain resolves via external resolver", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.example.com." && network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Len(t, resp.Answer, 2, "Should have CNAME + A record")
+
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "external.example.com.", cname.Target)
+
+		a, ok := resp.Answer[1].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "93.184.216.34", a.A.String())
+	})
+
+	t.Run("CNAME to external domain resolves IPv6", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.example.com." && network == "ip6" {
+					return []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Len(t, resp.Answer, 2, "Should have CNAME + AAAA record")
+
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "external.example.com.", cname.Target)
+
+		aaaa, ok := resp.Answer[1].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2606:2800:220:1:248:1893:25c8:1946", aaaa.AAAA.String())
+	})
+
+	t.Run("concurrent external resolution", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.example.com." && network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "concurrent.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		var wg sync.WaitGroup
+		results := make([]*dns.Msg, 10)
+
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				msg := new(dns.Msg).SetQuestion("concurrent.test.", dns.TypeA)
+				var resp *dns.Msg
+				resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+				results[idx] = resp
+			}(i)
+		}
+		wg.Wait()
+
+		for i, resp := range results {
+			require.NotNil(t, resp, "Response %d should not be nil", i)
+			require.Len(t, resp.Answer, 2, "Response %d should have CNAME + A", i)
+		}
+	})
+}
+
+// TestLocalResolver_ZoneManagement tests zone-aware CNAME resolution
+func TestLocalResolver_ZoneManagement(t *testing.T) {
+	t.Run("Update sets zones correctly", func(t *testing.T) {
+		resolver := NewResolver()
+
+		zones := []domain.Domain{"example.com", "test.local"}
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+		}, zones)
+
+		assert.True(t, resolver.isInManagedZone("host.example.com."))
+		assert.True(t, resolver.isInManagedZone("other.example.com."))
+		assert.True(t, resolver.isInManagedZone("sub.test.local."))
+		assert.False(t, resolver.isInManagedZone("external.com."))
+	})
+
+	t.Run("isInManagedZone case insensitive", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update(nil, []domain.Domain{"Example.COM"})
+
+		assert.True(t, resolver.isInManagedZone("host.example.com."))
+		assert.True(t, resolver.isInManagedZone("HOST.EXAMPLE.COM."))
+	})
+
+	t.Run("Update clears zones", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update(nil, []domain.Domain{"example.com"})
+		assert.True(t, resolver.isInManagedZone("host.example.com."))
+
+		resolver.Update(nil, nil)
+		assert.False(t, resolver.isInManagedZone("host.example.com."))
+	})
+}
+
+// TestLocalResolver_CNAMEZoneAwareResolution tests CNAME resolution with zone awareness
+func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
+	t.Run("CNAME target in managed zone returns NXDOMAIN per RFC 6604", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.myzone.test."},
+		}, []domain.Domain{"myzone.test"})
+
+		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeNameError, resp.Rcode, "Should return NXDOMAIN")
+		require.Len(t, resp.Answer, 1, "Should include CNAME in answer")
+	})
+
+	t.Run("CNAME to external domain skips zone check", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.other.com." && network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("203.0.113.1")}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.other.com."},
+		}, []domain.Domain{"myzone.test"})
+
+		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 2, "Should have CNAME + A from external resolution")
+	})
+
+	t.Run("CNAME target exists with different type returns NODATA not NXDOMAIN", func(t *testing.T) {
+		resolver := NewResolver()
+		// CNAME points to target that has A but no AAAA - query for AAAA should be NODATA
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.myzone.test."},
+			{Name: "target.myzone.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "1.1.1.1"},
+		}, []domain.Domain{"myzone.test"})
+
+		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA (success), not NXDOMAIN")
+		require.Len(t, resp.Answer, 1, "Should have only CNAME, no AAAA")
+		_, ok := resp.Answer[0].(*dns.CNAME)
+		assert.True(t, ok, "Answer should be CNAME record")
+	})
+
+	t.Run("external CNAME target exists but no AAAA records (NODATA)", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.example.com." {
+					if network == "ip6" {
+						// No AAAA records
+						return nil, &net.DNSError{IsNotFound: true, Name: host}
+					}
+					if network == "ip4" {
+						// But A records exist - domain exists
+						return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+					}
+				}
+				return nil, &net.DNSError{IsNotFound: true, Name: host}
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA (success), not NXDOMAIN")
+		require.Len(t, resp.Answer, 1, "Should have only CNAME")
+		_, ok := resp.Answer[0].(*dns.CNAME)
+		assert.True(t, ok, "Answer should be CNAME record")
+	})
+
+	// Table-driven test for all external resolution outcomes
+	externalCases := []struct {
+		name           string
+		lookupFunc     func(context.Context, string, string) ([]netip.Addr, error)
+		expectedRcode  int
+		expectedAnswer int
+	}{
+		{
+			name: "external NXDOMAIN (both A and AAAA not found)",
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				return nil, &net.DNSError{IsNotFound: true, Name: host}
+			},
+			expectedRcode:  dns.RcodeNameError,
+			expectedAnswer: 1, // CNAME only
+		},
+		{
+			name: "external SERVFAIL (temporary error)",
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				return nil, &net.DNSError{IsTemporary: true, Name: host}
+			},
+			expectedRcode:  dns.RcodeServerFailure,
+			expectedAnswer: 1, // CNAME only
+		},
+		{
+			name: "external SERVFAIL (timeout)",
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				return nil, &net.DNSError{IsTimeout: true, Name: host}
+			},
+			expectedRcode:  dns.RcodeServerFailure,
+			expectedAnswer: 1, // CNAME only
+		},
+		{
+			name: "external SERVFAIL (generic error)",
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+			expectedRcode:  dns.RcodeServerFailure,
+			expectedAnswer: 1, // CNAME only
+		},
+		{
+			name: "external success with IPs",
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, &net.DNSError{IsNotFound: true, Name: host}
+			},
+			expectedRcode:  dns.RcodeSuccess,
+			expectedAnswer: 2, // CNAME + A
+		},
+	}
+
+	for _, tc := range externalCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := NewResolver()
+			resolver.resolver = &mockResolver{lookupFunc: tc.lookupFunc}
+
+			resolver.Update([]nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			}, nil)
+
+			msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
+			var resp *dns.Msg
+			resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+			require.NotNil(t, resp)
+			assert.Equal(t, tc.expectedRcode, resp.Rcode, "rcode mismatch")
+			assert.Len(t, resp.Answer, tc.expectedAnswer, "answer count mismatch")
+			if tc.expectedAnswer > 0 {
+				_, ok := resp.Answer[0].(*dns.CNAME)
+				assert.True(t, ok, "first answer should be CNAME")
+			}
+		})
+	}
+}
+
+// TestLocalResolver_AuthoritativeFlag tests the AA flag behavior
+func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
+	t.Run("direct record lookup is authoritative", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+		}, []domain.Domain{"example.com"})
+
+		msg := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.True(t, resp.Authoritative)
+	})
+
+	t.Run("external resolution is not authoritative", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(_ context.Context, network, host string) ([]netip.Addr, error) {
+				if host == "external.example.com." && network == "ip4" {
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, nil
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Len(t, resp.Answer, 2)
+		assert.False(t, resp.Authoritative)
+	})
+}
+
+// TestLocalResolver_Stop tests cleanup on Stop
+func TestLocalResolver_Stop(t *testing.T) {
+	t.Run("Stop clears all state", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+		}, []domain.Domain{"example.com"})
+
+		resolver.Stop()
+
+		msg := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Len(t, resp.Answer, 0)
+		assert.False(t, resolver.isInManagedZone("host.example.com."))
+	})
+
+	t.Run("Stop is safe to call multiple times", func(t *testing.T) {
+		resolver := NewResolver()
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+		}, []domain.Domain{"example.com"})
+
+		resolver.Stop()
+		resolver.Stop()
+		resolver.Stop()
+	})
+
+	t.Run("Stop cancels in-flight external resolution", func(t *testing.T) {
+		resolver := NewResolver()
+
+		lookupStarted := make(chan struct{})
+		lookupCtxCanceled := make(chan struct{})
+
+		resolver.resolver = &mockResolver{
+			lookupFunc: func(ctx context.Context, network, host string) ([]netip.Addr, error) {
+				close(lookupStarted)
+				<-ctx.Done()
+				close(lookupCtxCanceled)
+				return nil, ctx.Err()
+			},
+		}
+
+		resolver.Update([]nbdns.SimpleRecord{
+			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+		}, nil)
+
+		done := make(chan struct{})
+		go func() {
+			msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
+			resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}, msg)
+			close(done)
+		}()
+
+		<-lookupStarted
+		resolver.Stop()
+
+		select {
+		case <-lookupCtxCanceled:
+		case <-time.After(time.Second):
+			t.Fatal("external lookup context was not canceled")
+		}
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("ServeDNS did not return after Stop")
+		}
+	})
 }
