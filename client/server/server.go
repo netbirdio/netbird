@@ -903,7 +903,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig loads the config from the active profile and return if active profile's config file existed before
+// GetConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
