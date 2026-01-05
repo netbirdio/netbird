@@ -235,28 +235,31 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 	server.SetAllowRemotePortForwarding(true)
 
 	tests := []struct {
-		name        string
-		forwardType string
-		port        uint32
-		username    string
-		expectError bool
-		errorMsg    string
+		name          string
+		forwardType   string
+		port          uint32
+		username      string
+		expectError   bool
+		errorMsg      string
+		skipOnWindows bool
 	}{
 		{
-			name:        "non-root user remote forward privileged port",
-			forwardType: "remote",
-			port:        80,
-			username:    "testuser",
-			expectError: true,
-			errorMsg:    "cannot bind to privileged port",
+			name:          "non-root user remote forward privileged port",
+			forwardType:   "remote",
+			port:          80,
+			username:      "testuser",
+			expectError:   true,
+			errorMsg:      "cannot bind to privileged port",
+			skipOnWindows: true,
 		},
 		{
-			name:        "non-root user tcpip-forward privileged port",
-			forwardType: "tcpip-forward",
-			port:        443,
-			username:    "testuser",
-			expectError: true,
-			errorMsg:    "cannot bind to privileged port",
+			name:          "non-root user tcpip-forward privileged port",
+			forwardType:   "tcpip-forward",
+			port:          443,
+			username:      "testuser",
+			expectError:   true,
+			errorMsg:      "cannot bind to privileged port",
+			skipOnWindows: true,
 		},
 		{
 			name:        "non-root user remote forward unprivileged port",
@@ -290,6 +293,10 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipOnWindows && runtime.GOOS == "windows" {
+				t.Skip("Windows does not have privileged port restrictions")
+			}
+
 			result := PrivilegeCheckResult{
 				Allowed: true,
 				User:    &user.User{Username: tt.username},
