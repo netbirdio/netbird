@@ -556,8 +556,9 @@ func TestServer_PortForwardingOnlySession(t *testing.T) {
 			if tt.expectAllowed {
 				// When allowed, the session stays open until cancelled
 				// ExecuteCommand with empty command should return without error
-				// (though output may be empty since we're in port-forward-only mode)
-				t.Logf("Output: %q, Error: %v", output, err)
+				assert.NoError(t, err, "Session should be allowed when port forwarding is enabled")
+				assert.NotContains(t, output, "port forwarding is disabled",
+					"Output should not contain port forwarding disabled message")
 			} else if err != nil {
 				// When denied, we expect an error message about port forwarding being disabled
 				assert.Contains(t, err.Error(), "port forwarding is disabled",
