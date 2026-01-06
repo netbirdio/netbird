@@ -3129,6 +3129,14 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
+	// rawUser is used to read raw (potentially encrypted) data from the database
+	// without any gorm hooks or automatic decryption
+	type rawUser struct {
+		Id    string
+		Email string
+		Name  string
+	}
+
 	t.Run("save user with empty email and name", func(t *testing.T) {
 		user := &types.User{
 			Id:         "user-empty-fields",
@@ -3141,10 +3149,21 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 		err = store.SaveUser(context.Background(), user)
 		require.NoError(t, err)
 
-		savedUser, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, user.Id)
+		// Verify using direct database query that empty strings remain empty (not encrypted)
+		var raw rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", user.Id).First(&raw).Error
 		require.NoError(t, err)
-		require.Equal(t, "", savedUser.Email)
-		require.Equal(t, "", savedUser.Name)
+		require.Equal(t, "", raw.Email, "empty email should remain empty in database")
+		require.Equal(t, "", raw.Name, "empty name should remain empty in database")
+
+		// Verify manual decryption returns empty strings
+		decryptedEmail, err := fieldEncrypt.Decrypt(raw.Email)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedEmail)
+
+		decryptedName, err := fieldEncrypt.Decrypt(raw.Name)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedName)
 	})
 
 	t.Run("save user with email and name", func(t *testing.T) {
@@ -3159,10 +3178,21 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 		err = store.SaveUser(context.Background(), user)
 		require.NoError(t, err)
 
-		savedUser, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, user.Id)
+		// Verify using direct database query that the data is encrypted (not plaintext)
+		var raw rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", user.Id).First(&raw).Error
 		require.NoError(t, err)
-		require.Equal(t, "test@example.com", savedUser.Email)
-		require.Equal(t, "Test User", savedUser.Name)
+		require.NotEqual(t, "test@example.com", raw.Email, "email should be encrypted in database")
+		require.NotEqual(t, "Test User", raw.Name, "name should be encrypted in database")
+
+		// Verify manual decryption returns correct values
+		decryptedEmail, err := fieldEncrypt.Decrypt(raw.Email)
+		require.NoError(t, err)
+		require.Equal(t, "test@example.com", decryptedEmail)
+
+		decryptedName, err := fieldEncrypt.Decrypt(raw.Name)
+		require.NoError(t, err)
+		require.Equal(t, "Test User", decryptedName)
 	})
 
 	t.Run("save multiple users with mixed fields", func(t *testing.T) {
@@ -3183,15 +3213,37 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 		err = store.SaveUsers(context.Background(), users)
 		require.NoError(t, err)
 
-		savedUser1, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, "batch-user-1")
+		// Verify first user (empty fields) using direct database query
+		var raw1 rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", "batch-user-1").First(&raw1).Error
 		require.NoError(t, err)
-		require.Equal(t, "", savedUser1.Email)
-		require.Equal(t, "", savedUser1.Name)
+		require.Equal(t, "", raw1.Email, "empty email should remain empty in database")
+		require.Equal(t, "", raw1.Name, "empty name should remain empty in database")
 
-		savedUser2, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, "batch-user-2")
+		// Verify second user (with fields) using direct database query
+		var raw2 rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", "batch-user-2").First(&raw2).Error
 		require.NoError(t, err)
-		require.Equal(t, "batch@example.com", savedUser2.Email)
-		require.Equal(t, "Batch User", savedUser2.Name)
+		require.NotEqual(t, "batch@example.com", raw2.Email, "email should be encrypted in database")
+		require.NotEqual(t, "Batch User", raw2.Name, "name should be encrypted in database")
+
+		// Verify manual decryption returns empty strings for first user
+		decryptedEmail1, err := fieldEncrypt.Decrypt(raw1.Email)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedEmail1)
+
+		decryptedName1, err := fieldEncrypt.Decrypt(raw1.Name)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedName1)
+
+		// Verify manual decryption returns correct values for second user
+		decryptedEmail2, err := fieldEncrypt.Decrypt(raw2.Email)
+		require.NoError(t, err)
+		require.Equal(t, "batch@example.com", decryptedEmail2)
+
+		decryptedName2, err := fieldEncrypt.Decrypt(raw2.Name)
+		require.NoError(t, err)
+		require.Equal(t, "Batch User", decryptedName2)
 	})
 }
 
