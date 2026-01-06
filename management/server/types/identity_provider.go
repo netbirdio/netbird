@@ -1,6 +1,9 @@
 package types
 
-import "errors"
+import (
+	"errors"
+	"net/url"
+)
 
 // Identity provider validation errors
 var (
@@ -8,6 +11,7 @@ var (
 	ErrIdentityProviderTypeRequired     = errors.New("identity provider type is required")
 	ErrIdentityProviderTypeUnsupported  = errors.New("unsupported identity provider type")
 	ErrIdentityProviderIssuerRequired   = errors.New("identity provider issuer is required")
+	ErrIdentityProviderIssuerInvalid    = errors.New("identity provider issuer must be a valid URL")
 	ErrIdentityProviderClientIDRequired = errors.New("identity provider client ID is required")
 )
 
@@ -91,6 +95,12 @@ func (idp *IdentityProvider) Validate() error {
 	}
 	if !idp.Type.HasBuiltInIssuer() && idp.Issuer == "" {
 		return ErrIdentityProviderIssuerRequired
+	}
+	if idp.Issuer != "" {
+		parsedURL, err := url.Parse(idp.Issuer)
+		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+			return ErrIdentityProviderIssuerInvalid
+		}
 	}
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
