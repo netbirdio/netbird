@@ -173,3 +173,96 @@ func TestCreateOwnerUser_IdPError(t *testing.T) {
 	_, err := manager.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
 	assert.Error(t, err, "should return error when IDP fails")
 }
+
+func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
+	manager := &DefaultManager{
+		setupRequired: true,
+	}
+
+	tests := []struct {
+		name        string
+		email       string
+		password    string
+		userName    string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid request",
+			email:       "admin@example.com",
+			password:    "password123",
+			userName:    "Admin User",
+			expectError: false,
+		},
+		{
+			name:        "empty email",
+			email:       "",
+			password:    "password123",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "email is required",
+		},
+		{
+			name:        "invalid email format",
+			email:       "not-an-email",
+			password:    "password123",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "invalid email format",
+		},
+		{
+			name:        "empty name",
+			email:       "admin@example.com",
+			password:    "password123",
+			userName:    "",
+			expectError: true,
+			errorMsg:    "name is required",
+		},
+		{
+			name:        "empty password",
+			email:       "admin@example.com",
+			password:    "",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "password is required",
+		},
+		{
+			name:        "password too short",
+			email:       "admin@example.com",
+			password:    "short",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "password must be at least 8 characters",
+		},
+		{
+			name:        "password exactly 8 characters",
+			email:       "admin@example.com",
+			password:    "12345678",
+			userName:    "Admin User",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := manager.validateSetupInfo(tt.email, tt.password, tt.userName)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDefaultManager_CreateOwnerUser_SetupAlreadyCompleted(t *testing.T) {
+	manager := &DefaultManager{
+		setupRequired:      false,
+		embeddedIdpManager: &idp.EmbeddedIdPManager{},
+	}
+
+	_, err := manager.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setup already completed")
+}

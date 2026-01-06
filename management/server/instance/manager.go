@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // Manager handles instance-level operations like initial setup.
@@ -87,6 +89,18 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 		return nil, errors.New("embedded IDP is not enabled")
 	}
 
+	m.setupMu.RLock()
+	setupRequired := m.setupRequired
+	m.setupMu.RUnlock()
+
+	if !setupRequired {
+		return nil, status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	if err := m.validateSetupInfo(email, password, name); err != nil {
+		return nil, err
+	}
+
 	userData, err := m.embeddedIdpManager.CreateUserWithPassword(ctx, email, password, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
@@ -99,4 +113,23 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
 	return userData, nil
+}
+
+func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
+	if email == "" {
+		return status.Errorf(status.InvalidArgument, "email is required")
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid email format")
+	}
+	if name == "" {
+		return status.Errorf(status.InvalidArgument, "name is required")
+	}
+	if password == "" {
+		return status.Errorf(status.InvalidArgument, "password is required")
+	}
+	if len(password) < 8 {
+		return status.Errorf(status.InvalidArgument, "password must be at least 8 characters")
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -16,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // mockInstanceManager implements instance.Manager for testing
@@ -36,6 +38,27 @@ func (m *mockInstanceManager) CreateOwnerUser(ctx context.Context, email, passwo
 	if m.createOwnerUserFn != nil {
 		return m.createOwnerUserFn(ctx, email, password, name)
 	}
+
+	// Default mock includes validation like the real manager
+	if !m.isSetupRequired {
+		return nil, status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+	if email == "" {
+		return nil, status.Errorf(status.InvalidArgument, "email is required")
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid email format")
+	}
+	if name == "" {
+		return nil, status.Errorf(status.InvalidArgument, "name is required")
+	}
+	if password == "" {
+		return nil, status.Errorf(status.InvalidArgument, "password is required")
+	}
+	if len(password) < 8 {
+		return nil, status.Errorf(status.InvalidArgument, "password must be at least 8 characters")
+	}
+
 	return &idp.UserData{
 		ID:    "test-user-id",
 		Email: email,
@@ -181,7 +204,7 @@ func TestSetup_MissingPassword(t *testing.T) {
 	manager := &mockInstanceManager{isSetupRequired: true}
 	router := setupTestRouter(manager)
 
-	body := `{"email": "admin@example.com"}`
+	body := `{"email": "admin@example.com", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -195,7 +218,7 @@ func TestSetup_PasswordTooShort(t *testing.T) {
 	manager := &mockInstanceManager{isSetupRequired: true}
 	router := setupTestRouter(manager)
 
-	body := `{"email": "admin@example.com", "password": "short"}`
+	body := `{"email": "admin@example.com", "password": "short", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -238,15 +261,16 @@ func TestSetup_CreateUserError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestSetup_CheckSetupRequiredError(t *testing.T) {
+func TestSetup_ManagerError(t *testing.T) {
 	manager := &mockInstanceManager{
-		isSetupRequiredFn: func(ctx context.Context) (bool, error) {
-			return false, errors.New("database error")
+		isSetupRequired: true,
+		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+			return nil, status.Errorf(status.Internal, "database error")
 		},
 	}
 	router := setupTestRouter(manager)
 
-	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
