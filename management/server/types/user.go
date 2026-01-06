@@ -255,8 +255,8 @@ func NewOwnerUser(id string, email string, name string) *User {
 	return NewUser(id, UserRoleOwner, false, false, "", []string{}, UserIssuedAPI, email, name)
 }
 
-// Encrypt encrypts the user's sensitive fields (Email and Name) in place.
-func (u *User) Encrypt(enc *crypt.FieldEncrypt) error {
+// EncryptSensitiveData encrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}
@@ -279,8 +279,8 @@ func (u *User) Encrypt(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
-// Decrypt decrypts the user's sensitive fields (Email and Name) in place.
-func (u *User) Decrypt(enc *crypt.FieldEncrypt) error {
+// DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.
+func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}

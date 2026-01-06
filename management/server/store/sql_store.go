@@ -58,13 +58,13 @@ const (
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
-	db                *gorm.DB
-	globalAccountLock sync.Mutex
-	metrics           telemetry.AppMetrics
-	installationPK    int
-	storeEngine       types.Engine
-	pool              *pgxpool.Pool
-	fieldEncrypt      *crypt.FieldEncrypt
+	db                 *gorm.DB
+	globalAccountLock  sync.Mutex
+	metrics            telemetry.AppMetrics
+	installationPK     int
+	storeEngine        types.Engine
+	pool               *pgxpool.Pool
+	fieldEncrypt       *crypt.FieldEncrypt
 	transactionTimeout time.Duration
 }
 
@@ -178,7 +178,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 
 	// Encrypt sensitive user data before saving
 	for i := range account.UsersG {
-		if err := account.UsersG[i].Encrypt(s.fieldEncrypt); err != nil {
+		if err := account.UsersG[i].EncryptSensitiveData(s.fieldEncrypt); err != nil {
 			return fmt.Errorf("encrypt user: %w", err)
 		}
 	}
@@ -453,7 +453,7 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 		userCopy := user.Copy()
 		userCopy.Email = user.Email
 		userCopy.Name = user.Name
-		if err := userCopy.Encrypt(s.fieldEncrypt); err != nil {
+		if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 			return fmt.Errorf("encrypt user: %w", err)
 		}
 		usersCopy[i] = userCopy
@@ -473,7 +473,7 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 	userCopy.Email = user.Email
 	userCopy.Name = user.Name
 
-	if err := userCopy.Encrypt(s.fieldEncrypt); err != nil {
+	if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt user: %w", err)
 	}
 
@@ -627,7 +627,7 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 		return nil, status.NewGetUserFromStoreError()
 	}
 
-	if err := user.Decrypt(s.fieldEncrypt); err != nil {
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
@@ -649,7 +649,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 		return nil, status.NewGetUserFromStoreError()
 	}
 
-	if err := user.Decrypt(s.fieldEncrypt); err != nil {
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
@@ -690,7 +690,7 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 	}
 
 	for _, user := range users {
-		if err := user.Decrypt(s.fieldEncrypt); err != nil {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 	}
@@ -713,7 +713,7 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
 	}
 
-	if err := user.Decrypt(s.fieldEncrypt); err != nil {
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
@@ -911,7 +911,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
 		}
-		if err := user.Decrypt(s.fieldEncrypt); err != nil {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 		account.Users[user.Id] = &user
@@ -1189,7 +1189,7 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for i := range account.UsersG {
 		user := &account.UsersG[i]
-		if err := user.Decrypt(s.fieldEncrypt); err != nil {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
 			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 		user.PATs = make(map[string]*types.PersonalAccessToken)
