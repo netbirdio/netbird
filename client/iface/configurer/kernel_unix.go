@@ -15,8 +15,6 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
-var zeroKey wgtypes.Key
-
 type KernelConfigurer struct {
 	deviceName string
 }
