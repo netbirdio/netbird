@@ -68,13 +68,17 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate request
-	email := string(req.Email)
+	email := req.Email
 	if email == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "email is required"), w)
 		return
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid email format"), w)
+		return
+	}
+	if req.Name == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "name is required"), w)
 		return
 	}
 	if req.Password == "" {
@@ -86,14 +90,8 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use email as name if not provided
-	name := email
-	if req.Name != nil && *req.Name != "" {
-		name = *req.Name
-	}
-
 	// Create the owner user via instance manager
-	userData, err := h.instanceManager.CreateOwnerUser(r.Context(), email, req.Password, name)
+	userData, err := h.instanceManager.CreateOwnerUser(r.Context(), email, req.Password, req.Name)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to create user during setup: %v", err)
 		util.WriteError(r.Context(), status.Errorf(status.Internal, "failed to create user: %v", err), w)

@@ -1901,7 +1901,7 @@ type SetupRequest struct {
 	Email string `json:"email"`
 
 	// Name Display name for the admin user (defaults to email if not provided)
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// Password Password for the admin user (minimum 8 characters)
 	Password string `json:"password"`

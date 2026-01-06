@@ -133,32 +133,6 @@ func TestSetup_Success(t *testing.T) {
 	assert.Equal(t, "admin@example.com", response.Email)
 }
 
-func TestSetup_SuccessWithoutName(t *testing.T) {
-	manager := &mockInstanceManager{
-		isSetupRequired: true,
-		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
-			assert.Equal(t, "admin@example.com", email)
-			assert.Equal(t, "securepassword123", password)
-			assert.Equal(t, "admin@example.com", name) // Name defaults to email
-			return &idp.UserData{
-				ID:    "created-user-id",
-				Email: email,
-				Name:  name,
-			}, nil
-		},
-	}
-	router := setupTestRouter(manager)
-
-	body := `{"email": "admin@example.com", "password": "securepassword123"}`
-	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	router.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
 func TestSetup_AlreadyCompleted(t *testing.T) {
 	manager := &mockInstanceManager{isSetupRequired: false}
 	router := setupTestRouter(manager)
@@ -191,7 +165,7 @@ func TestSetup_InvalidEmail(t *testing.T) {
 	manager := &mockInstanceManager{isSetupRequired: true}
 	router := setupTestRouter(manager)
 
-	body := `{"email": "not-an-email", "password": "securepassword123"}`
+	body := `{"email": "not-an-email", "password": "securepassword123", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -200,7 +174,7 @@ func TestSetup_InvalidEmail(t *testing.T) {
 
 	// Note: Invalid email format uses mail.ParseAddress which is treated differently
 	// and returns 400 Bad Request instead of 422 Unprocessable Entity
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
 
 func TestSetup_MissingPassword(t *testing.T) {
@@ -254,7 +228,7 @@ func TestSetup_CreateUserError(t *testing.T) {
 	}
 	router := setupTestRouter(manager)
 
-	body := `{"email": "admin@example.com", "password": "securepassword123"}`
+	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

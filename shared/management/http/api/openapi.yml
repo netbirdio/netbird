@@ -2367,6 +2367,7 @@ components:
       required:
         - email
         - password
+        - name
     SetupResponse:
       type: object
       description: Response after successful instance setup
