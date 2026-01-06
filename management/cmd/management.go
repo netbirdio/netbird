@@ -109,11 +109,6 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
-			// Embedded IdP requires single account mode - multiple account mode is not supported
-			if config.EmbeddedIdP != nil && config.EmbeddedIdP.Enabled && disableSingleAccMode {
-				return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
-			}
-
 			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
 			go func() {
 				if err := srv.Start(cmd.Context()); err != nil {
@@ -179,10 +174,18 @@ func applyCommandLineOverrides(cfg *nbconfig.Config) {
 
 // applyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
 // This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
-func applyEmbeddedIdPConfig(cfg *nbconfig.Config) {
+func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
-		return
+		return nil
 	}
+
+	// apply some defaults based on the EmbeddedIdP config
+	if disableSingleAccMode {
+		// Embedded IdP requires single account mode - multiple account mode is not supported
+		return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
+	}
+	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
+	userDeleteFromIDPEnabled = true
 
 	// Ensure HttpConfig exists
 	if cfg.HttpConfig == nil {
@@ -228,6 +231,8 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) {
 	if cfg.EmbeddedIdP.SignKeyRefreshEnabled {
 		cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
 	}
+
+	return nil
 }
 
 // applyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
