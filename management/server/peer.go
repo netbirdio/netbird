@@ -91,7 +91,7 @@ func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, acc
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap)
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap, account.GetActiveGroupUsers())
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -663,11 +663,10 @@ func getPeerIPDNSLabel(ip net.IP, peerHostName string) (string, error) {
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	var peer *nbpeer.Peer
-	var peerNotValid bool
-	var isStatusChanged bool
 	var updated, versionChanged bool
 	var err error
 	var postureChecks []*posture.Checks
+	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -695,12 +694,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return status.NewPeerLoginExpiredError()
 		}
 
-		peerGroupIDs, err := getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
-		peerNotValid, isStatusChanged, err = am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
+		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
 		if err != nil {
 			return err
 		}
@@ -720,6 +714,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	peerNotValid, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
@@ -773,10 +772,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
-	var isRequiresApproval bool
-	var isStatusChanged bool
 	var isPeerUpdated bool
 	var postureChecks []*posture.Checks
+	var peerGroupIDs []string
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -809,12 +807,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			}
 		}
 
-		peerGroupIDs, err := getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
-		if err != nil {
-			return err
-		}
-
-		isRequiresApproval, isStatusChanged, err = am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
+		peerGroupIDs, err = getPeerGroupIDs(ctx, transaction, accountID, peer.ID)
 		if err != nil {
 			return err
 		}
@@ -848,6 +841,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 		return nil
 	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	isRequiresApproval, isStatusChanged, err := am.integratedPeerValidator.IsNotValidPeer(ctx, accountID, peer, peerGroupIDs, settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1057,7 +1055,7 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap)
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap, account.GetActiveGroupUsers())
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peer.ID {
 				return peer, nil

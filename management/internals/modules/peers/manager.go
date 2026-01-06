@@ -158,5 +158,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		}
 	}
 
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
 	return nil
 }
