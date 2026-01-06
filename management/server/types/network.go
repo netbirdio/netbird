@@ -40,7 +40,6 @@ type NetworkMap struct {
 	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
 	EnableSSH           bool
-	IsRouter            bool
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {

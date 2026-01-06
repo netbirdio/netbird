@@ -344,7 +344,6 @@ func (a *Account) GetPeerNetworkMap(
 		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
 		AuthorizedUsers:     authorizedUsers,
 		EnableSSH:           enableSSH,
-		IsRouter:            isRouter,
 	}
 
 	if metrics != nil {
