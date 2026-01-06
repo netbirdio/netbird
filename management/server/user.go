@@ -138,7 +138,11 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		}
 	}
 
-	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
+	eventType := activity.UserInvited
+	if IsEmbeddedIdp(am.idpManager) {
+		eventType = activity.UserCreated
+	}
+	am.StoreEvent(ctx, userID, newUser.Id, accountID, eventType, nil)
 
 	return newUser.ToUserInfo(idpUser)
 }
