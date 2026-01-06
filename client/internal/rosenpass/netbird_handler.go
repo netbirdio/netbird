@@ -2,8 +2,6 @@ package rosenpass
 
 import (
 	"net"
-	"net/netip"
-	"time"
 
 	rp "cunicu.li/go-rosenpass"
 	log "github.com/sirupsen/logrus"
@@ -17,9 +15,8 @@ import (
 // This abstraction allows rosenpass to work with both kernel WireGuard (via wgctrl)
 // and userspace WireGuard (via IPC) on platforms like Android/iOS.
 type WGConfigurer interface {
+	ConfigureDevice(config wgtypes.Config) error
 	FullStats() (*configurer.Stats, error)
-	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
-	RemovePeer(peerKey string) error
 }
 
 type wireGuardPeer struct {
@@ -82,80 +79,74 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 		return
 	}
 
-	peerKey := wgtypes.Key(wg.PublicKey).String()
-
 	stats, err := h.configurer.FullStats()
 	if err != nil {
-		log.Errorf("Failed to get WireGuard stats: %v", err)
+		log.Errorf("Failed to get WireGuard device: %v", err)
 		return
 	}
 
-	// Find the peer in current WireGuard config
-	var peer *configurer.Peer
-	for i := range stats.Peers {
-		if stats.Peers[i].PublicKey == peerKey {
-			peer = &stats.Peers[i]
+	// Default: UpdateOnly mode - only update PSK, preserve all other settings
+	config := []wgtypes.PeerConfig{
+		{
+			UpdateOnly:   true,
+			PublicKey:    wgtypes.Key(wg.PublicKey),
+			PresharedKey: (*wgtypes.Key)(&psk),
+		},
+	}
+
+	// Find the peer and check if we need to restart the connection
+	for _, peer := range stats.Peers {
+		if peer.PublicKey == wgtypes.Key(wg.PublicKey).String() {
+			if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
+				log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
+
+				// Build full peer config preserving all settings including keepalive
+				var endpoint *net.UDPAddr
+				if peer.Endpoint.IP != nil {
+					endpoint = &peer.Endpoint
+				}
+				keepalive := peer.PersistentKeepalive
+
+				config = []wgtypes.PeerConfig{
+					{
+						PublicKey:                   wgtypes.Key(wg.PublicKey),
+						PresharedKey:                (*wgtypes.Key)(&psk),
+						Endpoint:                    endpoint,
+						AllowedIPs:                  peer.AllowedIPs,
+						PersistentKeepaliveInterval: &keepalive,
+					},
+				}
+
+				// Remove the peer first
+				err = h.configurer.ConfigureDevice(wgtypes.Config{
+					Peers: []wgtypes.PeerConfig{
+						{
+							Remove:    true,
+							PublicKey: wgtypes.Key(wg.PublicKey),
+						},
+					},
+				})
+				if err != nil {
+					log.Debugf("Failed to remove peer: %v", err)
+					return
+				}
+			}
 			break
 		}
 	}
 
-	if peer == nil {
-		log.Warnf("rosenpass: peer %s not found in WireGuard config", peerKey)
-		return
-	}
-
-	pskKey := (*wgtypes.Key)(&psk)
-
-	// Convert peer config for update
-	allowedIPs := ipNetsToNetipPrefixes(peer.AllowedIPs)
-	var endpoint *net.UDPAddr
-	if peer.Endpoint.IP != nil {
-		endpoint = &peer.Endpoint
-	}
-
-	// If no preshared key is set or it's the original NetBird preshared key,
-	// we need to restart the connection by removing and re-adding the peer
-	if !peer.PresharedKey || h.isOriginalPresharedKey(peer) {
-
-		// Remove the peer first
-		if err := h.configurer.RemovePeer(peerKey); err != nil {
-			log.Errorf("rosenpass: failed to remove peer for restart: %v", err)
-			return
-		}
-
-		// Re-add peer with new preshared key
-		if err := h.configurer.UpdatePeer(peerKey, allowedIPs, 0, endpoint, pskKey); err != nil {
-			log.Errorf("rosenpass: failed to re-add peer with PSK: %v", err)
-		} else {
-			log.Infof("rosenpass: applied PSK to peer %s", peerKey)
-		}
-		return
-	}
-
-	// Just update the preshared key
-	if err := h.configurer.UpdatePeer(peerKey, allowedIPs, 0, endpoint, pskKey); err != nil {
-		log.Errorf("rosenpass: failed to update PSK: %v", err)
-	} else {
-		log.Infof("rosenpass: updated PSK for peer %s", peerKey)
+	if err = h.configurer.ConfigureDevice(wgtypes.Config{
+		Peers: config,
+	}); err != nil {
+		log.Errorf("Failed to apply rosenpass key: %v", err)
 	}
 }
 
-// isOriginalPresharedKey checks if the peer might be using the original NetBird preshared key.
-// Since stats only provides a boolean, we can't verify the actual key value.
-// We return false here, meaning we only restart when no PSK is set at all.
-func (h *NetbirdHandler) isOriginalPresharedKey(_ *configurer.Peer) bool {
-	return false
-}
-
-// ipNetsToNetipPrefixes converts []net.IPNet to []netip.Prefix
-func ipNetsToNetipPrefixes(ipNets []net.IPNet) []netip.Prefix {
-	prefixes := make([]netip.Prefix, 0, len(ipNets))
-	for _, ipNet := range ipNets {
-		if addr, ok := netip.AddrFromSlice(ipNet.IP); ok {
-			ones, _ := ipNet.Mask.Size()
-			prefix := netip.PrefixFrom(addr, ones)
-			prefixes = append(prefixes, prefix)
+func publicKeyEmpty(key [32]byte) bool {
+	for _, b := range key {
+		if b != 0 {
+			return false
 		}
 	}
-	return prefixes
+	return true
 }

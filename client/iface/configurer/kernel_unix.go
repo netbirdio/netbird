@@ -48,6 +48,12 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
+// ConfigureDevice applies a wgtypes.Config directly, allowing full control
+// over peer configuration including UpdateOnly semantics.
+func (c *KernelConfigurer) ConfigureDevice(config wgtypes.Config) error {
+	return c.configure(config)
+}
+
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -274,12 +280,13 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 
 	for _, p := range wgDevice.Peers {
 		peer := Peer{
-			PublicKey:     p.PublicKey.String(),
-			AllowedIPs:    p.AllowedIPs,
-			TxBytes:       p.TransmitBytes,
-			RxBytes:       p.ReceiveBytes,
-			LastHandshake: p.LastHandshakeTime,
-			PresharedKey:  p.PresharedKey != zeroKey,
+			PublicKey:           p.PublicKey.String(),
+			AllowedIPs:          p.AllowedIPs,
+			TxBytes:             p.TransmitBytes,
+			RxBytes:             p.ReceiveBytes,
+			LastHandshake:       p.LastHandshakeTime,
+			PresharedKey:        [32]byte(p.PresharedKey),
+			PersistentKeepalive: p.PersistentKeepaliveInterval,
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint

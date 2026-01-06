@@ -33,6 +33,7 @@ const (
 	listenPort                  = "listen_port"
 	publicKey                   = "public_key"
 	presharedKey                = "preshared_key"
+	persistentKeepaliveInterval = "persistent_keepalive_interval"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -69,6 +70,12 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 		ListenPort:   &port,
 	}
 
+	return c.device.IpcSet(toWgUserspaceString(config))
+}
+
+// ConfigureDevice applies a wgtypes.Config directly, allowing full control
+// over peer configuration including UpdateOnly semantics.
+func (c *WGUSPConfigurer) ConfigureDevice(config wgtypes.Config) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
@@ -599,7 +606,16 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 			if val != "" && val != "0000000000000000000000000000000000000000000000000000000000000000" {
-				currentPeer.PresharedKey = true
+				if pskKey, err := hexToWireguardKey(val); err == nil {
+					currentPeer.PresharedKey = [32]byte(pskKey)
+				}
+			}
+		case persistentKeepaliveInterval:
+			if currentPeer == nil {
+				continue
+			}
+			if secs, err := strconv.Atoi(val); err == nil {
+				currentPeer.PersistentKeepalive = time.Duration(secs) * time.Second
 			}
 		}
 	}
