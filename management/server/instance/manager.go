@@ -85,6 +85,11 @@ func (m *DefaultManager) IsSetupRequired(_ context.Context) (bool, error) {
 
 // CreateOwnerUser creates the initial owner user in the embedded IDP.
 func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+
+	if err := m.validateSetupInfo(email, password, name); err != nil {
+		return nil, err
+	}
+
 	if m.embeddedIdpManager == nil {
 		return nil, errors.New("embedded IDP is not enabled")
 	}
@@ -95,10 +100,6 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 
 	if !setupRequired {
 		return nil, status.Errorf(status.PreconditionFailed, "setup already completed")
-	}
-
-	if err := m.validateSetupInfo(email, password, name); err != nil {
-		return nil, err
 	}
 
 	userData, err := m.embeddedIdpManager.CreateUserWithPassword(ctx, email, password, name)
