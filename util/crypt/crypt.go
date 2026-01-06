@@ -1,137 +1,96 @@
 package crypt
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
+	"io"
 )
 
-var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
-
+// FieldEncrypt provides AES-GCM encryption for sensitive fields.
 type FieldEncrypt struct {
 	block cipher.Block
-	gcm   cipher.AEAD
 }
 
-func GenerateKey() (string, error) {
-	key := make([]byte, 32)
-	_, err := rand.Read(key)
-	if err != nil {
-		return "", err
-	}
-	readableKey := base64.StdEncoding.EncodeToString(key)
-	return readableKey, nil
-}
-
-func NewFieldEncrypt(key string) (*FieldEncrypt, error) {
-	binKey, err := base64.StdEncoding.DecodeString(key)
+// NewFieldEncrypt creates a new FieldEncrypt with the given base64-encoded key.
+// The key must be 32 bytes when decoded (for AES-256).
+func NewFieldEncrypt(base64Key string) (*FieldEncrypt, error) {
+	key, err := base64.StdEncoding.DecodeString(base64Key)
 	if err != nil {
 		return nil, fmt.Errorf("decode encryption key: %w", err)
 	}
 
-	block, err := aes.NewCipher(binKey)
+	if len(key) != 32 {
+		return nil, fmt.Errorf("encryption key must be 32 bytes, got %d", len(key))
+	}
+
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create cipher: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	ec := &FieldEncrypt{
-		block: block,
-		gcm:   gcm,
-	}
-
-	return ec, nil
+	return &FieldEncrypt{block: block}, nil
 }
 
-func (ec *FieldEncrypt) LegacyEncrypt(payload string) string {
-	plainText := pkcs5Padding([]byte(payload))
-	cipherText := make([]byte, len(plainText))
-	cbc := cipher.NewCBCEncrypter(ec.block, iv)
-	cbc.CryptBlocks(cipherText, plainText)
-	return base64.StdEncoding.EncodeToString(cipherText)
-}
-
-// Encrypt encrypts plaintext using AES-GCM
-func (ec *FieldEncrypt) Encrypt(payload string) (string, error) {
-	plaintext := []byte(payload)
-	nonceSize := ec.gcm.NonceSize()
-
-	nonce := make([]byte, nonceSize, len(plaintext)+nonceSize+ec.gcm.Overhead())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
+// Encrypt encrypts the given plaintext and returns base64-encoded ciphertext.
+// Returns empty string for empty input.
+func (f *FieldEncrypt) Encrypt(plaintext string) (string, error) {
+	if plaintext == "" {
+		return "", nil
 	}
 
-	ciphertext := ec.gcm.Seal(nonce, nonce, plaintext, nil)
+	gcm, err := cipher.NewGCM(f.block)
+	if err != nil {
+		return "", fmt.Errorf("create GCM: %w", err)
+	}
 
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-func (ec *FieldEncrypt) LegacyDecrypt(data string) (string, error) {
-	cipherText, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return "", err
-	}
-	cbc := cipher.NewCBCDecrypter(ec.block, iv)
-	cbc.CryptBlocks(cipherText, cipherText)
-	payload, err := pkcs5UnPadding(cipherText)
-	if err != nil {
-		return "", err
+// Decrypt decrypts the given base64-encoded ciphertext and returns the plaintext.
+// Returns empty string for empty input.
+func (f *FieldEncrypt) Decrypt(ciphertext string) (string, error) {
+	if ciphertext == "" {
+		return "", nil
 	}
 
-	return string(payload), nil
+	data, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("decode ciphertext: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(f.block)
+	if err != nil {
+		return "", fmt.Errorf("create GCM: %w", err)
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertextBytes := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertextBytes, nil)
+	if err != nil {
+		return "", fmt.Errorf("decrypt: %w", err)
+	}
+
+	return string(plaintext), nil
 }
 
-// Decrypt decrypts ciphertext using AES-GCM
-func (ec *FieldEncrypt) Decrypt(data string) (string, error) {
-	cipherText, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return "", err
+// GenerateKey generates a new random 32-byte encryption key and returns it as base64.
+func GenerateKey() (string, error) {
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return "", fmt.Errorf("generate key: %w", err)
 	}
-
-	nonceSize := ec.gcm.NonceSize()
-	if len(cipherText) < nonceSize {
-		return "", errors.New("cipher text too short")
-	}
-
-	nonce, cipherText := cipherText[:nonceSize], cipherText[nonceSize:]
-	plainText, err := ec.gcm.Open(nil, nonce, cipherText, nil)
-	if err != nil {
-		return "", err
-	}
-
-	return string(plainText), nil
-}
-
-func pkcs5Padding(ciphertext []byte) []byte {
-	padding := aes.BlockSize - len(ciphertext)%aes.BlockSize
-	padText := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(ciphertext, padText...)
-}
-func pkcs5UnPadding(src []byte) ([]byte, error) {
-	srcLen := len(src)
-	if srcLen == 0 {
-		return nil, errors.New("input data is empty")
-	}
-
-	paddingLen := int(src[srcLen-1])
-	if paddingLen == 0 || paddingLen > aes.BlockSize || paddingLen > srcLen {
-		return nil, errors.New("invalid padding size")
-	}
-
-	// Verify that all padding bytes are the same
-	for i := 0; i < paddingLen; i++ {
-		if src[srcLen-1-i] != byte(paddingLen) {
-			return nil, errors.New("invalid padding")
-		}
-	}
-
-	return src[:srcLen-paddingLen], nil
+	return base64.StdEncoding.EncodeToString(key), nil
 }

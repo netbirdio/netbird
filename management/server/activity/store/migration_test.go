@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	crypt2 "github.com/netbirdio/netbird/util/crypt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -41,10 +40,10 @@ func setupDatabase(t *testing.T) *gorm.DB {
 func TestMigrateLegacyEncryptedUsersToGCM(t *testing.T) {
 	db := setupDatabase(t)
 
-	key, err := crypt2.GenerateKey()
+	key, err := GenerateKey()
 	require.NoError(t, err, "Failed to generate key")
 
-	crypt, err := crypt2.NewFieldEncrypt(key)
+	crypt, err := NewFieldEncrypt(key)
 	require.NoError(t, err, "Failed to initialize FieldEncrypt")
 
 	t.Run("empty table, no migration required", func(t *testing.T) {

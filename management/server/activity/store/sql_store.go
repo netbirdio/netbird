@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/netbirdio/netbird/util/crypt"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -46,12 +45,12 @@ type eventWithNames struct {
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
 	db           *gorm.DB
-	fieldEncrypt *crypt.FieldEncrypt
+	fieldEncrypt *FieldEncrypt
 }
 
 // NewSqlStore creates a new Store with an event table if not exists.
 func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
-	crypt, err := crypt.NewFieldEncrypt(encryptionKey)
+	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
 		return nil, err

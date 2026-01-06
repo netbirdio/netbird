@@ -1,4 +1,4 @@
-package crypt
+package store
 
 import (
 	"bytes"
