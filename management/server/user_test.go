@@ -1882,7 +1882,7 @@ func TestRejectUser(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestUser_CreateUser_WithEmbeddedIDP(t *testing.T) {
+func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctx := context.Background()
 
 	// Create temporary directory for Dex
