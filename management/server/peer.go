@@ -1241,10 +1241,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
 		}
 
-		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
-			return nil, err
-		}
-
 		peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peer.ID)
 		if err != nil {
 			return nil, err
