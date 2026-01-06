@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -26,38 +27,58 @@ type Manager interface {
 type DefaultManager struct {
 	store              store.Store
 	embeddedIdpManager *idp.EmbeddedIdPManager
+
+	setupRequired bool
+	setupMu       sync.RWMutex
 }
 
 // NewManager creates a new instance manager.
 // If idpManager is not an EmbeddedIdPManager, setup-related operations will return appropriate defaults.
-func NewManager(store store.Store, idpManager idp.Manager) Manager {
+func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) (Manager, error) {
 	embeddedIdp, _ := idpManager.(*idp.EmbeddedIdPManager)
-	//todo call to check whether IsSetupRequired
-	return &DefaultManager{
+
+	m := &DefaultManager{
 		store:              store,
 		embeddedIdpManager: embeddedIdp,
+		setupRequired:      false,
 	}
+
+	if embeddedIdp != nil {
+		err := m.loadSetupRequired(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return m, nil
+}
+
+func (m *DefaultManager) loadSetupRequired(ctx context.Context) error {
+	users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
+	if err != nil {
+		return err
+	}
+
+	m.setupMu.Lock()
+	m.setupRequired = len(users) == 0
+	m.setupMu.Unlock()
+
+	return nil
 }
 
 // IsSetupRequired checks if instance setup is required.
 // Setup is required when:
 // 1. Embedded IDP is enabled
 // 2. No accounts exist in the store
-func (m *DefaultManager) IsSetupRequired(ctx context.Context) (bool, error) {
-	// If embedded IDP is not enabled, setup is not required
+func (m *DefaultManager) IsSetupRequired(_ context.Context) (bool, error) {
 	if m.embeddedIdpManager == nil {
 		return false, nil
 	}
 
-	// Check if embedded IdP has any users as we may have already an owner created but the owner
-	// didn't log in.
-	users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
-	if err != nil {
-		return false, err
-	}
+	m.setupMu.RLock()
+	defer m.setupMu.RUnlock()
 
-	// Setup is required if no users exist
-	return len(users) == 0, nil
+	return m.setupRequired, nil
 }
 
 // CreateOwnerUser creates the initial owner user in the embedded IDP.
@@ -71,7 +92,9 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
 	}
 
-	//todo update shared field
+	m.setupMu.Lock()
+	m.setupRequired = false
+	m.setupMu.Unlock()
 
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
