@@ -126,14 +126,6 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 		log.Warnf("failed to set permissions for default profile: %v", err)
 	}
 
-	if err := s.SetActiveProfileState(&ActiveProfileState{
-		Name:     "default",
-		Username: "",
-	}); err != nil {
-		log.Errorf("failed to set active profile state: %v", err)
-		return false, fmt.Errorf("failed to set active profile state: %w", err)
-	}
-
 	return true, nil
 }
 

@@ -685,7 +685,7 @@ func update(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// GetConfig read config file and return with Config. Errors out if it does not exist
+// GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
 func GetConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, false)
 }
