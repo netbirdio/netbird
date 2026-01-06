@@ -742,11 +742,6 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 		return err
 	}
 
-	settings, err := c.repo.GetAccountSettings(ctx, accountID)
-	if err != nil {
-		return err
-	}
-
 	dnsFwdPort := computeForwarderPort(peers, network_map.DnsForwarderPortMinVersion)
 	for _, peerID := range peerIDs {
 		c.peersUpdateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
@@ -766,10 +761,6 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 			},
 		})
 		c.peersUpdateManager.CloseChannel(ctx, peerID)
-
-		if err = c.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
-			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
-		}
 
 		if c.experimentalNetworkMap(accountID) {
 			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)

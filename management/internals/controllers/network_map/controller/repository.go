@@ -14,7 +14,6 @@ type Repository interface {
 	GetAccountByPeerID(ctx context.Context, peerID string) (*types.Account, error)
 	GetPeersByIDs(ctx context.Context, accountID string, peerIDs []string) (map[string]*peer.Peer, error)
 	GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error)
-	GetAccountSettings(ctx context.Context, accountID string) (*types.Settings, error)
 }
 
 type repository struct {
@@ -47,8 +46,4 @@ func (r *repository) GetPeersByIDs(ctx context.Context, accountID string, peerID
 
 func (r *repository) GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error) {
 	return r.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-}
-
-func (r *repository) GetAccountSettings(ctx context.Context, accountID string) (*types.Settings, error) {
-	return r.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 }
