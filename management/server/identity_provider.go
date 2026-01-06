@@ -82,7 +82,7 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 	}
 
 	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, err.Error())
+		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
@@ -120,7 +120,7 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 	}
 
 	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, err.Error())
+		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)

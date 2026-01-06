@@ -1324,7 +1324,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(context.Background(), ownerUserID, "netbird.io")
+			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
 			if err != nil {
 				t.Fatal(err)
 			}

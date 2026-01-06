@@ -243,7 +243,7 @@ func BuildManager(
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
 
-	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
 			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
@@ -740,37 +740,37 @@ func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID st
 // If user does have an account, it returns the user's account ID.
 // If the user doesn't have an account, it creates one using the provided domain.
 // Returns the account ID or an error if none is found or created.
-func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error) {
-	if userID == "" {
+func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userAuth auth.UserAuth) (string, error) {
+	if userAuth.UserId == "" {
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
+			acc, err := am.GetOrCreateAccountByUser(ctx, userAuth)
 			if err != nil {
-				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
+				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userAuth.UserId)
 			}
 
-			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account.Id); err != nil {
+			if err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, acc.Id); err != nil {
 				return "", err
 			}
-			return account.Id, nil
+			return acc.Id, nil
 		}
 		return "", err
 	}
 	return accountID, nil
 }
 
-func IsNil(i idp.Manager) bool {
+func isNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
 // IsEmbeddedIdp checks if the IDP manager is an embedded IDP (data stored locally in DB).
 // When true, user cache should be skipped and data fetched directly from the IDP manager.
 func IsEmbeddedIdp(i idp.Manager) bool {
-	if IsNil(i) {
+	if isNil(i) {
 		return false
 	}
 	_, ok := i.(*idp.EmbeddedIdPManager)
@@ -779,7 +779,7 @@ func IsEmbeddedIdp(i idp.Manager) bool {
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
-	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
 		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
@@ -1525,7 +1525,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	if userAuth.DomainCategory != types.PrivateCategory || !isDomainValid(userAuth.Domain) {
-		return am.GetAccountIDByUserID(ctx, userAuth.UserId, userAuth.Domain)
+		return am.GetAccountIDByUserID(ctx, userAuth)
 	}
 
 	if userAuth.AccountId != "" {

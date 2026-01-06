@@ -797,7 +797,7 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	if !IsNil(am.idpManager) && !user.IsServiceUser && !IsEmbeddedIdp(am.idpManager) {
+	if !isNil(am.idpManager) && !user.IsServiceUser && !IsEmbeddedIdp(am.idpManager) {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
@@ -848,7 +848,10 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userAuth auth.UserAuth) (*types.Account, error) {
+	userID := userAuth.UserId
+	domain := userAuth.Domain
+
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock(ctx)
 	defer unlock()
@@ -859,7 +862,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 	account, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err = am.newAccount(ctx, userID, lowerDomain, "", "")
+			account, err = am.newAccount(ctx, userID, lowerDomain, userAuth.Email, userAuth.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -925,7 +928,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	var err error
 
 	// embedded IdP ensures that we have user data (email and name) stored in the database.
-	if !IsNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
@@ -1137,7 +1140,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 
 // deleteRegularUser deletes a specified user and their related peers from the account.
 func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountID, initiatorUserID string, targetUserInfo *types.UserInfo) (bool, error) {
-	if !IsNil(am.idpManager) {
+	if !isNil(am.idpManager) {
 		// Delete if the user already exists in the IdP. Necessary in cases where a user account
 		// was created where a user account was provisioned but the user did not sign in
 		_, err := am.idpManager.GetUserDataByID(ctx, targetUserInfo.ID, idp.AppMetadata{WTAccountID: accountID})

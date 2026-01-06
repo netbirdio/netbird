@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func createManagerWithEmbeddedIdP(t testing.TB) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
@@ -92,7 +93,7 @@ func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
 	require.NoError(t, err)
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	testCases := []struct {
@@ -159,7 +160,7 @@ func TestDefaultAccountManager_GetIdentityProviders(t *testing.T) {
 	require.NoError(t, err)
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	// Should return empty list (stub implementation)
@@ -173,7 +174,7 @@ func TestDefaultAccountManager_GetIdentityProvider_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	// Should return not found error when identity provider doesn't exist
@@ -187,7 +188,7 @@ func TestDefaultAccountManager_UpdateIdentityProvider_Validation(t *testing.T) {
 	require.NoError(t, err)
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	// Should fail validation before reaching "not implemented" error

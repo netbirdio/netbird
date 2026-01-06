@@ -27,13 +27,13 @@ import (
 var _ account.Manager = (*MockAccountManager)(nil)
 
 type MockAccountManager struct {
-	GetOrCreateAccountByUserFunc func(ctx context.Context, userId, domain string) (*types.Account, error)
+	GetOrCreateAccountByUserFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.Account, error)
 	GetAccountFunc               func(ctx context.Context, accountID string) (*types.Account, error)
 	CreateSetupKeyFunc           func(ctx context.Context, accountId string, keyName string, keyType types.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
 	GetSetupKeyFunc                       func(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	AccountExistsFunc                     func(ctx context.Context, accountID string) (bool, error)
-	GetAccountIDByUserIdFunc              func(ctx context.Context, userId, domain string) (string, error)
+	GetAccountIDByUserIdFunc              func(ctx context.Context, userAuth auth.UserAuth) (string, error)
 	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
@@ -243,10 +243,10 @@ func (am *MockAccountManager) DeletePeer(ctx context.Context, accountID, peerID,
 
 // GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
 func (am *MockAccountManager) GetOrCreateAccountByUser(
-	ctx context.Context, userId, domain string,
+	ctx context.Context, userAuth auth.UserAuth,
 ) (*types.Account, error) {
 	if am.GetOrCreateAccountByUserFunc != nil {
-		return am.GetOrCreateAccountByUserFunc(ctx, userId, domain)
+		return am.GetOrCreateAccountByUserFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(
 		codes.Unimplemented,
@@ -282,9 +282,9 @@ func (am *MockAccountManager) AccountExists(ctx context.Context, accountID strin
 }
 
 // GetAccountIDByUserID mock implementation of GetAccountIDByUserID from server.AccountManager interface
-func (am *MockAccountManager) GetAccountIDByUserID(ctx context.Context, userId, domain string) (string, error) {
+func (am *MockAccountManager) GetAccountIDByUserID(ctx context.Context, userAuth auth.UserAuth) (string, error) {
 	if am.GetAccountIDByUserIdFunc != nil {
-		return am.GetAccountIDByUserIdFunc(ctx, userId, domain)
+		return am.GetAccountIDByUserIdFunc(ctx, userAuth)
 	}
 	return "", status.Errorf(
 		codes.Unimplemented,

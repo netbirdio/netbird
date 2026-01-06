@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
@@ -24,7 +25,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestGetSetupKeys(t *testing.T) {
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestDefaultAccountManager_CreateSetupKey_ShouldNotAllowToUpdateRevokedKey(t
 	}
 
 	userID := "testingUser"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	if err != nil {
 		t.Fatal(err)
 	}
