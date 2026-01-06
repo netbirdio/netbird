@@ -152,8 +152,10 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 			return err
 		}
 
-		if err = m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
-			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+		if m.integratedPeerValidator != nil {
+			if err = m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
+				log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+			}
 		}
 
 		for _, event := range eventsToStore {
