@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/util/crypt"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -13,7 +14,7 @@ import (
 
 func TestNewSqlStore(t *testing.T) {
 	dataDir := t.TempDir()
-	key, _ := GenerateKey()
+	key, _ := crypt.GenerateKey()
 	store, err := NewSqlStore(context.Background(), dataDir, key)
 	if err != nil {
 		t.Fatal(err)

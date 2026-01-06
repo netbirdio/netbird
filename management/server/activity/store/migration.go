@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/netbirdio/netbird/util/crypt"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -12,7 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/migration"
 )
 
-func migrate(ctx context.Context, crypt *FieldEncrypt, db *gorm.DB) error {
+func migrate(ctx context.Context, crypt *crypt.FieldEncrypt, db *gorm.DB) error {
 	migrations := getMigrations(ctx, crypt)
 
 	for _, m := range migrations {
@@ -26,7 +27,7 @@ func migrate(ctx context.Context, crypt *FieldEncrypt, db *gorm.DB) error {
 
 type migrationFunc func(*gorm.DB) error
 
-func getMigrations(ctx context.Context, crypt *FieldEncrypt) []migrationFunc {
+func getMigrations(ctx context.Context, crypt *crypt.FieldEncrypt) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[activity.DeletedUser](ctx, db, "name", "")
@@ -45,7 +46,7 @@ func getMigrations(ctx context.Context, crypt *FieldEncrypt) []migrationFunc {
 
 // migrateLegacyEncryptedUsersToGCM migrates previously encrypted data using
 // legacy CBC encryption with a static IV to the new GCM encryption method.
-func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *FieldEncrypt) error {
+func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *crypt.FieldEncrypt) error {
 	model := &activity.DeletedUser{}
 
 	if !db.Migrator().HasTable(model) {
@@ -80,7 +81,7 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *F
 	return nil
 }
 
-func updateDeletedUserData(transaction *gorm.DB, user activity.DeletedUser, crypt *FieldEncrypt) error {
+func updateDeletedUserData(transaction *gorm.DB, user activity.DeletedUser, crypt *crypt.FieldEncrypt) error {
 	var err error
 	var decryptedEmail, decryptedName string
 
