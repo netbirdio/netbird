@@ -32,10 +32,10 @@ func (a *Account) GetPeerNetworkMapComponents(
 		PeerID:              peerID,
 		Serial:              a.Network.Serial,
 		Network:             a.Network.Copy(),
-		Peers:               make(map[string]*nbpeer.Peer),
-		Groups:              make(map[string]*Group),
-		Policies:            make([]*Policy, 0),
-		Routes:              make([]*route.Route, 0),
+		Peers:               make(map[string]*nbpeer.Peer, len(a.Peers)/4),
+		Groups:              make(map[string]*Group, len(a.Groups)/4),
+		Policies:            make([]*Policy, 0, len(a.Policies)/4),
+		Routes:              make([]*route.Route, 0, len(a.Routes)/4),
 		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
 		CustomZoneDomain:    peersCustomZone.Domain,
 		AllDNSRecords:       peersCustomZone.Records,
@@ -53,12 +53,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	components.DNSSettings = &a.DNSSettings
 
-	relevantPeerIDsList, relevantGroupIDs := a.findRelevantPeersAndGroups(ctx, peerID, validatedPeersMap)
-
-	relevantPeerIDsMap := make(map[string]struct{})
-	for _, pid := range relevantPeerIDsList {
-		relevantPeerIDsMap[pid] = struct{}{}
-	}
+	relevantPeerIDsMap, relevantGroupIDs := a.findRelevantPeersAndGroups(ctx, peerID, validatedPeersMap)
 
 	_, _, networkResourcesSourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	for sourcePeerID := range networkResourcesSourcePeers {
@@ -193,10 +188,22 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	for groupID, groupInfo := range components.Groups {
+		needsFiltering := false
+		for _, pid := range groupInfo.Peers {
+			if _, exists := components.Peers[pid]; !exists {
+				needsFiltering = true
+				break
+			}
+		}
+
+		if !needsFiltering {
+			continue
+		}
+
 		filteredPeers := make([]string, 0, len(groupInfo.Peers))
-		for _, peerID := range groupInfo.Peers {
-			if _, exists := components.Peers[peerID]; exists {
-				filteredPeers = append(filteredPeers, peerID)
+		for _, pid := range groupInfo.Peers {
+			if _, exists := components.Peers[pid]; exists {
+				filteredPeers = append(filteredPeers, pid)
 			}
 		}
 
@@ -215,9 +222,9 @@ func (a *Account) findRelevantPeersAndGroups(
 	ctx context.Context,
 	peerID string,
 	validatedPeersMap map[string]struct{},
-) ([]string, map[string]struct{}) {
-	relevantPeerIDs := make(map[string]struct{})
-	relevantGroupIDs := make(map[string]struct{})
+) (map[string]struct{}, map[string]struct{}) {
+	relevantPeerIDs := make(map[string]struct{}, len(a.Peers)/4)
+	relevantGroupIDs := make(map[string]struct{}, len(a.Groups)/4)
 
 	relevantPeerIDs[peerID] = struct{}{}
 
@@ -259,25 +266,6 @@ func (a *Account) findRelevantPeersAndGroups(
 				}
 			} else {
 				destinationPeers, peerInDestinations = a.getPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
-			}
-
-			if rule.Bidirectional {
-				if peerInSources {
-					for _, pid := range destinationPeers {
-						relevantPeerIDs[pid] = struct{}{}
-					}
-					for _, dstGroupID := range rule.Destinations {
-						relevantGroupIDs[dstGroupID] = struct{}{}
-					}
-				}
-				if peerInDestinations {
-					for _, pid := range sourcePeers {
-						relevantPeerIDs[pid] = struct{}{}
-					}
-					for _, srcGroupID := range rule.Sources {
-						relevantGroupIDs[srcGroupID] = struct{}{}
-					}
-				}
 			}
 
 			if peerInSources {
@@ -345,12 +333,7 @@ func (a *Account) findRelevantPeersAndGroups(
 		}
 	}
 
-	peerIDsList := make([]string, 0, len(relevantPeerIDs))
-	for pid := range relevantPeerIDs {
-		peerIDsList = append(peerIDsList, pid)
-	}
-
-	return peerIDsList, relevantGroupIDs
+	return relevantPeerIDs, relevantGroupIDs
 }
 
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]string, bool) {
