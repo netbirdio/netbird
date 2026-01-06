@@ -181,9 +181,6 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 	if idp.ID != "" {
 		resp.Id = &idp.ID
 	}
-	if idp.RedirectURL != "" {
-		resp.RedirectUrl = &idp.RedirectURL
-	}
 	// Note: ClientSecret is never returned in responses for security
 	return resp
 }
