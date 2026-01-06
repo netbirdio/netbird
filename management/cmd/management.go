@@ -109,6 +109,11 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
+			// Embedded IdP requires single account mode - multiple account mode is not supported
+			if config.EmbeddedIdP != nil && config.EmbeddedIdP.Enabled && disableSingleAccMode {
+				return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
+			}
+
 			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
 			go func() {
 				if err := srv.Start(cmd.Context()); err != nil {
