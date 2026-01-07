@@ -340,6 +340,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	var peer *nbpeer.Peer
+	var settings *types.Settings
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -348,11 +349,16 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return err
+		}
+
 		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
 			return err
 		}
 
-		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
+		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings)
 		if err != nil {
 			return fmt.Errorf("failed to delete peer: %w", err)
 		}
@@ -371,7 +377,11 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
-	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}); err != nil {
+	if err = am.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+	}
+
+	if err = am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peerID, err)
 	}
 
@@ -1227,22 +1237,14 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 
 // deletePeers deletes all specified peers and sends updates to the remote peers.
 // Returns a slice of functions to save events after successful peer deletion.
-func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
+func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer, settings *types.Settings) ([]func(), error) {
 	var peerDeletedEvents []func()
 
-	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, err
-	}
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	for _, peer := range peers {
 		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
 			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
-		}
-
-		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
-			return nil, err
 		}
 
 		peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peer.ID)
