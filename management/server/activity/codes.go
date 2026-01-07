@@ -183,13 +183,17 @@ const (
 
 	AccountAutoUpdateVersionUpdated Activity = 92
 
-	DNSZoneCreated Activity = 93
-	DNSZoneUpdated Activity = 94
-	DNSZoneDeleted Activity = 95
+	IdentityProviderCreated Activity = 93
+	IdentityProviderUpdated Activity = 94
+	IdentityProviderDeleted Activity = 95
 
-	DNSRecordCreated Activity = 96
-	DNSRecordUpdated Activity = 97
-	DNSRecordDeleted Activity = 98
+	DNSZoneCreated Activity = 96
+	DNSZoneUpdated Activity = 97
+	DNSZoneDeleted Activity = 98
+
+	DNSRecordCreated Activity = 99
+	DNSRecordUpdated Activity = 100
+	DNSRecordDeleted Activity = 101
 
 	AccountDeleted Activity = 99999
 )
@@ -303,6 +307,10 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
+	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
+	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
 
 	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
 	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},

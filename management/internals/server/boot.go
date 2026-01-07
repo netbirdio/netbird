@@ -21,7 +21,6 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
@@ -29,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 var (
@@ -62,6 +62,14 @@ func (s *BaseServer) Store() store.Store {
 			log.Fatalf("failed to create store: %v", err)
 		}
 
+		if s.Config.DataStoreEncryptionKey != "" {
+			fieldEncrypt, err := crypt.NewFieldEncrypt(s.Config.DataStoreEncryptionKey)
+			if err != nil {
+				log.Fatalf("failed to create field encryptor: %v", err)
+			}
+			store.SetFieldEncrypt(fieldEncrypt)
+		}
+
 		return store
 	})
 }
@@ -73,18 +81,9 @@ func (s *BaseServer) EventStore() activity.Store {
 			log.Fatalf("failed to initialize integration metrics: %v", err)
 		}
 
-		eventStore, key, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
+		eventStore, _, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
-		}
-
-		if s.Config.DataStoreEncryptionKey != key {
-			log.WithContext(context.Background()).Infof("update Config with activity store key")
-			s.Config.DataStoreEncryptionKey = key
-			err := updateMgmtConfig(context.Background(), nbconfig.MgmtConfigPath, s.Config)
-			if err != nil {
-				log.Fatalf("failed to update Config with activity store: %v", err)
-			}
 		}
 
 		return eventStore
@@ -93,7 +92,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -145,7 +144,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController())
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}

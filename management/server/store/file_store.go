@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	nbutil "github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 // storeFileName Store file name. Stored in the datadir
@@ -262,4 +263,9 @@ func (s *FileStore) Close(ctx context.Context) error {
 // GetStoreEngine returns FileStoreEngine
 func (s *FileStore) GetStoreEngine() types.Engine {
 	return types.FileStoreEngine
+}
+
+// SetFieldEncrypt is a no-op for FileStore as it doesn't support field encryption.
+func (s *FileStore) SetFieldEncrypt(_ *crypt.FieldEncrypt) {
+	// no-op: FileStore stores data in plaintext JSON; encryption is not supported
 }

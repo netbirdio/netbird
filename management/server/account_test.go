@@ -383,7 +383,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	}
 
 	for _, testCase := range tt {
-		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io", false)
+		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io", "", "", false)
 		account.UpdateSettings(&testCase.accountSettings)
 		account.Network = network
 		account.Peers = testCase.peers
@@ -408,7 +408,7 @@ func TestNewAccount(t *testing.T) {
 	domain := "netbird.io"
 	userId := "account_creator"
 	accountID := "account_id"
-	account := newAccountWithId(context.Background(), accountID, userId, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userId, domain, "", "", false)
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
@@ -419,7 +419,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 		return
 	}
 
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID, Domain: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +613,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			manager, _, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
-			accountID, err := manager.GetAccountIDByUserID(context.Background(), testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.Domain)
+			accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain})
 			require.NoError(t, err, "create init user failed")
 
 			initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -650,10 +650,10 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
-	_ = newAccountWithId(context.Background(), "", userId, domain, false)
+	_ = newAccountWithId(context.Background(), "", userId, domain, "", "", false)
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, domain)
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userId, Domain: domain})
 	require.NoError(t, err, "create init user failed")
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountIDByUserID where the id is getting generated
@@ -719,7 +719,7 @@ func TestAccountManager_PrivateAccount(t *testing.T) {
 	}
 
 	userId := "test_user"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userId, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userId, Domain: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +746,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 
 	userId := "test_user"
 	domain := "hotmail.com"
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userId, domain)
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userId, Domain: domain})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +760,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 
 	domain = "gmail.com"
 
-	account, err = manager.GetOrCreateAccountByUser(context.Background(), userId, domain)
+	account, err = manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userId, Domain: domain})
 	if err != nil {
 		t.Fatalf("got the following error while retrieving existing acc: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 
 	userId := "test_user"
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userId, Domain: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,14 +796,14 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, exists, "expected to get existing account after creation using userid")
 
-	_, err = manager.GetAccountIDByUserID(context.Background(), "", "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: "", Domain: ""})
 	if err == nil {
 		t.Errorf("expected an error when user ID is empty")
 	}
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
@@ -1099,7 +1099,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "netbird.cloud")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID, Domain: "netbird.cloud"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1850,7 +1850,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthNone, accountID)
@@ -1865,7 +1865,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1877,7 +1877,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	}, false)
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get the account")
 
 	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
@@ -1921,7 +1921,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1947,7 +1947,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		},
 	}
 
-	accountID, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get the account")
 
 	// when we mark peer as connected, the peer login expiration routine should trigger
@@ -1964,7 +1964,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	_, err = manager.GetAccountIDByUserID(context.Background(), userID, "")
+	_, err = manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key, err := wgtypes.GenerateKey()
@@ -1976,7 +1976,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	}, false)
 	require.NoError(t, err, "unable to add peer")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get the account")
 
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
@@ -2026,7 +2026,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
@@ -3464,7 +3464,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 			assert.True(t, cold)
 		})
 
-		account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+		account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 		require.NoError(t, err)
 
 		t.Run("should return true when account is not found in cache", func(t *testing.T) {
@@ -3492,7 +3492,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	initiatorId := "test-user"
 	domain := "example.com"
 
-	account, err := manager.GetOrCreateAccountByUser(ctx, initiatorId, domain)
+	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: initiatorId, Domain: domain})
 	require.NoError(t, err)
 
 	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
@@ -3605,7 +3605,7 @@ func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
 
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	t.Run("should return account onboarding when onboarding exist", func(t *testing.T) {
@@ -3637,7 +3637,7 @@ func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)
 
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err)
 
 	onboarding := &types.AccountOnboarding{
@@ -3676,7 +3676,7 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	key1, err := wgtypes.GenerateKey()
@@ -3747,7 +3747,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 
 	// Create a domain-based account with user approval enabled
 	existingAccountID := "existing-account"
-	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", "", "", false)
 	account.Settings.Extra = &types.ExtraSettings{
 		UserApprovalRequired: true,
 	}

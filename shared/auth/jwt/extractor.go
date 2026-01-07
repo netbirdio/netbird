@@ -78,16 +78,18 @@ func parseTime(timeString string) time.Time {
 	return parsedTime
 }
 
-func (c ClaimsExtractor) audienceClaim(claimName string) string {
-	url, err := url.JoinPath(c.authAudience, claimName)
+func (c *ClaimsExtractor) audienceClaim(claimName string) string {
+	audienceURL, err := url.JoinPath(c.authAudience, claimName)
 	if err != nil {
 		return c.authAudience + claimName // as it was previously
 	}
 
-	return url
+	return audienceURL
 }
 
-// ToUserAuth extracts user authentication information from a JWT token
+// ToUserAuth extracts user authentication information from a JWT token.
+// The token should contain standard claims like email, name, preferred_username.
+// When using Dex, make sure to set getUserInfo: true to have these claims populated.
 func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
 	userAuth := auth.UserAuth{}
@@ -118,6 +120,21 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 		if value, ok := invitedBool.(bool); ok {
 			userAuth.Invited = value
 		}
+	}
+
+	// Extract email from standard "email" claim
+	if email, ok := claims["email"].(string); ok {
+		userAuth.Email = email
+	}
+
+	// Extract name from standard "name" claim
+	if name, ok := claims["name"].(string); ok {
+		userAuth.Name = name
+	}
+
+	// Extract name from standard "preferred_username" claim
+	if preferredName, ok := claims["preferred_username"].(string); ok {
+		userAuth.PreferredName = preferredName
 	}
 
 	return userAuth, nil
