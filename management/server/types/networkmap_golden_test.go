@@ -34,6 +34,7 @@ const (
 	devGroupID        = "group-dev"
 	opsGroupID        = "group-ops"
 	allGroupID        = "group-all"
+	sshUsersGroupID   = "group-ssh-users"
 	routeID           = route.ID("route-main")
 	routeHA1ID        = route.ID("route-ha-1")
 	routeHA2ID        = route.ID("route-ha-2")
@@ -41,6 +42,7 @@ const (
 	policyIDAll       = "policy-all"
 	policyIDPosture   = "policy-posture"
 	policyIDDrop      = "policy-drop"
+	policyIDSSH       = "policy-ssh"
 	postureCheckID    = "posture-check-ver"
 	networkResourceID = "res-database"
 	networkID         = "net-database"
@@ -51,6 +53,9 @@ const (
 	offlinePeerID     = "peer-99" // This peer will be completely offline.
 	routingPeerID     = "peer-95" // This peer is used for routing, it has a route to the network.
 	testAccountID     = "account-golden-test"
+	userAdminID       = "user-admin"
+	userDevID         = "user-dev"
+	userOpsID         = "user-ops"
 )
 
 func TestGetPeerNetworkMap_Golden(t *testing.T) {
@@ -73,7 +78,7 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden.json")
@@ -109,7 +114,7 @@ func TestGetPeerNetworkMap_Golden_New(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new.json")
@@ -205,7 +210,7 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_new_peer.json")
@@ -273,7 +278,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAdded(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded.json")
@@ -399,7 +404,7 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_new_router.json")
@@ -480,7 +485,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
@@ -608,7 +613,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_peer.json")
@@ -669,7 +674,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerDeleted(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeerdeleted.json")
@@ -734,7 +739,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err, "error marshaling network map to JSON")
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_router_peer.json")
@@ -801,7 +806,7 @@ func TestGetPeerNetworkMap_Golden_New_WithDeletedRouterPeer(t *testing.T) {
 
 	normalizeAndSortNetworkMap(networkMap)
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	jsonData, err := json.MarshalIndent(toNetworkMapJSON(networkMap), "", "  ")
 	require.NoError(t, err)
 
 	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_deleted_router.json")
@@ -924,6 +929,54 @@ func normalizeAndSortNetworkMap(networkMap *types.NetworkMap) {
 	}
 }
 
+type networkMapJSON struct {
+	Peers               []*nbpeer.Peer             `json:"Peers"`
+	Network             *types.Network             `json:"Network"`
+	Routes              []*route.Route             `json:"Routes"`
+	DNSConfig           dns.Config                 `json:"DNSConfig"`
+	OfflinePeers        []*nbpeer.Peer             `json:"OfflinePeers"`
+	FirewallRules       []*types.FirewallRule      `json:"FirewallRules"`
+	RoutesFirewallRules []*types.RouteFirewallRule `json:"RoutesFirewallRules"`
+	ForwardingRules     []*types.ForwardingRule    `json:"ForwardingRules"`
+	AuthorizedUsers     map[string][]string        `json:"AuthorizedUsers,omitempty"`
+	EnableSSH           bool                       `json:"EnableSSH"`
+}
+
+func toNetworkMapJSON(nm *types.NetworkMap) *networkMapJSON {
+	result := &networkMapJSON{
+		Peers:               nm.Peers,
+		Network:             nm.Network,
+		Routes:              nm.Routes,
+		DNSConfig:           nm.DNSConfig,
+		OfflinePeers:        nm.OfflinePeers,
+		FirewallRules:       nm.FirewallRules,
+		RoutesFirewallRules: nm.RoutesFirewallRules,
+		ForwardingRules:     nm.ForwardingRules,
+		EnableSSH:           nm.EnableSSH,
+	}
+
+	if len(nm.AuthorizedUsers) > 0 {
+		result.AuthorizedUsers = make(map[string][]string)
+		localUsers := make([]string, 0, len(nm.AuthorizedUsers))
+		for localUser := range nm.AuthorizedUsers {
+			localUsers = append(localUsers, localUser)
+		}
+		sort.Strings(localUsers)
+
+		for _, localUser := range localUsers {
+			userIDs := nm.AuthorizedUsers[localUser]
+			sortedUserIDs := make([]string, 0, len(userIDs))
+			for userID := range userIDs {
+				sortedUserIDs = append(sortedUserIDs, userID)
+			}
+			sort.Strings(sortedUserIDs)
+			result.AuthorizedUsers[localUser] = sortedUserIDs
+		}
+	}
+
+	return result
+}
+
 func createTestAccountWithEntities() *types.Account {
 	peers := make(map[string]*nbpeer.Peer)
 	devGroupPeers, opsGroupPeers, allGroupPeers := []string{}, []string{}, []string{}
@@ -959,9 +1012,10 @@ func createTestAccountWithEntities() *types.Account {
 	}
 
 	groups := map[string]*types.Group{
-		allGroupID: {ID: allGroupID, Name: "All", Peers: allGroupPeers},
-		devGroupID: {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
-		opsGroupID: {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
+		allGroupID:       {ID: allGroupID, Name: "All", Peers: allGroupPeers},
+		devGroupID:       {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
+		opsGroupID:       {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
+		sshUsersGroupID:  {ID: sshUsersGroupID, Name: "SSH Users", Peers: []string{}},
 	}
 
 	policies := []*types.Policy{
@@ -999,6 +1053,15 @@ func createTestAccountWithEntities() *types.Account {
 				Sources: []string{opsGroupID}, DestinationResource: types.Resource{ID: networkResourceID},
 			}},
 		},
+		{
+			ID: policyIDSSH, Name: "SSH Access Policy", Enabled: true,
+			Rules: []*types.PolicyRule{{
+				ID: policyIDSSH, Name: "Allow SSH to Ops", Enabled: true, Action: types.PolicyTrafficActionAccept,
+				Protocol: types.PolicyRuleProtocolNetbirdSSH, Bidirectional: false,
+				Sources: []string{devGroupID}, Destinations: []string{opsGroupID},
+				AuthorizedGroups: map[string][]string{sshUsersGroupID: {"root", "admin"}},
+			}},
+		},
 	}
 
 	routes := map[route.ID]*route.Route{
@@ -1031,8 +1094,15 @@ func createTestAccountWithEntities() *types.Account {
 		},
 	}
 
+	users := map[string]*types.User{
+		userAdminID: {Id: userAdminID, Role: types.UserRoleAdmin, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{allGroupID}},
+		userDevID:   {Id: userDevID, Role: types.UserRoleUser, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{sshUsersGroupID, devGroupID}},
+		userOpsID:   {Id: userOpsID, Role: types.UserRoleUser, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{sshUsersGroupID, opsGroupID}},
+	}
+
 	account := &types.Account{
 		Id: testAccountID, Peers: peers, Groups: groups, Policies: policies, Routes: routes,
+		Users: users,
 		Network: &types.Network{
 			Identifier: "net-golden-test", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(16, 32)}, Serial: 1,
 		},
