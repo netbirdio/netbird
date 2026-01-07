@@ -754,7 +754,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to create an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
 	}
 
@@ -769,7 +769,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to get an account for a user %s", userId)
 	}
 
-	if account.Domain != domain {
+	if account != nil && account.Domain != domain {
 		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
 	}
 }

@@ -393,7 +393,7 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 		return fmt.Errorf("failed to parse model schema: %w", err)
 	}
 	tableName := stmt.Schema.Table
-	dialect := db.Name()
+	dialect := db.Dialector.Name()
 
 	if db.Migrator().HasIndex(&model, indexName) {
 		log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)

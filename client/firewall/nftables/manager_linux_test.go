@@ -198,7 +198,7 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	t.Logf("Found %d rules in nftables chain", len(rules))
 
 	// Find the accept and deny rules and verify deny comes before accept
-	var acceptRuleIndex, denyRuleIndex = -1, -1
+	var acceptRuleIndex, denyRuleIndex int = -1, -1
 	for i, rule := range rules {
 		hasAcceptHTTPSet := false
 		hasDenyHTTPSet := false
@@ -208,13 +208,11 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 		for _, e := range rule.Exprs {
 			// Check for set lookup
 			if lookup, ok := e.(*expr.Lookup); ok {
-				switch lookup.SetName {
-				case "accept-http":
+				if lookup.SetName == "accept-http" {
 					hasAcceptHTTPSet = true
-				case "deny-http":
+				} else if lookup.SetName == "deny-http" {
 					hasDenyHTTPSet = true
 				}
-
 			}
 			// Check for port 80
 			if cmp, ok := e.(*expr.Cmp); ok {
@@ -224,10 +222,9 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 			}
 			// Check for verdict
 			if verdict, ok := e.(*expr.Verdict); ok {
-				switch verdict.Kind {
-				case expr.VerdictAccept:
+				if verdict.Kind == expr.VerdictAccept {
 					action = "ACCEPT"
-				case expr.VerdictDrop:
+				} else if verdict.Kind == expr.VerdictDrop {
 					action = "DROP"
 				}
 			}
