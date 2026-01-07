@@ -458,7 +458,7 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			PeerIP:    peer.IP.String(),
 			Direction: direction,
 			Action:    string(rule.Action),
-			Protocol:  string(rule.Protocol),
+			Protocol:  firewallRuleProtocol(rule.Protocol),
 		}
 
 		var s strings.Builder
