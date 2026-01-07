@@ -42,5 +42,5 @@ type wgIfaceBase interface {
 	GetNet() *netstack.Net
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
-	GetConfigurer() device.WGConfigurer
+	SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [32]byte) error
 }

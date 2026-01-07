@@ -479,9 +479,9 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-	// Set the WireGuard configurer for rosenpass after interface is up
+	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
-		e.rpManager.SetConfigurer(e.wgInterface.GetConfigurer())
+		e.rpManager.SetInterface(e.wgInterface)
 	}
 
 	// if inbound conns are blocked there is no need to create the ACL manager

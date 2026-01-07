@@ -213,7 +213,7 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	return nil
 }
 
-func (m *MockWGIface) GetConfigurer() device.WGConfigurer {
+func (m *MockWGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [32]byte) error {
 	return nil
 }
 

@@ -172,15 +172,15 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// SetConfigurer sets the WireGuard configurer for the rosenpass handler.
+// SetInterface sets the WireGuard interface for the rosenpass handler.
 // This must be called after the WireGuard interface is created and before
 // any peer connections are established.
-func (m *Manager) SetConfigurer(configurer WGConfigurer) {
+func (m *Manager) SetInterface(iface PresharedKeySetter) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	if m.rpWgHandler != nil {
-		m.rpWgHandler.SetConfigurer(configurer)
+		m.rpWgHandler.SetInterface(iface)
 	}
 }
 
