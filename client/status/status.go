@@ -82,10 +82,11 @@ type NsServerGroupStateOutput struct {
 }
 
 type SSHSessionOutput struct {
-	Username      string `json:"username" yaml:"username"`
-	RemoteAddress string `json:"remoteAddress" yaml:"remoteAddress"`
-	Command       string `json:"command" yaml:"command"`
-	JWTUsername   string `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+	Username      string   `json:"username" yaml:"username"`
+	RemoteAddress string   `json:"remoteAddress" yaml:"remoteAddress"`
+	Command       string   `json:"command" yaml:"command"`
+	JWTUsername   string   `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+	PortForwards  []string `json:"portForwards,omitempty" yaml:"portForwards,omitempty"`
 }
 
 type SSHServerStateOutput struct {
@@ -220,6 +221,7 @@ func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
 			RemoteAddress: session.GetRemoteAddress(),
 			Command:       session.GetCommand(),
 			JWTUsername:   session.GetJwtUsername(),
+			PortForwards:  session.GetPortForwards(),
 		})
 	}
 
@@ -475,6 +477,9 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 					)
 				}
 				sshServerStatus += "\n  " + sessionDisplay
+				for _, pf := range session.PortForwards {
+					sshServerStatus += "\n    " + pf
+				}
 			}
 		}
 	}

@@ -994,6 +994,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
+	if len(peerIDs) != 0 {
+		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+	}
+
 	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs)
 	if err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
