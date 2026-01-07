@@ -89,6 +89,9 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(cleanUp)
 
 	eventStore := &activity.InMemoryEventStore{}
+	if err != nil {
+		return nil, nil
+	}
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

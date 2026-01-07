@@ -12,14 +12,14 @@ import (
 )
 
 type Conn struct {
-	session   *quic.Conn
+	session   quic.Connection
 	closed    bool
 	closedMu  sync.Mutex
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 }
 
-func NewConn(session *quic.Conn) *Conn {
+func NewConn(session quic.Connection) *Conn {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Conn{
 		session:   session,

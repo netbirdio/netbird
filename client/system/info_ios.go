@@ -1,3 +1,6 @@
+//go:build ios
+// +build ios
+
 package system
 
 import (
