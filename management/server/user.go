@@ -577,9 +577,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
-	}
-
-	if updateAccountPeers {
+	} else if updateAccountPeers {
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
