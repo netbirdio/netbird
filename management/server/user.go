@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -40,7 +41,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	}
 
 	newUserID := uuid.New().String()
-	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI)
+	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI, "", "")
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
@@ -104,7 +105,12 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		inviterID = createdBy
 	}
 
-	idpUser, err := am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	var idpUser *idp.UserData
+	if IsEmbeddedIdp(am.idpManager) {
+		idpUser, err = am.createEmbeddedIdpUser(ctx, accountID, inviterID, invite)
+	} else {
+		idpUser, err = am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -117,18 +123,26 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
+		Email:                invite.Email,
+		Name:                 invite.Name,
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
-	_, err = am.refreshCache(ctx, accountID)
-	if err != nil {
-		return nil, err
+	if !IsEmbeddedIdp(am.idpManager) {
+		_, err = am.refreshCache(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
+	eventType := activity.UserInvited
+	if IsEmbeddedIdp(am.idpManager) {
+		eventType = activity.UserCreated
+	}
+	am.StoreEvent(ctx, userID, newUser.Id, accountID, eventType, nil)
 
 	return newUser.ToUserInfo(idpUser)
 }
@@ -170,6 +184,34 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 	}
 
 	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
+}
+
+// createEmbeddedIdpUser validates the invite and creates a new user in the embedded IdP.
+// Unlike createNewIdpUser, this method fetches user data directly from the database
+// since the embedded IdP usage ensures the username and email are stored locally in the User table.
+func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, inviterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inviter user: %w", err)
+	}
+
+	if inviter == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist", inviterID)
+	}
+
+	// check if the user is already registered with this email => reject
+	existingUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, user := range existingUsers {
+		if strings.EqualFold(user.Email, invite.Email) {
+			return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
+		}
+	}
+
+	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviter.Email)
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
@@ -757,7 +799,7 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	if !isNil(am.idpManager) && !user.IsServiceUser {
+	if !isNil(am.idpManager) && !user.IsServiceUser && !IsEmbeddedIdp(am.idpManager) {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
@@ -808,7 +850,10 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userAuth auth.UserAuth) (*types.Account, error) {
+	userID := userAuth.UserId
+	domain := userAuth.Domain
+
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock(ctx)
 	defer unlock()
@@ -819,7 +864,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 	account, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err = am.newAccount(ctx, userID, lowerDomain)
+			account, err = am.newAccount(ctx, userID, lowerDomain, userAuth.Email, userAuth.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -884,7 +929,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	var queriedUsers []*idp.UserData
 	var err error
 
-	if !isNil(am.idpManager) {
+	// embedded IdP ensures that we have user data (email and name) stored in the database.
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
@@ -921,6 +967,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			if err != nil {
 				return nil, err
 			}
+			// Try to decode Dex user ID to extract the IdP ID (connector ID)
+			if _, connectorID, decodeErr := dex.DecodeDexUserID(accountUser.Id); decodeErr == nil && connectorID != "" {
+				info.IdPID = connectorID
+			}
 			userInfosMap[accountUser.Id] = info
 		}
 
@@ -942,7 +992,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 			info = &types.UserInfo{
 				ID:            localUser.Id,
-				Email:         "",
+				Email:         localUser.Email,
 				Name:          name,
 				Role:          string(localUser.Role),
 				AutoGroups:    localUser.AutoGroups,
@@ -950,6 +1000,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
 			}
+		}
+		// Try to decode Dex user ID to extract the IdP ID (connector ID)
+		if _, connectorID, decodeErr := dex.DecodeDexUserID(localUser.Id); decodeErr == nil && connectorID != "" {
+			info.IdPID = connectorID
 		}
 		userInfosMap[info.ID] = info
 	}

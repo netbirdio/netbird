@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	idpmanager "github.com/netbirdio/netbird/management/server/idp"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 
@@ -29,6 +30,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
 	"github.com/netbirdio/netbird/management/server/http/handlers/groups"
+	"github.com/netbirdio/netbird/management/server/http/handlers/idp"
+	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
@@ -36,6 +39,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
+	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -51,23 +56,15 @@ const (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(
-	ctx context.Context,
-	accountManager account.Manager,
-	networksManager nbnetworks.Manager,
-	resourceManager resources.Manager,
-	routerManager routers.Manager,
-	groupsManager nbgroups.Manager,
-	LocationManager geolocation.Geolocation,
-	authManager auth.Manager,
-	appMetrics telemetry.AppMetrics,
-	integratedValidator integrated_validator.IntegratedValidator,
-	proxyController port_forwarding.Controller,
-	permissionsManager permissions.Manager,
-	peersManager nbpeers.Manager,
-	settingsManager settings.Manager,
-	networkMapController network_map.Controller,
-) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager) (http.Handler, error) {
+
+	// Register bypass paths for unauthenticated endpoints
+	if err := bypass.AddBypassPath("/api/instance"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	if err := bypass.AddBypassPath("/api/setup"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
 
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {
@@ -122,7 +119,14 @@ func NewAPIHandler(
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, router)
+	// Check if embedded IdP is enabled
+	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
+	instanceManager, err := nbinstance.NewManager(ctx, accountManager.GetStore(), embeddedIdP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create instance manager: %w", err)
+	}
+
+	accounts.AddEndpoints(accountManager, settingsManager, embeddedIdpEnabled, router)
 	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
@@ -134,6 +138,13 @@ func NewAPIHandler(
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
+	idp.AddEndpoints(accountManager, router)
+	instance.AddEndpoints(instanceManager, router)
+
+	// Mount embedded IdP handler at /oauth2 path if configured
+	if embeddedIdpEnabled {
+		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
+	}
 
 	return rootRouter, nil
 }
