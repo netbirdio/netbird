@@ -1104,6 +1104,7 @@ func (s *Server) getSSHServerState() *proto.SSHServerState {
 			RemoteAddress: session.RemoteAddress,
 			Command:       session.Command,
 			JwtUsername:   session.JWTUsername,
+			PortForwards:  session.PortForwards,
 		})
 	}
 

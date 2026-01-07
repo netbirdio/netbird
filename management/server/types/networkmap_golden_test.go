@@ -186,7 +186,7 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	err = builder.OnPeerAddedIncremental(newPeerID)
+	err = builder.OnPeerAddedIncremental(account, newPeerID)
 	require.NoError(t, err, "error adding peer to cache")
 
 	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -252,7 +252,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newPeerID)
+			_ = builder.OnPeerAddedIncremental(account, newPeerID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
@@ -326,7 +326,7 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	err = builder.OnPeerAddedIncremental(newRouterID)
+	err = builder.OnPeerAddedIncremental(account, newRouterID)
 	require.NoError(t, err, "error adding router to cache")
 
 	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -414,7 +414,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newRouterID)
+			_ = builder.OnPeerAddedIncremental(account, newRouterID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
@@ -467,7 +467,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	err = builder.OnPeerDeleted(deletedPeerID)
+	err = builder.OnPeerDeleted(account, deletedPeerID)
 	require.NoError(t, err, "error deleting peer from cache")
 
 	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -546,7 +546,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	err = builder.OnPeerDeleted(deletedRouterID)
+	err = builder.OnPeerDeleted(account, deletedRouterID)
 	require.NoError(t, err, "error deleting routing peer from cache")
 
 	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
@@ -609,7 +609,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerDeleted(deletedPeerID)
+			_ = builder.OnPeerDeleted(account, deletedPeerID)
 			for _, testingPeerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
 			}
@@ -761,10 +761,10 @@ func createTestAccountWithEntities() *types.Account {
 	}
 
 	groups := map[string]*types.Group{
-		allGroupID:       {ID: allGroupID, Name: "All", Peers: allGroupPeers},
-		devGroupID:       {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
-		opsGroupID:       {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
-		sshUsersGroupID:  {ID: sshUsersGroupID, Name: "SSH Users", Peers: []string{}},
+		allGroupID:      {ID: allGroupID, Name: "All", Peers: allGroupPeers},
+		devGroupID:      {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
+		opsGroupID:      {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
+		sshUsersGroupID: {ID: sshUsersGroupID, Name: "SSH Users", Peers: []string{}},
 	}
 
 	policies := []*types.Policy{
@@ -885,4 +885,86 @@ func createTestAccountWithEntities() *types.Account {
 	}
 
 	return account
+}
+
+func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter_Batched(t *testing.T) {
+	account := createTestAccountWithEntities()
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{})
+	for i := range numPeers {
+		peerID := fmt.Sprintf("peer-%d", i)
+		if peerID == offlinePeerID {
+			continue
+		}
+		validatedPeersMap[peerID] = struct{}{}
+	}
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	newRouterID := "peer-new-router-102"
+	newRouterIP := net.IP{100, 64, 1, 2}
+	newRouter := &nbpeer.Peer{
+		ID:        newRouterID,
+		IP:        newRouterIP,
+		Key:       fmt.Sprintf("key-%s", newRouterID),
+		DNSLabel:  "newrouter102",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
+		UserID:    "user-admin",
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
+	}
+
+	account.Peers[newRouterID] = newRouter
+
+	if opsGroup, exists := account.Groups[opsGroupID]; exists {
+		opsGroup.Peers = append(opsGroup.Peers, newRouterID)
+	}
+	if allGroup, exists := account.Groups[allGroupID]; exists {
+		allGroup.Peers = append(allGroup.Peers, newRouterID)
+	}
+
+	newRoute := &route.Route{
+		ID:                  route.ID("route-new-router"),
+		Network:             netip.MustParsePrefix("172.16.0.0/24"),
+		Peer:                newRouter.Key,
+		PeerID:              newRouterID,
+		Description:         "Route from new router",
+		Enabled:             true,
+		PeerGroups:          []string{opsGroupID},
+		Groups:              []string{devGroupID, opsGroupID},
+		AccessControlGroups: []string{devGroupID},
+		AccountID:           account.Id,
+	}
+	account.Routes[newRoute.ID] = newRoute
+
+	validatedPeersMap[newRouterID] = struct{}{}
+
+	if account.Network != nil {
+		account.Network.Serial++
+	}
+
+	builder.EnqueuePeersForIncrementalAdd(account, newRouterID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+
+	normalizeAndSortNetworkMap(networkMap)
+
+	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	require.NoError(t, err, "error marshaling network map to JSON")
+
+	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
+
+	t.Log("Update golden file with OnPeerAdded router...")
+	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(goldenFilePath, jsonData, 0644)
+	require.NoError(t, err)
+
+	expectedJSON, err := os.ReadFile(goldenFilePath)
+	require.NoError(t, err, "error reading golden file")
+
+	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerAdded router does not match golden file")
 }
