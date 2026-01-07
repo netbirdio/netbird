@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -14,23 +13,21 @@ func StartTestServer(t *testing.T, server *Server) string {
 	errChan := make(chan error, 1)
 
 	go func() {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			errChan <- err
-			return
-		}
-		actualAddr := ln.Addr().String()
-		if err := ln.Close(); err != nil {
-			errChan <- fmt.Errorf("close temp listener: %w", err)
-			return
-		}
-
-		addrPort := netip.MustParseAddrPort(actualAddr)
+		// Use port 0 to let the OS assign a free port
+		addrPort := netip.MustParseAddrPort("127.0.0.1:0")
 		if err := server.Start(context.Background(), addrPort); err != nil {
 			errChan <- err
 			return
 		}
-		started <- actualAddr
+
+		// Get the actual listening address from the server
+		actualAddr := server.Addr()
+		if actualAddr == nil {
+			errChan <- fmt.Errorf("server started but no listener address available")
+			return
+		}
+
+		started <- actualAddr.String()
 	}()
 
 	select {

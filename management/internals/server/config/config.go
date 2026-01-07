@@ -57,6 +57,10 @@ type Config struct {
 
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
+
+	// EmbeddedIdP contains configuration for the embedded Dex OIDC provider.
+	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
+	EmbeddedIdP *idp.EmbeddedIdPConfig
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
