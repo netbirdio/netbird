@@ -73,7 +73,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			tlsEnabled := false
+			var tlsEnabled bool
 			if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
 				tlsEnabled = true
 			}
@@ -259,8 +259,8 @@ func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == wsproxy.ProxyPath+wsproxy.SignalComponent:
+		switch r.URL.Path {
+		case wsproxy.ProxyPath + wsproxy.SignalComponent:
 			wsProxy.Handler().ServeHTTP(w, r)
 		default:
 			grpcServer.ServeHTTP(w, r)
