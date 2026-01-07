@@ -159,7 +159,6 @@ func (b *NetworkMapBuilder) initialBuild(account *Account) {
 		b.buildPeerACLView(account, peerID)
 		b.buildPeerRoutesView(account, peerID)
 		b.buildPeerDNSView(account, peerID)
-		b.buildPeerSSHView(account, peerID)
 	}
 
 	log.Debugf("NetworkMapBuilder: Initial build completed in %v for account %s", time.Since(start), account.Id)
@@ -262,7 +261,7 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 		return
 	}
 
-	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peer, b.validatedPeers)
+	allPotentialPeers, firewallRules, authorizedUsers, sshEnabled := b.getPeerConnectionResources(account, peer, b.validatedPeers)
 
 	isRouter, networkResourcesRoutes, sourcePeers := b.getNetworkResourcesForPeer(account, peer)
 
@@ -292,11 +291,15 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	}
 
 	b.cache.peerACLs[peerID] = view
+	b.cache.peerSSH[peerID] = &PeerSSHView{
+		EnableSSH:       sshEnabled,
+		AuthorizedUsers: authorizedUsers,
+	}
 }
 
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
-) ([]*nbpeer.Peer, []*FirewallRule) {
+) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	peerID := peer.ID
 	ctx := context.Background()
 
@@ -310,6 +313,9 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	peersExists := make(map[string]struct{})
 	fwRules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
+
+	authorizedUsers := make(map[string]map[string]struct{})
+	sshEnabled := false
 
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
@@ -383,12 +389,48 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 						rule, sourcePeers, FirewallRuleDirectionIN,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
+
+					if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+						sshEnabled = true
+						switch {
+						case len(rule.AuthorizedGroups) > 0:
+							for groupID, localUsers := range rule.AuthorizedGroups {
+								userIDs, ok := b.cache.groupIDToUserIDs[groupID]
+								if !ok {
+									continue
+								}
+
+								if len(localUsers) == 0 {
+									localUsers = []string{auth.Wildcard}
+								}
+
+								for _, localUser := range localUsers {
+									if authorizedUsers[localUser] == nil {
+										authorizedUsers[localUser] = make(map[string]struct{})
+									}
+									for _, userID := range userIDs {
+										authorizedUsers[localUser][userID] = struct{}{}
+									}
+								}
+							}
+						case rule.AuthorizedUser != "":
+							if authorizedUsers[auth.Wildcard] == nil {
+								authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+							}
+							authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
+						default:
+							authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
+						}
+					} else if policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+						sshEnabled = true
+						authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
+					}
 				}
 			}
 		}
 	}
 
-	return peers, fwRules
+	return peers, fwRules, authorizedUsers, sshEnabled
 }
 
 func (b *NetworkMapBuilder) isPeerInGroupscached(groupIDs []string, peerGroupsMap map[string]struct{}) bool {
@@ -965,87 +1007,6 @@ func (b *NetworkMapBuilder) getPeerNSGroups(account *Account, peerID string, che
 	return peerNSGroups
 }
 
-func (b *NetworkMapBuilder) buildPeerSSHView(account *Account, peerID string) {
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return
-	}
-
-	peerGroups := b.cache.peerToGroups[peerID]
-	peerGroupsMap := make(map[string]struct{}, len(peerGroups))
-	for _, groupID := range peerGroups {
-		peerGroupsMap[groupID] = struct{}{}
-	}
-
-	authorizedUsers := make(map[string]map[string]struct{})
-	sshEnabled := false
-
-	for _, policy := range account.Policies {
-		if !policy.Enabled {
-			continue
-		}
-
-		rules := b.cache.policyToRules[policy.ID]
-		for _, rule := range rules {
-			if !rule.Enabled {
-				continue
-			}
-
-			var peerInDestinations bool
-			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				peerInDestinations = rule.DestinationResource.ID == peerID
-			} else {
-				peerInDestinations = b.isPeerInGroupscached(rule.Destinations, peerGroupsMap)
-			}
-
-			if !peerInDestinations {
-				continue
-			}
-
-			if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
-				sshEnabled = true
-				switch {
-				case len(rule.AuthorizedGroups) > 0:
-					for groupID, localUsers := range rule.AuthorizedGroups {
-						userIDs, ok := b.cache.groupIDToUserIDs[groupID]
-						if !ok {
-							continue
-						}
-
-						if len(localUsers) == 0 {
-							localUsers = []string{auth.Wildcard}
-						}
-
-						for _, localUser := range localUsers {
-							if authorizedUsers[localUser] == nil {
-								authorizedUsers[localUser] = make(map[string]struct{})
-							}
-							for _, userID := range userIDs {
-								authorizedUsers[localUser][userID] = struct{}{}
-							}
-						}
-					}
-				case rule.AuthorizedUser != "":
-					if authorizedUsers[auth.Wildcard] == nil {
-						authorizedUsers[auth.Wildcard] = make(map[string]struct{})
-					}
-					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
-				default:
-					authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
-				}
-			} else if b.policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
-				sshEnabled = true
-				authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
-			}
-		}
-	}
-
-	b.cache.peerSSH[peerID] = &PeerSSHView{
-		EnableSSH:       sshEnabled,
-		AuthorizedUsers: authorizedUsers,
-	}
-}
-
 func (b *NetworkMapBuilder) buildAllowedUserIDs(account *Account) map[string]struct{} {
 	users := make(map[string]struct{})
 	for _, nbUser := range account.Users {
@@ -1054,28 +1015,6 @@ func (b *NetworkMapBuilder) buildAllowedUserIDs(account *Account) map[string]str
 		}
 	}
 	return users
-}
-
-func (b *NetworkMapBuilder) policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
-	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (b.portsIncludesSSH(rule.Ports) || b.portRangeIncludesSSH(rule.PortRanges)))
-}
-
-func (b *NetworkMapBuilder) portRangeIncludesSSH(portRanges []RulePortRange) bool {
-	for _, pr := range portRanges {
-		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
-			return true
-		}
-	}
-	return false
-}
-
-func (b *NetworkMapBuilder) portsIncludesSSH(ports []string) bool {
-	for _, port := range ports {
-		if port == defaultSSHPortString || port == nativeSSHPortString {
-			return true
-		}
-	}
-	return false
 }
 
 func firewallRuleProtocol(protocol PolicyRuleProtocolType) string {
@@ -1418,7 +1357,6 @@ func (b *NetworkMapBuilder) OnPeerAddedIncremental(acc *Account, peerID string) 
 	b.buildPeerACLView(account, peerID)
 	b.buildPeerRoutesView(account, peerID)
 	b.buildPeerDNSView(account, peerID)
-	b.buildPeerSSHView(account, peerID)
 
 	log.Debugf("NetworkMapBuilder: Adding peer %s to cache, views took %s", peerID, time.Since(tt))
 

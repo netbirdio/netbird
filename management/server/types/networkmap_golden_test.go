@@ -25,10 +25,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// update flag is used to update the golden file.
-// example: go test ./... -v -update
-// var update = flag.Bool("update", false, "update golden files")
-
 const (
 	numPeers          = 100
 	devGroupID        = "group-dev"
