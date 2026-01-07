@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -47,6 +48,10 @@ type NetworkMapCache struct {
 	peerACLs   map[string]*PeerACLView
 	peerRoutes map[string]*PeerRoutesView
 	peerDNS    map[string]*nbdns.Config
+	peerSSH    map[string]*PeerSSHView
+
+	groupIDToUserIDs map[string][]string
+	allowedUserIDs   map[string]struct{}
 
 	resourceRouters  map[string]map[string]*routerTypes.NetworkRouter
 	resourcePolicies map[string][]*Policy
@@ -74,6 +79,11 @@ type PeerRoutesView struct {
 	NetworkResourceIDs   []route.ID
 	InheritedRouteIDs    []route.ID
 	RouteFirewallRuleIDs []string
+}
+
+type PeerSSHView struct {
+	EnableSSH       bool
+	AuthorizedUsers map[string]map[string]struct{}
 }
 
 type NetworkMapBuilder struct {
@@ -108,6 +118,9 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 			peerACLs:         make(map[string]*PeerACLView),
 			peerRoutes:       make(map[string]*PeerRoutesView),
 			peerDNS:          make(map[string]*nbdns.Config),
+			peerSSH:          make(map[string]*PeerSSHView),
+			groupIDToUserIDs: make(map[string][]string),
+			allowedUserIDs:   make(map[string]struct{}),
 			globalResources:  make(map[string]*resourceTypes.NetworkResource),
 			acgToRoutes:      make(map[string]map[route.ID]*RouteOwnerInfo),
 			noACGRoutes:      make(map[route.ID]*RouteOwnerInfo),
@@ -165,8 +178,14 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 	clear(b.cache.peerToRoutes)
 	clear(b.cache.acgToRoutes)
 	clear(b.cache.noACGRoutes)
+	clear(b.cache.groupIDToUserIDs)
+	clear(b.cache.allowedUserIDs)
+	clear(b.cache.peerSSH)
 
 	maps.Copy(b.cache.globalPeers, account.Peers)
+
+	b.cache.groupIDToUserIDs = account.GetActiveGroupUsers()
+	b.cache.allowedUserIDs = b.buildAllowedUserIDs(account)
 
 	for groupID, group := range account.Groups {
 		peersCopy := make([]string, len(group.Peers))
@@ -242,7 +261,7 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 		return
 	}
 
-	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peer, b.validatedPeers)
+	allPotentialPeers, firewallRules, authorizedUsers, sshEnabled := b.getPeerConnectionResources(account, peer, b.validatedPeers)
 
 	isRouter, networkResourcesRoutes, sourcePeers := b.getNetworkResourcesForPeer(account, peer)
 
@@ -272,11 +291,15 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	}
 
 	b.cache.peerACLs[peerID] = view
+	b.cache.peerSSH[peerID] = &PeerSSHView{
+		EnableSSH:       sshEnabled,
+		AuthorizedUsers: authorizedUsers,
+	}
 }
 
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
-) ([]*nbpeer.Peer, []*FirewallRule) {
+) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	peerID := peer.ID
 	ctx := context.Background()
 
@@ -290,6 +313,9 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	peersExists := make(map[string]struct{})
 	fwRules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
+
+	authorizedUsers := make(map[string]map[string]struct{})
+	sshEnabled := false
 
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
@@ -363,12 +389,48 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 						rule, sourcePeers, FirewallRuleDirectionIN,
 						peer, &peers, &fwRules, peersExists, rulesExists,
 					)
+
+					if rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+						sshEnabled = true
+						switch {
+						case len(rule.AuthorizedGroups) > 0:
+							for groupID, localUsers := range rule.AuthorizedGroups {
+								userIDs, ok := b.cache.groupIDToUserIDs[groupID]
+								if !ok {
+									continue
+								}
+
+								if len(localUsers) == 0 {
+									localUsers = []string{auth.Wildcard}
+								}
+
+								for _, localUser := range localUsers {
+									if authorizedUsers[localUser] == nil {
+										authorizedUsers[localUser] = make(map[string]struct{})
+									}
+									for _, userID := range userIDs {
+										authorizedUsers[localUser][userID] = struct{}{}
+									}
+								}
+							}
+						case rule.AuthorizedUser != "":
+							if authorizedUsers[auth.Wildcard] == nil {
+								authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+							}
+							authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
+						default:
+							authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
+						}
+					} else if policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+						sshEnabled = true
+						authorizedUsers[auth.Wildcard] = maps.Clone(b.cache.allowedUserIDs)
+					}
 				}
 			}
 		}
 	}
 
-	return peers, fwRules
+	return peers, fwRules, authorizedUsers, sshEnabled
 }
 
 func (b *NetworkMapBuilder) isPeerInGroupscached(groupIDs []string, peerGroupsMap map[string]struct{}) bool {
@@ -438,7 +500,7 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			PeerIP:    peer.IP.String(),
 			Direction: direction,
 			Action:    string(rule.Action),
-			Protocol:  string(rule.Protocol),
+			Protocol:  firewallRuleProtocol(rule.Protocol),
 		}
 
 		var s strings.Builder
@@ -945,6 +1007,23 @@ func (b *NetworkMapBuilder) getPeerNSGroups(account *Account, peerID string, che
 	return peerNSGroups
 }
 
+func (b *NetworkMapBuilder) buildAllowedUserIDs(account *Account) map[string]struct{} {
+	users := make(map[string]struct{})
+	for _, nbUser := range account.Users {
+		if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
+			users[nbUser.Id] = struct{}{}
+		}
+	}
+	return users
+}
+
+func firewallRuleProtocol(protocol PolicyRuleProtocolType) string {
+	if protocol == PolicyRuleProtocolNetbirdSSH {
+		return string(PolicyRuleProtocolTCP)
+	}
+	return string(protocol)
+}
+
 // lock should be held
 func (b *NetworkMapBuilder) updateAccountLocked(account *Account) *Account {
 	if account.Network.CurrentSerial() > b.account.Network.CurrentSerial() {
@@ -972,12 +1051,13 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	aclView := b.cache.peerACLs[peerID]
 	routesView := b.cache.peerRoutes[peerID]
 	dnsConfig := b.cache.peerDNS[peerID]
+	sshView := b.cache.peerSSH[peerID]
 
 	if aclView == nil || routesView == nil || dnsConfig == nil {
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
 
-	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
+	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, sshView, peersCustomZone, validatedPeers)
 
 	if metrics != nil {
 		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
@@ -995,7 +1075,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
 	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
-	dnsConfig *nbdns.Config, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
+	dnsConfig *nbdns.Config, sshView *PeerSSHView, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
 ) *NetworkMap {
 
 	var peersToConnect []*nbpeer.Peer
@@ -1055,7 +1135,7 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 		finalDNSConfig.CustomZones = zones
 	}
 
-	return &NetworkMap{
+	nm := &NetworkMap{
 		Peers:               peersToConnect,
 		Network:             account.Network.Copy(),
 		Routes:              routes,
@@ -1064,6 +1144,13 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: routesFirewallRules,
 	}
+
+	if sshView != nil {
+		nm.EnableSSH = sshView.EnableSSH
+		nm.AuthorizedUsers = sshView.AuthorizedUsers
+	}
+
+	return nm
 }
 
 func (b *NetworkMapBuilder) generateFirewallRuleID(rule *FirewallRule) string {
@@ -1772,7 +1859,7 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 			PeerIP:    newPeer.IP.String(),
 			Direction: direction,
 			Action:    string(rule.Action),
-			Protocol:  string(rule.Protocol),
+			Protocol:  firewallRuleProtocol(rule.Protocol),
 		}
 		for _, peerID := range peers {
 			if peerID == newPeerID {
@@ -1823,7 +1910,7 @@ func (b *NetworkMapBuilder) addUpdateForDirectPeerResource(
 		PeerIP:    newPeer.IP.String(),
 		Direction: direction,
 		Action:    string(rule.Action),
-		Protocol:  string(rule.Protocol),
+		Protocol:  firewallRuleProtocol(rule.Protocol),
 	}
 
 	b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, fr, fr.PeerIP, targetPeer)
@@ -1989,6 +2076,7 @@ func (b *NetworkMapBuilder) OnPeerDeleted(acc *Account, peerID string) error {
 	delete(b.cache.peerACLs, peerID)
 	delete(b.cache.peerRoutes, peerID)
 	delete(b.cache.peerDNS, peerID)
+	delete(b.cache.peerSSH, peerID)
 
 	delete(b.cache.globalPeers, peerID)
 
