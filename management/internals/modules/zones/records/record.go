@@ -108,11 +108,11 @@ func (r *Record) EventMeta(zoneID, zoneName string) map[string]any {
 
 func validateIPv4(content string) error {
 	if content == "" {
-		return errors.New("A record is required")
+		return errors.New("A record is required") //nolint:staticcheck
 	}
 	ip := net.ParseIP(content)
 	if ip == nil || ip.To4() == nil {
-		return errors.New("A record must be a valid IPv4 address")
+		return errors.New("A record must be a valid IPv4 address") //nolint:staticcheck
 	}
 	return nil
 }
