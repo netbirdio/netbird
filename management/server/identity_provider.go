@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -103,6 +104,8 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 		return nil, status.Errorf(status.Internal, "failed to create identity provider: %v", err)
 	}
 
+	am.StoreEvent(ctx, userID, idpConfig.ID, accountID, activity.IdentityProviderCreated, idpConfig.EventMeta())
+
 	return idpConfig, nil
 }
 
@@ -134,6 +137,8 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.Errorf(status.Internal, "failed to update identity provider: %v", err)
 	}
 
+	am.StoreEvent(ctx, userID, idpConfig.ID, accountID, activity.IdentityProviderUpdated, idpConfig.EventMeta())
+
 	return idpConfig, nil
 }
 
@@ -152,12 +157,24 @@ func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, acc
 		return status.Errorf(status.Internal, "identity provider management requires embedded IdP")
 	}
 
+	// Get the IDP info before deleting for the activity event
+	conn, err := embeddedManager.GetConnector(ctx, idpID)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return status.Errorf(status.NotFound, "identity provider not found")
+		}
+		return status.Errorf(status.Internal, "failed to get identity provider: %v", err)
+	}
+	idpConfig := connectorConfigToIdentityProvider(conn, accountID)
+
 	if err := embeddedManager.DeleteConnector(ctx, idpID); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return status.Errorf(status.NotFound, "identity provider not found")
 		}
 		return status.Errorf(status.Internal, "failed to delete identity provider: %v", err)
 	}
+
+	am.StoreEvent(ctx, userID, idpID, accountID, activity.IdentityProviderDeleted, idpConfig.EventMeta())
 
 	return nil
 }
