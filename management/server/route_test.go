@@ -1320,7 +1320,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
