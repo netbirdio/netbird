@@ -25,7 +25,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 	// For Echo Requests, send and wait for response
 	if icmpHdr.Type() == header.ICMPv4Echo {
-		return f.handleICMPEcho(flowID, id, pkt, icmpHdr)
+		return f.handleICMPEcho(flowID, id, pkt, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()))
 	}
 
 	// For other ICMP types (Time Exceeded, Destination Unreachable, etc), forward without waiting
@@ -35,7 +35,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 	}
 
 	icmpData := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
-	conn, err := f.forwardICMPPacket(id, icmpData, icmpHdr, 100*time.Millisecond)
+	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), 100*time.Millisecond)
 	if err != nil {
 		f.logger.Error2("forwarder: Failed to forward ICMP packet for %v: %v", epID(id), err)
 		return true
@@ -48,7 +48,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 }
 
 // handleICMPEcho handles ICMP echo requests asynchronously with rate limiting.
-func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointID, pkt *stack.PacketBuffer, icmpHdr header.ICMPv4) bool {
+func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointID, pkt *stack.PacketBuffer, icmpType, icmpCode uint8) bool {
 	select {
 	case f.pingSemaphore <- struct{}{}:
 		icmpData := stack.PayloadSince(pkt.TransportHeader()).ToSlice()
@@ -58,21 +58,21 @@ func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointI
 			defer func() { <-f.pingSemaphore }()
 
 			if f.hasRawICMPAccess {
-				f.handleICMPViaSocket(flowID, id, icmpHdr, icmpData, rxBytes)
+				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
 			} else {
-				f.handleICMPViaPing(flowID, id, icmpHdr, icmpData, rxBytes)
+				f.handleICMPViaPing(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
 			}
 		}()
 	default:
 		f.logger.Debug3("forwarder: ICMP rate limit exceeded for %v type %v code %v",
-			epID(id), icmpHdr.Type(), icmpHdr.Code())
+			epID(id), icmpType, icmpCode)
 	}
 	return true
 }
 
 // forwardICMPPacket creates a raw ICMP socket and sends the packet, returning the connection.
 // The caller is responsible for closing the returned connection.
-func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []byte, icmpHdr header.ICMPv4, timeout time.Duration) (net.PacketConn, error) {
+func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []byte, icmpType, icmpCode uint8, timeout time.Duration) (net.PacketConn, error) {
 	ctx, cancel := context.WithTimeout(f.ctx, timeout)
 	defer cancel()
 
@@ -93,16 +93,16 @@ func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []by
 	}
 
 	f.logger.Trace3("forwarder: Forwarded ICMP packet %v type %v code %v",
-		epID(id), icmpHdr.Type(), icmpHdr.Code())
+		epID(id), icmpType, icmpCode)
 
 	return conn, nil
 }
 
 // handleICMPViaSocket handles ICMP echo requests using raw sockets.
-func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndpointID, icmpHdr header.ICMPv4, payload []byte, rxBytes int) {
+func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, icmpData []byte, rxBytes int) {
 	sendTime := time.Now()
 
-	conn, err := f.forwardICMPPacket(id, payload, icmpHdr, 5*time.Second)
+	conn, err := f.forwardICMPPacket(id, icmpData, icmpType, icmpCode, 5*time.Second)
 	if err != nil {
 		f.logger.Error2("forwarder: Failed to send ICMP packet for %v: %v", epID(id), err)
 		return
@@ -117,9 +117,9 @@ func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndp
 	rtt := time.Since(sendTime).Round(10 * time.Microsecond)
 
 	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, raw socket)",
-		epID(id), icmpHdr.Type(), icmpHdr.Code(), rtt)
+		epID(id), icmpType, icmpCode, rtt)
 
-	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), uint64(rxBytes), uint64(txBytes))
+	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
 
 func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEndpointID) int {
@@ -183,7 +183,7 @@ func (f *Forwarder) sendICMPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.T
 
 // handleICMPViaPing handles ICMP echo requests by executing the system ping binary.
 // This is used as a fallback when raw socket access is not available.
-func (f *Forwarder) handleICMPViaPing(flowID uuid.UUID, id stack.TransportEndpointID, icmpHdr header.ICMPv4, icmpData []byte, rxBytes int) {
+func (f *Forwarder) handleICMPViaPing(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, icmpData []byte, rxBytes int) {
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
 
@@ -193,20 +193,20 @@ func (f *Forwarder) handleICMPViaPing(flowID uuid.UUID, id stack.TransportEndpoi
 	pingStart := time.Now()
 	if err := cmd.Run(); err != nil {
 		f.logger.Warn4("forwarder: Ping binary failed for %v type %v code %v: %v", epID(id),
-			icmpHdr.Type(), icmpHdr.Code(), err)
+			icmpType, icmpCode, err)
 		return
 	}
 	rtt := time.Since(pingStart).Round(10 * time.Microsecond)
 
 	f.logger.Trace3("forwarder: Forwarded ICMP echo request %v type %v code %v",
-		epID(id), icmpHdr.Type(), icmpHdr.Code())
+		epID(id), icmpType, icmpCode)
 
 	txBytes := f.synthesizeEchoReply(id, icmpData)
 
 	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, ping binary)",
-		epID(id), icmpHdr.Type(), icmpHdr.Code(), rtt)
+		epID(id), icmpType, icmpCode, rtt)
 
-	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), uint64(rxBytes), uint64(txBytes))
+	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
 
 // buildPingCommand creates a platform-specific ping command.
