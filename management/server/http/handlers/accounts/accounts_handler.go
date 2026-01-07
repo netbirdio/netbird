@@ -175,6 +175,7 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
+		Extra:                           &types.ExtraSettings{},
 	}
 
 	if req.Settings.Extra != nil {
