@@ -63,7 +63,7 @@ jobs:
             pkg install -y git curl portlint go
 
             # Install Go for building
-            GO_TARBALL="go1.24.10.freebsd-amd64.tar.gz"
+            GO_TARBALL="go1.25.5.freebsd-amd64.tar.gz"
             GO_URL="https://go.dev/dl/$GO_TARBALL"
             curl -LO "$GO_URL"
             tar -C /usr/local -xzf "$GO_TARBALL"
