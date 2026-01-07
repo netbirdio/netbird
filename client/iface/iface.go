@@ -333,7 +333,7 @@ func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [
 				if peer.Endpoint.IP != nil {
 					endpoint = &peer.Endpoint
 				}
-				keepalive := peer.PersistentKeepalive
+				keepalive := 25 * time.Second
 
 				config = []wgtypes.PeerConfig{
 					{

@@ -278,13 +278,12 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 
 	for _, p := range wgDevice.Peers {
 		peer := Peer{
-			PublicKey:           p.PublicKey.String(),
-			AllowedIPs:          p.AllowedIPs,
-			TxBytes:             p.TransmitBytes,
-			RxBytes:             p.ReceiveBytes,
-			LastHandshake:       p.LastHandshakeTime,
-			PresharedKey:        [32]byte(p.PresharedKey),
-			PersistentKeepalive: p.PersistentKeepaliveInterval,
+			PublicKey:     p.PublicKey.String(),
+			AllowedIPs:    p.AllowedIPs,
+			TxBytes:       p.TransmitBytes,
+			RxBytes:       p.ReceiveBytes,
+			LastHandshake: p.LastHandshakeTime,
+			PresharedKey:  [32]byte(p.PresharedKey),
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint

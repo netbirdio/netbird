@@ -22,18 +22,16 @@ import (
 )
 
 const (
-	privateKey                  = "private_key"
-	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
-	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
-	ipcKeyTxBytes               = "tx_bytes"
-	ipcKeyRxBytes               = "rx_bytes"
-	allowedIP                   = "allowed_ip"
-	endpoint                    = "endpoint"
-	fwmark                      = "fwmark"
-	listenPort                  = "listen_port"
-	publicKey                   = "public_key"
-	presharedKey                = "preshared_key"
-	persistentKeepaliveInterval = "persistent_keepalive_interval"
+	privateKey                 = "private_key"
+	ipcKeyLastHandshakeTimeSec = "last_handshake_time_sec"
+	ipcKeyTxBytes              = "tx_bytes"
+	ipcKeyRxBytes              = "rx_bytes"
+	allowedIP                  = "allowed_ip"
+	endpoint                   = "endpoint"
+	fwmark                     = "fwmark"
+	listenPort                 = "listen_port"
+	publicKey                  = "public_key"
+	presharedKey               = "preshared_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -609,13 +607,6 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				if pskKey, err := hexToWireguardKey(val); err == nil {
 					currentPeer.PresharedKey = [32]byte(pskKey)
 				}
-			}
-		case persistentKeepaliveInterval:
-			if currentPeer == nil {
-				continue
-			}
-			if secs, err := strconv.Atoi(val); err == nil {
-				currentPeer.PersistentKeepalive = time.Duration(secs) * time.Second
 			}
 		}
 	}
