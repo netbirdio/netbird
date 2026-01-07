@@ -2100,7 +2100,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_DNSDomainConflict(t *testin
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 
-	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to create an account")
 
 	ctx := context.Background()

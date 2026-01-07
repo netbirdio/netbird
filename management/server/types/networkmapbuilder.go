@@ -1076,7 +1076,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
 	ctx context.Context, account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
-	dnsConfig *nbdns.Config, sshView *PeerSSHView, customZone nbdns.CustomZone, accountZones []*zones.Zone, validatedPeers map[string]struct{},
+	dnsConfig *nbdns.Config, sshView *PeerSSHView, peersCustomZone nbdns.CustomZone, accountZones []*zones.Zone, validatedPeers map[string]struct{},
 ) *NetworkMap {
 
 	var peersToConnect []*nbpeer.Peer
