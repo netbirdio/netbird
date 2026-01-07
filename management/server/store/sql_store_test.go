@@ -969,6 +969,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
+		Key:       "key1",
 		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
@@ -983,6 +984,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
+		Key:       "key2",
 		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
@@ -1010,6 +1012,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
@@ -1023,6 +1026,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1-1",
 			IP:        net.IP{2, 2, 2, 2},
 		}
@@ -1049,6 +1053,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1057,6 +1062,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
@@ -1074,6 +1080,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1082,6 +1089,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
