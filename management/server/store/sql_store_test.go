@@ -3717,3 +3717,170 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	userID := "test-user-123"
+	peerKey := "peer-key-abc"
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-1",
+		Key:       peerKey,
+		AccountID: existingAccountID,
+		UserID:    userID,
+		IP:        net.IP{10, 0, 0, 1},
+		DNSLabel:  "test-peer-1",
+	}
+
+	err = store.AddPeerToAccount(context.Background(), peer)
+	require.NoError(t, err)
+
+	retrievedUserID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	assert.Equal(t, userID, retrievedUserID)
+}
+
+func TestSqlStore_GetUserIDByPeerKey_NotFound(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	nonExistentPeerKey := "non-existent-peer-key"
+
+	userID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, nonExistentPeerKey)
+	require.Error(t, err)
+	assert.Equal(t, "", userID)
+}
+
+func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	peerKey := "peer-key-abc"
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-1",
+		Key:       peerKey,
+		AccountID: existingAccountID,
+		UserID:    "",
+		IP:        net.IP{10, 0, 0, 1},
+		DNSLabel:  "test-peer-1",
+	}
+
+	err = store.AddPeerToAccount(context.Background(), peer)
+	require.NoError(t, err)
+
+	retrievedUserID, err := store.GetUserIDByPeerKey(context.Background(), LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	assert.Equal(t, "", retrievedUserID)
+}
+
+func TestSqlStore_ApproveAccountPeers(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		accountID := "test-account"
+		ctx := context.Background()
+
+		account := newAccountWithId(ctx, accountID, "testuser", "example.com")
+		err := store.SaveAccount(ctx, account)
+		require.NoError(t, err)
+
+		peers := []*nbpeer.Peer{
+			{
+				ID:        "peer1",
+				AccountID: accountID,
+				DNSLabel:  "peer1.netbird.cloud",
+				Key:       "peer1-key",
+				IP:        net.ParseIP("100.64.0.1"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: true,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+			{
+				ID:        "peer2",
+				AccountID: accountID,
+				DNSLabel:  "peer2.netbird.cloud",
+				Key:       "peer2-key",
+				IP:        net.ParseIP("100.64.0.2"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: true,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+			{
+				ID:        "peer3",
+				AccountID: accountID,
+				DNSLabel:  "peer3.netbird.cloud",
+				Key:       "peer3-key",
+				IP:        net.ParseIP("100.64.0.3"),
+				Status: &nbpeer.PeerStatus{
+					RequiresApproval: false,
+					LastSeen:         time.Now().UTC(),
+				},
+			},
+		}
+
+		for _, peer := range peers {
+			err = store.AddPeerToAccount(ctx, peer)
+			require.NoError(t, err)
+		}
+
+		t.Run("approve all pending peers", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, accountID)
+			require.NoError(t, err)
+			assert.Equal(t, 2, count)
+
+			allPeers, err := store.GetAccountPeers(ctx, LockingStrengthNone, accountID, "", "")
+			require.NoError(t, err)
+
+			for _, peer := range allPeers {
+				assert.False(t, peer.Status.RequiresApproval, "peer %s should not require approval", peer.ID)
+			}
+		})
+
+		t.Run("no peers to approve", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, accountID)
+			require.NoError(t, err)
+			assert.Equal(t, 0, count)
+		})
+
+		t.Run("non-existent account", func(t *testing.T) {
+			count, err := store.ApproveAccountPeers(ctx, "non-existent")
+			require.NoError(t, err)
+			assert.Equal(t, 0, count)
+		})
+	})
+}
+
+func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
+		t.Skip("Skipping timeout test for MySQL")
+	}
+
+	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
+
+	ctx := context.Background()
+	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
+		// Sleep for 2 seconds to exceed the 1 second timeout
+		time.Sleep(2 * time.Second)
+		return nil
+	})
+
+	// The transaction should fail with an error (either timeout or already rolled back)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transaction has already been committed or rolled back", "expected transaction rolled back error, got: %v", err)
+}

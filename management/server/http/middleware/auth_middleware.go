@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -31,6 +32,7 @@ type AuthMiddleware struct {
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *APIRateLimiter
+	patUsageTracker     *PATUsageTracker
 }
 
 // NewAuthMiddleware instance constructor
@@ -40,10 +42,20 @@ func NewAuthMiddleware(
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiterConfig *RateLimiterConfig,
+	meter metric.Meter,
 ) *AuthMiddleware {
 	var rateLimiter *APIRateLimiter
 	if rateLimiterConfig != nil {
 		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
+	var patUsageTracker *PATUsageTracker
+	if meter != nil {
+		var err error
+		patUsageTracker, err = NewPATUsageTracker(context.Background(), meter)
+		if err != nil {
+			log.Errorf("Failed to create PAT usage tracker: %s", err)
+		}
 	}
 
 	return &AuthMiddleware{
@@ -52,6 +64,7 @@ func NewAuthMiddleware(
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
+		patUsageTracker:     patUsageTracker,
 	}
 }
 
@@ -128,7 +141,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if userAuth.AccountId != accountId {
-		log.WithContext(ctx).Debugf("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		log.WithContext(ctx).Tracef("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
 		userAuth.AccountId = accountId
 	}
 
@@ -156,6 +169,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	token, err := getTokenFromPATRequest(authHeaderParts)
 	if err != nil {
 		return r, fmt.Errorf("error extracting token: %w", err)
+	}
+
+	if m.patUsageTracker != nil {
+		m.patUsageTracker.IncrementUsage(token)
 	}
 
 	if m.rateLimiter != nil {

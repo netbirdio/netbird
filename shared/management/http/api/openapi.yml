@@ -145,6 +145,10 @@ components:
           description: Enables or disables experimental lazy connection
           type: boolean
           example: true
+        auto_update_version:
+          description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+          type: string
+          example: "0.51.2"
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -484,6 +488,8 @@ components:
               description: Indicates whether the peer is ephemeral or not
               type: boolean
               example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
           required:
             - city_name
             - connected
@@ -510,6 +516,49 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
     PeerTemporaryAccessRequest:
       type: object
       properties:
@@ -932,7 +981,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp"]
+          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -945,6 +994,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
+        authorized_groups:
+          description: Map of user group ids to a list of local users
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              example: "group1"
       required:
         - name
         - enabled
@@ -3362,6 +3419,14 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: name
+          required: false
+          schema:
+            type: string
+          description: Filter groups by name (exact match)
+          example: "devs"
       responses:
         '200':
           description: A JSON Array of Groups
@@ -3375,6 +3440,8 @@ paths:
           "$ref": "#/components/responses/bad_request"
         '401':
           "$ref": "#/components/responses/requires_authentication"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '403':
           "$ref": "#/components/responses/forbidden"
         '500':

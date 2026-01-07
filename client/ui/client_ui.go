@@ -34,15 +34,16 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
-
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/version"
@@ -86,22 +87,24 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:             flags.daemonAddr,
-		logFile:          logFile,
-		app:              a,
-		showSettings:     flags.showSettings,
-		showNetworks:     flags.showNetworks,
-		showLoginURL:     flags.showLoginURL,
-		showDebug:        flags.showDebug,
-		showProfiles:     flags.showProfiles,
-		showQuickActions: flags.showQuickActions,
+		addr:              flags.daemonAddr,
+		logFile:           logFile,
+		app:               a,
+		showSettings:      flags.showSettings,
+		showNetworks:      flags.showNetworks,
+		showLoginURL:      flags.showLoginURL,
+		showDebug:         flags.showDebug,
+		showProfiles:      flags.showProfiles,
+		showQuickActions:  flags.showQuickActions,
+		showUpdate:        flags.showUpdate,
+		showUpdateVersion: flags.showUpdateVersion,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions || flags.showUpdate {
 		a.Run()
 		return
 	}
@@ -127,15 +130,17 @@ func main() {
 }
 
 type cliFlags struct {
-	daemonAddr       string
-	showSettings     bool
-	showNetworks     bool
-	showProfiles     bool
-	showDebug        bool
-	showLoginURL     bool
-	showQuickActions bool
-	errorMsg         string
-	saveLogsInFile   bool
+	daemonAddr        string
+	showSettings      bool
+	showNetworks      bool
+	showProfiles      bool
+	showDebug         bool
+	showLoginURL      bool
+	showQuickActions  bool
+	errorMsg          string
+	saveLogsInFile    bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -155,6 +160,8 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
+	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
+	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
 	return &flags
 }
@@ -209,10 +216,11 @@ var iconConnectedDot []byte
 var iconDisconnectedDot []byte
 
 type serviceClient struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	addr   string
-	conn   proto.DaemonServiceClient
+	ctx      context.Context
+	cancel   context.CancelFunc
+	addr     string
+	conn     proto.DaemonServiceClient
+	connLock sync.Mutex
 
 	eventHandler *eventHandler
 
@@ -304,6 +312,8 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	settingsEnabled      bool
+	profilesEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -317,6 +327,8 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
+	wUpdateProgress      fyne.Window
+	updateContextCancel  context.CancelFunc
 
 	connectCancel context.CancelFunc
 }
@@ -327,15 +339,17 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr             string
-	logFile          string
-	app              fyne.App
-	showSettings     bool
-	showNetworks     bool
-	showDebug        bool
-	showLoginURL     bool
-	showProfiles     bool
-	showQuickActions bool
+	addr              string
+	logFile           string
+	app               fyne.App
+	showSettings      bool
+	showNetworks      bool
+	showDebug         bool
+	showLoginURL      bool
+	showProfiles      bool
+	showQuickActions  bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // newServiceClient instance constructor
@@ -353,7 +367,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdate("nb/client-ui"),
+		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -373,6 +387,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showProfilesUI()
 	case args.showQuickActions:
 		s.showQuickActionsUI()
+	case args.showUpdate:
+		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
 
 	return s
@@ -812,7 +828,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context) error {
+func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -834,7 +850,9 @@ func (s *serviceClient) menuUpClick(ctx context.Context) error {
 		return nil
 	}
 
-	if _, err := conn.Up(ctx, &proto.UpRequest{}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
+	}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -891,7 +909,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected):
+		case status.Status == string(internal.StatusConnected) && !s.connected:
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -905,6 +923,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
+			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -1095,9 +1114,32 @@ func (s *serviceClient) onTrayReady() {
 			s.updateExitNodes()
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// todo use new Category
+		if windowAction, ok := event.Metadata["progress_window"]; ok {
+			targetVersion, ok := event.Metadata["version"]
+			if !ok {
+				targetVersion = "unknown"
+			}
+			log.Debugf("window action: %v", windowAction)
+			if windowAction == "show" {
+				if s.updateContextCancel != nil {
+					s.updateContextCancel()
+					s.updateContextCancel = nil
+				}
+
+				subCtx, cancel := context.WithCancel(s.ctx)
+				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
+				s.updateContextCancel = cancel
+			}
+		}
+	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
+
+	// Start sleep detection listener
+	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1134,6 +1176,8 @@ func (s *serviceClient) onTrayExit() {
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
+	s.connLock.Lock()
+	defer s.connLock.Unlock()
 	if s.conn != nil {
 		return s.conn, nil
 	}
@@ -1154,6 +1198,62 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// startSleepListener initializes the sleep detection service and listens for sleep events
+func (s *serviceClient) startSleepListener() {
+	sleepService, err := sleep.New()
+	if err != nil {
+		log.Warnf("%v", err)
+		return
+	}
+
+	if err := sleepService.Register(s.handleSleepEvents); err != nil {
+		log.Errorf("failed to start sleep detection: %v", err)
+		return
+	}
+
+	log.Info("sleep detection service initialized")
+
+	// Cleanup on context cancellation
+	go func() {
+		<-s.ctx.Done()
+		log.Info("stopping sleep event listener")
+		if err := sleepService.Deregister(); err != nil {
+			log.Errorf("failed to deregister sleep detection: %v", err)
+		}
+	}()
+}
+
+// handleSleepEvents sends a sleep notification to the daemon via gRPC
+func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
+	conn, err := s.getSrvClient(0)
+	if err != nil {
+		log.Errorf("failed to get daemon client for sleep notification: %v", err)
+		return
+	}
+
+	req := &proto.OSLifecycleRequest{}
+
+	switch event {
+	case sleep.EventTypeWakeUp:
+		log.Infof("handle wakeup event: %v", event)
+		req.Type = proto.OSLifecycleRequest_WAKEUP
+	case sleep.EventTypeSleep:
+		log.Infof("handle sleep event: %v", event)
+		req.Type = proto.OSLifecycleRequest_SLEEP
+	default:
+		log.Infof("unknown event: %v", event)
+		return
+	}
+
+	_, err = conn.NotifyOSLifecycle(s.ctx, req)
+	if err != nil {
+		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
+		return
+	}
+
+	log.Info("successfully notified daemon about os lifecycle")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
@@ -1177,19 +1277,22 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		return
 	}
 
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
 	// Update settings menu based on current features
-	if features != nil && features.DisableUpdateSettings {
-		s.setSettingsEnabled(false)
-	} else {
-		s.setSettingsEnabled(true)
+	settingsEnabled := features == nil || !features.DisableUpdateSettings
+	if s.settingsEnabled != settingsEnabled {
+		s.settingsEnabled = settingsEnabled
+		s.setSettingsEnabled(settingsEnabled)
 	}
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		} else {
-			s.mProfile.setEnabled(true)
+		profilesEnabled := features == nil || !features.DisableProfiles
+		if s.profilesEnabled != profilesEnabled {
+			s.profilesEnabled = profilesEnabled
+			s.mProfile.setEnabled(profilesEnabled)
 		}
 	}
 }

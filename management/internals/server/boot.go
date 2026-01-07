@@ -10,9 +10,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,7 +57,7 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.config.StoreConfig.Engine, s.config.Datadir, s.Metrics(), false)
+		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -73,17 +73,17 @@ func (s *BaseServer) EventStore() activity.Store {
 			log.Fatalf("failed to initialize integration metrics: %v", err)
 		}
 
-		eventStore, key, err := integrations.InitEventStore(context.Background(), s.config.Datadir, s.config.DataStoreEncryptionKey, integrationMetrics)
+		eventStore, key, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
 		}
 
-		if s.config.DataStoreEncryptionKey != key {
-			log.WithContext(context.Background()).Infof("update config with activity store key")
-			s.config.DataStoreEncryptionKey = key
-			err := updateMgmtConfig(context.Background(), nbconfig.MgmtConfigPath, s.config)
+		if s.Config.DataStoreEncryptionKey != key {
+			log.WithContext(context.Background()).Infof("update Config with activity store key")
+			s.Config.DataStoreEncryptionKey = key
+			err := updateMgmtConfig(context.Background(), nbconfig.MgmtConfigPath, s.Config)
 			if err != nil {
-				log.Fatalf("failed to update config with activity store: %v", err)
+				log.Fatalf("failed to update Config with activity store: %v", err)
 			}
 		}
 
@@ -103,14 +103,14 @@ func (s *BaseServer) APIHandler() http.Handler {
 
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
-		trustedPeers := s.config.ReverseProxy.TrustedPeers
+		trustedPeers := s.Config.ReverseProxy.TrustedPeers
 		defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 		if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
 			log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
 			trustedPeers = defaultTrustedPeers
 		}
-		trustedHTTPProxies := s.config.ReverseProxy.TrustedHTTPProxies
-		trustedProxiesCount := s.config.ReverseProxy.TrustedHTTPProxiesCount
+		trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
+		trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
 		if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
 			log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
 				"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
@@ -128,15 +128,15 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
 		}
 
-		if s.config.HttpConfig.LetsEncryptDomain != "" {
-			certManager, err := encryption.CreateCertManager(s.config.Datadir, s.config.HttpConfig.LetsEncryptDomain)
+		if s.Config.HttpConfig.LetsEncryptDomain != "" {
+			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
 				log.Fatalf("failed to create certificate manager: %v", err)
 			}
 			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-		} else if s.config.HttpConfig.CertFile != "" && s.config.HttpConfig.CertKey != "" {
-			tlsConfig, err := loadTLSConfig(s.config.HttpConfig.CertFile, s.config.HttpConfig.CertKey)
+		} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
+			tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
 			if err != nil {
 				log.Fatalf("cannot load TLS credentials: %v", err)
 			}
@@ -145,7 +145,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.config, s.AccountManager(), s.SettingsManager(), s.PeersUpdateManager(), s.SecretsManager(), s.Metrics(), s.EphemeralManager(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController())
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
@@ -180,7 +180,7 @@ func unaryInterceptor(
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
-	reqID := uuid.New().String()
+	reqID := xid.New().String()
 	//nolint
 	ctx = context.WithValue(ctx, hook.ExecutionContextKey, hook.GRPCSource)
 	//nolint
@@ -194,7 +194,7 @@ func streamInterceptor(
 	info *grpc.StreamServerInfo,
 	handler grpc.StreamHandler,
 ) error {
-	reqID := uuid.New().String()
+	reqID := xid.New().String()
 	wrapped := grpcMiddleware.WrapServerStream(ss)
 	//nolint
 	ctx := context.WithValue(ss.Context(), hook.ExecutionContextKey, hook.GRPCSource)

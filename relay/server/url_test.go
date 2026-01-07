@@ -13,7 +13,7 @@ func TestGetInstanceURL(t *testing.T) {
 		{"Valid address with TLS", "example.com", true, "rels://example.com", false},
 		{"Valid address without TLS", "example.com", false, "rel://example.com", false},
 		{"Valid address with scheme", "rel://example.com", false, "rel://example.com", false},
-		{"Valid address with non TLS scheme and TLS true", "rel://example.com", true, "rel://example.com", false},
+		{"Invalid address with non TLS scheme and TLS true", "rel://example.com", true, "", true},
 		{"Valid address with TLS scheme", "rels://example.com", true, "rels://example.com", false},
 		{"Valid address with TLS scheme and TLS false", "rels://example.com", false, "rels://example.com", false},
 		{"Valid address with TLS scheme and custom port", "rels://example.com:9300", true, "rels://example.com:9300", false},
@@ -28,8 +28,11 @@ func TestGetInstanceURL(t *testing.T) {
 			if (err != nil) != tt.expectError {
 				t.Errorf("expected error: %v, got: %v", tt.expectError, err)
 			}
-			if url != tt.expectedURL {
-				t.Errorf("expected URL: %s, got: %s", tt.expectedURL, url)
+			if !tt.expectError && url != nil && url.String() != tt.expectedURL {
+				t.Errorf("expected URL: %s, got: %s", tt.expectedURL, url.String())
+			}
+			if tt.expectError && url != nil {
+				t.Errorf("expected nil URL on error, got: %s", url.String())
 			}
 		})
 	}

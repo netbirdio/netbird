@@ -16,6 +16,7 @@ type Client struct {
 	managementURL string
 	authHeader    string
 	httpClient    HttpClient
+	userAgent     string
 
 	// Accounts NetBird account APIs
 	// see more: https://docs.netbird.io/api/resources/accounts
@@ -127,6 +128,9 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	req.Header.Add("Accept", "application/json")
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
+	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
 	}
 
 	if len(query) != 0 {

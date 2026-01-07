@@ -2,12 +2,10 @@ package semaphoregroup
 
 import (
 	"context"
-	"sync"
 )
 
 // SemaphoreGroup is a custom type that combines sync.WaitGroup and a semaphore.
 type SemaphoreGroup struct {
-	waitGroup sync.WaitGroup
 	semaphore chan struct{}
 }
 
@@ -18,31 +16,18 @@ func NewSemaphoreGroup(limit int) *SemaphoreGroup {
 	}
 }
 
-// Add increments the internal WaitGroup counter and acquires a semaphore slot.
-func (sg *SemaphoreGroup) Add(ctx context.Context) {
-	sg.waitGroup.Add(1)
-
+// Add acquire a slot
+func (sg *SemaphoreGroup) Add(ctx context.Context) error {
 	// Acquire semaphore slot
 	select {
 	case <-ctx.Done():
-		return
+		return ctx.Err()
 	case sg.semaphore <- struct{}{}:
+		return nil
 	}
 }
 
-// Done decrements the internal WaitGroup counter and releases a semaphore slot.
-func (sg *SemaphoreGroup) Done(ctx context.Context) {
-	sg.waitGroup.Done()
-
-	// Release semaphore slot
-	select {
-	case <-ctx.Done():
-		return
-	case <-sg.semaphore:
-	}
-}
-
-// Wait waits until the internal WaitGroup counter is zero.
-func (sg *SemaphoreGroup) Wait() {
-	sg.waitGroup.Wait()
+// Done releases a slot. Must be called after a successful Add.
+func (sg *SemaphoreGroup) Done() {
+	<-sg.semaphore
 }

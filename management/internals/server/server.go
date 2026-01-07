@@ -41,10 +41,10 @@ type Server interface {
 }
 
 // Server holds the HTTP BaseServer instance.
-// Add any additional fields you need, such as database connections, config, etc.
+// Add any additional fields you need, such as database connections, Config, etc.
 type BaseServer struct {
-	// config holds the server configuration
-	config *nbconfig.Config
+	// Config holds the server configuration
+	Config *nbconfig.Config
 	// container of dependencies, each dependency is identified by a unique string.
 	container map[string]any
 	// AfterInit is a function that will be called after the server is initialized
@@ -70,7 +70,7 @@ type BaseServer struct {
 // NewServer initializes and configures a new Server instance
 func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
 	return &BaseServer{
-		config:                   config,
+		Config:                   config,
 		container:                make(map[string]any),
 		dnsDomain:                dnsDomain,
 		mgmtSingleAccModeDomain:  mgmtSingleAccModeDomain,
@@ -103,14 +103,14 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	var tlsConfig *tls.Config
 	tlsEnabled := false
-	if s.config.HttpConfig.LetsEncryptDomain != "" {
-		s.certManager, err = encryption.CreateCertManager(s.config.Datadir, s.config.HttpConfig.LetsEncryptDomain)
+	if s.Config.HttpConfig.LetsEncryptDomain != "" {
+		s.certManager, err = encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 		if err != nil {
 			return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 		}
 		tlsEnabled = true
-	} else if s.config.HttpConfig.CertFile != "" && s.config.HttpConfig.CertKey != "" {
-		tlsConfig, err = loadTLSConfig(s.config.HttpConfig.CertFile, s.config.HttpConfig.CertKey)
+	} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
+		tlsConfig, err = loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
 		if err != nil {
 			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
 			return err
@@ -126,8 +126,8 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	if !s.disableMetrics {
 		idpManager := "disabled"
-		if s.config.IdpManagerConfig != nil && s.config.IdpManagerConfig.ManagerType != "" {
-			idpManager = s.config.IdpManagerConfig.ManagerType
+		if s.Config.IdpManagerConfig != nil && s.Config.IdpManagerConfig.ManagerType != "" {
+			idpManager = s.Config.IdpManagerConfig.ManagerType
 		}
 		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
 		go metricsWorker.Run(srvCtx)
@@ -183,7 +183,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", s.listener.Addr().String())
 	s.serveGRPCWithHTTP(ctx, s.listener, rootHandler, tlsEnabled)
 
-	s.update = version.NewUpdate("nb/management")
+	s.update = version.NewUpdateAndStart("nb/management")
 	s.update.SetDaemonVersion(version.NetbirdVersion())
 	s.update.SetOnUpdateListener(func() {
 		log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())

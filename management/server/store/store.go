@@ -143,6 +143,7 @@ type Store interface {
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
 	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)
@@ -203,6 +204,7 @@ type Store interface {
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
+	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
 }
 
 const (

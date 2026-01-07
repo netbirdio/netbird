@@ -41,6 +41,7 @@ require (
 	github.com/coder/websocket v1.8.13
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.24
+	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
@@ -64,7 +65,7 @@ require (
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20251027212525-d751b79f5d48
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20251203183432-d5400f030847
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0

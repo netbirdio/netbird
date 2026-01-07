@@ -234,6 +234,11 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 		return nil
 	}
 
+	// Unmap IPv4-mapped IPv6 addresses that some resolvers may return
+	for i, ip := range ips {
+		ips[i] = ip.Unmap()
+	}
+
 	f.updateInternalState(ips, mostSpecificResId, matchingEntries)
 	f.addIPsToResponse(resp, domain, ips)
 	f.cache.set(domain, question.Qtype, ips)

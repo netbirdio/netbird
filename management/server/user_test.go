@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -547,7 +549,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	require.NoError(t, err)
 
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
@@ -739,11 +741,18 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:              store,
-		eventStore:         &activity.InMemoryEventStore{},
-		permissionsManager: permissionsManager,
+		Store:                store,
+		eventStore:           &activity.InMemoryEventStore{},
+		permissionsManager:   permissionsManager,
+		networkMapController: networkMapControllerMock,
 	}
 
 	testCases := []struct {
@@ -848,12 +857,20 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MockIntegratedValidator{},
 		permissionsManager:      permissionsManager,
+		networkMapController:    networkMapControllerMock,
 	}
 
 	testCases := []struct {
@@ -1056,7 +1073,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	assert.NoError(t, err)
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
@@ -1362,11 +1379,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
-	// Creating a new regular user should not update account peers and not send peer update
+	// Creating a new regular user should send peer update (as users are not filtered yet)
 	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1385,11 +1402,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	// updating user with no linked peers should not update account peers and not send peer update
+	// updating user with no linked peers should update account peers and send peer update (as users are not filtered yet)
 	t.Run("updating user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1412,7 +1429,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
