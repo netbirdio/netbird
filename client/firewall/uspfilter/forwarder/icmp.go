@@ -221,8 +221,10 @@ func buildPingCommand(ctx context.Context, target net.IP, timeout time.Duration)
 		return exec.CommandContext(ctx, "ping", "-c", "1", "-W", fmt.Sprintf("%d", timeoutSec), "-q", target.String())
 	case "darwin", "ios":
 		return exec.CommandContext(ctx, "ping", "-c", "1", "-t", fmt.Sprintf("%d", timeoutSec), "-q", target.String())
-	case "freebsd", "openbsd", "netbsd":
+	case "freebsd":
 		return exec.CommandContext(ctx, "ping", "-c", "1", "-t", fmt.Sprintf("%d", timeoutSec), target.String())
+	case "openbsd", "netbsd":
+		return exec.CommandContext(ctx, "ping", "-c", "1", "-w", fmt.Sprintf("%d", timeoutSec), target.String())
 	case "windows":
 		return exec.CommandContext(ctx, "ping", "-n", "1", "-w", fmt.Sprintf("%d", timeoutSec*1000), target.String())
 	default:
