@@ -1,6 +1,8 @@
 package rosenpass
 
 import (
+	"sync"
+
 	rp "cunicu.li/go-rosenpass"
 	log "github.com/sirupsen/logrus"
 
@@ -19,6 +21,7 @@ type wireGuardPeer struct {
 }
 
 type NetbirdHandler struct {
+	mu           sync.Mutex
 	iface        PresharedKeySetter
 	peers        map[rp.PeerID]wireGuardPeer
 	presharedKey [32]byte
@@ -39,10 +42,14 @@ func NewNetbirdHandler(preSharedKey *[32]byte) *NetbirdHandler {
 // SetInterface sets the WireGuard interface for the handler.
 // This must be called after the WireGuard interface is created.
 func (h *NetbirdHandler) SetInterface(iface PresharedKeySetter) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.iface = iface
 }
 
 func (h *NetbirdHandler) AddPeer(pid rp.PeerID, intf string, pk rp.Key) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.peers[pid] = wireGuardPeer{
 		Interface: intf,
 		PublicKey: pk,
@@ -50,6 +57,8 @@ func (h *NetbirdHandler) AddPeer(pid rp.PeerID, intf string, pk rp.Key) {
 }
 
 func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	delete(h.peers, pid)
 }
 
@@ -63,12 +72,17 @@ func (h *NetbirdHandler) HandshakeExpired(pid rp.PeerID) {
 }
 
 func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.Key) {
-	if h.iface == nil {
+	h.mu.Lock()
+	iface := h.iface
+	wg, ok := h.peers[pid]
+	presharedKey := h.presharedKey
+	h.mu.Unlock()
+
+	if iface == nil {
 		log.Warn("rosenpass: interface not set, cannot update preshared key")
 		return
 	}
 
-	wg, ok := h.peers[pid]
 	if !ok {
 		return
 	}
@@ -76,7 +90,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	peerKey := wgtypes.Key(wg.PublicKey).String()
 	pskKey := wgtypes.Key(psk)
 
-	if err := h.iface.SetPresharedKey(peerKey, pskKey, h.presharedKey); err != nil {
+	if err := iface.SetPresharedKey(peerKey, pskKey, presharedKey); err != nil {
 		log.Errorf("Failed to apply rosenpass key: %v", err)
 	}
 }
