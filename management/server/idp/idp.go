@@ -72,6 +72,7 @@ type UserData struct {
 	Name        string      `json:"name"`
 	ID          string      `json:"user_id"`
 	AppMetadata AppMetadata `json:"app_metadata"`
+	Password    string      `json:"-"` // Plain password, only set on user creation, excluded from JSON
 }
 
 func (u *UserData) MarshalBinary() (data []byte, err error) {

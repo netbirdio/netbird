@@ -36,14 +36,21 @@ func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
 	if a.NetworkMapCache == nil {
 		return nil
 	}
-	return a.NetworkMapCache.OnPeerAddedIncremental(peerId)
+	return a.NetworkMapCache.OnPeerAddedIncremental(a, peerId)
+}
+
+func (a *Account) OnPeersAddedUpdNetworkMapCache(peerIds ...string) {
+	if a.NetworkMapCache == nil {
+		return
+	}
+	a.NetworkMapCache.EnqueuePeersForIncrementalAdd(a, peerIds...)
 }
 
 func (a *Account) OnPeerDeletedUpdNetworkMapCache(peerId string) error {
 	if a.NetworkMapCache == nil {
 		return nil
 	}
-	return a.NetworkMapCache.OnPeerDeleted(peerId)
+	return a.NetworkMapCache.OnPeerDeleted(a, peerId)
 }
 
 func (a *Account) UpdatePeerInNetworkMapCache(peer *nbpeer.Peer) {
