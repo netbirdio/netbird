@@ -1,3 +1,5 @@
+//go:build cgo
+
 // Package dex provides an embedded Dex OIDC identity provider.
 package dex
 
