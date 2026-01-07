@@ -218,7 +218,7 @@ func BenchmarkIPChecks(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// nolint:gosimple
-			_ = mapManager.localIPs[ip.String()]
+			_, _ = mapManager.localIPs[ip.String()]
 		}
 	})
 
@@ -227,7 +227,7 @@ func BenchmarkIPChecks(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// nolint:gosimple
-			_ = mapManager.localIPs[ip.String()]
+			_, _ = mapManager.localIPs[ip.String()]
 		}
 	})
 }
