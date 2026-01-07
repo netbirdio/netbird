@@ -530,14 +530,11 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 		}
 
 		idsToDelete := peerIDs[1:]
-		log.WithContext(ctx).Warnf("Deleting %d duplicate peers with key %s...: %v",
-			len(idsToDelete), dup.Key[:min(8, len(dup.Key))], idsToDelete)
 
 		if err := db.Table("peers").Where("id IN ?", idsToDelete).Delete(nil).Error; err != nil {
 			return fmt.Errorf("delete duplicate peers: %w", err)
 		}
 	}
 
-	log.WithContext(ctx).Info("Duplicate peer keys cleanup completed")
 	return nil
 }
