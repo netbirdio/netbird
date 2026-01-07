@@ -269,6 +269,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
