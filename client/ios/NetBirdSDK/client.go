@@ -76,7 +76,7 @@ type Client struct {
 	loginComplete         bool
 	connectClient         *internal.ConnectClient
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
-	preloadedConfig *profilemanager.Config
+	preloadedConfig       *profilemanager.Config
 }
 
 // NewClient instantiate a new Client

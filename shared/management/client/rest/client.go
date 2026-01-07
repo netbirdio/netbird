@@ -161,7 +161,7 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 func parseResponse[T any](resp *http.Response) (T, error) {
 	var ret T
 	if resp.Body == nil {
-		return ret, fmt.Errorf("body missing, HTTP Error code %d", resp.StatusCode)
+		return ret, fmt.Errorf("Body missing, HTTP Error code %d", resp.StatusCode)
 	}
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -169,7 +169,7 @@ func parseResponse[T any](resp *http.Response) (T, error) {
 	}
 	err = json.Unmarshal(bs, &ret)
 	if err != nil {
-		return ret, fmt.Errorf("error code %d, error unmarshalling body: %w", resp.StatusCode, err)
+		return ret, fmt.Errorf("Error code %d, error unmarshalling body: %w", resp.StatusCode, err)
 	}
 
 	return ret, nil

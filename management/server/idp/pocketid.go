@@ -121,7 +121,7 @@ func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMet
 func (p *PocketIdManager) request(ctx context.Context, method, resource string, query *url.Values, body string) ([]byte, error) {
 	var MethodsWithBody = []string{http.MethodPost, http.MethodPut}
 	if !slices.Contains(MethodsWithBody, method) && body != "" {
-		return nil, fmt.Errorf("body provided to unsupported method: %s", method)
+		return nil, fmt.Errorf("Body provided to unsupported method: %s", method)
 	}
 
 	reqURL := fmt.Sprintf("%s/api/%s", p.managementEndpoint, resource)
@@ -301,7 +301,7 @@ func (p *PocketIdManager) CreateUser(ctx context.Context, email, name, accountID
 	if p.appMetrics != nil {
 		p.appMetrics.IDPMetrics().CountCreateUser()
 	}
-	pending := true
+	var pending bool = true
 	ret := &UserData{
 		Email: email,
 		Name:  name,

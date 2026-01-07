@@ -64,7 +64,7 @@ var (
 				config.HttpConfig.IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
 			}
 
-			var tlsEnabled bool
+			tlsEnabled := false
 			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
 				tlsEnabled = true
 			}
