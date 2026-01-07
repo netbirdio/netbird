@@ -3704,6 +3704,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 		peer := &nbpeer.Peer{
 			ID:        fmt.Sprintf("peer-%d", i),
 			AccountID: accountID,
+			Key:       fmt.Sprintf("key-%d", i),
 			DNSLabel:  fmt.Sprintf("peer%d.example.com", i),
 			IP:        intToIPv4(uint32(i)),
 		}
