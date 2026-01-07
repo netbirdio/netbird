@@ -992,9 +992,10 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
-	err = am.Store.IncrementNetworkSerial(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to increment network serial: %w", err)
+	if len(peerIDs) != 0 {
+		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
 	}
 
 	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs)
@@ -1112,12 +1113,18 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	var updateAccountPeers bool
 	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
+	var settings *types.Settings
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		targetUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user to delete: %w", err)
+		}
+
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account settings: %w", err)
 		}
 
 		userPeers, err = transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
@@ -1127,7 +1134,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 		if len(userPeers) > 0 {
 			updateAccountPeers = true
-			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers)
+			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers, settings)
 			if err != nil {
 				return fmt.Errorf("failed to delete user peers: %w", err)
 			}
@@ -1146,6 +1153,9 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	var peerIDs []string
 	for _, peer := range userPeers {
 		peerIDs = append(peerIDs, peer.ID)
+		if err = am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peer.ID, err)
+		}
 	}
 	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
@@ -1154,6 +1164,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
 		addPeerRemovedEvent()
 	}
+
 	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
