@@ -17,6 +17,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
+	groupIDToUserIDs map[string][]string,
 ) *NetworkMapComponents {
 
 	peer := a.Peers[peerID]
@@ -42,6 +43,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 		ResourcePoliciesMap: make(map[string][]*Policy),
 		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
 		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
+		GroupIDToUserIDs:    groupIDToUserIDs,
+		AllowedUserIDs:      a.getAllowedUserIDs(),
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{

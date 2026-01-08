@@ -61,6 +61,7 @@ func TestNetworkMapComponents_CompareWithLegacy(t *testing.T) {
 		validatedPeersMap,
 		resourcePolicies,
 		routers,
+		groupIDToUserIDs,
 	)
 
 	if components == nil {
@@ -113,6 +114,7 @@ func TestNetworkMapComponents_GoldenFileComparison(t *testing.T) {
 		validatedPeersMap,
 		resourcePolicies,
 		routers,
+		groupIDToUserIDs,
 	)
 
 	require.NotNil(t, components, "GetPeerNetworkMapComponents returned nil")
@@ -477,6 +479,7 @@ func BenchmarkComponentsNetworkMap(b *testing.B) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -487,6 +490,7 @@ func BenchmarkComponentsNetworkMap(b *testing.B) {
 			validatedPeersMap,
 			resourcePolicies,
 			routers,
+			groupIDToUserIDs,
 		)
 		_ = CalculateNetworkMapFromComponents(ctx, components)
 	}
@@ -507,6 +511,7 @@ func BenchmarkComponentsCreation(b *testing.B) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -517,6 +522,7 @@ func BenchmarkComponentsCreation(b *testing.B) {
 			validatedPeersMap,
 			resourcePolicies,
 			routers,
+			groupIDToUserIDs,
 		)
 	}
 }
@@ -536,6 +542,7 @@ func BenchmarkCalculationFromComponents(b *testing.B) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	components := account.GetPeerNetworkMapComponents(
 		ctx,
@@ -544,6 +551,7 @@ func BenchmarkCalculationFromComponents(b *testing.B) {
 		validatedPeersMap,
 		resourcePolicies,
 		routers,
+		groupIDToUserIDs,
 	)
 
 	b.ResetTimer()
@@ -576,7 +584,7 @@ func TestGetPeerNetworkMap_ProdAccount_CompareImplementations(t *testing.T) {
 	legacyNetworkMap := testAccount.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil, groupIDToUserIDs)
 	require.NotNil(t, legacyNetworkMap, "GetPeerNetworkMap returned nil")
 
-	components := testAccount.GetPeerNetworkMapComponents(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers)
+	components := testAccount.GetPeerNetworkMapComponents(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 	require.NotNil(t, components, "GetPeerNetworkMapComponents returned nil")
 
 	newNetworkMap := CalculateNetworkMapFromComponents(ctx, components)
@@ -678,7 +686,7 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	agUsers := account.GetActiveGroupUsers()
-	components := account.GetPeerNetworkMapComponents(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers)
+	components := account.GetPeerNetworkMapComponents(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers, agUsers)
 	componentsJSON, err := json.Marshal(components)
 	require.NoError(b, err)
 
@@ -729,6 +737,7 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 				validatedPeersMap,
 				resourcePolicies,
 				routers,
+				agUsers,
 			)
 			_ = CalculateNetworkMapFromComponents(ctx, components)
 		}
@@ -744,6 +753,7 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 				validatedPeersMap,
 				resourcePolicies,
 				routers,
+				agUsers,
 			)
 		}
 	})

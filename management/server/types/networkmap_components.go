@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -33,6 +34,9 @@ type NetworkMapComponents struct {
 	ResourcePoliciesMap  map[string][]*Policy
 	RoutersMap           map[string]map[string]*routerTypes.NetworkRouter
 	NetworkResources     []*resourceTypes.NetworkResource
+
+	GroupIDToUserIDs map[string][]string
+	AllowedUserIDs   map[string]struct{}
 }
 
 type AccountSettingsInfo struct {
@@ -103,7 +107,7 @@ func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkM
 func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
 	targetPeerID := calc.components.PeerID
 
-	aclPeers, firewallRules := calc.getPeerConnectionResources(ctx, targetPeerID)
+	aclPeers, firewallRules, authorizedUsers, sshEnabled := calc.getPeerConnectionResources(ctx, targetPeerID)
 
 	peersToConnect, expiredPeers := calc.filterPeersByLoginExpiration(aclPeers)
 
@@ -151,16 +155,20 @@ func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: append(networkResourcesFirewallRules, routesFirewallRules...),
+		AuthorizedUsers:     authorizedUsers,
+		EnableSSH:           sshEnabled,
 	}
 }
 
-func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context, targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule) {
+func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context, targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	targetPeer := calc.components.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
-		return nil, nil
+		return nil, nil, nil, false
 	}
 
 	generateResources, getAccumulatedResources := calc.connResourcesGenerator(ctx, targetPeer)
+	authorizedUsers := make(map[string]map[string]struct{})
+	sshEnabled := false
 
 	for _, policy := range calc.components.Policies {
 		if !policy.Enabled {
@@ -203,10 +211,58 @@ func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context
 			if peerInDestinations {
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
+
+			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+				sshEnabled = true
+				switch {
+				case len(rule.AuthorizedGroups) > 0:
+					for groupID, localUsers := range rule.AuthorizedGroups {
+						userIDs, ok := calc.components.GroupIDToUserIDs[groupID]
+						if !ok {
+							continue
+						}
+
+						if len(localUsers) == 0 {
+							localUsers = []string{auth.Wildcard}
+						}
+
+						for _, localUser := range localUsers {
+							if authorizedUsers[localUser] == nil {
+								authorizedUsers[localUser] = make(map[string]struct{})
+							}
+							for _, userID := range userIDs {
+								authorizedUsers[localUser][userID] = struct{}{}
+							}
+						}
+					}
+				case rule.AuthorizedUser != "":
+					if authorizedUsers[auth.Wildcard] == nil {
+						authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+					}
+					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
+				default:
+					authorizedUsers[auth.Wildcard] = calc.getAllowedUserIDs()
+				}
+			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+				sshEnabled = true
+				authorizedUsers[auth.Wildcard] = calc.getAllowedUserIDs()
+			}
 		}
 	}
 
-	return getAccumulatedResources()
+	peers, fwRules := getAccumulatedResources()
+	return peers, fwRules, authorizedUsers, sshEnabled
+}
+
+func (calc *NetworkMapCalculator) getAllowedUserIDs() map[string]struct{} {
+	if calc.components.AllowedUserIDs != nil {
+		result := make(map[string]struct{}, len(calc.components.AllowedUserIDs))
+		for k, v := range calc.components.AllowedUserIDs {
+			result[k] = v
+		}
+		return result
+	}
+	return make(map[string]struct{})
 }
 
 func (calc *NetworkMapCalculator) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
