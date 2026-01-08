@@ -30,13 +30,13 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components := &NetworkMapComponents{
-		PeerID:              peerID,
-		Serial:              a.Network.Serial,
-		Network:             a.Network.Copy(),
-		Peers:               make(map[string]*nbpeer.Peer, len(a.Peers)/4),
-		Groups:              make(map[string]*Group, len(a.Groups)/4),
-		Policies:            make([]*Policy, 0, len(a.Policies)/4),
-		Routes:              make([]*route.Route, 0, len(a.Routes)/4),
+		PeerID:  peerID,
+		Serial:  a.Network.Serial,
+		Network: a.Network.Copy(),
+		// Peers:               make(map[string]*nbpeer.Peer, len(a.Peers)/4),
+		// Groups:              make(map[string]*Group, len(a.Groups)/4),
+		// Policies:            make([]*Policy, 0, len(a.Policies)/4),
+		// Routes:              make([]*route.Route, 0, len(a.Routes)/4),
 		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
 		CustomZoneDomain:    peersCustomZone.Domain,
 		AllDNSRecords:       peersCustomZone.Records,
@@ -58,39 +58,10 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes := a.getPeersGroupsPoliciesRoutes(ctx, peerID, validatedPeersMap)
 
-	_, _, networkResourcesSourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
-	for sourcePeerID := range networkResourcesSourcePeers {
-		relevantPeers[sourcePeerID] = a.GetPeer(sourcePeerID)
-	}
-
-	// for pid := range relevantPeerIDsMap {
-	// 	if p := a.Peers[pid]; p != nil {
-	// 		components.Peers[pid] = p
-	// 	}
-	// }
-
-	// for gid := range relevantGroupIDs {
-	// 	if g := a.Groups[gid]; g != nil {
-	// 		components.Groups[gid] = g
-	// 	}
-	// }
-
 	components.Peers = relevantPeers
 	components.Groups = relevantGroups
 	components.Policies = relevantPolicies
 	components.Routes = relevantRoutes
-
-	// for _, policy := range a.Policies {
-	// 	if a.isPolicyRelevantForPeer(ctx, policy, peerID, relevantGroupIDs) {
-	// 		components.Policies = append(components.Policies, policy)
-	// 	}
-	// }
-
-	// for _, r := range a.Routes {
-	// 	if a.isRouteRelevantForPeer(ctx, r, peerID, relevantGroupIDs) {
-	// 		components.Routes = append(components.Routes, r)
-	// 	}
-	// }
 
 	for _, nsGroup := range a.NameServerGroups {
 		if nsGroup.Enabled {
@@ -103,8 +74,8 @@ func (a *Account) GetPeerNetworkMapComponents(
 		}
 	}
 
-	relevantResourceIDs := make(map[string]struct{})
-	relevantNetworkIDs := make(map[string]struct{})
+	relevantResourceIDs := make(map[string]struct{}, len(a.NetworkResources))
+	relevantNetworkIDs := make(map[string]struct{}, len(a.NetworkResources))
 
 	for _, resource := range a.NetworkResources {
 		if !resource.Enabled {
@@ -117,32 +88,36 @@ func (a *Account) GetPeerNetworkMapComponents(
 		}
 
 		isRelevant := false
+		isRouter := false
 
 		networkRoutingPeers, routerExists := routers[resource.NetworkID]
 		if routerExists {
 			if _, ok := networkRoutingPeers[peerID]; ok {
 				isRelevant = true
+				isRouter = true
 			}
 		}
 
-		if !isRelevant {
-			for _, policy := range policies {
-				var peers []string
-				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-					peers = []string{policy.Rules[0].SourceResource.ID}
-				} else {
-					peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
-				}
+		for _, policy := range policies {
+			var peers []string
+			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+				peers = []string{policy.Rules[0].SourceResource.ID}
+			} else {
+				peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			}
 
+			if isRouter {
+				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+					if _, exists := components.Peers[pID]; !exists {
+						components.Peers[pID] = a.GetPeer(pID)
+					}
+				}
+			} else if !isRelevant {
 				for _, p := range peers {
 					if p == peerID && a.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
 						isRelevant = true
 						break
 					}
-				}
-
-				if isRelevant {
-					break
 				}
 			}
 		}
