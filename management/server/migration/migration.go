@@ -404,10 +404,11 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	if dialect == "mysql" {
 		var withLength []string
 		for _, col := range columns {
+			quotedCol := fmt.Sprintf("`%s`", col)
 			if col == "ip" || col == "dns_label" || col == "key" {
-				withLength = append(withLength, fmt.Sprintf("%s(64)", col))
+				withLength = append(withLength, fmt.Sprintf("%s(64)", quotedCol))
 			} else {
-				withLength = append(withLength, col)
+				withLength = append(withLength, quotedCol)
 			}
 		}
 		columnClause = strings.Join(withLength, ", ")
