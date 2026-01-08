@@ -130,6 +130,7 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 	// 127.0.0.0/8
 	newIPv4Bitmap[127] = &ipv4LowBitmap{}
 	for i := 0; i < 8192; i++ {
+		// #nosec G602 -- bitmap is defined as [8192]uint32, loop range is correct
 		newIPv4Bitmap[127].bitmap[i] = 0xFFFFFFFF
 	}
 
