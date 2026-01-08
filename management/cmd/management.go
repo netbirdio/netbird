@@ -215,6 +215,11 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 		cfg.HttpConfig.AuthAudience = "netbird-dashboard"
 	}
 
+	// Set CLIAuthAudience to the client app client ID
+	if cfg.HttpConfig.CLIAuthAudience == "" {
+		cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
+	}
+
 	// Set AuthUserIDClaim to "sub" (standard OIDC claim)
 	if cfg.HttpConfig.AuthUserIDClaim == "" {
 		cfg.HttpConfig.AuthUserIDClaim = "sub"
