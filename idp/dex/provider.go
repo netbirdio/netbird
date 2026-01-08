@@ -144,7 +144,7 @@ func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider
 			logLevel = slog.LevelError
 		}
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
+	logger := slog.New(NewLogrusHandler(logLevel))
 
 	stor, err := yamlConfig.Storage.OpenStorage(logger)
 	if err != nil {
