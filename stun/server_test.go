@@ -2,7 +2,11 @@ package stun
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"net"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,6 +184,195 @@ func TestServer_MultipleRequests(t *testing.T) {
 		clientConn.Close()
 	}
 
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+	_ = server.Shutdown(shutdownCtx)
+}
+
+func TestServer_ConcurrentClients(t *testing.T) {
+	numClients := 1000
+	requestsPerClient := 10
+	maxStartDelay := 100 * time.Millisecond // Random delay before client starts
+	maxRequestDelay := 1 * time.Second      // Random delay between requests
+
+	// Remote server to test against via env var STUN_TEST_SERVER
+	// Example: STUN_TEST_SERVER=example.netbird.io:3478 go test -v ./stun/... -run ConcurrentClients
+	remoteServer := os.Getenv("STUN_TEST_SERVER")
+
+	var serverAddr *net.UDPAddr
+	var server *Server
+	var cancel context.CancelFunc
+
+	if remoteServer != "" {
+		// Use remote server
+		var err error
+		serverAddr, err = net.ResolveUDPAddr("udp", remoteServer)
+		require.NoError(t, err)
+		t.Logf("Testing against remote server: %s", remoteServer)
+	} else {
+		// Start local server
+		server = NewServer("127.0.0.1:0", "warn")
+		var ctx context.Context
+		ctx, cancel = context.WithCancel(context.Background())
+		go func() {
+			_ = server.Listen(ctx)
+		}()
+		time.Sleep(50 * time.Millisecond)
+		serverAddr = server.conn.LocalAddr().(*net.UDPAddr)
+		t.Logf("Testing against local server: %s", serverAddr)
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, numClients*requestsPerClient)
+	successCount := make(chan int, numClients)
+
+	startTime := time.Now()
+
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		go func(clientID int) {
+			defer wg.Done()
+
+			// Random delay before starting
+			time.Sleep(time.Duration(rand.Int63n(int64(maxStartDelay))))
+
+			clientConn, err := net.DialUDP("udp", nil, serverAddr)
+			if err != nil {
+				errors <- fmt.Errorf("client %d: failed to dial: %w", clientID, err)
+				return
+			}
+			defer clientConn.Close()
+
+			success := 0
+			for j := 0; j < requestsPerClient; j++ {
+				// Random delay between requests
+				if j > 0 {
+					time.Sleep(time.Duration(rand.Int63n(int64(maxRequestDelay))))
+				}
+
+				msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
+				if err != nil {
+					errors <- fmt.Errorf("client %d: failed to build request: %w", clientID, err)
+					continue
+				}
+
+				_, err = clientConn.Write(msg.Raw)
+				if err != nil {
+					errors <- fmt.Errorf("client %d: failed to write: %w", clientID, err)
+					continue
+				}
+
+				buf := make([]byte, 1500)
+				clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				n, err := clientConn.Read(buf)
+				if err != nil {
+					errors <- fmt.Errorf("client %d: failed to read: %w", clientID, err)
+					continue
+				}
+
+				response := &stun.Message{Raw: buf[:n]}
+				if err := response.Decode(); err != nil {
+					errors <- fmt.Errorf("client %d: failed to decode: %w", clientID, err)
+					continue
+				}
+
+				if response.Type != stun.BindingSuccess {
+					errors <- fmt.Errorf("client %d: unexpected response type: %s", clientID, response.Type)
+					continue
+				}
+
+				success++
+			}
+			successCount <- success
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+	close(successCount)
+
+	elapsed := time.Since(startTime)
+
+	totalSuccess := 0
+	for count := range successCount {
+		totalSuccess += count
+	}
+
+	var errs []error
+	for err := range errors {
+		errs = append(errs, err)
+	}
+
+	totalRequests := numClients * requestsPerClient
+	t.Logf("Completed %d/%d requests in %v (%.2f req/s)",
+		totalSuccess, totalRequests, elapsed,
+		float64(totalSuccess)/elapsed.Seconds())
+
+	if len(errs) > 0 {
+		t.Logf("Errors (%d):", len(errs))
+		for i, err := range errs {
+			if i < 10 { // Only show first 10 errors
+				t.Logf("  - %v", err)
+			}
+		}
+	}
+
+	// Require at least 95% success rate
+	successRate := float64(totalSuccess) / float64(totalRequests)
+	require.GreaterOrEqual(t, successRate, 0.95, "success rate too low: %.2f%%", successRate*100)
+
+	// Cleanup local server if used
+	if server != nil {
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		_ = server.Shutdown(shutdownCtx)
+	}
+}
+
+// BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
+func BenchmarkSTUNServer(b *testing.B) {
+	server := NewServer("127.0.0.1:0", "error")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = server.Listen(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	serverAddr := server.conn.LocalAddr().(*net.UDPAddr)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		clientConn, err := net.DialUDP("udp", nil, serverAddr)
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer clientConn.Close()
+
+		buf := make([]byte, 1500)
+
+		for pb.Next() {
+			msg, _ := stun.Build(stun.TransactionID, stun.BindingRequest)
+			_, _ = clientConn.Write(msg.Raw)
+
+			clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, err := clientConn.Read(buf)
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			response := &stun.Message{Raw: buf[:n]}
+			if err := response.Decode(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.StopTimer()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
