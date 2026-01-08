@@ -49,7 +49,7 @@ func TestServer_BindingRequest(t *testing.T) {
 
 	// Read the response
 	buf := make([]byte, 1500)
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	n, err := clientConn.Read(buf)
 	require.NoError(t, err)
 
@@ -102,7 +102,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 
 	// Try to read response (should timeout since server ignores non-STUN)
 	buf := make([]byte, 1500)
-	clientConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = clientConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	_, err = clientConn.Read(buf)
 	assert.Error(t, err) // Should be a timeout error
 
@@ -171,7 +171,7 @@ func TestServer_MultipleRequests(t *testing.T) {
 		require.NoError(t, err)
 
 		buf := make([]byte, 1500)
-		clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		n, err := clientConn.Read(buf)
 		require.NoError(t, err)
 
@@ -214,6 +214,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		server = NewServer("127.0.0.1:0", "warn")
 		var ctx context.Context
 		ctx, cancel = context.WithCancel(context.Background())
+		defer cancel()
 		go func() {
 			_ = server.Listen(ctx)
 		}()
@@ -263,7 +264,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 				}
 
 				buf := make([]byte, 1500)
-				clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				_ = clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 				n, err := clientConn.Read(buf)
 				if err != nil {
 					errors <- fmt.Errorf("client %d: failed to read: %w", clientID, err)
@@ -323,7 +324,6 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 	// Cleanup local server if used
 	if server != nil {
-		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		_ = server.Shutdown(shutdownCtx)
@@ -359,7 +359,7 @@ func BenchmarkSTUNServer(b *testing.B) {
 			msg, _ := stun.Build(stun.TransactionID, stun.BindingRequest)
 			_, _ = clientConn.Write(msg.Raw)
 
-			clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			n, err := clientConn.Read(buf)
 			if err != nil {
 				b.Fatal(err)
