@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -366,6 +367,8 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	}
 
 	var resp *proto.EncryptedMessage
+	isRegistration := isRegistrationRequest(req)
+
 	operation := func() error {
 		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
 		defer cancel()
@@ -385,6 +388,31 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 					log.Debugf("login timeout, retrying...")
 					return err
 				}
+				// During registration retries, if we get "peer already registered" it means
+				// a previous request succeeded after timeout. Treat this as success by doing
+				// a regular login to fetch the peer config.
+				if isRegistration && s.Code() == codes.FailedPrecondition &&
+					strings.Contains(s.Message(), "peer has been already registered") {
+					log.Debugf("peer already registered during retry, switching to login")
+					// Convert to a login request (no setup key or JWT token)
+					loginOnlyReq := &proto.LoginRequest{
+						Meta:      req.Meta,
+						PeerKeys:  req.PeerKeys,
+						DnsLabels: req.DnsLabels,
+					}
+					loginOnlyReqEnc, encErr := encryption.EncryptMessage(serverKey, c.key, loginOnlyReq)
+					if encErr != nil {
+						return backoff.Permanent(encErr)
+					}
+					resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
+						WgPubKey: c.key.PublicKey().String(),
+						Body:     loginOnlyReqEnc,
+					})
+					if err != nil {
+						return backoff.Permanent(err)
+					}
+					return nil
+				}
 			}
 			return backoff.Permanent(err)
 		}
@@ -392,7 +420,6 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		return nil
 	}
 
-	isRegistration := isRegistrationRequest(req)
 	var backoffStrategy backoff.BackOff
 	if isRegistration {
 		backoffStrategy = newRegistrationBackoff(c.ctx)
