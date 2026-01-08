@@ -32,13 +32,13 @@ func (h *Holder) AddAccount(account *Account) {
 	h.accounts[account.Id] = account
 }
 
-func (h *Holder) LoadOrStoreFunc(id string, accGetter func(context.Context, string) (*Account, error)) (*Account, error) {
+func (h *Holder) LoadOrStoreFunc(ctx context.Context, id string, accGetter func(context.Context, string) (*Account, error)) (*Account, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if acc, ok := h.accounts[id]; ok {
 		return acc, nil
 	}
-	account, err := accGetter(context.Background(), id)
+	account, err := accGetter(ctx, id)
 	if err != nil {
 		return nil, err
 	}
