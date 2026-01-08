@@ -31,6 +31,8 @@ func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPC
 	if ipv4PC, ok := pc.(*ipv4.PacketConn); ok {
 		return rc.iceBind.createIPv4ReceiverFn(ipv4PC, conn, rxOffload, msgPool)
 	}
+	// IPv6 is currently not supported in the udpmux, this is a stub for compatibility with the
+	// wireguard-go ReceiverCreator interface which is called for both IPv4 and IPv6.
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
 		buf := bufs[0]
 		size, ep, err := conn.ReadFromUDPAddrPort(buf)
