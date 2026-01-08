@@ -90,6 +90,9 @@ func (s *SqlStore) GetAccountSlow(ctx context.Context, accountID string) (*types
 	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		account.Groups[group.ID] = group.Copy()
+		if len(group.GroupUsers) == 0 {
+			account.Groups[group.ID] = nil
+		}
 	}
 	account.GroupsG = nil
 
@@ -176,7 +179,8 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 			pat.UserID = ""
 			user.PATs[pat.ID] = &pat
 		}
-		if user.AutoGroups == nil {
+		user.LoadAutoGroups()
+		if len(user.AutoGroups) == 0 {
 			user.AutoGroups = []string{}
 			user.Groups = []*types.GroupUser{}
 		}
@@ -192,6 +196,9 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 		}
 		if group.Resources == nil {
 			group.Resources = []types.Resource{}
+		}
+		if group.GroupUsers == nil {
+			group.GroupUsers = []types.GroupUser{}
 		}
 		account.Groups[group.ID] = group
 	}
@@ -261,7 +268,7 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 
 	models := []interface{}{
 		&types.Account{}, &types.SetupKey{}, &nbpeer.Peer{}, &types.User{},
-		&types.PersonalAccessToken{}, &types.Group{}, &types.GroupPeer{},
+		&types.PersonalAccessToken{}, &types.Group{}, &types.GroupPeer{}, &types.GroupUser{},
 		&types.Policy{}, &types.PolicyRule{}, &route.Route{},
 		&nbdns.NameServerGroup{}, &posture.Checks{}, &networkTypes.Network{},
 		&routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
@@ -611,10 +618,12 @@ func testAccountEquivalence(t *testing.T, expected, actual *types.Account) {
 	assert.Len(t, actual.Groups, len(expected.Groups), "Groups maps should have the same number of elements")
 	for key, oldVal := range expected.Groups {
 		newVal, ok := actual.Groups[key]
+		if oldVal != nil && newVal != nil {
+			sort.Strings(oldVal.Peers)
+			sort.Strings(newVal.Peers)
+			assert.Equal(t, *oldVal, *newVal, "Group with ID '%s' should be equal", key)
+		}
 		assert.True(t, ok, "Group with ID '%s' should exist in new account", key)
-		sort.Strings(oldVal.Peers)
-		sort.Strings(newVal.Peers)
-		assert.Equal(t, *oldVal, *newVal, "Group with ID '%s' should be equal", key)
 	}
 
 	assert.Len(t, actual.Routes, len(expected.Routes), "Routes maps should have the same number of elements")
