@@ -248,7 +248,6 @@ func generateAccountSQLTypes(account *types.Account) {
 			user.PATsG = append(user.PATsG, *pat)
 		}
 		account.UsersG = append(account.UsersG, user)
-		account.Users = nil
 	}
 
 	for id, group := range account.Groups {
