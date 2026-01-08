@@ -71,6 +71,11 @@ func Login(ctx context.Context, config *profilemanager.Config, setupKey string, 
 
 	serverKey, _, err := doMgmLogin(ctx, mgmClient, pubSSHKey, config)
 	if serverKey != nil && isRegistrationNeeded(err) {
+		// Only attempt registration if we have credentials (setup key or JWT token)
+		if setupKey == "" && jwtToken == "" {
+			log.Debugf("peer registration required but no credentials provided")
+			return err
+		}
 		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey, config)
 		if err != nil {
