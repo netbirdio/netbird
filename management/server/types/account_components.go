@@ -4,9 +4,9 @@ import (
 	"context"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -48,49 +48,54 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{
-		PeerLoginExpirationEnabled:     a.Settings.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:            a.Settings.PeerLoginExpiration,
+		PeerLoginExpirationEnabled:      a.Settings.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:             a.Settings.PeerLoginExpiration,
 		PeerInactivityExpirationEnabled: a.Settings.PeerInactivityExpirationEnabled,
-		PeerInactivityExpiration:       a.Settings.PeerInactivityExpiration,
+		PeerInactivityExpiration:        a.Settings.PeerInactivityExpiration,
 	}
 
 	components.DNSSettings = &a.DNSSettings
 
-	relevantPeerIDsMap, relevantGroupIDs := a.findRelevantPeersAndGroups(ctx, peerID, validatedPeersMap)
+	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes := a.getPeersGroupsPoliciesRoutes(ctx, peerID, validatedPeersMap)
 
 	_, _, networkResourcesSourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	for sourcePeerID := range networkResourcesSourcePeers {
-		relevantPeerIDsMap[sourcePeerID] = struct{}{}
+		relevantPeers[sourcePeerID] = a.GetPeer(sourcePeerID)
 	}
 
-	for pid := range relevantPeerIDsMap {
-		if p := a.Peers[pid]; p != nil {
-			components.Peers[pid] = p
-		}
-	}
+	// for pid := range relevantPeerIDsMap {
+	// 	if p := a.Peers[pid]; p != nil {
+	// 		components.Peers[pid] = p
+	// 	}
+	// }
 
-	for gid := range relevantGroupIDs {
-		if g := a.Groups[gid]; g != nil {
-			components.Groups[gid] = g
-		}
-	}
+	// for gid := range relevantGroupIDs {
+	// 	if g := a.Groups[gid]; g != nil {
+	// 		components.Groups[gid] = g
+	// 	}
+	// }
 
-	for _, policy := range a.Policies {
-		if a.isPolicyRelevantForPeer(ctx, policy, peerID, relevantGroupIDs) {
-			components.Policies = append(components.Policies, policy)
-		}
-	}
+	components.Peers = relevantPeers
+	components.Groups = relevantGroups
+	components.Policies = relevantPolicies
+	components.Routes = relevantRoutes
 
-	for _, r := range a.Routes {
-		if a.isRouteRelevantForPeer(ctx, r, peerID, relevantGroupIDs) {
-			components.Routes = append(components.Routes, r)
-		}
-	}
+	// for _, policy := range a.Policies {
+	// 	if a.isPolicyRelevantForPeer(ctx, policy, peerID, relevantGroupIDs) {
+	// 		components.Policies = append(components.Policies, policy)
+	// 	}
+	// }
+
+	// for _, r := range a.Routes {
+	// 	if a.isRouteRelevantForPeer(ctx, r, peerID, relevantGroupIDs) {
+	// 		components.Routes = append(components.Routes, r)
+	// 	}
+	// }
 
 	for _, nsGroup := range a.NameServerGroups {
 		if nsGroup.Enabled {
 			for _, gID := range nsGroup.Groups {
-				if _, found := relevantGroupIDs[gID]; found {
+				if _, found := relevantGroups[gID]; found {
 					components.NameServerGroups = append(components.NameServerGroups, nsGroup.Copy())
 					break
 				}
@@ -221,20 +226,22 @@ func (a *Account) GetPeerNetworkMapComponents(
 	return components
 }
 
-func (a *Account) findRelevantPeersAndGroups(
+func (a *Account) getPeersGroupsPoliciesRoutes(
 	ctx context.Context,
 	peerID string,
 	validatedPeersMap map[string]struct{},
-) (map[string]struct{}, map[string]struct{}) {
-	relevantPeerIDs := make(map[string]struct{}, len(a.Peers)/4)
-	relevantGroupIDs := make(map[string]struct{}, len(a.Groups)/4)
+) (map[string]*nbpeer.Peer, map[string]*Group, []*Policy, []*route.Route) {
+	relevantPeerIDs := make(map[string]*nbpeer.Peer, len(a.Peers)/4)
+	relevantGroupIDs := make(map[string]*Group, len(a.Groups)/4)
+	relevantPolicies := make([]*Policy, 0, len(a.Policies))
+	relevantRoutes := make([]*route.Route, 0, len(a.Routes))
 
-	relevantPeerIDs[peerID] = struct{}{}
+	relevantPeerIDs[peerID] = a.GetPeer(peerID)
 
 	for groupID, group := range a.Groups {
 		for _, pid := range group.Peers {
 			if pid == peerID {
-				relevantGroupIDs[groupID] = struct{}{}
+				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 				break
 			}
 		}
@@ -245,6 +252,7 @@ func (a *Account) findRelevantPeersAndGroups(
 			continue
 		}
 
+		policyRelevant := false
 		for _, rule := range policy.Rules {
 			if !rule.Enabled {
 				continue
@@ -272,22 +280,27 @@ func (a *Account) findRelevantPeersAndGroups(
 			}
 
 			if peerInSources {
+				policyRelevant = true
 				for _, pid := range destinationPeers {
-					relevantPeerIDs[pid] = struct{}{}
+					relevantPeerIDs[pid] = a.GetPeer(pid)
 				}
 				for _, dstGroupID := range rule.Destinations {
-					relevantGroupIDs[dstGroupID] = struct{}{}
+					relevantGroupIDs[dstGroupID] = a.GetGroup(dstGroupID)
 				}
 			}
 
 			if peerInDestinations {
+				policyRelevant = true
 				for _, pid := range sourcePeers {
-					relevantPeerIDs[pid] = struct{}{}
+					relevantPeerIDs[pid] = a.GetPeer(pid)
 				}
 				for _, srcGroupID := range rule.Sources {
-					relevantGroupIDs[srcGroupID] = struct{}{}
+					relevantGroupIDs[srcGroupID] = a.GetGroup(srcGroupID)
 				}
 			}
+		}
+		if policyRelevant {
+			relevantPolicies = append(relevantPolicies, policy)
 		}
 	}
 
@@ -318,25 +331,27 @@ func (a *Account) findRelevantPeersAndGroups(
 
 		if isRelevant {
 			for _, groupID := range r.Groups {
-				relevantGroupIDs[groupID] = struct{}{}
+				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 			}
 			for _, groupID := range r.PeerGroups {
-				relevantGroupIDs[groupID] = struct{}{}
+				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 			}
 			for _, groupID := range r.AccessControlGroups {
-				relevantGroupIDs[groupID] = struct{}{}
+				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 			}
 
 			if r.Peer != "" {
-				relevantPeerIDs[r.Peer] = struct{}{}
+				relevantPeerIDs[r.Peer] = a.GetPeer(r.Peer)
 			}
 			if r.PeerID != "" {
-				relevantPeerIDs[r.PeerID] = struct{}{}
+				relevantPeerIDs[r.PeerID] = a.GetPeer(r.PeerID)
 			}
+
+			relevantRoutes = append(relevantRoutes, r)
 		}
 	}
 
-	return relevantPeerIDs, relevantGroupIDs
+	return relevantPeerIDs, relevantGroupIDs, relevantPolicies, relevantRoutes
 }
 
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]string, bool) {
@@ -425,4 +440,3 @@ func (a *Account) isRouteRelevantForPeer(ctx context.Context, r *route.Route, pe
 
 	return false
 }
-
