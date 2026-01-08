@@ -69,7 +69,7 @@ func (s *Server) Listen(ctx context.Context) error {
 	s.wg.Add(1)
 	go s.readLoop(ctx)
 
-	<-ctx.Done()
+	s.wg.Wait()
 	return nil
 }
 
@@ -79,12 +79,6 @@ func (s *Server) readLoop(ctx context.Context) {
 
 	buf := make([]byte, 1500) // Standard MTU size
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
 		n, remoteAddr, err := s.conn.ReadFromUDP(buf)
 		if err != nil {
 			// Check if we're shutting down
