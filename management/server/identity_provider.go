@@ -69,6 +69,23 @@ func validateOIDCIssuer(ctx context.Context, issuer string) error {
 	return nil
 }
 
+// validateIdentityProviderConfig validates the identity provider configuration including
+// basic validation and OIDC issuer verification.
+func validateIdentityProviderConfig(ctx context.Context, idpConfig *types.IdentityProvider) error {
+	if err := idpConfig.Validate(); err != nil {
+		return status.Errorf(status.InvalidArgument, "%s", err.Error())
+	}
+
+	// Validate the issuer by calling the OIDC discovery endpoint
+	if idpConfig.Issuer != "" {
+		if err := validateOIDCIssuer(ctx, idpConfig.Issuer); err != nil {
+			return status.Errorf(status.InvalidArgument, "%s", err.Error())
+		}
+	}
+
+	return nil
+}
+
 // GetIdentityProviders returns all identity providers for an account
 func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error) {
 	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
@@ -134,15 +151,8 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
-	}
-
-	// Validate the issuer by calling the OIDC discovery endpoint
-	if idpConfig.Issuer != "" {
-		if err := validateOIDCIssuer(ctx, idpConfig.Issuer); err != nil {
-			return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
-		}
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
@@ -178,15 +188,8 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
-	}
-
-	// Validate the issuer by calling the OIDC discovery endpoint
-	if idpConfig.Issuer != "" {
-		if err := validateOIDCIssuer(ctx, idpConfig.Issuer); err != nil {
-			return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
-		}
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
