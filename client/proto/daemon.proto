@@ -95,6 +95,8 @@ service DaemonService {
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 
   rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
+
+  rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
 }
 
 
@@ -215,6 +217,7 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
+  optional bool autoUpdate = 3;
 }
 
 message UpResponse {}
@@ -369,6 +372,7 @@ message SSHSessionInfo {
   string remoteAddress = 2;
   string command = 3;
   string jwtUsername = 4;
+  repeated string portForwards = 5;
 }
 
 // SSHServerState contains the latest state of the SSH server
@@ -771,4 +775,12 @@ message WaitJWTTokenResponse {
   string tokenType = 2;
   // expiration time in seconds
   int64 expiresIn = 3;
+}
+
+message InstallerResultRequest {
+}
+
+message InstallerResultResponse {
+  bool success = 1;
+  string errorMsg = 2;
 }

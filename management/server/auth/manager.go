@@ -49,8 +49,7 @@ func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim s
 	)
 
 	return &manager{
-		store: store,
-
+		store:     store,
 		validator: jwtValidator,
 		extractor: claimsExtractor,
 	}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -102,7 +104,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 
 	for _, peerID := range peerIDs {
 		var eventsToStore []func()
-		err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 			if err != nil {
 				return err
@@ -114,10 +116,6 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 
 			if err := transaction.RemovePeerFromAllGroups(ctx, peerID); err != nil {
 				return fmt.Errorf("failed to remove peer %s from groups", peerID)
-			}
-
-			if err := m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
-				return err
 			}
 
 			peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peerID)
@@ -153,10 +151,19 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		if err != nil {
 			return err
 		}
+
+		if m.integratedPeerValidator != nil {
+			if err = m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
+				log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+			}
+		}
+
 		for _, event := range eventsToStore {
 			event()
 		}
 	}
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -45,8 +46,10 @@ const (
 
 	// nativeSSHPortString defines the default port number as a string used for native SSH connections; this port is used by clients when hijacking ssh connections.
 	nativeSSHPortString = "22022"
+	nativeSSHPortNumber = 22022
 	// defaultSSHPortString defines the standard SSH port number as a string, commonly used for default SSH connections.
 	defaultSSHPortString = "22"
+	defaultSSHPortNumber = 22
 )
 
 type supportedFeatures struct {
@@ -275,6 +278,7 @@ func (a *Account) GetPeerNetworkMap(
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
+	groupIDToUserIDs map[string][]string,
 ) *NetworkMap {
 	start := time.Now()
 	peer := a.Peers[peerID]
@@ -290,7 +294,7 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
-	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
+	aclPeers, firewallRules, authorizedUsers, enableSSH := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap, groupIDToUserIDs)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -338,6 +342,8 @@ func (a *Account) GetPeerNetworkMap(
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+		AuthorizedUsers:     authorizedUsers,
+		EnableSSH:           enableSSH,
 	}
 
 	if metrics != nil {
@@ -1122,8 +1128,10 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map
 // GetPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, groupIDToUserIDs map[string][]string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx, peer)
+	authorizedUsers := make(map[string]map[string]struct{}) // machine user to list of userIDs
+	sshEnabled := false
 
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -1166,10 +1174,58 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 			if peerInDestinations {
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
+
+			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+				sshEnabled = true
+				switch {
+				case len(rule.AuthorizedGroups) > 0:
+					for groupID, localUsers := range rule.AuthorizedGroups {
+						userIDs, ok := groupIDToUserIDs[groupID]
+						if !ok {
+							log.WithContext(ctx).Tracef("no user IDs found for group ID %s", groupID)
+							continue
+						}
+
+						if len(localUsers) == 0 {
+							localUsers = []string{auth.Wildcard}
+						}
+
+						for _, localUser := range localUsers {
+							if authorizedUsers[localUser] == nil {
+								authorizedUsers[localUser] = make(map[string]struct{})
+							}
+							for _, userID := range userIDs {
+								authorizedUsers[localUser][userID] = struct{}{}
+							}
+						}
+					}
+				case rule.AuthorizedUser != "":
+					if authorizedUsers[auth.Wildcard] == nil {
+						authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+					}
+					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
+				default:
+					authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
+				}
+			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && peer.SSHEnabled {
+				sshEnabled = true
+				authorizedUsers[auth.Wildcard] = a.getAllowedUserIDs()
+			}
 		}
 	}
 
-	return getAccumulatedResources()
+	peers, fwRules := getAccumulatedResources()
+	return peers, fwRules, authorizedUsers, sshEnabled
+}
+
+func (a *Account) getAllowedUserIDs() map[string]struct{} {
+	users := make(map[string]struct{})
+	for _, nbUser := range a.Users {
+		if !nbUser.IsBlocked() && !nbUser.IsServiceUser {
+			users[nbUser.Id] = struct{}{}
+		}
+	}
+	return users
 }
 
 // connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
@@ -1194,12 +1250,17 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					peersExists[peer.ID] = struct{}{}
 				}
 
+				protocol := rule.Protocol
+				if protocol == PolicyRuleProtocolNetbirdSSH {
+					protocol = PolicyRuleProtocolTCP
+				}
+
 				fr := FirewallRule{
 					PolicyID:  rule.ID,
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
-					Protocol:  string(rule.Protocol),
+					Protocol:  string(protocol),
 				}
 
 				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
@@ -1219,6 +1280,28 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
 		}
+}
+
+func policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
+	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
+}
+
+func portRangeIncludesSSH(portRanges []RulePortRange) bool {
+	for _, pr := range portRanges {
+		if (pr.Start <= defaultSSHPortNumber && pr.End >= defaultSSHPortNumber) || (pr.Start <= nativeSSHPortNumber && pr.End >= nativeSSHPortNumber) {
+			return true
+		}
+	}
+	return false
+}
+
+func portsIncludesSSH(ports []string) bool {
+	for _, port := range ports {
+		if port == defaultSSHPortString || port == nativeSSHPortString {
+			return true
+		}
+	}
+	return false
 }
 
 // getAllPeersFromGroups for given peer ID and list of groups
@@ -1265,7 +1348,11 @@ func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpe
 		return []*nbpeer.Peer{}, false
 	}
 
-	return []*nbpeer.Peer{peer}, resource.ID == peerID
+	if peer.ID == peerID {
+		return []*nbpeer.Peer{}, true
+	}
+
+	return []*nbpeer.Peer{peer}, false
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer
@@ -1773,6 +1860,26 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 	return nil
 }
 
+func (a *Account) GetActiveGroupUsers() map[string][]string {
+	allGroupID := ""
+	group, err := a.GetGroupAll()
+	if err != nil {
+		log.Errorf("failed to get group all: %v", err)
+	} else {
+		allGroupID = group.ID
+	}
+	groups := make(map[string][]string, len(a.GroupsG))
+	for _, user := range a.Users {
+		if !user.IsBlocked() && !user.IsServiceUser {
+			for _, groupID := range user.AutoGroups {
+				groups[groupID] = append(groups[groupID], user.Id)
+			}
+			groups[allGroupID] = append(groups[allGroupID], user.Id)
+		}
+	}
+	return groups
+}
+
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
 func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
 	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
@@ -1804,7 +1911,7 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 		expanded = append(expanded, &fr)
 	}
 
-	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) {
+	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) || rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 		expanded = addNativeSSHRule(base, expanded)
 	}
 

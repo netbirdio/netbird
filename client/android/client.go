@@ -59,7 +59,6 @@ func init() {
 
 // Client struct manage the life circle of background service
 type Client struct {
-	cfgFile               string
 	tunAdapter            device.TunAdapter
 	iFaceDiscover         IFaceDiscover
 	recorder              *peer.Status
@@ -68,18 +67,16 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
-	stateFile             string
 
 	connectClient *internal.ConnectClient
 }
 
 // NewClient instantiate a new Client
-func NewClient(platformFiles PlatformFiles, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
-		cfgFile:               platformFiles.ConfigurationFilePath(),
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
@@ -87,15 +84,20 @@ func NewClient(platformFiles PlatformFiles, androidSDKVersion int, deviceName st
 		recorder:              peer.NewRecorder(""),
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
-		stateFile:             platformFiles.StateFilePath(),
 	}
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
+
+	cfgFile := platformFiles.ConfigurationFilePath()
+	stateFile := platformFiles.StateFilePath()
+
+	log.Infof("Starting client with config: %s, state: %s", cfgFile, stateFile)
+
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath: c.cfgFile,
+		ConfigPath: cfgFile,
 	})
 	if err != nil {
 		return err
@@ -122,16 +124,22 @@ func (c *Client) Run(urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsRea
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
 // In this case make no sense handle registration steps.
-func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
+
+	cfgFile := platformFiles.ConfigurationFilePath()
+	stateFile := platformFiles.StateFilePath()
+
+	log.Infof("Starting client without login with config: %s, state: %s", cfgFile, stateFile)
+
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath: c.cfgFile,
+		ConfigPath: cfgFile,
 	})
 	if err != nil {
 		return err
@@ -149,8 +157,8 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile)
 }
 
 // Stop the internal client and free the resources

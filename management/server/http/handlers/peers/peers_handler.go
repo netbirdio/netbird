@@ -299,7 +299,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
 	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
@@ -368,6 +368,9 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 				Protocol:      protocol,
 				PortRanges:    []types.RulePortRange{portRange},
 			}},
+		}
+		if protocol == types.PolicyRuleProtocolNetbirdSSH {
+			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
@@ -449,6 +452,18 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
+		LocalFlags: &api.PeerLocalFlags{
+			BlockInbound:          &peer.Meta.Flags.BlockInbound,
+			BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
+			DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
+			DisableDns:            &peer.Meta.Flags.DisableDNS,
+			DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
+			DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
+			LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
+			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
+			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
+			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+		},
 	}
 
 	if !approved {
@@ -463,7 +478,6 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
-
 	return &api.PeerBatch{
 		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
@@ -492,6 +506,18 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
+		LocalFlags: &api.PeerLocalFlags{
+			BlockInbound:          &peer.Meta.Flags.BlockInbound,
+			BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
+			DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
+			DisableDns:            &peer.Meta.Flags.DisableDNS,
+			DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
+			DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
+			LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
+			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
+			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
+			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+		},
 	}
 }
 

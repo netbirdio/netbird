@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
@@ -57,12 +58,14 @@ const (
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
-	db                *gorm.DB
-	globalAccountLock sync.Mutex
-	metrics           telemetry.AppMetrics
-	installationPK    int
-	storeEngine       types.Engine
-	pool              *pgxpool.Pool
+	db                 *gorm.DB
+	globalAccountLock  sync.Mutex
+	metrics            telemetry.AppMetrics
+	installationPK     int
+	storeEngine        types.Engine
+	pool               *pgxpool.Pool
+	fieldEncrypt       *crypt.FieldEncrypt
+	transactionTimeout time.Duration
 }
 
 type installation struct {
@@ -84,6 +87,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
+	transactionTimeout := 5 * time.Minute
+	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			transactionTimeout = parsed
+		}
+	}
+	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
+
 	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -101,7 +112,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
@@ -120,7 +131,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -164,6 +175,13 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
 
 	generateAccountSQLTypes(account)
+
+	// Encrypt sensitive user data before saving
+	for i := range account.UsersG {
+		if err := account.UsersG[i].EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+	}
 
 	for _, group := range account.GroupsG {
 		group.StoreGroupPeers()
@@ -430,7 +448,18 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 		return nil
 	}
 
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&users)
+	usersCopy := make([]*types.User, len(users))
+	for i, user := range users {
+		userCopy := user.Copy()
+		userCopy.Email = user.Email
+		userCopy.Name = user.Name
+		if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+		usersCopy[i] = userCopy
+	}
+
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&usersCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -440,7 +469,15 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
-	result := s.db.Save(user)
+	userCopy := user.Copy()
+	userCopy.Email = user.Email
+	userCopy.Name = user.Name
+
+	if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt user: %w", err)
+	}
+
+	result := s.db.Save(userCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user to store")
@@ -590,6 +627,10 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 		return nil, status.NewGetUserFromStoreError()
 	}
 
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
+	}
+
 	return &user, nil
 }
 
@@ -606,6 +647,10 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 			return nil, status.NewUserNotFoundError(userID)
 		}
 		return nil, status.NewGetUserFromStoreError()
+	}
+
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
 	return &user, nil
@@ -644,6 +689,12 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "issue getting users from store")
 	}
 
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
 	return users, nil
 }
 
@@ -660,6 +711,10 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 			return nil, status.Errorf(status.NotFound, "account owner not found: index lookup failed")
 		}
 		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
+	}
+
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
 	return &user, nil
@@ -855,6 +910,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
+		}
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 		account.Users[user.Id] = &user
 		user.PATsG = nil
@@ -1131,6 +1189,9 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for i := range account.UsersG {
 		user := &account.UsersG[i]
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
 		user.PATs = make(map[string]*types.PersonalAccessToken)
 		if userPats, ok := patsByUserID[user.Id]; ok {
 			for j := range userPats {
@@ -1535,7 +1596,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 }
 
 func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User, error) {
-	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type FROM users WHERE account_id = $1`
+	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1545,7 +1606,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 		var autoGroups []byte
 		var lastLogin, createdAt sql.NullTime
 		var isServiceUser, nonDeletable, blocked, pendingApproval sql.NullBool
-		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
+		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType, &u.Email, &u.Name)
 		if err == nil {
 			if lastLogin.Valid {
 				u.LastLogin = &lastLogin.Time
@@ -1910,16 +1971,17 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 	if len(policyIDs) == 0 {
 		return nil, nil
 	}
-	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges FROM policy_rules WHERE policy_id = ANY($1)`
+	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, query, policyIDs)
 	if err != nil {
 		return nil, err
 	}
 	rules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.PolicyRule, error) {
 		var r types.PolicyRule
-		var dest, destRes, sources, sourceRes, ports, portRanges []byte
+		var dest, destRes, sources, sourceRes, ports, portRanges, authorizedGroups []byte
 		var enabled, bidirectional sql.NullBool
-		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges)
+		var authorizedUser sql.NullString
+		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -1944,6 +2006,12 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 			}
 			if portRanges != nil {
 				_ = json.Unmarshal(portRanges, &r.PortRanges)
+			}
+			if authorizedGroups != nil {
+				_ = json.Unmarshal(authorizedGroups, &r.AuthorizedGroups)
+			}
+			if authorizedUser.Valid {
+				r.AuthorizedUser = authorizedUser.String
 			}
 		}
 		return &r, err
@@ -2890,8 +2958,11 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
+	defer cancel()
+
 	startTime := time.Now()
-	tx := s.db.Begin()
+	tx := s.db.WithContext(timeoutCtx).Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
@@ -2926,6 +2997,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
 		return err
 	}
 
@@ -2938,19 +3012,26 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}
 
 	err = tx.Commit().Error
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
+		return err
+	}
 
 	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
 
-	return err
+	return nil
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	return &SqlStore{
-		db:          tx,
-		storeEngine: s.storeEngine,
+		db:           tx,
+		storeEngine:  s.storeEngine,
+		fieldEncrypt: s.fieldEncrypt,
 	}
 }
 
@@ -2981,6 +3062,11 @@ func (s *SqlStore) transaction(fn func(*gorm.DB) error) error {
 
 func (s *SqlStore) GetDB() *gorm.DB {
 	return s.db
+}
+
+// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+func (s *SqlStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
+	s.fieldEncrypt = enc
 }
 
 func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error) {
@@ -4074,4 +4160,22 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var userID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("user_id").
+		Take(&userID, GetKeyQueryCondition(s), peerKey)
+
+	if result.Error != nil {
+		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
+	}
+
+	return userID, nil
 }
