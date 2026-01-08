@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -385,33 +384,17 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 					return backoff.Permanent(err)
 				}
 				if s.Code() == codes.DeadlineExceeded {
-					log.Debugf("login timeout, retrying...")
-					return err
-				}
-				// During registration retries, if we get "peer already registered" it means
-				// a previous request succeeded after timeout. Treat this as success by doing
-				// a regular login to fetch the peer config.
-				if isRegistration && s.Code() == codes.FailedPrecondition &&
-					strings.Contains(s.Message(), "peer has been already registered") {
-					log.Debugf("peer already registered during retry, switching to login")
-					// Convert to a login request (no setup key or JWT token)
-					loginOnlyReq := &proto.LoginRequest{
-						Meta:      req.Meta,
-						PeerKeys:  req.PeerKeys,
-						DnsLabels: req.DnsLabels,
-					}
-					loginOnlyReqEnc, encErr := encryption.EncryptMessage(serverKey, c.key, loginOnlyReq)
-					if encErr != nil {
-						return backoff.Permanent(encErr)
-					}
-					resp, err = c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
-						WgPubKey: c.key.PublicKey().String(),
-						Body:     loginOnlyReqEnc,
-					})
-					if err != nil {
+					// For registration, deadline exceeded should not retry as it may cause
+					// duplicate device creation. The client timeout is short (10s) but server
+					// processing (DB writes, group calculations, IdP validation) can take longer.
+					// Retrying would send parallel requests that each create a new device.
+					if isRegistration {
+						log.Debugf("registration timeout - not retrying to avoid duplicates")
 						return backoff.Permanent(err)
 					}
-					return nil
+					// For regular login, we can safely retry since it's idempotent
+					log.Debugf("login timeout, retrying...")
+					return err
 				}
 			}
 			return backoff.Permanent(err)
