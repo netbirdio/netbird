@@ -1341,8 +1341,6 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			account, err = manager.Store.GetAccount(context.Background(), account.Id)
-
 			updated, err := manager.SaveUser(context.Background(), account.Id, tc.initiatorID, tc.update)
 			if tc.expectedErr {
 				require.Errorf(t, err, "expecting SaveUser to throw an error")
