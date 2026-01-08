@@ -370,6 +370,7 @@ func (a *Account) GetPeerNetworkMapCompacted(
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
+	groupIDToUserIDs map[string][]string,
 ) *NetworkMap {
 	start := time.Now()
 	peer := a.Peers[peerID]
@@ -385,7 +386,7 @@ func (a *Account) GetPeerNetworkMapCompacted(
 		}
 	}
 
-	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
+	aclPeers, firewallRules, authorizedUsers, enableSSH := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap, groupIDToUserIDs)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -457,6 +458,8 @@ func (a *Account) GetPeerNetworkMapCompacted(
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
 		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+		AuthorizedUsers:     authorizedUsers,
+		EnableSSH:           enableSSH,
 	}
 
 	if metrics != nil {

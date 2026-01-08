@@ -41,6 +41,7 @@ func TestNetworkMapComponents_CompareWithLegacy(t *testing.T) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	legacyNetworkMap := account.GetPeerNetworkMap(
 		ctx,
@@ -50,6 +51,7 @@ func TestNetworkMapComponents_CompareWithLegacy(t *testing.T) {
 		resourcePolicies,
 		routers,
 		nil,
+		groupIDToUserIDs,
 	)
 
 	components := account.GetPeerNetworkMapComponents(
@@ -91,6 +93,7 @@ func TestNetworkMapComponents_GoldenFileComparison(t *testing.T) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	legacyNetworkMap := account.GetPeerNetworkMap(
 		ctx,
@@ -100,6 +103,7 @@ func TestNetworkMapComponents_GoldenFileComparison(t *testing.T) {
 		resourcePolicies,
 		routers,
 		nil,
+		groupIDToUserIDs,
 	)
 
 	components := account.GetPeerNetworkMapComponents(
@@ -441,6 +445,7 @@ func BenchmarkLegacyNetworkMap(b *testing.B) {
 	peersCustomZone := nbdns.CustomZone{}
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -452,6 +457,7 @@ func BenchmarkLegacyNetworkMap(b *testing.B) {
 			resourcePolicies,
 			routers,
 			nil,
+			groupIDToUserIDs,
 		)
 	}
 }
@@ -565,8 +571,9 @@ func TestGetPeerNetworkMap_ProdAccount_CompareImplementations(t *testing.T) {
 
 	resourcePolicies := testAccount.GetResourcePoliciesMap()
 	routers := testAccount.GetResourceRoutersMap()
+	groupIDToUserIDs := testAccount.GetActiveGroupUsers()
 
-	legacyNetworkMap := testAccount.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	legacyNetworkMap := testAccount.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil, groupIDToUserIDs)
 	require.NotNil(t, legacyNetworkMap, "GetPeerNetworkMap returned nil")
 
 	components := testAccount.GetPeerNetworkMapComponents(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers)
@@ -721,13 +728,13 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 	b.Run("Legacy", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = account.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+			_ = account.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		}
 	})
 	b.Run("LegacyCompacted", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = account.GetPeerNetworkMapCompacted(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+			_ = account.GetPeerNetworkMapCompacted(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		}
 	})
 
