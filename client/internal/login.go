@@ -2,7 +2,9 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -168,6 +170,11 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 	)
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, config.DNSLabels)
 	if err != nil {
+		// Check if this is a timeout that might succeed on the server side
+		if s, ok := status.FromError(err); ok && s.Code() == codes.DeadlineExceeded {
+			log.Infof("registration request timed out, waiting for server to complete processing...")
+			return retryLoginAfterRegistrationTimeout(ctx, client, serverPublicKey, pubSSHKey, config)
+		}
 		log.Errorf("failed registering peer %v", err)
 		return nil, err
 	}
@@ -175,6 +182,89 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 	log.Infof("peer has been successfully registered on Management Service")
 
 	return loginResp, nil
+}
+
+// retryLoginAfterRegistrationTimeout handles the case where a registration request times out
+// but may have succeeded on the server side. It waits for the server to complete processing
+// and then retries with login requests to avoid showing errors to the user.
+func retryLoginAfterRegistrationTimeout(
+	ctx context.Context,
+	client *mgm.GrpcClient,
+	serverPublicKey wgtypes.Key,
+	pubSSHKey []byte,
+	config *profilemanager.Config,
+) (*mgmProto.LoginResponse, error) {
+	// Wait periods between login attempts: 60s, 40s, 40s (total ~180s with attempts)
+	waitPeriods := []time.Duration{60 * time.Second, 40 * time.Second, 40 * time.Second}
+
+	for i, waitDuration := range waitPeriods {
+		attemptNum := i + 1
+
+		// Check if context is cancelled before sleeping
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		// Sleep to allow server to complete registration
+		log.Infof("waiting %v before login attempt %d/3...", waitDuration, attemptNum)
+		select {
+		case <-time.After(waitDuration):
+			// Continue to login attempt
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		// Attempt login
+		log.Debugf("attempting login %d/3 after registration timeout", attemptNum)
+		sysInfo := system.GetInfo(ctx)
+		sysInfo.SetFlags(
+			config.RosenpassEnabled,
+			config.RosenpassPermissive,
+			config.ServerSSHAllowed,
+			config.DisableClientRoutes,
+			config.DisableServerRoutes,
+			config.DisableDNS,
+			config.DisableFirewall,
+			config.BlockLANAccess,
+			config.BlockInbound,
+			config.LazyConnectionEnabled,
+			config.EnableSSHRoot,
+			config.EnableSSHSFTP,
+			config.EnableSSHLocalPortForwarding,
+			config.EnableSSHRemotePortForwarding,
+			config.DisableSSHAuth,
+		)
+
+		loginResp, err := client.Login(serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
+		if err == nil {
+			log.Infof("registration completed successfully on server (recovered from timeout)")
+			return loginResp, nil
+		}
+
+		// Check error type
+		if s, ok := status.FromError(err); ok {
+			switch s.Code() {
+			case codes.PermissionDenied, codes.NotFound:
+				// Peer not ready yet, continue to next retry
+				log.Debugf("peer not ready yet (attempt %d/3): %v", attemptNum, s.Code())
+				continue
+			default:
+				// Unexpected error, return it
+				log.Errorf("login attempt %d/3 failed with unexpected error: %v", attemptNum, err)
+				return nil, fmt.Errorf("registration timed out and login recovery failed: %w", err)
+			}
+		}
+
+		// Last attempt - return descriptive error
+		if attemptNum == 3 {
+			return nil, status.Errorf(codes.DeadlineExceeded,
+				"peer registration is taking longer than expected, please try 'netbird up' again in a few minutes")
+		}
+	}
+
+	// Should never reach here, but just in case
+	return nil, status.Errorf(codes.DeadlineExceeded,
+		"peer registration is taking longer than expected, please try 'netbird up' again in a few minutes")
 }
 
 func isLoginNeeded(err error) bool {
