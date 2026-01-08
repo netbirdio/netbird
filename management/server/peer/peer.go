@@ -19,7 +19,7 @@ type Peer struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
-	Key string `gorm:"uniqueIndex:idx_peers_key_unique,length:64"`
+	Key string
 	// IP address of the Peer
 	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
 	// Meta is a Peer system meta data
