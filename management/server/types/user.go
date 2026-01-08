@@ -85,9 +85,11 @@ type User struct {
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string                        `gorm:"serializer:json"`
-	PATs       map[string]*PersonalAccessToken `gorm:"-"`
-	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
+	AutoGroups []string `gorm:"-"`
+	// GroupUsers replaces old AutoGroups
+	Groups []*GroupUser                    `gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
+	PATs   map[string]*PersonalAccessToken `gorm:"-"`
+	PATsG  []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// PendingApproval indicates whether the user requires approval before being activated
@@ -104,6 +106,24 @@ type User struct {
 
 	Name  string `gorm:"default:''"`
 	Email string `gorm:"default:''"`
+}
+
+func (u *User) LoadAutoGroups() {
+	u.AutoGroups = make([]string, 0, len(u.Groups))
+	for _, group := range u.Groups {
+		u.AutoGroups = append(u.AutoGroups, group.GroupID)
+	}
+}
+
+func (u *User) StoreAutoGroups() {
+	u.Groups = make([]*GroupUser, 0, len(u.Groups))
+	for _, groupID := range u.AutoGroups {
+		u.Groups = append(u.Groups, &GroupUser{
+			AccountID: u.AccountID,
+			GroupID:   groupID,
+			UserID:    u.Id,
+		})
+	}
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -198,8 +218,11 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 // Copy the user
 func (u *User) Copy() *User {
+	groupUsers := make([]*GroupUser, len(u.Groups))
+	copy(groupUsers, u.Groups)
 	autoGroups := make([]string, len(u.AutoGroups))
 	copy(autoGroups, u.AutoGroups)
+
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
 		pats[k] = v.Copy()
@@ -221,6 +244,7 @@ func (u *User) Copy() *User {
 		IntegrationReference: u.IntegrationReference,
 		Email:                u.Email,
 		Name:                 u.Name,
+		Groups:               groupUsers,
 	}
 }
 
