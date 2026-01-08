@@ -745,6 +745,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
+	updatedUser.StoreAutoGroups()
 	// these two fields can't be set via API, only via direct call to the method
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
@@ -768,11 +769,6 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers, removedGroupsIDs, addedGroupsIDs, err := am.processUserGroupsUpdate(ctx, transaction, oldUser, updatedUser, userPeers, settings)
-	if err != nil {
-		return false, nil, nil, nil, err
-	}
-
-	updatedUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthNone, updatedUser.Id)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}

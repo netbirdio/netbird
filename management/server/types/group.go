@@ -28,7 +28,6 @@ type Group struct {
 	// Peers list of the group
 	Peers      []string    `gorm:"-"` // Peers and GroupPeers list will be ignored when writing to the DB. Use AddPeerToGroup and RemovePeerFromGroup methods to modify group membership
 	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
-	Users      []string    `gorm:"-"`
 	GroupUsers []GroupUser `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
@@ -69,26 +68,6 @@ func (g *Group) StoreGroupPeers() {
 	g.Peers = []string{}
 }
 
-func (g *Group) LoadGroupUsers() {
-	g.Users = make([]string, len(g.GroupUsers))
-	for i, user := range g.GroupUsers {
-		g.Users[i] = user.UserID
-	}
-	g.GroupUsers = []GroupUser{}
-}
-
-func (g *Group) StoreGroupUsers() {
-	g.GroupUsers = make([]GroupUser, len(g.Users))
-	for i, user := range g.Users {
-		g.GroupUsers[i] = GroupUser{
-			AccountID: g.AccountID,
-			GroupID:   g.ID,
-			UserID:    user,
-		}
-	}
-	g.Users = []string{}
-}
-
 // EventMeta returns activity event meta related to the group
 func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
@@ -99,21 +78,41 @@ func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]an
 }
 
 func (g *Group) Copy() *Group {
+	var peers []string
+	if g.Peers != nil {
+		peers = make([]string, len(g.Peers))
+		copy(peers, g.Peers)
+	}
+
+	var groupPeers []GroupPeer
+	if g.GroupPeers != nil {
+		groupPeers = make([]GroupPeer, len(g.GroupPeers))
+		copy(groupPeers, g.GroupPeers)
+	}
+
+	var groupUsers []GroupUser
+	if g.GroupUsers != nil {
+		groupUsers = make([]GroupUser, len(g.GroupUsers))
+		copy(groupUsers, g.GroupUsers)
+	}
+
+	var resources []Resource
+	if g.Resources != nil {
+		resources = make([]Resource, len(g.Resources))
+		copy(resources, g.Resources)
+	}
+
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
-		Peers:                make([]string, len(g.Peers)),
-		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
-		GroupUsers:           make([]GroupUser, len(g.GroupUsers)),
-		Resources:            make([]Resource, len(g.Resources)),
+		Peers:                peers,
+		GroupPeers:           groupPeers,
+		GroupUsers:           groupUsers,
+		Resources:            resources,
 		IntegrationReference: g.IntegrationReference,
 	}
-	copy(group.Peers, g.Peers)
-	copy(group.GroupPeers, g.GroupPeers)
-	copy(group.GroupUsers, g.GroupUsers)
-	copy(group.Resources, g.Resources)
 	return group
 }
 

@@ -1723,6 +1723,13 @@ func TestAccount_Copy(t *testing.T) {
 				Id:         "user1",
 				Role:       types.UserRoleAdmin,
 				AutoGroups: []string{"group1"},
+				Groups: []*types.GroupUser{
+					{
+						AccountID: "account1",
+						UserID:    "user1",
+						GroupID:   "group1",
+					},
+				},
 				PATs: map[string]*types.PersonalAccessToken{
 					"pat1": {
 						ID:             "pat1",

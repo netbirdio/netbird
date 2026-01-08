@@ -178,7 +178,7 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
 		}
-		account.Users[user.Id] = &user
+		account.Users[user.Id] = user
 		user.PATsG = nil
 	}
 	account.UsersG = nil
@@ -900,7 +900,7 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for i := range account.UsersG {
-		user := &account.UsersG[i]
+		user := account.UsersG[i]
 		user.PATs = make(map[string]*types.PersonalAccessToken)
 		if userPats, ok := patsByUserID[user.Id]; ok {
 			for j := range userPats {

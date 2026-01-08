@@ -113,6 +113,7 @@ func (u *User) LoadAutoGroups() {
 	for _, group := range u.Groups {
 		u.AutoGroups = append(u.AutoGroups, group.GroupID)
 	}
+	u.Groups = []*GroupUser{}
 }
 
 func (u *User) StoreAutoGroups() {
@@ -124,6 +125,7 @@ func (u *User) StoreAutoGroups() {
 			UserID:    u.Id,
 		})
 	}
+	u.AutoGroups = []string{}
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
@@ -218,10 +220,16 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 // Copy the user
 func (u *User) Copy() *User {
-	groupUsers := make([]*GroupUser, len(u.Groups))
-	copy(groupUsers, u.Groups)
-	autoGroups := make([]string, len(u.AutoGroups))
-	copy(autoGroups, u.AutoGroups)
+	var groupUsers []*GroupUser
+	if u.Groups != nil {
+		groupUsers = make([]*GroupUser, len(u.Groups))
+		copy(groupUsers, u.Groups)
+	}
+	var autoGroups []string
+	if u.AutoGroups != nil {
+		autoGroups = make([]string, len(u.AutoGroups))
+		copy(autoGroups, u.AutoGroups)
+	}
 
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {

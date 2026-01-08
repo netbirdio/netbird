@@ -345,6 +345,9 @@ func TestUser_Copy(t *testing.T) {
 		IsServiceUser:   true,
 		ServiceUserName: "servicename",
 		AutoGroups:      []string{"group1", "group2"},
+		Groups: []*types.GroupUser{
+			{AccountID: "accountId", GroupID: "groupId", UserID: "userId"},
+		},
 		PATs: map[string]*types.PersonalAccessToken{
 			"pat1": {
 				ID:             "pat1",
@@ -1338,6 +1341,8 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			account, err = manager.Store.GetAccount(context.Background(), account.Id)
+
 			updated, err := manager.SaveUser(context.Background(), account.Id, tc.initiatorID, tc.update)
 			if tc.expectedErr {
 				require.Errorf(t, err, "expecting SaveUser to throw an error")
@@ -1653,6 +1658,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 			},
@@ -1672,6 +1678,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.Admin),
 			},
@@ -1691,6 +1698,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 				Restricted:  true,
@@ -1712,6 +1720,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 				Restricted:  false,

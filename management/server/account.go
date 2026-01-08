@@ -1404,7 +1404,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		addNewGroups = util.Difference(updatedAutoGroups, user.AutoGroups)
 		for _, group := range addNewGroups {
-			err = transaction.AddUserToGroup(ctx, userAuth.AccountId, group, user.Id)
+			err = transaction.AddUserToGroup(ctx, userAuth.AccountId, user.Id, group)
 			if err != nil {
 				return fmt.Errorf("error adding user to group: %w", err)
 			}
@@ -1416,6 +1416,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("error removing user from group: %w", err)
 			}
 		}
+		user.AutoGroups = updatedAutoGroups
 
 		if err = transaction.SaveUser(ctx, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
