@@ -90,11 +90,11 @@ func (s *Server) readLoop(ctx context.Context) {
 
 // handlePacket processes a STUN request and sends a response.
 func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
-	s.logger.Debugf("received %d bytes from %s", len(data), addr)
+	s.logger.Infof("received %d bytes from %s", len(data), addr)
 
 	// Check if it's a STUN message
 	if !stun.IsMessage(data) {
-		s.logger.Debugf("not a STUN message (first bytes: %x)", data[:min(len(data), 8)])
+		s.logger.Infof("not a STUN message (first bytes: %x)", data[:min(len(data), 8)])
 		return
 	}
 
@@ -109,7 +109,7 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 
 	// Only handle binding requests
 	if msg.Type != stun.BindingRequest {
-		s.logger.Debugf("ignoring non-binding request: %s", msg.Type)
+		s.logger.Infof("ignoring non-binding request: %s", msg.Type)
 		return
 	}
 
