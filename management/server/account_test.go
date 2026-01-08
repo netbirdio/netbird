@@ -1749,6 +1749,13 @@ func TestAccount_Copy(t *testing.T) {
 				Peers:      []string{"peer1"},
 				Resources:  []types.Resource{},
 				GroupPeers: []types.GroupPeer{},
+				GroupUsers: []types.GroupUser{
+					{
+						AccountID: "account1",
+						UserID:    "user1",
+						GroupID:   "group1",
+					},
+				},
 			},
 		},
 		Policies: []*types.Policy{

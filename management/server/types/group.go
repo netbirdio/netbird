@@ -78,41 +78,21 @@ func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]an
 }
 
 func (g *Group) Copy() *Group {
-	var peers []string
-	if g.Peers != nil {
-		peers = make([]string, len(g.Peers))
-		copy(peers, g.Peers)
-	}
-
-	var groupPeers []GroupPeer
-	if g.GroupPeers != nil {
-		groupPeers = make([]GroupPeer, len(g.GroupPeers))
-		copy(groupPeers, g.GroupPeers)
-	}
-
-	var groupUsers []GroupUser
-	if g.GroupUsers != nil {
-		groupUsers = make([]GroupUser, len(g.GroupUsers))
-		copy(groupUsers, g.GroupUsers)
-	}
-
-	var resources []Resource
-	if g.Resources != nil {
-		resources = make([]Resource, len(g.Resources))
-		copy(resources, g.Resources)
-	}
-
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
-		Peers:                peers,
-		GroupPeers:           groupPeers,
-		GroupUsers:           groupUsers,
-		Resources:            resources,
+		Peers:                make([]string, len(g.Peers)),
+		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
+		GroupUsers:           make([]GroupUser, len(g.GroupUsers)),
+		Resources:            make([]Resource, len(g.Resources)),
 		IntegrationReference: g.IntegrationReference,
 	}
+	copy(group.Peers, g.Peers)
+	copy(group.GroupPeers, g.GroupPeers)
+	copy(group.GroupUsers, g.GroupUsers)
+	copy(group.Resources, g.Resources)
 	return group
 }
 
