@@ -234,10 +234,9 @@ func TestInboundPortDNATNegative(t *testing.T) {
 			require.False(t, translated, "Packet should NOT be translated for %s", tc.name)
 
 			d = parsePacket(t, packet)
-			switch tc.protocol {
-			case layers.IPProtocolTCP:
+			if tc.protocol == layers.IPProtocolTCP {
 				require.Equal(t, tc.dstPort, uint16(d.tcp.DstPort), "Port should remain unchanged")
-			case layers.IPProtocolUDP:
+			} else if tc.protocol == layers.IPProtocolUDP {
 				require.Equal(t, tc.dstPort, uint16(d.udp.DstPort), "Port should remain unchanged")
 			}
 		})

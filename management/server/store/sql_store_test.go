@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
+	route2 "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -109,12 +110,12 @@ func runLargeTest(t *testing.T, store Store) {
 			AccountID: account.Id,
 		}
 		account.Users[user.Id] = user
-		route := &nbroute.Route{
-			ID:          nbroute.ID(fmt.Sprintf("network-id-%d", n)),
+		route := &route2.Route{
+			ID:          route2.ID(fmt.Sprintf("network-id-%d", n)),
 			Description: "base route",
-			NetID:       nbroute.NetID(fmt.Sprintf("network-id-%d", n)),
+			NetID:       route2.NetID(fmt.Sprintf("network-id-%d", n)),
 			Network:     netip.MustParsePrefix(netIP.String() + "/24"),
-			NetworkType: nbroute.IPv4Network,
+			NetworkType: route2.IPv4Network,
 			Metric:      9999,
 			Masquerade:  false,
 			Enabled:     true,
@@ -688,7 +689,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	type route struct {
-		nbroute.Route
+		route2.Route
 		Network    netip.Prefix `gorm:"serializer:gob"`
 		PeerGroups []string     `gorm:"serializer:gob"`
 	}
@@ -697,7 +698,7 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
-		Route:      nbroute.Route{ID: "route1"},
+		Route:      route2.Route{ID: "route1"},
 	}
 
 	err = store.(*SqlStore).db.Save(rt).Error
@@ -713,7 +714,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to delete Gob data")
 
 	prefix = netip.MustParsePrefix("12.0.0.0/24")
-	nRT := &nbroute.Route{
+	nRT := &route2.Route{
 		Network: prefix,
 		ID:      "route2",
 		Peer:    "peer-id",
@@ -3551,13 +3552,13 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	route := &nbroute.Route{
+	route := &route2.Route{
 		ID:                  "route-id",
 		AccountID:           accountID,
 		Network:             netip.MustParsePrefix("10.10.0.0/16"),
 		NetID:               "netID",
 		PeerGroups:          []string{"routeA"},
-		NetworkType:         nbroute.IPv4Network,
+		NetworkType:         route2.IPv4Network,
 		Masquerade:          true,
 		Metric:              9999,
 		Enabled:             true,

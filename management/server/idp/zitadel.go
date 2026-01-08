@@ -357,7 +357,7 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 		return nil, err
 	}
 
-	pending := true
+	var pending bool = true
 	ret := &UserData{
 		Email: email,
 		Name:  name,

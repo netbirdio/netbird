@@ -602,13 +602,12 @@ func TestJWTAuthentication(t *testing.T) {
 			require.NoError(t, err)
 
 			var authMethods []cryptossh.AuthMethod
-			switch tc.token {
-			case "valid":
+			if tc.token == "valid" {
 				token := generateValidJWT(t, privateKey, issuer, audience)
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(token),
 				}
-			case "invalid":
+			} else if tc.token == "invalid" {
 				invalidToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid"
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(invalidToken),

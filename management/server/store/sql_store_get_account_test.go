@@ -997,10 +997,9 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		// Find posture checks by ID
 		var pc1, pc2 *posture.Checks
 		for _, pc := range retrievedAccount.PostureChecks {
-			switch pc.ID {
-			case postureCheckID1:
+			if pc.ID == postureCheckID1 {
 				pc1 = pc
-			case postureCheckID2:
+			} else if pc.ID == postureCheckID2 {
 				pc2 = pc
 			}
 		}

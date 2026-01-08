@@ -507,13 +507,15 @@ func formatPayloadWithCmp(p *expr.Payload, cmp *expr.Cmp) string {
 	if p.Base == expr.PayloadBaseNetworkHeader {
 		switch p.Offset {
 		case 12:
-			switch p.Len {
-			case 4, 2:
+			if p.Len == 4 {
+				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
+			} else if p.Len == 2 {
 				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			}
 		case 16:
-			switch p.Len {
-			case 4, 2:
+			if p.Len == 4 {
+				return fmt.Sprintf("ip daddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
+			} else if p.Len == 2 {
 				return fmt.Sprintf("ip daddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			}
 		}
