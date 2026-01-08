@@ -14,6 +14,7 @@ import (
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
@@ -27,7 +28,20 @@ type receiverCreator struct {
 }
 
 func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
-	return rc.iceBind.createIPv4ReceiverFn(pc, conn, rxOffload, msgPool)
+	if ipv4PC, ok := pc.(*ipv4.PacketConn); ok {
+		return rc.iceBind.createIPv4ReceiverFn(ipv4PC, conn, rxOffload, msgPool)
+	}
+	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
+		buf := bufs[0]
+		size, ep, err := conn.ReadFromUDPAddrPort(buf)
+		if err != nil {
+			return 0, err
+		}
+		sizes[0] = size
+		stdEp := &wgConn.StdNetEndpoint{AddrPort: ep}
+		eps[0] = stdEp
+		return 1, nil
+	}
 }
 
 // ICEBind is a bind implementation with two main features:
@@ -159,7 +173,7 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	return nil
 }
 
-func (s *ICEBind) createIPv4ReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
+func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
