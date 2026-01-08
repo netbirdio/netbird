@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -35,14 +36,16 @@ type Forwarder struct {
 	logger     *nblog.Logger
 	flowLogger nftypes.FlowLogger
 	// ruleIdMap is used to store the rule ID for a given connection
-	ruleIdMap    sync.Map
-	stack        *stack.Stack
-	endpoint     *endpoint
-	udpForwarder *udpForwarder
-	ctx          context.Context
-	cancel       context.CancelFunc
-	ip           tcpip.Address
-	netstack     bool
+	ruleIdMap        sync.Map
+	stack            *stack.Stack
+	endpoint         *endpoint
+	udpForwarder     *udpForwarder
+	ctx              context.Context
+	cancel           context.CancelFunc
+	ip               tcpip.Address
+	netstack         bool
+	hasRawICMPAccess bool
+	pingSemaphore    chan struct{}
 }
 
 func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
@@ -60,8 +63,8 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	endpoint := &endpoint{
 		logger: logger,
 		device: iface.GetWGDevice(),
-		mtu:    uint32(mtu),
 	}
+	endpoint.mtu.Store(uint32(mtu))
 
 	if err := s.CreateNIC(nicID, endpoint); err != nil {
 		return nil, fmt.Errorf("create NIC: %v", err)
@@ -103,15 +106,16 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &Forwarder{
-		logger:       logger,
-		flowLogger:   flowLogger,
-		stack:        s,
-		endpoint:     endpoint,
-		udpForwarder: newUDPForwarder(mtu, logger, flowLogger),
-		ctx:          ctx,
-		cancel:       cancel,
-		netstack:     netstack,
-		ip:           tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
+		logger:        logger,
+		flowLogger:    flowLogger,
+		stack:         s,
+		endpoint:      endpoint,
+		udpForwarder:  newUDPForwarder(mtu, logger, flowLogger),
+		ctx:           ctx,
+		cancel:        cancel,
+		netstack:      netstack,
+		ip:            tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
+		pingSemaphore: make(chan struct{}, 3),
 	}
 
 	receiveWindow := defaultReceiveWindow
@@ -128,6 +132,8 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, f.handleICMP)
+
+	f.checkICMPCapability()
 
 	log.Debugf("forwarder: Initialization complete with NIC %d", nicID)
 	return f, nil
@@ -197,4 +203,25 @@ func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) conntrack.ConnKe
 		SrcPort: srcPort,
 		DstPort: dstPort,
 	}
+}
+
+// checkICMPCapability tests whether we have raw ICMP socket access at startup.
+func (f *Forwarder) checkICMPCapability() {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	lc := net.ListenConfig{}
+	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
+	if err != nil {
+		f.hasRawICMPAccess = false
+		f.logger.Debug("forwarder: No raw ICMP socket access, will use ping binary fallback")
+		return
+	}
+
+	if err := conn.Close(); err != nil {
+		f.logger.Debug1("forwarder: Failed to close ICMP capability test socket: %v", err)
+	}
+
+	f.hasRawICMPAccess = true
+	f.logger.Debug("forwarder: Raw ICMP socket access available")
 }
