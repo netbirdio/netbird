@@ -213,29 +213,12 @@ func TestValidateOIDCIssuer(t *testing.T) {
 		expectedErrMsg string
 	}{
 		{
-			name: "valid issuer - exact match",
-			setupServer: func() *httptest.Server {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.URL.Path != "/.well-known/openid-configuration" {
-						http.NotFound(w, r)
-						return
-					}
-					resp := oidcProviderJSON{Issuer: ""}
-					// We'll set the correct issuer in the response dynamically
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(resp)
-				}))
-				return server
-			},
-			expectedErr: nil,
-		},
-		{
 			name: "issuer mismatch",
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					resp := oidcProviderJSON{Issuer: "https://different-issuer.com"}
 					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(resp)
+					_ = json.NewEncoder(w).Encode(resp)
 				}))
 			},
 			expectedErr:    types.ErrIdentityProviderIssuerMismatch,
@@ -246,7 +229,7 @@ func TestValidateOIDCIssuer(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte("not found"))
+					_, _ = w.Write([]byte("not found"))
 				}))
 			},
 			expectedErr:    types.ErrIdentityProviderIssuerUnreachable,
@@ -257,7 +240,7 @@ func TestValidateOIDCIssuer(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte("invalid json"))
+					_, _ = w.Write([]byte("invalid json"))
 				}))
 			},
 			expectedErr:    types.ErrIdentityProviderIssuerUnreachable,
@@ -270,35 +253,12 @@ func TestValidateOIDCIssuer(t *testing.T) {
 			server := tt.setupServer()
 			defer server.Close()
 
-			issuer := server.URL
+			err := validateOIDCIssuer(context.Background(), server.URL)
 
-			// For the "valid issuer" test, we need to return the correct issuer
-			if tt.name == "valid issuer - exact match" {
-				server.Close()
-				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					resp := oidcProviderJSON{Issuer: server.URL}
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(resp)
-				}))
-				// This is a quirk - need to close and recreate with correct URL
-				// Let's use a different approach
-			}
-
-			err := validateOIDCIssuer(context.Background(), issuer)
-
-			if tt.expectedErr != nil {
-				require.Error(t, err)
-				assert.True(t, errors.Is(err, tt.expectedErr), "expected error %v, got %v", tt.expectedErr, err)
-				if tt.expectedErrMsg != "" {
-					assert.Contains(t, err.Error(), tt.expectedErrMsg)
-				}
-			} else {
-				// For the success case, we need special handling
-				if tt.name == "valid issuer - exact match" {
-					// Skip this test case - we'll handle it separately
-					t.Skip("handled separately")
-				}
-				require.NoError(t, err)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, tt.expectedErr), "expected error %v, got %v", tt.expectedErr, err)
+			if tt.expectedErrMsg != "" {
+				assert.Contains(t, err.Error(), tt.expectedErrMsg)
 			}
 		})
 	}
@@ -314,7 +274,7 @@ func TestValidateOIDCIssuer_Success(t *testing.T) {
 		}
 		resp := oidcProviderJSON{Issuer: server.URL}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -340,7 +300,7 @@ func TestValidateOIDCIssuer_TrailingSlash(t *testing.T) {
 		// Return issuer without trailing slash
 		resp := oidcProviderJSON{Issuer: server.URL}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
