@@ -190,6 +190,9 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
 	userDeleteFromIDPEnabled = true
 
+	// Set LocalAddress for embedded IdP if enabled, used for internal JWT validation
+	cfg.EmbeddedIdP.LocalAddress = fmt.Sprintf("localhost:%d", mgmtPort)
+
 	// Ensure HttpConfig exists
 	if cfg.HttpConfig == nil {
 		cfg.HttpConfig = &nbconfig.HttpServerConfig{}

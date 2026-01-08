@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/dexidp/dex/storage"
 	"github.com/google/uuid"
@@ -27,8 +28,11 @@ const (
 type EmbeddedIdPConfig struct {
 	// Enabled indicates whether the embedded IDP is enabled
 	Enabled bool
-	// Issuer is the OIDC issuer URL (e.g., "http://localhost:3002/oauth2")
+	// Issuer is the OIDC issuer URL (e.g., "https://management.netbird.io/oauth2")
 	Issuer string
+	// LocalAddress is the management server's local listen address (e.g., ":8080" or "localhost:8080")
+	// Used for internal JWT validation to avoid external network calls
+	LocalAddress string
 	// Storage configuration for the IdP database
 	Storage EmbeddedStorageConfig
 	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
@@ -506,8 +510,19 @@ func (m *EmbeddedIdPManager) GetKeysLocation() string {
 }
 
 // GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal token validation.
+// Uses the LocalAddress from config (management server's listen address) since embedded Dex
+// is served by the management HTTP server, not a standalone Dex server.
 func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
-	return m.provider.GetLocalKeysLocation()
+	addr := m.config.LocalAddress
+	if addr == "" {
+		return ""
+	}
+	// Construct localhost URL from listen address
+	// addr is in format ":port" or "host:port" or "localhost:port"
+	if strings.HasPrefix(addr, ":") {
+		return fmt.Sprintf("http://localhost%s/oauth2/keys", addr)
+	}
+	return fmt.Sprintf("http://%s/oauth2/keys", addr)
 }
 
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.

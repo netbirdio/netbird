@@ -906,30 +906,6 @@ func (p *Provider) GetKeysLocation() string {
 	return issuer + "/keys"
 }
 
-// GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal token validation.
-// This is useful when the management server has an embedded Dex and can call localhost directly.
-func (p *Provider) GetLocalKeysLocation() string {
-	var addr string
-	if p.yamlConfig != nil {
-		addr = p.yamlConfig.Web.HTTP
-		if addr == "" {
-			addr = p.yamlConfig.Web.HTTPS
-		}
-	} else if p.config != nil && p.config.Port > 0 {
-		addr = fmt.Sprintf(":%d", p.config.Port)
-	}
-	if addr == "" {
-		return ""
-	}
-
-	// Construct localhost URL from listen address
-	// addr is in format ":port" or "host:port"
-	if strings.HasPrefix(addr, ":") {
-		return fmt.Sprintf("http://localhost%s/oauth2/keys", addr)
-	}
-	return fmt.Sprintf("http://%s/oauth2/keys", addr)
-}
-
 // GetTokenEndpoint returns the OAuth2 token endpoint URL.
 func (p *Provider) GetTokenEndpoint() string {
 	issuer := p.GetIssuer()
