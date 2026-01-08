@@ -146,7 +146,12 @@ var _ OAuthConfigProvider = (*EmbeddedIdPManager)(nil)
 // OAuthConfigProvider defines the interface for OAuth configuration needed by auth flows.
 type OAuthConfigProvider interface {
 	GetIssuer() string
+	// GetKeysLocation returns the public JWKS endpoint URL (uses external issuer URL)
 	GetKeysLocation() string
+	// GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal use.
+	// Management server has embedded Dex and can validate tokens via localhost,
+	// avoiding external network calls and DNS resolution issues during startup.
+	GetLocalKeysLocation() string
 	GetClientIDs() []string
 	GetUserIDClaim() string
 	GetTokenEndpoint() string
@@ -498,6 +503,11 @@ func (m *EmbeddedIdPManager) GetCLIRedirectURLs() []string {
 // GetKeysLocation returns the JWKS endpoint URL for token validation.
 func (m *EmbeddedIdPManager) GetKeysLocation() string {
 	return m.provider.GetKeysLocation()
+}
+
+// GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal token validation.
+func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
+	return m.provider.GetLocalKeysLocation()
 }
 
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.
