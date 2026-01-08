@@ -3055,7 +3055,7 @@ func TestSqlStore_SaveUser(t *testing.T) {
 		AccountID:     accountID,
 		Role:          types.UserRoleAdmin,
 		IsServiceUser: false,
-		AutoGroups:    []string{"groupA", "groupB"},
+		AutoGroups:    []string{"cfefqs706sqkneg59g2g", "cfefqs706sqkneg59g3g"},
 		Blocked:       false,
 		LastLogin:     util.ToPtr(time.Now().UTC()),
 		CreatedAt:     time.Now().UTC().Add(-time.Hour),
@@ -3093,13 +3093,13 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 			Id:         "user-1",
 			AccountID:  accountID,
 			Issued:     "api",
-			AutoGroups: []string{"groupA", "groupB"},
+			AutoGroups: []string{"cfefqs706sqkneg59g2g", "cfefqs706sqkneg59g3g"},
 		},
 		{
 			Id:         "user-2",
 			AccountID:  accountID,
 			Issued:     "integration",
-			AutoGroups: []string{"groupA"},
+			AutoGroups: []string{"cfefqs706sqkneg59g2g"},
 		},
 	}
 	err = store.SaveUsers(context.Background(), users)
@@ -3109,7 +3109,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, accountUsers, 4)
 
-	users[1].AutoGroups = []string{"groupA", "groupC"}
+	users[1].AutoGroups = []string{"cfefqs706sqkneg59g2g", "cfefqs706sqkneg59g4g"}
 	err = store.SaveUsers(context.Background(), users)
 	require.NoError(t, err)
 
@@ -3147,7 +3147,7 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 			Role:       types.UserRoleUser,
 			Email:      "",
 			Name:       "",
-			AutoGroups: []string{"groupA"},
+			AutoGroups: []string{"cfefqs706sqkneg59g2g"},
 		}
 		err = store.SaveUser(context.Background(), user)
 		require.NoError(t, err)
@@ -3176,7 +3176,7 @@ func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
 			Role:       types.UserRoleAdmin,
 			Email:      "test@example.com",
 			Name:       "Test User",
-			AutoGroups: []string{"groupB"},
+			AutoGroups: []string{"cfefqs706sqkneg59g3g"},
 		}
 		err = store.SaveUser(context.Background(), user)
 		require.NoError(t, err)

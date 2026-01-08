@@ -500,11 +500,24 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 		return fmt.Errorf("encrypt user: %w", err)
 	}
 
-	result := s.db.Save(userCopy)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
-		return status.Errorf(status.Internal, "failed to save user to store")
+	err := s.ExecuteInTransaction(ctx, func(tx Store) error {
+		result := s.db.Omit("Groups").Save(userCopy)
+		if result.Error != nil {
+			return status.Errorf(status.Internal, "failed to save user to store: %v", result.Error)
+		}
+
+		result = s.db.Save(userCopy.Groups)
+		if result.Error != nil {
+			return status.Errorf(status.Internal, "failed to save user groups to store: %v", result.Error)
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to save user to store: %s", err)
+		return err
 	}
+
 	return nil
 }
 
