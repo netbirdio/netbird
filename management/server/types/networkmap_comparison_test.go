@@ -677,6 +677,7 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+	agUsers := account.GetActiveGroupUsers()
 	components := account.GetPeerNetworkMapComponents(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers)
 	componentsJSON, err := json.Marshal(components)
 	require.NoError(b, err)
@@ -705,36 +706,16 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 	b.Logf("Bandwidth savings (Components):     %d bytes saved (%d%%)", regularSize-componentsSize, componentsSavingsPercent)
 	b.Logf("=================================================")
 
-	b.Run("Regular", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
-		}
-	})
-
-	b.Run("CompactOnDemand", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
-		}
-	})
-
-	b.Run("CompactCached", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
-		}
-	})
 	b.Run("Legacy", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = account.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+			_ = account.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers, nil, agUsers)
 		}
 	})
 	b.Run("LegacyCompacted", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = account.GetPeerNetworkMapCompacted(ctx, testingPeerID, customZone, validatedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+			_ = account.GetPeerNetworkMapCompacted(ctx, testingPeerID, customZone, validatedPeersMap, resourcePolicies, routers, nil, agUsers)
 		}
 	})
 
@@ -771,6 +752,27 @@ func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = CalculateNetworkMapFromComponents(ctx, components)
+		}
+	})
+
+	b.Run("CachedAsIs", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+
+	b.Run("CachedAsIsAndCompacted", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+
+	b.Run("CachedCompacted", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
 		}
 	})
 }
