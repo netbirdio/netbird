@@ -394,6 +394,10 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
 	account, err = am.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return am, account, nil
 
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
