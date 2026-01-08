@@ -85,7 +85,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 
 **Infrastructure requirements:**
 - A Linux VM with at least **1CPU** and **2GB** of memory.
-- The VM should be publicly accessible on TCP ports **80** and **443** and UDP ports: **3478**, **49152-65535**.
+- The VM should be publicly accessible on TCP ports **80** and **443** and UDP port: **3478**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
@@ -98,7 +98,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 **Steps**
 - Download and run the installation script:
 ```bash
-export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
+export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
