@@ -415,9 +415,6 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	)
 	if c.experimentalNetworkMap(accountID) {
 		account = c.getAccountFromHolderOrInit(ctx, accountID)
-		if account == nil {
-			return nil, nil, nil, 0, fmt.Errorf("failed to get account from holder")
-		}
 	} else {
 		account, err = c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
