@@ -169,8 +169,7 @@ init_environment() {
 
 render_caddyfile() {
   cat <<EOF
-{
-  debug
+{  
   servers :80,:443 {
     protocols h1 h2c h2 h3
   }
