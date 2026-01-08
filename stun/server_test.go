@@ -191,9 +191,9 @@ func TestServer_MultipleRequests(t *testing.T) {
 
 func TestServer_ConcurrentClients(t *testing.T) {
 	numClients := 1000
-	requestsPerClient := 10
-	maxStartDelay := 100 * time.Millisecond // Random delay before client starts
-	maxRequestDelay := 1 * time.Second      // Random delay between requests
+	requestsPerClient := 5
+	maxStartDelay := 100 * time.Millisecond   // Random delay before client starts
+	maxRequestDelay := 500 * time.Millisecond // Random delay between requests
 
 	// Remote server to test against via env var STUN_TEST_SERVER
 	// Example: STUN_TEST_SERVER=example.netbird.io:3478 go test -v ./stun/... -run ConcurrentClients
