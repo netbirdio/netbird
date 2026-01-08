@@ -38,9 +38,12 @@ func NewServer(address string, logLevel string) *Server {
 	}
 	logger.SetLevel(level)
 
+	entry := logger.WithField("component", "stun-server")
+	entry.Infof("STUN server log level set to: %s", level.String())
+
 	return &Server{
 		address: address,
-		logger:  logger.WithField("component", "stun-server"),
+		logger:  entry,
 	}
 }
 
