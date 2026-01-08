@@ -82,6 +82,7 @@ func (s *SqlStore) GetAccountSlow(ctx context.Context, accountID string) (*types
 		for _, pat := range user.PATsG {
 			user.PATs[pat.ID] = pat.Copy()
 		}
+		user.LoadAutoGroups()
 		account.Users[user.Id] = user.Copy()
 	}
 	account.UsersG = nil
@@ -177,6 +178,7 @@ func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*ty
 		}
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
+			user.Groups = []*types.GroupUser{}
 		}
 		account.Users[user.Id] = user
 		user.PATsG = nil

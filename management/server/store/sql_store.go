@@ -204,13 +204,30 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 			return result.Error
 		}
 
+		// Save account without UsersG.Groups to avoid FK constraint violations
+		// (groups must exist before group_users can reference them)
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
+			Omit("UsersG.Groups").
 			Clauses(clause.OnConflict{UpdateAll: true}).
 			Create(account)
 		if result.Error != nil {
 			return result.Error
 		}
+
+		// Now save the user-group associations after both users and groups exist
+		for _, user := range account.UsersG {
+			if len(user.Groups) > 0 {
+				result = tx.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "group_id"}, {Name: "user_id"}},
+					UpdateAll: true,
+				}).Create(&user.Groups)
+				if result.Error != nil {
+					return result.Error
+				}
+			}
+		}
+
 		return nil
 	})
 	if err != nil {

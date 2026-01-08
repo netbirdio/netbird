@@ -1365,6 +1365,7 @@ func TestSqlStore_CreateGroup(t *testing.T) {
 		Peers:      []string{},
 		Resources:  []types.Resource{},
 		GroupPeers: []types.GroupPeer{},
+		GroupUsers: []types.GroupUser{},
 	}
 	err = store.CreateGroup(context.Background(), group)
 	require.NoError(t, err)
@@ -1389,6 +1390,7 @@ func TestSqlStore_CreateUpdateGroups(t *testing.T) {
 			Peers:      []string{},
 			Resources:  []types.Resource{},
 			GroupPeers: []types.GroupPeer{},
+			GroupUsers: []types.GroupUser{},
 		},
 		{
 			ID:         "group-2",
@@ -1397,6 +1399,7 @@ func TestSqlStore_CreateUpdateGroups(t *testing.T) {
 			Peers:      []string{},
 			Resources:  []types.Resource{},
 			GroupPeers: []types.GroupPeer{},
+			GroupUsers: []types.GroupUser{},
 		},
 	}
 	err = store.CreateGroups(context.Background(), accountID, groups)
