@@ -13,7 +13,7 @@ import (
 
 func TestServer_BindingRequest(t *testing.T) {
 	// Start the STUN server on a random port
-	server := NewServer("127.0.0.1:0")
+	server := NewServer("127.0.0.1:0", "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -75,7 +75,7 @@ func TestServer_BindingRequest(t *testing.T) {
 }
 
 func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
-	server := NewServer("127.0.0.1:0")
+	server := NewServer("127.0.0.1:0", "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -109,7 +109,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	server := NewServer("127.0.0.1:0")
+	server := NewServer("127.0.0.1:0", "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -142,7 +142,7 @@ func TestServer_Shutdown(t *testing.T) {
 }
 
 func TestServer_MultipleRequests(t *testing.T) {
-	server := NewServer("127.0.0.1:0")
+	server := NewServer("127.0.0.1:0", "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

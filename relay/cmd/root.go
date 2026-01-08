@@ -45,8 +45,9 @@ type Config struct {
 	LogFile                  string
 	HealthcheckListenAddress string
 	// STUN server configuration
-	EnableSTUN bool
-	STUNPort   int
+	EnableSTUN   bool
+	STUNPort     int
+	STUNLogLevel string
 }
 
 func (c Config) Validate() error {
@@ -97,6 +98,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
 	rootCmd.PersistentFlags().IntVar(&cobraConfig.STUNPort, "stun-port", 3478, "port for the embedded STUN server")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -196,7 +198,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	// Start STUN server if enabled
 	var stunServer *stun.Server
 	if cobraConfig.EnableSTUN {
-		stunServer = stun.NewServer(fmt.Sprintf(":%d", cobraConfig.STUNPort))
+		stunServer = stun.NewServer(fmt.Sprintf(":%d", cobraConfig.STUNPort), cobraConfig.STUNLogLevel)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

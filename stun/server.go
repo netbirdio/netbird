@@ -25,10 +25,22 @@ type Server struct {
 
 // NewServer creates a new STUN server that will listen on the given address.
 // The address should be in the form "host:port" or ":port".
-func NewServer(address string) *Server {
+// logLevel can be: panic, fatal, error, warn, info, debug, trace (default: info)
+func NewServer(address string, logLevel string) *Server {
+	logger := log.New()
+	logger.SetFormatter(&log.TextFormatter{
+		FullTimestamp: true,
+	})
+
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		level = log.InfoLevel
+	}
+	logger.SetLevel(level)
+
 	return &Server{
 		address: address,
-		logger:  log.WithField("component", "stun-server"),
+		logger:  logger.WithField("component", "stun-server"),
 	}
 }
 
@@ -90,11 +102,11 @@ func (s *Server) readLoop(ctx context.Context) {
 
 // handlePacket processes a STUN request and sends a response.
 func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
-	s.logger.Infof("received %d bytes from %s", len(data), addr)
+	s.logger.Debugf("received %d bytes from %s", len(data), addr)
 
 	// Check if it's a STUN message
 	if !stun.IsMessage(data) {
-		s.logger.Infof("not a STUN message (first bytes: %x)", data[:min(len(data), 8)])
+		s.logger.Debugf("not a STUN message (first bytes: %x)", data[:min(len(data), 8)])
 		return
 	}
 
@@ -109,7 +121,7 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 
 	// Only handle binding requests
 	if msg.Type != stun.BindingRequest {
-		s.logger.Infof("ignoring non-binding request: %s", msg.Type)
+		s.logger.Debugf("ignoring non-binding request: %s", msg.Type)
 		return
 	}
 
