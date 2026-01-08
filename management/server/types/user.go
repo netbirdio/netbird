@@ -117,7 +117,7 @@ func (u *User) LoadAutoGroups() {
 }
 
 func (u *User) StoreAutoGroups() {
-	u.Groups = make([]*GroupUser, 0, len(u.Groups))
+	u.Groups = make([]*GroupUser, 0, len(u.AutoGroups))
 	for _, groupID := range u.AutoGroups {
 		u.Groups = append(u.Groups, &GroupUser{
 			AccountID: u.AccountID,
