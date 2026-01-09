@@ -68,7 +68,8 @@ func (s *BaseServer) AuthManager() auth.Manager {
 		if len(audiences) > 0 {
 			audience = audiences[0] // Use the first client ID as the primary audience
 		}
-		keysLocation = oauthProvider.GetKeysLocation()
+		// Use localhost keys location for internal validation (management has embedded Dex)
+		keysLocation = oauthProvider.GetLocalKeysLocation()
 		signingKeyRefreshEnabled = true
 		issuer = oauthProvider.GetIssuer()
 		userIDClaim = oauthProvider.GetUserIDClaim()
