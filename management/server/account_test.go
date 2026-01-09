@@ -918,6 +918,7 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
+	b.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	claims := auth.UserAuth{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
@@ -941,6 +942,18 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	}
 
 	pid, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	a, err := am.Store.GetAccount(context.Background(), id)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	a.Groups = genGroups()
+
+	err = am.Store.SaveAccount(context.Background(), a)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1003,6 +1016,41 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 		}
 	})
 
+}
+
+func genGroups() map[string]*types.Group {
+	return map[string]*types.Group{
+		"one": {
+			Name: "one",
+		},
+		"two": {
+			Name: "two",
+		},
+		"three": {
+			Name: "three",
+		},
+		"four": {
+			Name: "four",
+		},
+		"five": {
+			Name: "five",
+		},
+		"six": {
+			Name: "six",
+		},
+		"seven": {
+			Name: "seven",
+		},
+		"eight": {
+			Name: "eight",
+		},
+		"nine": {
+			Name: "nine",
+		},
+		"ten": {
+			Name: "ten",
+		},
+	}
 }
 
 func genUsers(p string, n int) map[string]*types.User {
