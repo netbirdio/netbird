@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	layerTypeAll = 0
+	layerTypeAll = 255
 
 	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
 	ipTCPHeaderMinSize = 40
@@ -262,10 +262,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 }
 
 func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
-	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
-	if err != nil {
-		return nil, fmt.Errorf("parse wireguard network: %w", err)
-	}
+	wgPrefix := iface.Address().Network
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
 	rule, err := m.addRouteFiltering(
@@ -439,19 +436,7 @@ func (m *Manager) AddPeerFiltering(
 	r.sPort = sPort
 	r.dPort = dPort
 
-	switch proto {
-	case firewall.ProtocolTCP:
-		r.protoLayer = layers.LayerTypeTCP
-	case firewall.ProtocolUDP:
-		r.protoLayer = layers.LayerTypeUDP
-	case firewall.ProtocolICMP:
-		r.protoLayer = layers.LayerTypeICMPv4
-		if r.ipLayer == layers.LayerTypeIPv6 {
-			r.protoLayer = layers.LayerTypeICMPv6
-		}
-	case firewall.ProtocolALL:
-		r.protoLayer = layerTypeAll
-	}
+	r.protoLayer = protoToLayer(proto, r.ipLayer)
 
 	m.mutex.Lock()
 	var targetMap map[netip.Addr]RuleSet
@@ -496,16 +481,17 @@ func (m *Manager) addRouteFiltering(
 	}
 
 	ruleID := uuid.New().String()
+
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:      ruleID,
-		mgmtId:  id,
-		sources: sources,
-		dstSet:  destination.Set,
-		proto:   proto,
-		srcPort: sPort,
-		dstPort: dPort,
-		action:  action,
+		id:         ruleID,
+		mgmtId:     id,
+		sources:    sources,
+		dstSet:     destination.Set,
+		protoLayer: protoToLayer(proto, layers.LayerTypeIPv4),
+		srcPort:    sPort,
+		dstPort:    dPort,
+		action:     action,
 	}
 	if destination.IsPrefix() {
 		rule.destinations = []netip.Prefix{destination.Prefix}
@@ -945,7 +931,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	ruleID, blocked := m.peerACLsBlock(srcIP, d, packetData)
 	if blocked {
-		_, pnum := getProtocolFromPacket(d)
+		pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
 		m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
@@ -1010,20 +996,22 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 		return false
 	}
 
-	proto, pnum := getProtocolFromPacket(d)
+	protoLayer := d.decoded[1]
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, protoLayer, srcPort, dstPort)
 	if !pass {
+		proto := getProtocolFromPacket(d)
+
 		m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, proto, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
 			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
-			Protocol:   pnum,
+			Protocol:   proto,
 			SourceIP:   srcIP,
 			DestIP:     dstIP,
 			SourcePort: srcPort,
@@ -1052,16 +1040,33 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	return true
 }
 
-func getProtocolFromPacket(d *decoder) (firewall.Protocol, nftypes.Protocol) {
+func protoToLayer(proto firewall.Protocol, ipLayer gopacket.LayerType) gopacket.LayerType {
+	switch proto {
+	case firewall.ProtocolTCP:
+		return layers.LayerTypeTCP
+	case firewall.ProtocolUDP:
+		return layers.LayerTypeUDP
+	case firewall.ProtocolICMP:
+		if ipLayer == layers.LayerTypeIPv6 {
+			return layers.LayerTypeICMPv6
+		}
+		return layers.LayerTypeICMPv4
+	case firewall.ProtocolALL:
+		return layerTypeAll
+	}
+	return 0
+}
+
+func getProtocolFromPacket(d *decoder) nftypes.Protocol {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
-		return firewall.ProtocolTCP, nftypes.TCP
+		return nftypes.TCP
 	case layers.LayerTypeUDP:
-		return firewall.ProtocolUDP, nftypes.UDP
+		return nftypes.UDP
 	case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-		return firewall.ProtocolICMP, nftypes.ICMP
+		return nftypes.ICMP
 	default:
-		return firewall.ProtocolALL, nftypes.ProtocolUnknown
+		return nftypes.ProtocolUnknown
 	}
 }
 
@@ -1233,19 +1238,30 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 }
 
 // routeACLsPass returns true if the packet is allowed by the route ACLs
-func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) ([]byte, bool) {
+func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	for _, rule := range m.routeRules {
-		if matches := m.ruleMatches(rule, srcIP, dstIP, proto, srcPort, dstPort); matches {
+		if matches := m.ruleMatches(rule, srcIP, dstIP, protoLayer, srcPort, dstPort); matches {
 			return rule.mgmtId, rule.action == firewall.ActionAccept
 		}
 	}
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) bool {
+	// TODO: handle ipv6 vs ipv4 icmp rules
+	if rule.protoLayer != layerTypeAll && rule.protoLayer != protoLayer {
+		return false
+	}
+
+	if protoLayer == layers.LayerTypeTCP || protoLayer == layers.LayerTypeUDP {
+		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
+			return false
+		}
+	}
+
 	destMatched := false
 	for _, dst := range rule.destinations {
 		if dst.Contains(dstAddr) {
@@ -1264,21 +1280,8 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 			break
 		}
 	}
-	if !sourceMatched {
-		return false
-	}
 
-	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-		return false
-	}
-
-	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
-			return false
-		}
-	}
-
-	return true
+	return sourceMatched
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched
