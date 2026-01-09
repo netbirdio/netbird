@@ -485,7 +485,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		}
 	}
 
-	localMuxUpdates, localRecords, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -498,8 +498,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 
-	// register local records
-	s.localResolver.Update(localRecords, localZones)
+	s.localResolver.Update(localZones)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
@@ -659,10 +658,9 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, []domain.Domain, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
 	var muxUpdates []handlerWrapper
-	var localRecords []nbdns.SimpleRecord
-	var zones []domain.Domain
+	var zones []nbdns.CustomZone
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -676,19 +674,20 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityLocal,
 		})
 
-		zones = append(zones, domain.Domain(customZone.Domain))
-
+		// zone records contain the fqdn, so we can just flatten them
+		var localRecords []nbdns.SimpleRecord
 		for _, record := range customZone.Records {
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-			// zone records contain the fqdn, so we can just flatten them
 			localRecords = append(localRecords, record)
 		}
+		customZone.Records = localRecords
+		zones = append(zones, customZone)
 	}
 
-	return muxUpdates, localRecords, zones, nil
+	return muxUpdates, zones, nil
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
