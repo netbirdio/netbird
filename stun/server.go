@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/formatter"
 	"github.com/pion/stun/v3"
 )
 
@@ -39,8 +40,9 @@ func NewServer(conn *net.UDPConn, logLevel string) *Server {
 	// This allows --stun-log-level to work independently of --log-level
 	stunLogger := log.New()
 	stunLogger.SetOutput(log.StandardLogger().Out)
-	stunLogger.SetFormatter(log.StandardLogger().Formatter)
 	stunLogger.SetLevel(level)
+	// Use the formatter package to set up formatter, ReportCaller, and context hook
+	formatter.SetTextFormatter(stunLogger)
 
 	logger := stunLogger.WithField("component", "stun-server")
 	logger.Infof("STUN server log level set to: %s", level.String())
