@@ -2,6 +2,7 @@ package stun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -15,9 +16,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// createTestServer creates a STUN server listening on a random port for testing
+func createTestServer(t testing.TB, logLevel string) (*Server, *net.UDPAddr) {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	require.NoError(t, err)
+	server := NewServer(conn, logLevel)
+	return server, conn.LocalAddr().(*net.UDPAddr)
+}
+
 func TestServer_BindingRequest(t *testing.T) {
 	// Start the STUN server on a random port
-	server := NewServer("127.0.0.1:0", "debug")
+	server, serverAddr := createTestServer(t, "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -30,9 +40,6 @@ func TestServer_BindingRequest(t *testing.T) {
 
 	// Wait for server to start
 	time.Sleep(50 * time.Millisecond)
-
-	// Get the actual address the server is listening on
-	serverAddr := server.conn.LocalAddr().(*net.UDPAddr)
 
 	// Create a UDP client
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
@@ -79,7 +86,7 @@ func TestServer_BindingRequest(t *testing.T) {
 }
 
 func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
-	server := NewServer("127.0.0.1:0", "debug")
+	server, serverAddr := createTestServer(t, "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -89,8 +96,6 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-
-	serverAddr := server.conn.LocalAddr().(*net.UDPAddr)
 
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	require.NoError(t, err)
@@ -113,20 +118,18 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	server := NewServer("127.0.0.1:0", "debug")
+	server, _ := createTestServer(t, "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	serverDone := make(chan struct{})
 	go func() {
-		_ = server.Listen(ctx)
+		err := server.Listen(ctx)
+		assert.True(t, errors.Is(err, ErrServerClosed))
 		close(serverDone)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-
-	// Verify server is listening
-	require.NotNil(t, server.conn)
 
 	// Shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -146,7 +149,7 @@ func TestServer_Shutdown(t *testing.T) {
 }
 
 func TestServer_MultipleRequests(t *testing.T) {
-	server := NewServer("127.0.0.1:0", "debug")
+	server, serverAddr := createTestServer(t, "debug")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -156,8 +159,6 @@ func TestServer_MultipleRequests(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-
-	serverAddr := server.conn.LocalAddr().(*net.UDPAddr)
 
 	// Create multiple clients and send requests
 	for i := 0; i < 5; i++ {
@@ -211,7 +212,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		t.Logf("Testing against remote server: %s", remoteServer)
 	} else {
 		// Start local server
-		server = NewServer("127.0.0.1:0", "warn")
+		server, serverAddr = createTestServer(t, "warn")
 		var ctx context.Context
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
@@ -219,7 +220,6 @@ func TestServer_ConcurrentClients(t *testing.T) {
 			_ = server.Listen(ctx)
 		}()
 		time.Sleep(50 * time.Millisecond)
-		serverAddr = server.conn.LocalAddr().(*net.UDPAddr)
 		t.Logf("Testing against local server: %s", serverAddr)
 	}
 
@@ -332,7 +332,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 // BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
 func BenchmarkSTUNServer(b *testing.B) {
-	server := NewServer("127.0.0.1:0", "error")
+	server, serverAddr := createTestServer(b, "error")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -342,8 +342,6 @@ func BenchmarkSTUNServer(b *testing.B) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-
-	serverAddr := server.conn.LocalAddr().(*net.UDPAddr)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

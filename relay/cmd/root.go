@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -198,11 +199,20 @@ func execute(cmd *cobra.Command, args []string) error {
 	// Start STUN server if enabled
 	var stunServer *stun.Server
 	if cobraConfig.EnableSTUN {
-		stunServer = stun.NewServer(fmt.Sprintf(":%d", cobraConfig.STUNPort), cobraConfig.STUNLogLevel)
+		stunListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: cobraConfig.STUNPort})
+		if err != nil {
+			log.Debugf("failed to create STUN listener: %v", err)
+			return fmt.Errorf("failed to create STUN listener: %v", err)
+		}
+
+		stunServer = stun.NewServer(stunListener, cobraConfig.STUNLogLevel)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := stunServer.Listen(context.Background()); err != nil {
+				if errors.Is(err, stun.ErrServerClosed) {
+					return
+				}
 				log.Errorf("STUN server error: %v", err)
 			}
 		}()

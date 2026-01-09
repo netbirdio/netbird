@@ -3,7 +3,7 @@ package stun
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net"
 	"sync"
 
@@ -12,21 +12,23 @@ import (
 	"github.com/pion/stun/v3"
 )
 
+// ErrServerClosed is returned by Listen when the server is shut down gracefully.
+var ErrServerClosed = errors.New("stun: server closed")
+
 // Server implements a STUN server that responds to binding requests
 // with the client's reflexive transport address.
 type Server struct {
-	address string
-	conn    *net.UDPConn
-	logger  *log.Entry
+	conn   *net.UDPConn
+	logger *log.Entry
 
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
 }
 
-// NewServer creates a new STUN server that will listen on the given address.
-// The address should be in the form "host:port" or ":port".
+// NewServer creates a new STUN server with the given UDP listener.
+// The caller is responsible for creating and providing the listener.
 // logLevel can be: panic, fatal, error, warn, info, debug, trace (default: info)
-func NewServer(address string, logLevel string) *Server {
+func NewServer(conn *net.UDPConn, logLevel string) *Server {
 	logger := log.New()
 	logger.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
@@ -42,35 +44,24 @@ func NewServer(address string, logLevel string) *Server {
 	entry.Infof("STUN server log level set to: %s", level.String())
 
 	return &Server{
-		address: address,
-		logger:  entry,
+		conn:   conn,
+		logger: entry,
 	}
 }
 
-// Listen starts the STUN server and blocks until the context is cancelled
-// or an error occurs.
+// Listen starts the STUN server and blocks until the server is shut down.
+// Returns ErrServerClosed when shut down gracefully via Shutdown.
 func (s *Server) Listen(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
 
-	addr, err := net.ResolveUDPAddr("udp", s.address)
-	if err != nil {
-		return fmt.Errorf("failed to resolve address: %w", err)
-	}
-
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on UDP: %w", err)
-	}
-	s.conn = conn
-
-	s.logger.Infof("STUN server listening on %s", s.address)
+	s.logger.Infof("STUN server listening on %s", s.conn.LocalAddr())
 
 	// Handle incoming packets
 	s.wg.Add(1)
 	go s.readLoop(ctx)
 
 	s.wg.Wait()
-	return nil
+	return ErrServerClosed
 }
 
 // readLoop continuously reads UDP packets and handles STUN requests.
