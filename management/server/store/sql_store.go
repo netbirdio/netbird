@@ -511,7 +511,7 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 			return status.Errorf(status.Internal, "failed to delete user groups from store: %v", result.Error)
 		}
 
-		if len(user.Groups) != 0 {
+		if len(userCopy.Groups) != 0 {
 			result = tx.Save(userCopy.Groups)
 			if result.Error != nil {
 				return status.Errorf(status.Internal, "failed to save user groups to store: %v", result.Error)
