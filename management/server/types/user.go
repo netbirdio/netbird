@@ -223,8 +223,11 @@ func (u *User) Copy() *User {
 	var groupUsers []*GroupUser
 	if u.Groups != nil {
 		groupUsers = make([]*GroupUser, len(u.Groups))
-		copy(groupUsers, u.Groups)
+		for i, groupUser := range u.Groups {
+			groupUsers[i] = groupUser.Copy()
+		}
 	}
+
 	var autoGroups []string
 	if u.AutoGroups != nil {
 		autoGroups = make([]string, len(u.AutoGroups))

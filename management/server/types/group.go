@@ -48,6 +48,14 @@ type GroupUser struct {
 	UserID    string `gorm:"primaryKey"`
 }
 
+func (g *GroupUser) Copy() *GroupUser {
+	return &GroupUser{
+		AccountID: g.AccountID,
+		GroupID:   g.GroupID,
+		UserID:    g.UserID,
+	}
+}
+
 func (g *Group) LoadGroupPeers() {
 	g.Peers = make([]string, len(g.GroupPeers))
 	for i, peer := range g.GroupPeers {
