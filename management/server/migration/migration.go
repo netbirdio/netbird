@@ -636,6 +636,6 @@ func CleanupOrphanedIDs[T, S any](ctx context.Context, db *gorm.DB, columnName s
 		return err
 	}
 
-	log.WithContext(ctx).Infof("Cleanup of orphaned auto_groups from table %s completed", tableName)
+	log.WithContext(ctx).Infof("Cleanup of orphaned %s from table %s completed", columnName, tableName)
 	return nil
 }
