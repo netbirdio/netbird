@@ -96,26 +96,28 @@ func (s *Server) readLoop(ctx context.Context, conn *net.UDPConn) {
 
 // handlePacket processes a STUN request and sends a response.
 func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr) {
-	s.logger.Debugf("received %d bytes from %s", len(data), addr)
+	localPort := conn.LocalAddr().(*net.UDPAddr).Port
+
+	s.logger.Debugf("[port:%d] received %d bytes from %s", localPort, len(data), addr)
 
 	// Check if it's a STUN message
 	if !stun.IsMessage(data) {
-		s.logger.Debugf("not a STUN message (first bytes: %x)", data[:min(len(data), 8)])
+		s.logger.Debugf("[port:%d] not a STUN message (first bytes: %x)", localPort, data[:min(len(data), 8)])
 		return
 	}
 
 	// Parse the STUN message
 	msg := &stun.Message{Raw: data}
 	if err := msg.Decode(); err != nil {
-		s.logger.Warnf("failed to decode STUN message from %s: %v", addr, err)
+		s.logger.Warnf("[port:%d] failed to decode STUN message from %s: %v", localPort, addr, err)
 		return
 	}
 
-	s.logger.Debugf("received STUN %s from %s (tx=%x)", msg.Type, addr, msg.TransactionID[:8])
+	s.logger.Debugf("[port:%d] received STUN %s from %s (tx=%x)", localPort, msg.Type, addr, msg.TransactionID[:8])
 
 	// Only handle binding requests
 	if msg.Type != stun.BindingRequest {
-		s.logger.Debugf("ignoring non-binding request: %s", msg.Type)
+		s.logger.Debugf("[port:%d] ignoring non-binding request: %s", localPort, msg.Type)
 		return
 	}
 
@@ -130,18 +132,18 @@ func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr)
 		stun.Fingerprint,
 	)
 	if err != nil {
-		s.logger.Errorf("failed to build STUN response: %v", err)
+		s.logger.Errorf("[port:%d] failed to build STUN response: %v", localPort, err)
 		return
 	}
 
 	// Send the response on the same connection it was received on
 	n, err := conn.WriteToUDP(response.Raw, addr)
 	if err != nil {
-		s.logger.Errorf("failed to send STUN response to %s: %v", addr, err)
+		s.logger.Errorf("[port:%d] failed to send STUN response to %s: %v", localPort, addr, err)
 		return
 	}
 
-	s.logger.Debugf("sent STUN BindingSuccess to %s (%d bytes) with XORMappedAddress %s:%d", addr, n, addr.IP, addr.Port)
+	s.logger.Debugf("[port:%d] sent STUN BindingSuccess to %s (%d bytes) with XORMappedAddress %s:%d", localPort, addr, n, addr.IP, addr.Port)
 }
 
 // Shutdown gracefully stops the STUN server.
