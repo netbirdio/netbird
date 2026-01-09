@@ -34,7 +34,7 @@ type RouteRule struct {
 	sources      []netip.Prefix
 	dstSet       firewall.Set
 	destinations []netip.Prefix
-	proto        firewall.Protocol
+	protoLayer   gopacket.LayerType
 	srcPort      *firewall.Port
 	dstPort      *firewall.Port
 	action       firewall.Action

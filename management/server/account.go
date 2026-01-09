@@ -1006,7 +1006,7 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 	for user, loggedInOnce := range accountUsers {
 		if datum, ok := userDataMap[user]; ok {
 			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
-			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint
 				log.WithContext(ctx).Infof("user %s has a pending invite and has logged in once, cache invalid", user)
 				return false
 			}

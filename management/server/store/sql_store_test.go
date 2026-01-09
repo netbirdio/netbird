@@ -30,7 +30,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
-	route2 "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -110,12 +109,12 @@ func runLargeTest(t *testing.T, store Store) {
 			AccountID: account.Id,
 		}
 		account.Users[user.Id] = user
-		route := &route2.Route{
-			ID:          route2.ID(fmt.Sprintf("network-id-%d", n)),
+		route := &nbroute.Route{
+			ID:          nbroute.ID(fmt.Sprintf("network-id-%d", n)),
 			Description: "base route",
-			NetID:       route2.NetID(fmt.Sprintf("network-id-%d", n)),
+			NetID:       nbroute.NetID(fmt.Sprintf("network-id-%d", n)),
 			Network:     netip.MustParsePrefix(netIP.String() + "/24"),
-			NetworkType: route2.IPv4Network,
+			NetworkType: nbroute.IPv4Network,
 			Metric:      9999,
 			Masquerade:  false,
 			Enabled:     true,
@@ -689,7 +688,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	type route struct {
-		route2.Route
+		nbroute.Route
 		Network    netip.Prefix `gorm:"serializer:gob"`
 		PeerGroups []string     `gorm:"serializer:gob"`
 	}
@@ -698,7 +697,7 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
-		Route:      route2.Route{ID: "route1"},
+		Route:      nbroute.Route{ID: "route1"},
 	}
 
 	err = store.(*SqlStore).db.Save(rt).Error
@@ -714,7 +713,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to delete Gob data")
 
 	prefix = netip.MustParsePrefix("12.0.0.0/24")
-	nRT := &route2.Route{
+	nRT := &nbroute.Route{
 		Network: prefix,
 		ID:      "route2",
 		Peer:    "peer-id",
@@ -969,6 +968,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
+		Key:       "key1",
 		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
@@ -983,6 +983,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
+		Key:       "key2",
 		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
@@ -1010,6 +1011,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
@@ -1023,6 +1025,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1-1",
 			IP:        net.IP{2, 2, 2, 2},
 		}
@@ -1049,6 +1052,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1057,6 +1061,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
@@ -1074,6 +1079,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1082,6 +1088,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
@@ -3547,13 +3554,13 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	route := &route2.Route{
+	route := &nbroute.Route{
 		ID:                  "route-id",
 		AccountID:           accountID,
 		Network:             netip.MustParsePrefix("10.10.0.0/16"),
 		NetID:               "netID",
 		PeerGroups:          []string{"routeA"},
-		NetworkType:         route2.IPv4Network,
+		NetworkType:         nbroute.IPv4Network,
 		Masquerade:          true,
 		Metric:              9999,
 		Enabled:             true,
@@ -3700,6 +3707,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 		peer := &nbpeer.Peer{
 			ID:        fmt.Sprintf("peer-%d", i),
 			AccountID: accountID,
+			Key:       fmt.Sprintf("key-%d", i),
 			DNSLabel:  fmt.Sprintf("peer%d.example.com", i),
 			IP:        intToIPv4(uint32(i)),
 		}

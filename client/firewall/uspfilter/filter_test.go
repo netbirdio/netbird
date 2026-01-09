@@ -767,9 +767,9 @@ func TestUpdateSetMerge(t *testing.T) {
 	dstIP2 := netip.MustParseAddr("192.168.1.100")
 	dstIP3 := netip.MustParseAddr("172.16.0.100")
 
-	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 
 	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should be allowed")
 	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should be allowed")
@@ -784,8 +784,8 @@ func TestUpdateSetMerge(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that all original prefixes are still included
-	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should still be allowed after update")
 	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should still be allowed after update")
 
@@ -793,8 +793,8 @@ func TestUpdateSetMerge(t *testing.T) {
 	dstIP4 := netip.MustParseAddr("172.16.1.100")
 	dstIP5 := netip.MustParseAddr("10.1.0.50")
 
-	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 
 	require.True(t, isAllowed4, "Traffic to new prefix 172.16.0.0/16 should be allowed")
 	require.True(t, isAllowed5, "Traffic to new prefix 10.1.0.0/24 should be allowed")
@@ -922,7 +922,7 @@ func TestUpdateSetDeduplication(t *testing.T) {
 
 	srcIP := netip.MustParseAddr("100.10.0.1")
 	for _, tc := range testCases {
-		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, fw.ProtocolTCP, 12345, 80)
+		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 		require.Equal(t, tc.expected, isAllowed, tc.desc)
 	}
 }

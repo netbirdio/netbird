@@ -753,7 +753,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to create an account for a user %s", userId)
 	}
 
-	if account != nil && account.Domain != domain {
+	if account.Domain != domain {
 		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
 	}
 
@@ -768,7 +768,7 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 		t.Fatalf("expected to get an account for a user %s", userId)
 	}
 
-	if account != nil && account.Domain != domain {
+	if account.Domain != domain {
 		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
 	}
 }
@@ -3479,11 +3479,11 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: initiatorId, Domain: domain})
 	require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
+	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, Key: "key1", UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, peer1)
 	require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
+	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, Key: "key2", UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, peer2)
 	require.NoError(t, err)
 

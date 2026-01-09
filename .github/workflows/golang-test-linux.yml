@@ -200,7 +200,7 @@ jobs:
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
             -e CONTAINER=${CONTAINER} \
-            golang:1.24-alpine \
+            golang:1.25-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
@@ -259,7 +259,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
-            -timeout 10m ./relay/... ./shared/relay/...
+            -timeout 10m -p 1 ./relay/... ./shared/relay/...
 
   test_signal:
     name: "Signal / Unit"
