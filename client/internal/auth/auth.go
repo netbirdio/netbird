@@ -39,7 +39,6 @@ func NewAuth(ctx context.Context, privateKey string, mgmURL *url.URL, config *pr
 	// Validate WireGuard private key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
 		return nil, err
 	}
 
