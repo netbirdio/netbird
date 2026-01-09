@@ -350,8 +350,13 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
 		},
+		func(db *gorm.DB) error {
+			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
 	}
-} // migratePostAuto migrates the SQLite database to the latest schema
+}
+
+// migratePostAuto migrates the SQLite database to the latest schema
 func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 	migrations := getMigrationsPostAuto(ctx)
 
@@ -380,6 +385,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 					PeerID:    value,
 				}
 			})
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
 	}
 }

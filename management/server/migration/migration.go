@@ -404,10 +404,11 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	if dialect == "mysql" {
 		var withLength []string
 		for _, col := range columns {
-			if col == "ip" || col == "dns_label" {
-				withLength = append(withLength, fmt.Sprintf("%s(64)", col))
+			quotedCol := fmt.Sprintf("`%s`", col)
+			if col == "ip" || col == "dns_label" || col == "key" {
+				withLength = append(withLength, fmt.Sprintf("%s(64)", quotedCol))
 			} else {
-				withLength = append(withLength, col)
+				withLength = append(withLength, quotedCol)
 			}
 		}
 		columnClause = strings.Join(withLength, ", ")
@@ -485,5 +486,56 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 	}
 
 	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into separate table completed", columnName, tableName)
+	return nil
+}
+
+func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
+	if !db.Migrator().HasTable("peers") {
+		log.WithContext(ctx).Debug("peers table does not exist, skipping duplicate key cleanup")
+		return nil
+	}
+
+	keyColumn := GetColumnName(db, "key")
+
+	var duplicates []struct {
+		Key   string
+		Count int64
+	}
+
+	if err := db.Table("peers").
+		Select(keyColumn + ", COUNT(*) as count").
+		Group(keyColumn).
+		Having("COUNT(*) > 1").
+		Find(&duplicates).Error; err != nil {
+		return fmt.Errorf("find duplicate keys: %w", err)
+	}
+
+	if len(duplicates) == 0 {
+		return nil
+	}
+
+	log.WithContext(ctx).Warnf("Found %d duplicate peer keys, cleaning up", len(duplicates))
+
+	for _, dup := range duplicates {
+		var peerIDs []string
+		if err := db.Table("peers").
+			Select("id").
+			Where(keyColumn+" = ?", dup.Key).
+			Order("peer_status_last_seen DESC").
+			Pluck("id", &peerIDs).Error; err != nil {
+			return fmt.Errorf("get peers for key: %w", err)
+		}
+
+		if len(peerIDs) <= 1 {
+			continue
+		}
+
+		idsToDelete := peerIDs[1:]
+
+		if err := db.Table("peers").Where("id IN ?", idsToDelete).Delete(nil).Error; err != nil {
+			return fmt.Errorf("delete duplicate peers: %w", err)
+		}
+	}
+
 	return nil
 }
