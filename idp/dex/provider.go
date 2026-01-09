@@ -130,7 +130,21 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 
 // NewProviderFromYAML creates and initializes the Dex server from a YAMLConfig
 func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider, error) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// Configure log level from config, default to WARN to avoid logging sensitive data (emails)
+	logLevel := slog.LevelWarn
+	if yamlConfig.Logger.Level != "" {
+		switch strings.ToLower(yamlConfig.Logger.Level) {
+		case "debug":
+			logLevel = slog.LevelDebug
+		case "info":
+			logLevel = slog.LevelInfo
+		case "warn", "warning":
+			logLevel = slog.LevelWarn
+		case "error":
+			logLevel = slog.LevelError
+		}
+	}
+	logger := slog.New(NewLogrusHandler(logLevel))
 
 	stor, err := yamlConfig.Storage.OpenStorage(logger)
 	if err != nil {

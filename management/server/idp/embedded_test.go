@@ -247,3 +247,61 @@ func TestEmbeddedIdPManager_UserIDFormat_MatchesJWT(t *testing.T) {
 	t.Logf("  Raw UUID:   %s", rawUserID)
 	t.Logf("  Connector:  %s", connectorID)
 }
+
+func TestEmbeddedIdPManager_GetLocalKeysLocation(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	tests := []struct {
+		name         string
+		localAddress string
+		expected     string
+	}{
+		{
+			name:         "localhost with port",
+			localAddress: "localhost:8080",
+			expected:     "http://localhost:8080/oauth2/keys",
+		},
+		{
+			name:         "localhost with https port",
+			localAddress: "localhost:443",
+			expected:     "http://localhost:443/oauth2/keys",
+		},
+		{
+			name:         "port only format",
+			localAddress: ":8080",
+			expected:     "http://localhost:8080/oauth2/keys",
+		},
+		{
+			name:         "empty address",
+			localAddress: "",
+			expected:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &EmbeddedIdPConfig{
+				Enabled:      true,
+				Issuer:       "http://localhost:5556/dex",
+				LocalAddress: tt.localAddress,
+				Storage: EmbeddedStorageConfig{
+					Type: "sqlite3",
+					Config: EmbeddedStorageTypeConfig{
+						File: filepath.Join(tmpDir, "dex-"+tt.name+".db"),
+					},
+				},
+			}
+
+			manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+			require.NoError(t, err)
+			defer func() { _ = manager.Stop(ctx) }()
+
+			result := manager.GetLocalKeysLocation()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
