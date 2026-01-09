@@ -416,6 +416,14 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -463,6 +471,14 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -542,6 +558,14 @@ func TestUser_InviteNewUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
