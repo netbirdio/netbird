@@ -178,7 +178,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		m.patUsageTracker.IncrementUsage(token)
 	}
 
-	if m.rateLimiter != nil {
+	if m.rateLimiter != nil && !isTerraformRequest(r) {
 		if !m.rateLimiter.Allow(token) {
 			return r, status.Errorf(status.TooManyRequests, "too many requests")
 		}
@@ -212,6 +212,11 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	return nbcontext.SetUserAuthInRequest(r, userAuth), nil
+}
+
+func isTerraformRequest(r *http.Request) bool {
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	return strings.Contains(ua, "terraform")
 }
 
 // getTokenFromJWTRequest is a "TokenExtractor" that takes auth header parts and extracts
