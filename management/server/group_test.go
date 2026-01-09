@@ -397,7 +397,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	if err != nil {
 		return nil, nil, err
 	}
-	return am, account, nil
 
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
