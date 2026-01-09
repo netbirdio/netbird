@@ -19,7 +19,7 @@ var ErrServerClosed = errors.New("stun: server closed")
 // Server implements a STUN server that responds to binding requests
 // with the client's reflexive transport address.
 type Server struct {
-	conn     *net.UDPConn
+	conns    []*net.UDPConn
 	logger   *log.Entry
 	logLevel log.Level
 
@@ -27,10 +27,10 @@ type Server struct {
 	cancel context.CancelFunc
 }
 
-// NewServer creates a new STUN server with the given UDP listener.
-// The caller is responsible for creating and providing the listener.
+// NewServer creates a new STUN server with the given UDP listeners.
+// The caller is responsible for creating and providing the listeners.
 // logLevel can be: panic, fatal, error, warn, info, debug, trace
-func NewServer(conn *net.UDPConn, logLevel string) *Server {
+func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		level = log.InfoLevel
@@ -48,7 +48,7 @@ func NewServer(conn *net.UDPConn, logLevel string) *Server {
 	logger.Infof("STUN server log level set to: %s", level.String())
 
 	return &Server{
-		conn:     conn,
+		conns:    conns,
 		logger:   logger,
 		logLevel: level,
 	}
@@ -59,23 +59,24 @@ func NewServer(conn *net.UDPConn, logLevel string) *Server {
 func (s *Server) Listen(ctx context.Context) error {
 	ctx, s.cancel = context.WithCancel(ctx)
 
-	s.logger.Infof("STUN server listening on %s", s.conn.LocalAddr())
-
-	// Handle incoming packets
-	s.wg.Add(1)
-	go s.readLoop(ctx)
+	// Start a read loop for each listener
+	for _, conn := range s.conns {
+		s.logger.Infof("STUN server listening on %s", conn.LocalAddr())
+		s.wg.Add(1)
+		go s.readLoop(ctx, conn)
+	}
 
 	s.wg.Wait()
 	return ErrServerClosed
 }
 
 // readLoop continuously reads UDP packets and handles STUN requests.
-func (s *Server) readLoop(ctx context.Context) {
+func (s *Server) readLoop(ctx context.Context, conn *net.UDPConn) {
 	defer s.wg.Done()
 
 	buf := make([]byte, 1500) // Standard MTU size
 	for {
-		n, remoteAddr, err := s.conn.ReadFromUDP(buf)
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			// Check if we're shutting down
 			select {
@@ -89,12 +90,12 @@ func (s *Server) readLoop(ctx context.Context) {
 
 		// Handle packet in the same goroutine to avoid complexity
 		// STUN responses are small and fast
-		s.handlePacket(buf[:n], remoteAddr)
+		s.handlePacket(conn, buf[:n], remoteAddr)
 	}
 }
 
 // handlePacket processes a STUN request and sends a response.
-func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
+func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr) {
 	s.logger.Debugf("received %d bytes from %s", len(data), addr)
 
 	// Check if it's a STUN message
@@ -133,8 +134,8 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 		return
 	}
 
-	// Send the response
-	n, err := s.conn.WriteToUDP(response.Raw, addr)
+	// Send the response on the same connection it was received on
+	n, err := conn.WriteToUDP(response.Raw, addr)
 	if err != nil {
 		s.logger.Errorf("failed to send STUN response to %s: %v", addr, err)
 		return
@@ -151,13 +152,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.cancel()
 	}
 
-	if s.conn != nil {
-		if err := s.conn.Close(); err != nil {
-			s.logger.Warnf("error closing UDP connection: %v", err)
+	for _, conn := range s.conns {
+		if err := conn.Close(); err != nil {
+			s.logger.Warnf("error closing UDP connection on %s: %v", conn.LocalAddr(), err)
 		}
 	}
 
-	// Wait for readLoop to finish
+	// Wait for all readLoops to finish
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()

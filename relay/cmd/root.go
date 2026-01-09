@@ -47,7 +47,7 @@ type Config struct {
 	HealthcheckListenAddress string
 	// STUN server configuration
 	EnableSTUN   bool
-	STUNPort     int
+	STUNPorts    []int
 	STUNLogLevel string
 }
 
@@ -98,7 +98,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
-	rootCmd.PersistentFlags().IntVar(&cobraConfig.STUNPort, "stun-port", 3478, "port for the embedded STUN server")
+	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-port", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
 
 	setFlagsFromEnvVars(rootCmd)
@@ -199,13 +199,21 @@ func execute(cmd *cobra.Command, args []string) error {
 	// Start STUN server if enabled
 	var stunServer *stun.Server
 	if cobraConfig.EnableSTUN {
-		stunListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: cobraConfig.STUNPort})
-		if err != nil {
-			log.Debugf("failed to create STUN listener: %v", err)
-			return fmt.Errorf("failed to create STUN listener: %v", err)
+		var stunListeners []*net.UDPConn
+		for _, port := range cobraConfig.STUNPorts {
+			listener, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
+			if err != nil {
+				// Close already opened listeners on failure
+				for _, l := range stunListeners {
+					_ = l.Close()
+				}
+				log.Debugf("failed to create STUN listener on port %d: %v", port, err)
+				return fmt.Errorf("failed to create STUN listener on port %d: %v", port, err)
+			}
+			stunListeners = append(stunListeners, listener)
 		}
 
-		stunServer = stun.NewServer(stunListener, cobraConfig.STUNLogLevel)
+		stunServer = stun.NewServer(stunListeners, cobraConfig.STUNLogLevel)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

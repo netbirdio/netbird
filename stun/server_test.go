@@ -21,7 +21,7 @@ func createTestServer(t testing.TB) (*Server, *net.UDPAddr) {
 	t.Helper()
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
-	server := NewServer(conn, "debug")
+	server := NewServer([]*net.UDPConn{conn}, "debug")
 	return server, conn.LocalAddr().(*net.UDPAddr)
 }
 
@@ -224,7 +224,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	errors := make(chan error, numClients*requestsPerClient)
+	errorz := make(chan error, numClients*requestsPerClient)
 	successCount := make(chan int, numClients)
 
 	startTime := time.Now()
@@ -239,7 +239,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 			clientConn, err := net.DialUDP("udp", nil, serverAddr)
 			if err != nil {
-				errors <- fmt.Errorf("client %d: failed to dial: %w", clientID, err)
+				errorz <- fmt.Errorf("client %d: failed to dial: %w", clientID, err)
 				return
 			}
 			defer clientConn.Close()
@@ -253,13 +253,13 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 				msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
 				if err != nil {
-					errors <- fmt.Errorf("client %d: failed to build request: %w", clientID, err)
+					errorz <- fmt.Errorf("client %d: failed to build request: %w", clientID, err)
 					continue
 				}
 
 				_, err = clientConn.Write(msg.Raw)
 				if err != nil {
-					errors <- fmt.Errorf("client %d: failed to write: %w", clientID, err)
+					errorz <- fmt.Errorf("client %d: failed to write: %w", clientID, err)
 					continue
 				}
 
@@ -267,18 +267,18 @@ func TestServer_ConcurrentClients(t *testing.T) {
 				_ = clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 				n, err := clientConn.Read(buf)
 				if err != nil {
-					errors <- fmt.Errorf("client %d: failed to read: %w", clientID, err)
+					errorz <- fmt.Errorf("client %d: failed to read: %w", clientID, err)
 					continue
 				}
 
 				response := &stun.Message{Raw: buf[:n]}
 				if err := response.Decode(); err != nil {
-					errors <- fmt.Errorf("client %d: failed to decode: %w", clientID, err)
+					errorz <- fmt.Errorf("client %d: failed to decode: %w", clientID, err)
 					continue
 				}
 
 				if response.Type != stun.BindingSuccess {
-					errors <- fmt.Errorf("client %d: unexpected response type: %s", clientID, response.Type)
+					errorz <- fmt.Errorf("client %d: unexpected response type: %s", clientID, response.Type)
 					continue
 				}
 
@@ -289,7 +289,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 	}
 
 	wg.Wait()
-	close(errors)
+	close(errorz)
 	close(successCount)
 
 	elapsed := time.Since(startTime)
@@ -300,7 +300,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 	}
 
 	var errs []error
-	for err := range errors {
+	for err := range errorz {
 		errs = append(errs, err)
 	}
 
@@ -328,6 +328,64 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		defer shutdownCancel()
 		_ = server.Shutdown(shutdownCtx)
 	}
+}
+
+func TestServer_MultiplePorts(t *testing.T) {
+	// Create listeners on two random ports
+	conn1, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	require.NoError(t, err)
+	conn2, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	require.NoError(t, err)
+
+	addr1 := conn1.LocalAddr().(*net.UDPAddr)
+	addr2 := conn2.LocalAddr().(*net.UDPAddr)
+
+	server := NewServer([]*net.UDPConn{conn1, conn2}, "debug")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = server.Listen(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Test requests on both ports
+	for _, serverAddr := range []*net.UDPAddr{addr1, addr2} {
+		clientConn, err := net.DialUDP("udp", nil, serverAddr)
+		require.NoError(t, err)
+
+		msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
+		require.NoError(t, err)
+
+		_, err = clientConn.Write(msg.Raw)
+		require.NoError(t, err)
+
+		buf := make([]byte, 1500)
+		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, err := clientConn.Read(buf)
+		require.NoError(t, err)
+
+		response := &stun.Message{Raw: buf[:n]}
+		err = response.Decode()
+		require.NoError(t, err)
+
+		assert.Equal(t, stun.BindingSuccess, response.Type)
+
+		var xorAddr stun.XORMappedAddress
+		err = xorAddr.GetFrom(response)
+		require.NoError(t, err)
+
+		clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+		assert.Equal(t, clientAddr.Port, xorAddr.Port)
+
+		clientConn.Close()
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+	_ = server.Shutdown(shutdownCtx)
 }
 
 // BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
