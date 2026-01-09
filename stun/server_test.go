@@ -17,17 +17,17 @@ import (
 )
 
 // createTestServer creates a STUN server listening on a random port for testing
-func createTestServer(t testing.TB, logLevel string) (*Server, *net.UDPAddr) {
+func createTestServer(t testing.TB) (*Server, *net.UDPAddr) {
 	t.Helper()
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
-	server := NewServer(conn, logLevel)
+	server := NewServer(conn, "debug")
 	return server, conn.LocalAddr().(*net.UDPAddr)
 }
 
 func TestServer_BindingRequest(t *testing.T) {
 	// Start the STUN server on a random port
-	server, serverAddr := createTestServer(t, "debug")
+	server, serverAddr := createTestServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -86,7 +86,7 @@ func TestServer_BindingRequest(t *testing.T) {
 }
 
 func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
-	server, serverAddr := createTestServer(t, "debug")
+	server, serverAddr := createTestServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -118,7 +118,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	server, _ := createTestServer(t, "debug")
+	server, _ := createTestServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -149,7 +149,7 @@ func TestServer_Shutdown(t *testing.T) {
 }
 
 func TestServer_MultipleRequests(t *testing.T) {
-	server, serverAddr := createTestServer(t, "debug")
+	server, serverAddr := createTestServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -212,7 +212,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		t.Logf("Testing against remote server: %s", remoteServer)
 	} else {
 		// Start local server
-		server, serverAddr = createTestServer(t, "warn")
+		server, serverAddr = createTestServer(t)
 		var ctx context.Context
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
@@ -332,7 +332,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 // BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
 func BenchmarkSTUNServer(b *testing.B) {
-	server, serverAddr := createTestServer(b, "error")
+	server, serverAddr := createTestServer(b)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

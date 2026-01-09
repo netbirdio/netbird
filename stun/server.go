@@ -18,8 +18,9 @@ var ErrServerClosed = errors.New("stun: server closed")
 // Server implements a STUN server that responds to binding requests
 // with the client's reflexive transport address.
 type Server struct {
-	conn   *net.UDPConn
-	logger *log.Entry
+	conn     *net.UDPConn
+	logger   *log.Entry
+	logLevel log.Level
 
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
@@ -27,25 +28,20 @@ type Server struct {
 
 // NewServer creates a new STUN server with the given UDP listener.
 // The caller is responsible for creating and providing the listener.
-// logLevel can be: panic, fatal, error, warn, info, debug, trace (default: info)
+// logLevel can be: panic, fatal, error, warn, info, debug, trace
 func NewServer(conn *net.UDPConn, logLevel string) *Server {
-	logger := log.New()
-	logger.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
-	})
-
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		level = log.InfoLevel
 	}
-	logger.SetLevel(level)
 
-	entry := logger.WithField("component", "stun-server")
-	entry.Infof("STUN server log level set to: %s", level.String())
+	logger := log.WithField("component", "stun-server")
+	logger.Infof("STUN server log level set to: %s", level.String())
 
 	return &Server{
-		conn:   conn,
-		logger: entry,
+		conn:     conn,
+		logger:   logger,
+		logLevel: level,
 	}
 }
 
