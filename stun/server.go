@@ -35,7 +35,14 @@ func NewServer(conn *net.UDPConn, logLevel string) *Server {
 		level = log.InfoLevel
 	}
 
-	logger := log.WithField("component", "stun-server")
+	// Create a separate logger with its own level setting
+	// This allows --stun-log-level to work independently of --log-level
+	stunLogger := log.New()
+	stunLogger.SetOutput(log.StandardLogger().Out)
+	stunLogger.SetFormatter(log.StandardLogger().Formatter)
+	stunLogger.SetLevel(level)
+
+	logger := stunLogger.WithField("component", "stun-server")
 	logger.Infof("STUN server log level set to: %s", level.String())
 
 	return &Server{
@@ -101,7 +108,7 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 		return
 	}
 
-	s.logger.Infof("received STUN %s from %s (tx=%x)", msg.Type, addr, msg.TransactionID[:8])
+	s.logger.Debugf("received STUN %s from %s (tx=%x)", msg.Type, addr, msg.TransactionID[:8])
 
 	// Only handle binding requests
 	if msg.Type != stun.BindingRequest {
@@ -131,7 +138,7 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 		return
 	}
 
-	s.logger.Infof("sent STUN BindingSuccess to %s (%d bytes) with XORMappedAddress %s:%d", addr, n, addr.IP, addr.Port)
+	s.logger.Debugf("sent STUN BindingSuccess to %s (%d bytes) with XORMappedAddress %s:%d", addr, n, addr.IP, addr.Port)
 }
 
 // Shutdown gracefully stops the STUN server.
