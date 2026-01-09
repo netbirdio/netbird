@@ -500,15 +500,22 @@ func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
 		return fmt.Errorf("encrypt user: %w", err)
 	}
 
-	err := s.ExecuteInTransaction(ctx, func(tx Store) error {
-		result := s.db.Omit("Groups").Save(userCopy)
+	err := s.transaction(func(tx *gorm.DB) error {
+		result := tx.Omit("Groups").Save(userCopy)
 		if result.Error != nil {
 			return status.Errorf(status.Internal, "failed to save user to store: %v", result.Error)
 		}
 
-		result = s.db.Save(userCopy.Groups)
+		result = tx.Delete(&types.GroupUser{}, "user_id = ?", user.Id)
 		if result.Error != nil {
-			return status.Errorf(status.Internal, "failed to save user groups to store: %v", result.Error)
+			return status.Errorf(status.Internal, "failed to delete user groups from store: %v", result.Error)
+		}
+
+		if len(user.Groups) != 0 {
+			result = tx.Save(userCopy.Groups)
+			if result.Error != nil {
+				return status.Errorf(status.Internal, "failed to save user groups to store: %v", result.Error)
+			}
 		}
 
 		return nil
