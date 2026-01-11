@@ -270,7 +270,7 @@ AUTH_CLIENT_ID=netbird-dashboard
 AUTH_CLIENT_SECRET=
 AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
 USE_AUTH0=false
-AUTH_SUPPORTED_SCOPES=openid profile email offline_access
+AUTH_SUPPORTED_SCOPES=openid profile email
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL
