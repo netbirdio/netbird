@@ -16,26 +16,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createTestServer creates a STUN server listening on a random port for testing
-func createTestServer(t testing.TB) (*Server, *net.UDPAddr) {
+// createTestServer creates a STUN server listening on a random port for testing.
+// Returns the server, the listener connection (caller must close), and the server address.
+func createTestServer(t testing.TB) (*Server, *net.UDPConn, *net.UDPAddr) {
 	t.Helper()
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
 	server := NewServer([]*net.UDPConn{conn}, "debug")
-	return server, conn.LocalAddr().(*net.UDPAddr)
+	return server, conn, conn.LocalAddr().(*net.UDPAddr)
 }
 
 func TestServer_BindingRequest(t *testing.T) {
 	// Start the STUN server on a random port
-	server, serverAddr := createTestServer(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	server, listener, serverAddr := createTestServer(t)
 
 	// Start server in background
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- server.Listen(ctx)
+		serverErrCh <- server.Listen()
 	}()
 
 	// Wait for server to start
@@ -78,7 +76,8 @@ func TestServer_BindingRequest(t *testing.T) {
 	assert.Equal(t, clientAddr.IP.String(), xorAddr.IP.String())
 	assert.Equal(t, clientAddr.Port, xorAddr.Port)
 
-	// Shutdown server
+	// Close listener first to unblock readLoop, then shutdown
+	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	err = server.Shutdown(shutdownCtx)
@@ -86,13 +85,10 @@ func TestServer_BindingRequest(t *testing.T) {
 }
 
 func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
-	server, serverAddr := createTestServer(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	server, listener, serverAddr := createTestServer(t)
 
 	go func() {
-		_ = server.Listen(ctx)
+		_ = server.Listen()
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -111,31 +107,30 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 	_, err = clientConn.Read(buf)
 	assert.Error(t, err) // Should be a timeout error
 
-	// Shutdown
+	// Close listener first to unblock readLoop, then shutdown
+	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	server, _ := createTestServer(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
+	server, listener, _ := createTestServer(t)
 
 	serverDone := make(chan struct{})
 	go func() {
-		err := server.Listen(ctx)
+		err := server.Listen()
 		assert.True(t, errors.Is(err, ErrServerClosed))
 		close(serverDone)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Shutdown
+	// Close listener first to unblock readLoop, then shutdown
+	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 
-	cancel() // Cancel the listen context first
 	err := server.Shutdown(shutdownCtx)
 	require.NoError(t, err)
 
@@ -149,13 +144,10 @@ func TestServer_Shutdown(t *testing.T) {
 }
 
 func TestServer_MultipleRequests(t *testing.T) {
-	server, serverAddr := createTestServer(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	server, listener, serverAddr := createTestServer(t)
 
 	go func() {
-		_ = server.Listen(ctx)
+		_ = server.Listen()
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -185,6 +177,8 @@ func TestServer_MultipleRequests(t *testing.T) {
 		clientConn.Close()
 	}
 
+	// Close listener first to unblock readLoop, then shutdown
+	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
@@ -202,7 +196,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 	var serverAddr *net.UDPAddr
 	var server *Server
-	var cancel context.CancelFunc
+	var listener *net.UDPConn
 
 	if remoteServer != "" {
 		// Use remote server
@@ -212,12 +206,9 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		t.Logf("Testing against remote server: %s", remoteServer)
 	} else {
 		// Start local server
-		server, serverAddr = createTestServer(t)
-		var ctx context.Context
-		ctx, cancel = context.WithCancel(context.Background())
-		defer cancel()
+		server, listener, serverAddr = createTestServer(t)
 		go func() {
-			_ = server.Listen(ctx)
+			_ = server.Listen()
 		}()
 		time.Sleep(50 * time.Millisecond)
 		t.Logf("Testing against local server: %s", serverAddr)
@@ -324,6 +315,8 @@ func TestServer_ConcurrentClients(t *testing.T) {
 
 	// Cleanup local server if used
 	if server != nil {
+		// Close listener first to unblock readLoop, then shutdown
+		_ = listener.Close()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		_ = server.Shutdown(shutdownCtx)
@@ -342,11 +335,8 @@ func TestServer_MultiplePorts(t *testing.T) {
 
 	server := NewServer([]*net.UDPConn{conn1, conn2}, "debug")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	go func() {
-		_ = server.Listen(ctx)
+		_ = server.Listen()
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -383,6 +373,9 @@ func TestServer_MultiplePorts(t *testing.T) {
 		clientConn.Close()
 	}
 
+	// Close listeners first to unblock readLoops, then shutdown
+	_ = conn1.Close()
+	_ = conn2.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
@@ -390,13 +383,10 @@ func TestServer_MultiplePorts(t *testing.T) {
 
 // BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
 func BenchmarkSTUNServer(b *testing.B) {
-	server, serverAddr := createTestServer(b)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	server, listener, serverAddr := createTestServer(b)
 
 	go func() {
-		_ = server.Listen(ctx)
+		_ = server.Listen()
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -429,6 +419,8 @@ func BenchmarkSTUNServer(b *testing.B) {
 	})
 
 	b.StopTimer()
+	// Close listener first to unblock readLoop, then shutdown
+	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)

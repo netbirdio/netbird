@@ -56,8 +56,9 @@ func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 
 // Listen starts the STUN server and blocks until the server is shut down.
 // Returns ErrServerClosed when shut down gracefully via Shutdown.
-func (s *Server) Listen(ctx context.Context) error {
-	ctx, s.cancel = context.WithCancel(ctx)
+func (s *Server) Listen() error {
+	var ctx context.Context
+	ctx, s.cancel = context.WithCancel(context.Background())
 
 	// Start a read loop for each listener
 	for _, conn := range s.conns {
@@ -73,19 +74,21 @@ func (s *Server) Listen(ctx context.Context) error {
 // readLoop continuously reads UDP packets and handles STUN requests.
 func (s *Server) readLoop(ctx context.Context, conn *net.UDPConn) {
 	defer s.wg.Done()
-
 	buf := make([]byte, 1500) // Standard MTU size
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
+
+		// Check if we're shutting down
+		select {
+		case <-ctx.Done():
+			s.logger.Info("shutting down read loop")
+			return
+		default:
+		}
+
 		if err != nil {
-			// Check if we're shutting down
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				s.logger.Warnf("failed to read UDP packet: %v", err)
-				continue
-			}
+			s.logger.Warnf("failed to read UDP packet: %v", err)
+			continue
 		}
 
 		// Handle packet in the same goroutine to avoid complexity
@@ -147,17 +150,12 @@ func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr)
 }
 
 // Shutdown gracefully stops the STUN server.
+// The caller is responsible for closing the UDP connections passed to NewServer.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down STUN server")
 
 	if s.cancel != nil {
 		s.cancel()
-	}
-
-	for _, conn := range s.conns {
-		if err := conn.Close(); err != nil {
-			s.logger.Warnf("error closing UDP connection on %s: %v", conn.LocalAddr(), err)
-		}
 	}
 
 	// Wait for all readLoops to finish

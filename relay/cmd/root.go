@@ -198,8 +198,8 @@ func execute(cmd *cobra.Command, args []string) error {
 
 	// Start STUN server if enabled
 	var stunServer *stun.Server
+	var stunListeners []*net.UDPConn
 	if cobraConfig.EnableSTUN {
-		var stunListeners []*net.UDPConn
 		for _, port := range cobraConfig.STUNPorts {
 			listener, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
 			if err != nil {
@@ -217,7 +217,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := stunServer.Listen(context.Background()); err != nil {
+			if err := stunServer.Listen(); err != nil {
 				if errors.Is(err, stun.ErrServerClosed) {
 					return
 				}
@@ -238,6 +238,12 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	if stunServer != nil {
+		// Close listeners first to unblock readLoops, then shutdown
+		for _, l := range stunListeners {
+			if err := l.Close(); err != nil {
+				shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close STUN listener: %v", err))
+			}
+		}
 		if err := stunServer.Shutdown(ctx); err != nil {
 			shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close STUN server: %v", err))
 		}
