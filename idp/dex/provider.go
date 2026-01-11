@@ -792,11 +792,12 @@ func (p *Provider) resolveRedirectURI(redirectURI string) string {
 // buildOIDCConnectorConfig creates config for OIDC-based connectors
 func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte, error) {
 	oidcConfig := map[string]interface{}{
-		"issuer":       cfg.Issuer,
-		"clientID":     cfg.ClientID,
-		"clientSecret": cfg.ClientSecret,
-		"redirectURI":  redirectURI,
-		"scopes":       []string{"openid", "profile", "email"},
+		"issuer":               cfg.Issuer,
+		"clientID":             cfg.ClientID,
+		"clientSecret":         cfg.ClientSecret,
+		"redirectURI":          redirectURI,
+		"scopes":               []string{"openid", "profile", "email"},
+		"insecureEnableGroups": true,
 	}
 	switch cfg.Type {
 	case "zitadel":
@@ -806,6 +807,8 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
 	case "okta":
 		oidcConfig["insecureSkipEmailVerified"] = true
+	case "pocketid":
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	}
 	return encodeConnectorConfig(oidcConfig)
 }
