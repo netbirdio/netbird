@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
@@ -76,6 +77,7 @@ type Server struct {
 
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
+	clientMetrics  *metrics.ClientMetrics
 
 	lastProbe           time.Time
 	persistSyncResponse bool
@@ -109,6 +111,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
+		clientMetrics:          metrics.NewClientMetrics(),
 	}
 }
 
@@ -1524,7 +1527,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, doInitialAutoUpdate bool, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
+	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate, s.clientMetrics)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 	if err := s.connectClient.Run(runningChan); err != nil {
 		return err

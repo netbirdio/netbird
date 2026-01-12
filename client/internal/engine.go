@@ -35,6 +35,7 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
@@ -211,6 +212,9 @@ type Engine struct {
 	shutdownWg sync.WaitGroup
 
 	probeStunTurn *relay.StunTurnProbe
+
+	// clientMetrics collects and pushes metrics
+	clientMetrics *metrics.ClientMetrics
 }
 
 // Peer is an instance of the Connection Peer
@@ -224,7 +228,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager, clientMetrics *metrics.ClientMetrics) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -244,6 +248,7 @@ func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signa
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		clientMetrics:  clientMetrics,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -287,6 +292,11 @@ func (e *Engine) Stop() error {
 
 	if e.updateManager != nil {
 		e.updateManager.Stop()
+	}
+
+	// Update metrics engine status
+	if e.clientMetrics != nil {
+		e.clientMetrics.SetEngineStatus(0) // 0=stopped
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -518,6 +528,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			log.Warnf("WireGuard interface monitor: %s", err)
 		}
 	}()
+
+	// Update metrics engine status
+	if e.clientMetrics != nil {
+		e.clientMetrics.SetEngineStatus(1) // 1=running
+	}
 
 	return nil
 }

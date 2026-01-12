@@ -51,6 +51,7 @@ resolved_domains.txt: Anonymized resolved domain IP addresses from the status re
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
+metrics.txt: Client metrics in Prometheus format including connection statistics, reliability metrics, and performance indicators.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
@@ -216,6 +217,11 @@ const (
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
+// MetricsExporter is an interface for exporting metrics
+type MetricsExporter interface {
+	Export(w io.Writer) error
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -224,6 +230,7 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logFile        string
+	clientMetrics  MetricsExporter
 
 	anonymize         bool
 	clientStatus      string
@@ -245,6 +252,7 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogFile        string
+	ClientMetrics  MetricsExporter
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -261,6 +269,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logFile:        deps.LogFile,
+		clientMetrics:  deps.ClientMetrics,
 
 		anonymize:         cfg.Anonymize,
 		clientStatus:      cfg.ClientStatus,
@@ -346,6 +355,10 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addCorruptedStateFiles(); err != nil {
 		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
+	}
+
+	if err := g.addMetrics(); err != nil {
+		log.Errorf("failed to add metrics to debug bundle: %v", err)
 	}
 
 	if err := g.addWgShow(); err != nil {
@@ -652,6 +665,25 @@ func (g *BundleGenerator) addStateFile() error {
 		return fmt.Errorf("add state file to zip: %w", err)
 	}
 
+	return nil
+}
+
+func (g *BundleGenerator) addMetrics() error {
+	if g.clientMetrics == nil {
+		log.Debugf("skipping metrics in debug bundle: no metrics collector")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := g.clientMetrics.Export(&buf); err != nil {
+		return fmt.Errorf("export metrics: %w", err)
+	}
+
+	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
+		return fmt.Errorf("add metrics file to zip: %w", err)
+	}
+
+	log.Debugf("added metrics to debug bundle")
 	return nil
 }
 
