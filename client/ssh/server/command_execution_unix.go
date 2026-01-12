@@ -249,11 +249,6 @@ func (s *Server) handlePtyIO(logger *log.Entry, session ssh.Session, ptyMgr *pty
 	}()
 
 	go func() {
-		defer func() {
-			if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
-				logger.Debugf("session close error: %v", err)
-			}
-		}()
 		if _, err := io.Copy(session, ptmx); err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.EIO) {
 				logger.Warnf("Pty output copy error: %v", err)
@@ -273,7 +268,7 @@ func (s *Server) waitForPtyCompletion(logger *log.Entry, session ssh.Session, ex
 	case <-ctx.Done():
 		s.handlePtySessionCancellation(logger, session, execCmd, ptyMgr, done)
 	case err := <-done:
-		s.handlePtyCommandCompletion(logger, session, err)
+		s.handlePtyCommandCompletion(logger, session, ptyMgr, err)
 	}
 }
 
@@ -301,17 +296,20 @@ func (s *Server) handlePtySessionCancellation(logger *log.Entry, session ssh.Ses
 	}
 }
 
-func (s *Server) handlePtyCommandCompletion(logger *log.Entry, session ssh.Session, err error) {
+func (s *Server) handlePtyCommandCompletion(logger *log.Entry, session ssh.Session, ptyMgr *ptyManager, err error) {
 	if err != nil {
 		logger.Debugf("Pty command execution failed: %v", err)
 		s.handleSessionExit(session, err, logger)
-		return
+	} else {
+		logger.Debugf("Pty command completed successfully")
+		if err := session.Exit(0); err != nil {
+			logSessionExitError(logger, err)
+		}
 	}
 
-	// Normal completion
-	logger.Debugf("Pty command completed successfully")
-	if err := session.Exit(0); err != nil {
-		logSessionExitError(logger, err)
+	// Close PTY to unblock io.Copy goroutines
+	if err := ptyMgr.Close(); err != nil {
+		logger.Debugf("Pty close after completion: %v", err)
 	}
 }
 

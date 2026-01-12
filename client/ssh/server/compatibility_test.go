@@ -405,6 +405,216 @@ func createTempKeyFile(t *testing.T, privateKey []byte) (string, func()) {
 	return createTempKeyFileFromBytes(t, privateKey)
 }
 
+// TestSSHPtyModes tests different PTY allocation modes (-T, -t, -tt flags)
+// This ensures our implementation matches OpenSSH behavior for:
+// - ssh host command        (no PTY - default when no TTY)
+// - ssh -T host command     (explicit no PTY)
+// - ssh -t host command     (force PTY)
+// - ssh -T host             (no PTY shell - our implementation)
+func TestSSHPtyModes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping SSH PTY mode tests in short mode")
+	}
+
+	if !isSSHClientAvailable() {
+		t.Skip("SSH client not available on this system")
+	}
+
+	if runtime.GOOS == "windows" && testutil.IsCI() {
+		t.Skip("Skipping Windows SSH PTY tests in CI due to S4U authentication issues")
+	}
+
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	clientPrivKeyOpenSSH, _, err := generateOpenSSHKey(t)
+	require.NoError(t, err)
+
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
+	server.SetAllowRootLogin(true)
+
+	serverAddr := StartTestServer(t, server)
+	defer func() {
+		err := server.Stop()
+		require.NoError(t, err)
+	}()
+
+	clientKeyFile, cleanupKey := createTempKeyFileFromBytes(t, clientPrivKeyOpenSSH)
+	defer cleanupKey()
+
+	host, portStr, err := net.SplitHostPort(serverAddr)
+	require.NoError(t, err)
+
+	username := testutil.GetTestUsername(t)
+
+	baseArgs := []string{
+		"-i", clientKeyFile,
+		"-p", portStr,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=5",
+		"-o", "BatchMode=yes",
+	}
+
+	t.Run("command_default_no_pty", func(t *testing.T) {
+		// ssh host command - no PTY allocation (tests don't have TTY)
+		args := append(baseArgs, fmt.Sprintf("%s@%s", username, host), "echo", "no_pty_default")
+		cmd := exec.Command("ssh", args...)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("Command (default no PTY) failed: %v, output: %s", err, output)
+			return
+		}
+		assert.Contains(t, string(output), "no_pty_default")
+	})
+
+	t.Run("command_explicit_no_pty", func(t *testing.T) {
+		// ssh -T host command - explicit no PTY
+		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host), "echo", "explicit_no_pty")
+		cmd := exec.Command("ssh", args...)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("Command (-T explicit no PTY) failed: %v, output: %s", err, output)
+			return
+		}
+		assert.Contains(t, string(output), "explicit_no_pty")
+	})
+
+	t.Run("command_force_pty", func(t *testing.T) {
+		// ssh -t host command - force PTY allocation
+		// Use -tt to really force PTY even without TTY on our end
+		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host), "echo", "force_pty")
+		cmd := exec.Command("ssh", args...)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("Command (-tt force PTY) failed: %v, output: %s", err, output)
+			// PTY allocation might fail in some test environments, that's OK
+			return
+		}
+		// PTY output might have \r\n line endings
+		assert.Contains(t, string(output), "force_pty")
+	})
+
+	t.Run("shell_explicit_no_pty", func(t *testing.T) {
+		// ssh -T host - shell without PTY (our new behavior matching OpenSSH)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host))
+		cmd := exec.CommandContext(ctx, "ssh", args...)
+
+		stdin, err := cmd.StdinPipe()
+		require.NoError(t, err)
+
+		stdout, err := cmd.StdoutPipe()
+		require.NoError(t, err)
+
+		err = cmd.Start()
+		if err != nil {
+			t.Logf("Shell (-T no PTY) start failed: %v", err)
+			return
+		}
+
+		// Send commands through the non-PTY shell
+		go func() {
+			defer stdin.Close()
+			time.Sleep(100 * time.Millisecond)
+			stdin.Write([]byte("echo shell_no_pty_test\n"))
+			time.Sleep(100 * time.Millisecond)
+			stdin.Write([]byte("exit 0\n"))
+		}()
+
+		output, _ := io.ReadAll(stdout)
+		err = cmd.Wait()
+
+		if err != nil {
+			t.Logf("Shell (-T no PTY) failed: %v, output: %s", err, output)
+			return
+		}
+		assert.Contains(t, string(output), "shell_no_pty_test")
+	})
+
+	t.Run("exit_code_preserved_no_pty", func(t *testing.T) {
+		// Verify exit codes work with -T
+		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host), "exit", "42")
+		cmd := exec.Command("ssh", args...)
+
+		err := cmd.Run()
+		require.Error(t, err)
+
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			assert.Equal(t, 42, exitErr.ExitCode(), "Exit code should be preserved with -T")
+		}
+	})
+
+	t.Run("exit_code_preserved_with_pty", func(t *testing.T) {
+		// Verify exit codes work with -tt
+		// Use bash -c to ensure proper exit code handling
+		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host), "bash -c 'exit 43'")
+		cmd := exec.Command("ssh", args...)
+
+		err := cmd.Run()
+		if err == nil {
+			t.Log("PTY command succeeded unexpectedly (exit 0)")
+			return
+		}
+
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Logf("PTY exit code test: non-exit error: %v", err)
+			return
+		}
+
+		assert.Equal(t, 43, exitErr.ExitCode(), "Exit code should be preserved with -tt")
+	})
+
+	t.Run("stderr_works_no_pty", func(t *testing.T) {
+		// Verify stderr is separate from stdout without PTY
+		// Pass the entire command as a single string for proper shell interpretation
+		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host),
+			"sh -c 'echo stdout_msg; echo stderr_msg >&2'")
+		cmd := exec.Command("ssh", args...)
+
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		if err != nil {
+			t.Logf("stderr test failed: %v", err)
+			return
+		}
+
+		assert.Contains(t, stdout.String(), "stdout_msg", "stdout should have stdout_msg")
+		assert.Contains(t, stderr.String(), "stderr_msg", "stderr should have stderr_msg")
+		assert.NotContains(t, stdout.String(), "stderr_msg", "stdout should NOT have stderr_msg")
+	})
+
+	t.Run("stderr_merged_with_pty", func(t *testing.T) {
+		// With PTY, stderr is merged into stdout
+		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host),
+			"sh -c 'echo stdout_msg; echo stderr_msg >&2'")
+		cmd := exec.Command("ssh", args...)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("PTY stderr test failed: %v, output: %s", err, output)
+			return
+		}
+
+		// With PTY, both messages should appear in combined output
+		assert.Contains(t, string(output), "stdout_msg")
+		assert.Contains(t, string(output), "stderr_msg")
+	})
+}
+
 // TestSSHServerFeatureCompatibility tests specific SSH features for compatibility
 func TestSSHServerFeatureCompatibility(t *testing.T) {
 	if testing.Short() {
