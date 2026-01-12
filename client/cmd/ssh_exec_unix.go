@@ -52,7 +52,7 @@ func init() {
 
 // runSSHExec handles the SSH exec subcommand execution.
 func runSSHExec(cmd *cobra.Command, _ []string) error {
-	privilegeDropper := sshserver.NewPrivilegeDropper()
+	privilegeDropper := sshserver.NewPrivilegeDropper(nil)
 
 	var groups []uint32
 	for _, groupInt := range sshExecGroups {

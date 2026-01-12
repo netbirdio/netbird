@@ -99,24 +99,29 @@ func (s *Server) detectUtilLinuxLogin(ctx context.Context) bool {
 	return isUtilLinux
 }
 
-// createSuCommand creates a command using su -l -c for privilege switching
-func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+// createSuCommand creates a command using su -l for privilege switching
+func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+	if err := validateUsername(localUser.Username); err != nil {
+		return nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
+	}
+
 	suPath, err := exec.LookPath("su")
 	if err != nil {
 		return nil, fmt.Errorf("su command not available: %w", err)
-	}
-
-	command := session.RawCommand()
-	if command == "" {
-		return nil, fmt.Errorf("no command specified for su execution")
 	}
 
 	args := []string{"-l"}
 	if hasPty && s.suSupportsPty {
 		args = append(args, "--pty")
 	}
-	args = append(args, localUser.Username, "-c", command)
+	args = append(args, localUser.Username)
 
+	command := session.RawCommand()
+	if command != "" {
+		args = append(args, "-c", command)
+	}
+
+	logger.Debugf("creating su command: %s %v", suPath, args)
 	cmd := exec.CommandContext(session.Context(), suPath, args...)
 	cmd.Dir = localUser.HomeDir
 
@@ -132,7 +137,7 @@ func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
 }
 
 // prepareCommandEnv prepares environment variables for command execution on Unix
-func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []string {
+func (s *Server) prepareCommandEnv(_ *log.Entry, localUser *user.User, session ssh.Session) []string {
 	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
 	env = append(env, prepareSSHEnv(session)...)
 	for _, v := range session.Environ() {
@@ -154,7 +159,7 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, e
 	return s.runPtyCommand(logger, session, execCmd, ptyReq, winCh)
 }
 
-func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	execCmd, err := s.createPtyCommand(privilegeResult, ptyReq, session)
 	if err != nil {
 		logger.Errorf("Pty command creation failed: %v", err)

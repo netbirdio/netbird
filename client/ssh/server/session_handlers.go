@@ -62,42 +62,12 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	ptyReq, winCh, isPty := session.Pty()
 	hasCommand := len(session.Command()) > 0
 
-	switch {
-	case isPty && hasCommand:
-		// ssh -t <host> <cmd> - Pty command execution
-		s.handleCommand(logger, session, privilegeResult, winCh)
-	case isPty:
-		// ssh <host> - Pty interactive session (login)
-		s.handlePty(logger, session, privilegeResult, ptyReq, winCh)
-	case hasCommand:
-		// ssh <host> <cmd> - non-Pty command execution
-		s.handleCommand(logger, session, privilegeResult, nil)
-	default:
-		// ssh -T (or ssh -N) - no PTY, no command
-		s.handleNonInteractiveSession(logger, session)
-	}
-}
-
-// handleNonInteractiveSession handles sessions that have no PTY and no command.
-// These are typically used for port forwarding (ssh -L/-R) or tunneling (ssh -N).
-func (s *Server) handleNonInteractiveSession(logger *log.Entry, session ssh.Session) {
-	s.updateSessionType(session, cmdNonInteractive)
-
-	if !s.isPortForwardingEnabled() {
-		if _, err := io.WriteString(session, "port forwarding is disabled on this server\n"); err != nil {
-			logger.Debugf(errWriteSession, err)
-		}
-		if err := session.Exit(1); err != nil {
-			logSessionExitError(logger, err)
-		}
-		logger.Infof("rejected non-interactive session: port forwarding disabled")
-		return
-	}
-
-	<-session.Context().Done()
-
-	if err := session.Exit(0); err != nil {
-		logSessionExitError(logger, err)
+	if isPty && !hasCommand {
+		// ssh <host> - PTY interactive session (login)
+		s.handlePtyLogin(logger, session, privilegeResult, ptyReq, winCh)
+	} else {
+		// ssh <host> <cmd>, ssh -t <host> <cmd>, ssh -T <host> - command or shell execution
+		s.handleExecution(logger, session, privilegeResult, ptyReq, winCh)
 	}
 }
 
