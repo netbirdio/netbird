@@ -58,6 +58,25 @@ func (c Config) Validate() error {
 	if c.AuthSecret == "" {
 		return fmt.Errorf("auth secret is required")
 	}
+
+	// Validate STUN configuration
+	if c.EnableSTUN {
+		if len(c.STUNPorts) == 0 {
+			return fmt.Errorf("--stun-ports is required when --enable-stun is set")
+		}
+
+		seen := make(map[int]bool)
+		for _, port := range c.STUNPorts {
+			if port <= 0 || port > 65535 {
+				return fmt.Errorf("invalid STUN port %d: must be between 1 and 65535", port)
+			}
+			if seen[port] {
+				return fmt.Errorf("duplicate STUN port %d", port)
+			}
+			seen[port] = true
+		}
+	}
+
 	return nil
 }
 
@@ -257,13 +276,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	if stunServer != nil {
-		// Close listeners first to unblock readLoops, then shutdown
-		for _, l := range stunListeners {
-			if err := l.Close(); err != nil {
-				shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close STUN listener: %v", err))
-			}
-		}
-		if err := stunServer.Shutdown(ctx); err != nil {
+		if err := stunServer.Shutdown(); err != nil {
 			shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close STUN server: %v", err))
 		}
 	}

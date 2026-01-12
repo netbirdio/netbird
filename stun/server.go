@@ -4,9 +4,12 @@ package stun
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/formatter"
@@ -39,6 +42,10 @@ func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 		level = log.InfoLevel
 	}
 
+	if conns == nil {
+		panic(ErrNoListeners)
+	}
+
 	// Create a separate logger with its own level setting
 	// This allows --stun-log-level to work independently of --log-level
 	stunLogger := log.New()
@@ -65,14 +72,11 @@ func (s *Server) Listen() error {
 		return ErrNoListeners
 	}
 
-	var ctx context.Context
-	ctx, s.cancel = context.WithCancel(context.Background())
-
 	// Start a read loop for each listener
 	for _, conn := range s.conns {
 		s.logger.Infof("STUN server listening on %s", conn.LocalAddr())
 		s.wg.Add(1)
-		go s.readLoop(ctx, conn)
+		go s.readLoop(conn)
 	}
 
 	s.wg.Wait()
@@ -80,19 +84,11 @@ func (s *Server) Listen() error {
 }
 
 // readLoop continuously reads UDP packets and handles STUN requests.
-func (s *Server) readLoop(ctx context.Context, conn *net.UDPConn) {
+func (s *Server) readLoop(conn *net.UDPConn) {
 	defer s.wg.Done()
 	buf := make([]byte, 1500) // Standard MTU size
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
-
-		// Check if we're shutting down
-		select {
-		case <-ctx.Done():
-			s.logger.Info("shutting down read loop")
-			return
-		default:
-		}
 
 		if err != nil {
 			// Check if the connection was closed externally
@@ -164,25 +160,18 @@ func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr)
 
 // Shutdown gracefully stops the STUN server.
 // The caller is responsible for closing the UDP connections passed to NewServer.
-func (s *Server) Shutdown(ctx context.Context) error {
+func (s *Server) Shutdown() error {
 	s.logger.Info("shutting down STUN server")
 
-	if s.cancel != nil {
-		s.cancel()
+	var merr *multierror.Error
+
+	for _, conn := range s.conns {
+		if err := conn.Close(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("close STUN UDP connection: %w", err))
+		}
 	}
 
 	// Wait for all readLoops to finish
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		s.logger.Info("STUN server stopped")
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	s.wg.Wait()
+	return nberrors.FormatErrorOrNil(merr)
 }
