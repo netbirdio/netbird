@@ -128,20 +128,13 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize log: %s", err)
 	}
 
+	// === Resource creation phase (fail fast before starting any goroutines) ===
+
 	metricsServer, err := metrics.NewServer(cobraConfig.MetricsPort, "")
 	if err != nil {
 		log.Debugf("setup metrics: %v", err)
 		return fmt.Errorf("setup metrics: %v", err)
 	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
-		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Failed to start metrics server: %v", err)
-		}
-	}()
 
 	srvListenerCfg := server.ListenerConfig{
 		Address: cobraConfig.ListenAddress,
@@ -154,50 +147,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 	srvListenerCfg.TLSConfig = tlsConfig
 
-	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
-	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
-
-	cfg := server.Config{
-		Meter:          metricsServer.Meter,
-		ExposedAddress: cobraConfig.ExposedAddress,
-		AuthValidator:  authenticator,
-		TLSSupport:     tlsSupport,
-	}
-
-	srv, err := server.NewServer(cfg)
-	if err != nil {
-		log.Debugf("failed to create relay server: %v", err)
-		return fmt.Errorf("failed to create relay server: %v", err)
-	}
-	instanceURL := srv.InstanceURL()
-	log.Infof("server will be available on: %s", instanceURL.String())
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := srv.Listen(srvListenerCfg); err != nil {
-			log.Fatalf("failed to bind server: %s", err)
-		}
-	}()
-
-	hCfg := healthcheck.Config{
-		ListenAddress:  cobraConfig.HealthcheckListenAddress,
-		ServiceChecker: srv,
-	}
-	httpHealthcheck, err := healthcheck.NewServer(hCfg)
-	if err != nil {
-		log.Debugf("failed to create healthcheck server: %v", err)
-		return fmt.Errorf("failed to create healthcheck server: %v", err)
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Failed to start healthcheck server: %v", err)
-		}
-	}()
-
-	// Start STUN server if enabled
-	var stunServer *stun.Server
+	// Create STUN listeners early to fail fast
 	var stunListeners []*net.UDPConn
 	if cobraConfig.EnableSTUN {
 		for _, port := range cobraConfig.STUNPorts {
@@ -212,8 +162,77 @@ func execute(cmd *cobra.Command, args []string) error {
 			}
 			stunListeners = append(stunListeners, listener)
 		}
+	}
 
+	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+
+	cfg := server.Config{
+		Meter:          metricsServer.Meter,
+		ExposedAddress: cobraConfig.ExposedAddress,
+		AuthValidator:  authenticator,
+		TLSSupport:     tlsSupport,
+	}
+
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		// Clean up STUN listeners on failure
+		for _, l := range stunListeners {
+			_ = l.Close()
+		}
+		log.Debugf("failed to create relay server: %v", err)
+		return fmt.Errorf("failed to create relay server: %v", err)
+	}
+
+	hCfg := healthcheck.Config{
+		ListenAddress:  cobraConfig.HealthcheckListenAddress,
+		ServiceChecker: srv,
+	}
+	httpHealthcheck, err := healthcheck.NewServer(hCfg)
+	if err != nil {
+		// Clean up STUN listeners on failure
+		for _, l := range stunListeners {
+			_ = l.Close()
+		}
+		log.Debugf("failed to create healthcheck server: %v", err)
+		return fmt.Errorf("failed to create healthcheck server: %v", err)
+	}
+
+	var stunServer *stun.Server
+	if len(stunListeners) > 0 {
 		stunServer = stun.NewServer(stunListeners, cobraConfig.STUNLogLevel)
+	}
+
+	// === Start all servers (only after all resources are successfully created) ===
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
+		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Failed to start metrics server: %v", err)
+		}
+	}()
+
+	instanceURL := srv.InstanceURL()
+	log.Infof("server will be available on: %s", instanceURL.String())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := srv.Listen(srvListenerCfg); err != nil {
+			log.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Failed to start healthcheck server: %v", err)
+		}
+	}()
+
+	if stunServer != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

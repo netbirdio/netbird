@@ -87,6 +87,11 @@ func (s *Server) readLoop(ctx context.Context, conn *net.UDPConn) {
 		}
 
 		if err != nil {
+			// Check if the connection was closed externally
+			if errors.Is(err, net.ErrClosed) {
+				s.logger.Info("UDP connection closed, stopping read loop")
+				return
+			}
 			s.logger.Warnf("failed to read UDP packet: %v", err)
 			continue
 		}
