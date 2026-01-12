@@ -71,18 +71,6 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	}
 }
 
-func (s *Server) updateSessionType(session ssh.Session, sessionType string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, state := range s.sessions {
-		if state.session == session {
-			state.sessionType = sessionType
-			return
-		}
-	}
-}
-
 func (s *Server) registerSession(session ssh.Session, sessionType string) sessionKey {
 	sessionID := session.Context().Value(ssh.ContextKeySessionID)
 	if sessionID == nil {
