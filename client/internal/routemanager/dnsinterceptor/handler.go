@@ -325,6 +325,10 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 		return fmt.Errorf("received nil DNS message")
 	}
 
+	// Clear Zero bit from peer responses to prevent external sources from
+	// manipulating our internal fallthrough signaling mechanism
+	r.MsgHdr.Zero = false
+
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
 		origPattern := ""
 		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {

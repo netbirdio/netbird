@@ -1251,11 +1251,16 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 		ForwarderPort:    forwarderPort,
 	}
 
-	for _, zone := range protoDNSConfig.GetCustomZones() {
+	protoZones := protoDNSConfig.GetCustomZones()
+	// Treat single zone as authoritative for backward compatibility with old servers
+	// that only send the peer FQDN zone without setting field 4.
+	singleZoneCompat := len(protoZones) == 1
+
+	for _, zone := range protoZones {
 		dnsZone := nbdns.CustomZone{
 			Domain:               zone.GetDomain(),
 			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
-			SkipPTRProcess:       zone.GetSkipPTRProcess(),
+			NonAuthoritative:     zone.GetNonAuthoritative() && !singleZoneCompat,
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{

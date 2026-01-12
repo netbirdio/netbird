@@ -128,7 +128,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	testCases := []struct {
 		name                string
 		initUpstreamMap     registeredHandlerMap
-		initLocalRecords    []nbdns.SimpleRecord
+		initLocalZones      []nbdns.CustomZone
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
@@ -181,7 +181,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "New Config Should Succeed",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   "netbird.cloud",
@@ -222,7 +222,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Smaller Config Serial Should Be Skipped",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       2,
 			inputSerial:      1,
@@ -230,7 +230,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -252,7 +252,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Invalid NS Group Nameservers list Should Fail",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -274,7 +274,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Invalid Custom Zone Records list Should Skip",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -300,7 +300,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Empty Config Should Succeed and Clean Maps",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -316,7 +316,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Disabled Service Should clean map",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -385,7 +385,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.Update(testCase.initLocalRecords, nil)
+			dnsServer.localResolver.Update(testCase.initLocalZones)
 			dnsServer.updateSerial = testCase.initSerial
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -510,8 +510,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 			priority: PriorityUpstream,
 		},
 	}
-	//dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
-	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}, nil)
+	dnsServer.localResolver.Update([]nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}})
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -2013,7 +2012,7 @@ func TestLocalResolverPriorityInServer(t *testing.T) {
 		},
 	}
 
-	localMuxUpdates, _, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
+	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 
 	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups)
@@ -2074,7 +2073,7 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 		},
 	}
 
-	localMuxUpdates, _, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
+	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 	assert.Len(t, localMuxUpdates, 1)
 	assert.Equal(t, PriorityLocal, localMuxUpdates[0].priority, "Local handler should use PriorityLocal")
