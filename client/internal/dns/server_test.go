@@ -385,7 +385,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.Update(testCase.initLocalRecords)
+			dnsServer.localResolver.Update(testCase.initLocalRecords, nil)
 			dnsServer.updateSerial = testCase.initSerial
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -511,7 +511,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		},
 	}
 	//dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
-	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}})
+	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}, nil)
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -2013,7 +2013,7 @@ func TestLocalResolverPriorityInServer(t *testing.T) {
 		},
 	}
 
-	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
+	localMuxUpdates, _, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 
 	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups)
@@ -2074,7 +2074,7 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 		},
 	}
 
-	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
+	localMuxUpdates, _, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 	assert.Len(t, localMuxUpdates, 1)
 	assert.Equal(t, PriorityLocal, localMuxUpdates[0].priority, "Local handler should use PriorityLocal")
