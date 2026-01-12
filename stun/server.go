@@ -42,10 +42,6 @@ func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 		level = log.InfoLevel
 	}
 
-	if conns == nil {
-		panic(ErrNoListeners)
-	}
-
 	// Create a separate logger with its own level setting
 	// This allows --stun-log-level to work independently of --log-level
 	stunLogger := log.New()
