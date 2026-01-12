@@ -155,7 +155,6 @@ func (s *Server) handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr)
 }
 
 // Shutdown gracefully stops the STUN server.
-// The caller is responsible for closing the UDP connections passed to NewServer.
 func (s *Server) Shutdown() error {
 	s.logger.Info("shutting down STUN server")
 
