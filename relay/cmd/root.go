@@ -182,7 +182,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		TLSSupport:     tlsSupport,
 	}
 
-	srv, err := createRelayServer(err, cfg, stunListeners)
+	srv, err := createRelayServer(cfg, stunListeners)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		ListenAddress:  cobraConfig.HealthcheckListenAddress,
 		ServiceChecker: srv,
 	}
-	httpHealthcheck, err := createHealthCheck(err, hCfg, stunListeners)
+	httpHealthcheck, err := createHealthCheck(hCfg, stunListeners)
 	if err != nil {
 		return err
 	}
@@ -281,7 +281,7 @@ func shutdownServers(ctx context.Context, metricsServer *metrics.Metrics, srv *s
 	return errs
 }
 
-func createHealthCheck(err error, hCfg healthcheck.Config, stunListeners []*net.UDPConn) (*healthcheck.Server, error) {
+func createHealthCheck(hCfg healthcheck.Config, stunListeners []*net.UDPConn) (*healthcheck.Server, error) {
 	httpHealthcheck, err := healthcheck.NewServer(hCfg)
 	if err != nil {
 		cleanupSTUNListeners(stunListeners)
@@ -291,7 +291,7 @@ func createHealthCheck(err error, hCfg healthcheck.Config, stunListeners []*net.
 	return httpHealthcheck, nil
 }
 
-func createRelayServer(err error, cfg server.Config, stunListeners []*net.UDPConn) (*server.Server, error) {
+func createRelayServer(cfg server.Config, stunListeners []*net.UDPConn) (*server.Server, error) {
 	srv, err := server.NewServer(cfg)
 	if err != nil {
 		cleanupSTUNListeners(stunListeners)
