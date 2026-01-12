@@ -429,9 +429,13 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
 	}
 
+	audience := config.AuthAudience
+	if config.CLIAuthAudience != "" {
+		audience = config.CLIAuthAudience
+	}
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     config.AuthAudience,
+		Audience:     audience,
 		KeysLocation: keysLocation,
 	}
 }

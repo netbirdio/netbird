@@ -57,6 +57,10 @@ type Config struct {
 
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
+
+	// EmbeddedIdP contains configuration for the embedded Dex OIDC provider.
+	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
+	EmbeddedIdP *idp.EmbeddedIdPConfig
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -98,6 +102,9 @@ type HttpServerConfig struct {
 	CertKey string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
+	// CLIAuthAudience identifies the client app recipients that the JWT is intended for (aud in JWT)
+	// Used only in conjunction with EmbeddedIdP
+	CLIAuthAudience string
 	// AuthIssuer identifies principal that issued the JWT
 	AuthIssuer string
 	// AuthUserIDClaim is the name of the claim that used as user ID

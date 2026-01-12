@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -204,6 +205,9 @@ type Store interface {
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
+
+	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+	SetFieldEncrypt(enc *crypt.FieldEncrypt)
 	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
 }
 
@@ -340,8 +344,19 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "name", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "email", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
 	}
-} // migratePostAuto migrates the SQLite database to the latest schema
+}
+
+// migratePostAuto migrates the SQLite database to the latest schema
 func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 	migrations := getMigrationsPostAuto(ctx)
 
@@ -370,6 +385,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 					PeerID:    value,
 				}
 			})
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
 	}
 }

@@ -18,6 +18,15 @@ type UserAuth struct {
 
 	// The user id
 	UserId string
+	// The user's email address
+	// (optional, may be empty if not in token, make sure to set getUserInfo: true in Dex to have this field)
+	Email string
+	// The user's name
+	// (optional, may be empty if not in token, make sure to set getUserInfo: true in Dex to have this field)
+	Name string
+	// The user's preferred name
+	// (optional, may be empty if not in token, make sure to set getUserInfo: true in Dex to have this field)
+	PreferredName string
 	// Last login time for this user
 	LastLogin time.Time
 	// The Groups the user belongs to on this account
