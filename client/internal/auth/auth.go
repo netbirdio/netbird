@@ -297,23 +297,7 @@ func (a *Auth) doMgmLogin(ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, 
 	}
 
 	sysInfo := system.GetInfo(ctx)
-	sysInfo.SetFlags(
-		a.config.RosenpassEnabled,
-		a.config.RosenpassPermissive,
-		a.config.ServerSSHAllowed,
-		a.config.DisableClientRoutes,
-		a.config.DisableServerRoutes,
-		a.config.DisableDNS,
-		a.config.DisableFirewall,
-		a.config.BlockLANAccess,
-		a.config.BlockInbound,
-		a.config.LazyConnectionEnabled,
-		a.config.EnableSSHRoot,
-		a.config.EnableSSHSFTP,
-		a.config.EnableSSHLocalPortForwarding,
-		a.config.EnableSSHRemotePortForwarding,
-		a.config.DisableSSHAuth,
-	)
+	a.setSystemInfoFlags(sysInfo)
 	loginResp, err := a.client.Login(*serverKey, sysInfo, pubSSHKey, a.config.DNSLabels)
 	return serverKey, loginResp, err
 }
@@ -334,6 +318,20 @@ func (a *Auth) registerPeer(ctx context.Context, setupKey string, jwtToken strin
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
+	a.setSystemInfoFlags(info)
+	loginResp, err := a.client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
+	if err != nil {
+		log.Errorf("failed registering peer %v", err)
+		return nil, err
+	}
+
+	log.Infof("peer has been successfully registered on Management Service")
+
+	return loginResp, nil
+}
+
+// setSystemInfoFlags sets all configuration flags on the provided system info
+func (a *Auth) setSystemInfoFlags(info *system.Info) {
 	info.SetFlags(
 		a.config.RosenpassEnabled,
 		a.config.RosenpassPermissive,
@@ -351,15 +349,6 @@ func (a *Auth) registerPeer(ctx context.Context, setupKey string, jwtToken strin
 		a.config.EnableSSHRemotePortForwarding,
 		a.config.DisableSSHAuth,
 	)
-	loginResp, err := a.client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
-	if err != nil {
-		log.Errorf("failed registering peer %v", err)
-		return nil, err
-	}
-
-	log.Infof("peer has been successfully registered on Management Service")
-
-	return loginResp, nil
 }
 
 // reconnect closes the current connection and creates a new one
