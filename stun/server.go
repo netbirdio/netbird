@@ -161,6 +161,7 @@ func (s *Server) Shutdown() error {
 	var merr *multierror.Error
 
 	for _, conn := range s.conns {
+
 		if err := conn.Close(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("close STUN UDP connection: %w", err))
 		}

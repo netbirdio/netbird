@@ -1,7 +1,6 @@
 package stun
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -118,9 +117,7 @@ func TestServer_BindingRequest(t *testing.T) {
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
-	err = server.Shutdown(shutdownCtx)
+	err = server.Shutdown()
 	require.NoError(t, err)
 }
 
@@ -149,9 +146,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
-	_ = server.Shutdown(shutdownCtx)
+	_ = server.Shutdown()
 }
 
 func TestServer_Shutdown(t *testing.T) {
@@ -168,10 +163,8 @@ func TestServer_Shutdown(t *testing.T) {
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
 
-	err := server.Shutdown(shutdownCtx)
+	err := server.Shutdown()
 	require.NoError(t, err)
 
 	// Wait for Listen to return
@@ -219,9 +212,7 @@ func TestServer_MultipleRequests(t *testing.T) {
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
-	_ = server.Shutdown(shutdownCtx)
+	_ = server.Shutdown()
 }
 
 func TestServer_ConcurrentClients(t *testing.T) {
@@ -357,9 +348,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 	if server != nil {
 		// Close listener first to unblock readLoop, then shutdown
 		_ = listener.Close()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer shutdownCancel()
-		_ = server.Shutdown(shutdownCtx)
+		_ = server.Shutdown()
 	}
 }
 
@@ -417,9 +406,7 @@ func TestServer_MultiplePorts(t *testing.T) {
 	// Close listeners first to unblock readLoops, then shutdown
 	_ = conn1.Close()
 	_ = conn2.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
-	_ = server.Shutdown(shutdownCtx)
+	_ = server.Shutdown()
 }
 
 // BenchmarkSTUNServer benchmarks the STUN server with concurrent clients
@@ -486,7 +473,5 @@ func BenchmarkSTUNServer(b *testing.B) {
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer shutdownCancel()
-	_ = server.Shutdown(shutdownCtx)
+	_ = server.Shutdown()
 }
