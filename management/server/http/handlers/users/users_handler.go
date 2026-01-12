@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -192,6 +193,10 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
+	start := time.Now()
+	defer func() {
+		log.WithContext(r.Context()).Trace("GET /users took ", time.Since(start))
+	}()
 
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
