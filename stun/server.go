@@ -2,7 +2,6 @@
 package stun
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -29,8 +28,7 @@ type Server struct {
 	logger   *log.Entry
 	logLevel log.Level
 
-	wg     sync.WaitGroup
-	cancel context.CancelFunc
+	wg sync.WaitGroup
 }
 
 // NewServer creates a new STUN server with the given UDP listeners.
@@ -161,8 +159,7 @@ func (s *Server) Shutdown() error {
 	var merr *multierror.Error
 
 	for _, conn := range s.conns {
-
-		if err := conn.Close(); err != nil {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			merr = multierror.Append(merr, fmt.Errorf("close STUN UDP connection: %w", err))
 		}
 	}
