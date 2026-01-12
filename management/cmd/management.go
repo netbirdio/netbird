@@ -143,7 +143,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 	applyCommandLineOverrides(loadedConfig)
 
 	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
-	err := applyEmbeddedIdPConfig(loadedConfig)
+	err := applyEmbeddedIdPConfig(ctx, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func applyCommandLineOverrides(cfg *nbconfig.Config) {
 
 // applyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
 // This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
-func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
+func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
 		return nil
 	}
@@ -193,11 +193,6 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 	// Set LocalAddress for embedded IdP if enabled, used for internal JWT validation
 	cfg.EmbeddedIdP.LocalAddress = fmt.Sprintf("localhost:%d", mgmtPort)
 
-	// Ensure HttpConfig exists
-	if cfg.HttpConfig == nil {
-		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
-	}
-
 	// Set storage defaults based on Datadir
 	if cfg.EmbeddedIdP.Storage.Type == "" {
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
@@ -208,40 +203,22 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 
 	issuer := cfg.EmbeddedIdP.Issuer
 
-	// Set AuthIssuer from EmbeddedIdP issuer
-	if cfg.HttpConfig.AuthIssuer == "" {
-		cfg.HttpConfig.AuthIssuer = issuer
+	if cfg.HttpConfig != nil {
+		log.WithContext(ctx).Warnf("overriding HttpConfig with EmbeddedIdP config. " +
+			"HttpConfig is ignored when EmbeddedIdP is enabled. Please remove HttpConfig section from the config file")
+	} else {
+		// Ensure HttpConfig exists. We need it for backwards compatibility with the old config format.
+		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
 	}
 
-	// Set AuthAudience to the dashboard client ID
-	if cfg.HttpConfig.AuthAudience == "" {
-		cfg.HttpConfig.AuthAudience = "netbird-dashboard"
-	}
-
-	// Set CLIAuthAudience to the client app client ID
-	if cfg.HttpConfig.CLIAuthAudience == "" {
-		cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
-	}
-
-	// Set AuthUserIDClaim to "sub" (standard OIDC claim)
-	if cfg.HttpConfig.AuthUserIDClaim == "" {
-		cfg.HttpConfig.AuthUserIDClaim = "sub"
-	}
-
-	// Set AuthKeysLocation to the JWKS endpoint
-	if cfg.HttpConfig.AuthKeysLocation == "" {
-		cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
-	}
-
-	// Set OIDCConfigEndpoint to the discovery endpoint
-	if cfg.HttpConfig.OIDCConfigEndpoint == "" {
-		cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
-	}
-
-	// Copy SignKeyRefreshEnabled from EmbeddedIdP config
-	if cfg.EmbeddedIdP.SignKeyRefreshEnabled {
-		cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
-	}
+	// Set HttpConfig values from EmbeddedIdP
+	cfg.HttpConfig.AuthIssuer = issuer
+	cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
+	cfg.HttpConfig.AuthUserIDClaim = "sub"
+	cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
+	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
+	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
 
 	return nil
 }
@@ -249,7 +226,12 @@ func applyEmbeddedIdPConfig(cfg *nbconfig.Config) error {
 // applyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
 func applyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	oidcEndpoint := cfg.HttpConfig.OIDCConfigEndpoint
-	if oidcEndpoint == "" || cfg.EmbeddedIdP != nil {
+	if oidcEndpoint == "" {
+		return nil
+	}
+
+	if cfg.EmbeddedIdP != nil && cfg.EmbeddedIdP.Enabled {
+		// skip OIDC config fetching if EmbeddedIdP is enabled as it is unnecessary given it is embedded
 		return nil
 	}
 

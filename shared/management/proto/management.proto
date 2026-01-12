@@ -464,7 +464,9 @@ message CustomZone {
   string Domain = 1;
   repeated SimpleRecord Records = 2;
   bool SearchDomainDisabled = 3;
-  bool SkipPTRProcess = 4;
+  // NonAuthoritative indicates this is a user-created zone (not the built-in peer DNS zone).
+  // Non-authoritative zones will fallthrough to lower-priority handlers on NXDOMAIN and skip PTR processing.
+  bool NonAuthoritative = 4;
 }
 
 // SimpleRecord represents a dns.SimpleRecord
