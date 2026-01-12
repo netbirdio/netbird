@@ -348,9 +348,9 @@ delete_default_zitadel_admin() {
         ]
       }'
   )
-  
+
   DEFAULT_ADMIN_ID=$(echo "$RESPONSE" | jq -r '.result[0].id // empty')
-  
+
   if [ -n "$DEFAULT_ADMIN_ID" ] && [ "$DEFAULT_ADMIN_ID" != "null" ]; then
     echo "Found default zitadel-admin user with ID: $DEFAULT_ADMIN_ID"
 
@@ -496,7 +496,7 @@ initEnvironment() {
     ZITADEL_EXTERNALSECURE="true"
     ZITADEL_TLS_MODE="external"
     NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    CADDY_SECURE_DOMAIN="$NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
@@ -616,7 +616,7 @@ renderCaddyfile() {
     }
 }
 
-:80${CADDY_SECURE_DOMAIN} {
+${CADDY_SECURE_DOMAIN} {
     import security_headers
     # relay
     reverse_proxy /relay* relay:80

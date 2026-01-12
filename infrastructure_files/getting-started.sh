@@ -119,7 +119,7 @@ init_environment() {
     NETBIRD_DOMAIN=$(get_main_ip_address)
   else
     NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    CADDY_SECURE_DOMAIN="$NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
@@ -158,7 +158,7 @@ init_environment() {
 
 render_caddyfile() {
   cat <<EOF
-{  
+{
   servers :80,:443 {
     protocols h1 h2c h2 h3
   }
@@ -175,7 +175,7 @@ render_caddyfile() {
     }
 }
 
-:80${CADDY_SECURE_DOMAIN} {
+${CADDY_SECURE_DOMAIN} {
     import security_headers
     # relay
     reverse_proxy /relay* relay:80
