@@ -807,6 +807,7 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
 	case "okta":
 		oidcConfig["insecureSkipEmailVerified"] = true
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "pocketid":
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	}
