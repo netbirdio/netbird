@@ -24,7 +24,7 @@ import (
 // Auth manages authentication operations with the management server
 // It maintains a long-lived connection and automatically handles reconnection with backoff
 type Auth struct {
-	mutex         sync.Mutex
+	mutex         sync.RWMutex
 	client        *mgm.GrpcClient
 	config        *profilemanager.Config
 	privateKey    wgtypes.Key
@@ -65,6 +65,9 @@ func NewAuth(ctx context.Context, privateKey string, mgmURL *url.URL, config *pr
 
 // Close closes the management client connection
 func (a *Auth) Close() error {
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
 	if a.client == nil {
 		return nil
 	}
@@ -78,9 +81,9 @@ func (a *Auth) Close() error {
 func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 	var supportsSSO bool
 
-	err := a.withRetry(ctx, func() error {
+	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		// Try PKCE flow first
-		_, err := a.getPKCEFlow()
+		_, err := a.getPKCEFlow(client)
 		if err == nil {
 			supportsSSO = true
 			return nil
@@ -89,7 +92,7 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 		// Check if PKCE is not supported
 		if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
 			// PKCE not supported, try Device flow
-			_, err = a.getDeviceFlow()
+			_, err = a.getDeviceFlow(client)
 			if err == nil {
 				supportsSSO = true
 				return nil
@@ -119,18 +122,18 @@ func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlo
 	var flow OAuthFlow
 	var err error
 
-	err = a.withRetry(ctx, func() error {
+	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		if forceDeviceAuth {
-			flow, err = a.getDeviceFlow()
+			flow, err = a.getDeviceFlow(client)
 			return err
 		}
 
 		// Try PKCE flow first
-		flow, err = a.getPKCEFlow()
+		flow, err = a.getPKCEFlow(client)
 		if err != nil {
 			// If PKCE not supported, try Device flow
 			if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-				flow, err = a.getDeviceFlow()
+				flow, err = a.getDeviceFlow(client)
 				return err
 			}
 			return err
@@ -151,8 +154,8 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 
 	var needsLogin bool
 
-	err = a.withRetry(ctx, func() error {
-		_, _, err := a.doMgmLogin(ctx, pubSSHKey)
+	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+		_, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isLoginNeeded(err) {
 			needsLogin = true
 			return nil
@@ -175,11 +178,11 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 
 	var isAuthError bool
 
-	err = a.withRetry(ctx, func() error {
-		serverKey, _, err := a.doMgmLogin(ctx, pubSSHKey)
+	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+		serverKey, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if serverKey != nil && isRegistrationNeeded(err) {
 			log.Debugf("peer registration required")
-			_, err = a.registerPeer(ctx, setupKey, jwtToken, pubSSHKey)
+			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
 			if err != nil {
 				isAuthError = isPermissionDenied(err)
 				return err
@@ -197,14 +200,14 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 }
 
 // getPKCEFlow retrieves PKCE authorization flow configuration and creates a flow instance
-func (a *Auth) getPKCEFlow() (*PKCEAuthorizationFlow, error) {
-	serverKey, err := a.client.GetServerPublicKey()
+func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, error) {
+	serverKey, err := client.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
-	protoFlow, err := a.client.GetPKCEAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetPKCEAuthorizationFlow(*serverKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find pkce flow, contact admin: %v", err)
@@ -242,14 +245,14 @@ func (a *Auth) getPKCEFlow() (*PKCEAuthorizationFlow, error) {
 }
 
 // getDeviceFlow retrieves device authorization flow configuration and creates a flow instance
-func (a *Auth) getDeviceFlow() (*DeviceAuthorizationFlow, error) {
-	serverKey, err := a.client.GetServerPublicKey()
+func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, error) {
+	serverKey, err := client.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
 	}
 
-	protoFlow, err := a.client.GetDeviceAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetDeviceAuthorizationFlow(*serverKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find device flow, contact admin: %v", err)
@@ -289,8 +292,8 @@ func (a *Auth) getDeviceFlow() (*DeviceAuthorizationFlow, error) {
 }
 
 // doMgmLogin performs the actual login operation with the management service
-func (a *Auth) doMgmLogin(ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, *mgmProto.LoginResponse, error) {
-	serverKey, err := a.client.GetServerPublicKey()
+func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, *mgmProto.LoginResponse, error) {
+	serverKey, err := client.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, nil, err
@@ -298,14 +301,14 @@ func (a *Auth) doMgmLogin(ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, 
 
 	sysInfo := system.GetInfo(ctx)
 	a.setSystemInfoFlags(sysInfo)
-	loginResp, err := a.client.Login(*serverKey, sysInfo, pubSSHKey, a.config.DNSLabels)
+	loginResp, err := client.Login(*serverKey, sysInfo, pubSSHKey, a.config.DNSLabels)
 	return serverKey, loginResp, err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func (a *Auth) registerPeer(ctx context.Context, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
-	serverPublicKey, err := a.client.GetServerPublicKey()
+func (a *Auth) registerPeer(client *mgm.GrpcClient, ctx context.Context, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
+	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
 		return nil, err
@@ -319,7 +322,7 @@ func (a *Auth) registerPeer(ctx context.Context, setupKey string, jwtToken strin
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
 	a.setSystemInfoFlags(info)
-	loginResp, err := a.client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
+	loginResp, err := client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err
@@ -352,27 +355,38 @@ func (a *Auth) setSystemInfoFlags(info *system.Info) {
 }
 
 // reconnect closes the current connection and creates a new one
-func (a *Auth) reconnect(ctx context.Context) error {
+// It checks if the brokenClient is still the current client before reconnecting
+// to avoid multiple threads reconnecting unnecessarily
+func (a *Auth) reconnect(ctx context.Context, brokenClient *mgm.GrpcClient) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
-	// Close existing connection
-	if a.client != nil {
-		if err := a.client.Close(); err != nil {
-			log.Debugf("error closing old connection: %v", err)
-		}
-		a.client = nil
+	// Double-check: if client has already been replaced by another thread, skip reconnection
+	if a.client != brokenClient {
+		log.Debugf("client already reconnected by another thread, skipping")
+		return nil
 	}
 
-	// Create new connection
+	// Create new connection FIRST, before closing the old one
+	// This ensures a.client is never nil, preventing panics in other threads
 	log.Debugf("reconnecting to Management Service %s", a.mgmURL.String())
 	mgmClient, err := mgm.NewClient(ctx, a.mgmURL.Host, a.privateKey, a.mgmTLSEnabled)
 	if err != nil {
 		log.Errorf("failed reconnecting to Management Service %s: %v", a.mgmURL.String(), err)
+		// Keep the old client if reconnection fails
 		return err
 	}
 
+	// Close old connection AFTER new one is successfully created
+	oldClient := a.client
 	a.client = mgmClient
+
+	if oldClient != nil {
+		if err := oldClient.Close(); err != nil {
+			log.Debugf("error closing old connection: %v", err)
+		}
+	}
+
 	log.Debugf("successfully reconnected to Management service %s", a.mgmURL.String())
 	return nil
 }
@@ -395,7 +409,7 @@ func isConnectionError(err error) bool {
 
 // withRetry wraps an operation with exponential backoff retry logic
 // It automatically reconnects on connection errors
-func (a *Auth) withRetry(ctx context.Context, operation func() error) error {
+func (a *Auth) withRetry(ctx context.Context, operation func(client *mgm.GrpcClient) error) error {
 	backoffSettings := &backoff.ExponentialBackOff{
 		InitialInterval:     500 * time.Millisecond,
 		RandomizationFactor: 0.5,
@@ -409,15 +423,26 @@ func (a *Auth) withRetry(ctx context.Context, operation func() error) error {
 
 	return backoff.RetryNotify(
 		func() error {
-			err := operation()
+			// Capture the client BEFORE the operation to ensure we track the correct client
+			a.mutex.RLock()
+			currentClient := a.client
+			a.mutex.RUnlock()
+
+			if currentClient == nil {
+				return status.Errorf(codes.Unavailable, "client is not initialized")
+			}
+
+			// Execute operation with the captured client
+			err := operation(currentClient)
 			if err == nil {
 				return nil
 			}
 
-			// If it's a connection error, attempt reconnection
+			// If it's a connection error, attempt reconnection using the client that was actually used
 			if isConnectionError(err) {
 				log.Warnf("connection error detected, attempting reconnection: %v", err)
-				if reconnectErr := a.reconnect(ctx); reconnectErr != nil {
+
+				if reconnectErr := a.reconnect(ctx, currentClient); reconnectErr != nil {
 					log.Errorf("reconnection failed: %v", reconnectErr)
 					return reconnectErr
 				}
