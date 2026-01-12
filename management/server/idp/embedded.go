@@ -20,7 +20,7 @@ const (
 	staticClientCLI        = "netbird-cli"
 	defaultCLIRedirectURL1 = "http://localhost:53000/"
 	defaultCLIRedirectURL2 = "http://localhost:54000/"
-	defaultScopes          = "openid profile email offline_access"
+	defaultScopes          = "openid profile email"
 	defaultUserIDClaim     = "sub"
 )
 
