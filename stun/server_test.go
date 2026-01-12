@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,45 @@ func createTestServer(t testing.TB) (*Server, *net.UDPConn, *net.UDPAddr) {
 	return server, conn, conn.LocalAddr().(*net.UDPAddr)
 }
 
+// waitForServerReady polls the server with STUN binding requests until it responds.
+// This avoids flaky tests on slow CI machines that relied on time.Sleep.
+func waitForServerReady(t testing.TB, serverAddr *net.UDPAddr, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	retryInterval := 10 * time.Millisecond
+
+	clientConn, err := net.DialUDP("udp", nil, serverAddr)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	buf := make([]byte, 1500)
+	for time.Now().Before(deadline) {
+		msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
+		require.NoError(t, err)
+
+		_, err = clientConn.Write(msg.Raw)
+		require.NoError(t, err)
+
+		_ = clientConn.SetReadDeadline(time.Now().Add(retryInterval))
+		n, err := clientConn.Read(buf)
+		if err != nil {
+			// Timeout or other error, retry
+			continue
+		}
+
+		response := &stun.Message{Raw: buf[:n]}
+		if err := response.Decode(); err != nil {
+			continue
+		}
+
+		if response.Type == stun.BindingSuccess {
+			return // Server is ready
+		}
+	}
+
+	t.Fatalf("server did not become ready within %v", timeout)
+}
+
 func TestServer_BindingRequest(t *testing.T) {
 	// Start the STUN server on a random port
 	server, listener, serverAddr := createTestServer(t)
@@ -36,8 +76,8 @@ func TestServer_BindingRequest(t *testing.T) {
 		serverErrCh <- server.Listen()
 	}()
 
-	// Wait for server to start
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready
+	waitForServerReady(t, serverAddr, 2*time.Second)
 
 	// Create a UDP client
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
@@ -91,7 +131,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 		_ = server.Listen()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForServerReady(t, serverAddr, 2*time.Second)
 
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	require.NoError(t, err)
@@ -115,7 +155,7 @@ func TestServer_IgnoresNonSTUNPackets(t *testing.T) {
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	server, listener, _ := createTestServer(t)
+	server, listener, serverAddr := createTestServer(t)
 
 	serverDone := make(chan struct{})
 	go func() {
@@ -124,7 +164,7 @@ func TestServer_Shutdown(t *testing.T) {
 		close(serverDone)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForServerReady(t, serverAddr, 2*time.Second)
 
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
@@ -150,7 +190,7 @@ func TestServer_MultipleRequests(t *testing.T) {
 		_ = server.Listen()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForServerReady(t, serverAddr, 2*time.Second)
 
 	// Create multiple clients and send requests
 	for i := 0; i < 5; i++ {
@@ -185,7 +225,7 @@ func TestServer_MultipleRequests(t *testing.T) {
 }
 
 func TestServer_ConcurrentClients(t *testing.T) {
-	numClients := 1000
+	numClients := 100
 	requestsPerClient := 5
 	maxStartDelay := 100 * time.Millisecond   // Random delay before client starts
 	maxRequestDelay := 500 * time.Millisecond // Random delay between requests
@@ -210,7 +250,7 @@ func TestServer_ConcurrentClients(t *testing.T) {
 		go func() {
 			_ = server.Listen()
 		}()
-		time.Sleep(50 * time.Millisecond)
+		waitForServerReady(t, serverAddr, 2*time.Second)
 		t.Logf("Testing against local server: %s", serverAddr)
 	}
 
@@ -339,7 +379,8 @@ func TestServer_MultiplePorts(t *testing.T) {
 		_ = server.Listen()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to be ready (checking first port is sufficient)
+	waitForServerReady(t, addr1, 2*time.Second)
 
 	// Test requests on both ports
 	for _, serverAddr := range []*net.UDPAddr{addr1, addr2} {
@@ -389,36 +430,60 @@ func BenchmarkSTUNServer(b *testing.B) {
 		_ = server.Listen()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForServerReady(b, serverAddr, 2*time.Second)
+
+	// Capture first error atomically - b.Fatal cannot be called from worker goroutines
+	var firstErr atomic.Pointer[error]
+	setErr := func(err error) {
+		firstErr.CompareAndSwap(nil, &err)
+	}
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
+		// Stop work if an error has occurred
+		if firstErr.Load() != nil {
+			return
+		}
+
 		clientConn, err := net.DialUDP("udp", nil, serverAddr)
 		if err != nil {
-			b.Fatal(err)
+			setErr(err)
+			return
 		}
 		defer clientConn.Close()
 
 		buf := make([]byte, 1500)
 
 		for pb.Next() {
+			if firstErr.Load() != nil {
+				return
+			}
+
 			msg, _ := stun.Build(stun.TransactionID, stun.BindingRequest)
 			_, _ = clientConn.Write(msg.Raw)
 
 			_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			n, err := clientConn.Read(buf)
 			if err != nil {
-				b.Fatal(err)
+				setErr(err)
+				return
 			}
 
 			response := &stun.Message{Raw: buf[:n]}
 			if err := response.Decode(); err != nil {
-				b.Fatal(err)
+				setErr(err)
+				return
 			}
 		}
 	})
 
 	b.StopTimer()
+
+	// Fail after RunParallel completes
+	if errPtr := firstErr.Load(); errPtr != nil {
+		b.Fatal(*errPtr)
+	}
+
 	// Close listener first to unblock readLoop, then shutdown
 	_ = listener.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)

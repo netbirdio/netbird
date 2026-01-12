@@ -16,6 +16,9 @@ import (
 // ErrServerClosed is returned by Listen when the server is shut down gracefully.
 var ErrServerClosed = errors.New("stun: server closed")
 
+// ErrNoListeners is returned by Listen when no UDP connections were provided.
+var ErrNoListeners = errors.New("stun: no listeners configured")
+
 // Server implements a STUN server that responds to binding requests
 // with the client's reflexive transport address.
 type Server struct {
@@ -56,7 +59,12 @@ func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 
 // Listen starts the STUN server and blocks until the server is shut down.
 // Returns ErrServerClosed when shut down gracefully via Shutdown.
+// Returns ErrNoListeners if no UDP connections were provided.
 func (s *Server) Listen() error {
+	if len(s.conns) == 0 {
+		return ErrNoListeners
+	}
+
 	var ctx context.Context
 	ctx, s.cancel = context.WithCancel(context.Background())
 
