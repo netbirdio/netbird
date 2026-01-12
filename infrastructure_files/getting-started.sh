@@ -25,15 +25,6 @@ check_docker_compose() {
   exit 1
 }
 
-check_jq() {
-  if ! command -v jq &> /dev/null
-  then
-    echo "jq is not installed or not in PATH, please install with your package manager. e.g. sudo apt install jq" > /dev/stderr
-    exit 1
-  fi
-  return 0
-}
-
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
@@ -74,7 +65,7 @@ read_nb_domain() {
 
 get_turn_external_ip() {
   TURN_EXTERNAL_IP_CONFIG="#external-ip="
-  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  IP=$(curl --silent --ipv4 https://checkip.amazonaws.com)
   if [[ "x-$IP" != "x-" ]]; then
     TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
   fi
@@ -132,8 +123,6 @@ init_environment() {
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
-
-  check_jq
 
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 

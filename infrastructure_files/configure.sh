@@ -82,7 +82,7 @@ TURN_EXTERNAL_IP_CONFIG="#"
 
 if [[ "x-$NETBIRD_TURN_EXTERNAL_IP" == "x-" ]]; then
   echo "discovering server's public IP"
-  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  IP=$(curl --silent --ipv4 https://checkip.amazonaws.com)
   if [[ "x-$IP" != "x-" ]]; then
     TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
   else
