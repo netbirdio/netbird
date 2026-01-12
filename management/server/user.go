@@ -911,10 +911,12 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	accountUsers := []*types.User{}
 	switch {
 	case allowed:
+		start := time.Now()
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
+		log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
 	case user != nil && user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
 	default:
@@ -933,6 +935,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
+		log.WithContext(ctx).Tracef("Querying users from IDP for account %s", accountID)
+		start := time.Now()
 		for _, user := range accountUsers {
 			if user.Issued == types.UserIssuedIntegration {
 				key := user.IntegrationReference.CacheKey(accountID, user.Id)
@@ -949,7 +953,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 			}
 		}
+		log.WithContext(ctx).Tracef("Got user info from external cache after %s", time.Since(start))
+		start = time.Now()
 		queriedUsers, err = am.lookupCache(ctx, users, accountID)
+		log.WithContext(ctx).Tracef("Got user info from cache for %d users after %s", len(queriedUsers), time.Since(start))
 		if err != nil {
 			return nil, err
 		}
