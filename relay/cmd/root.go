@@ -202,13 +202,25 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start all servers (only after all resources are successfully created)
+	startServers(&wg, metricsServer, srv, srvListenerCfg, httpHealthcheck, stunServer)
 
+	waitForExitSignal()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = shutdownServers(ctx, metricsServer, srv, httpHealthcheck, stunServer)
+	wg.Wait()
+	return err
+}
+
+func startServers(wg *sync.WaitGroup, metricsServer *metrics.Metrics, srv *server.Server, srvListenerCfg server.ListenerConfig, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Failed to start metrics server: %v", err)
+			log.Fatalf("failed to start metrics server: %v", err)
 		}
 	}()
 
@@ -218,7 +230,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	go func() {
 		defer wg.Done()
 		if err := srv.Listen(srvListenerCfg); err != nil {
-			log.Fatalf("failed to bind server: %s", err)
+			log.Fatalf("failed to bind relay server: %s", err)
 		}
 	}()
 
@@ -226,7 +238,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	go func() {
 		defer wg.Done()
 		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Failed to start healthcheck server: %v", err)
+			log.Fatalf("failed to start healthcheck server: %v", err)
 		}
 	}()
 
@@ -242,35 +254,31 @@ func execute(cmd *cobra.Command, args []string) error {
 			}
 		}()
 	}
+}
 
-	// it will block until exit signal
-	waitForExitSignal()
+func shutdownServers(ctx context.Context, metricsServer *metrics.Metrics, srv *server.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) error {
+	var errs error
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	var shutDownErrors error
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
-		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close healthcheck server: %v", err))
+		errs = multierror.Append(errs, fmt.Errorf("failed to close healthcheck server: %w", err))
 	}
 
 	if stunServer != nil {
 		if err := stunServer.Shutdown(); err != nil {
-			shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close STUN server: %v", err))
+			errs = multierror.Append(errs, fmt.Errorf("failed to close STUN server: %w", err))
 		}
 	}
 
 	if err := srv.Shutdown(ctx); err != nil {
-		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close server: %s", err))
+		errs = multierror.Append(errs, fmt.Errorf("failed to close relay server: %w", err))
 	}
 
 	log.Infof("shutting down metrics server")
 	if err := metricsServer.Shutdown(ctx); err != nil {
-		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
+		errs = multierror.Append(errs, fmt.Errorf("failed to close metrics server: %w", err))
 	}
 
-	wg.Wait()
-	return shutDownErrors
+	return errs
 }
 
 func createHealthCheck(err error, hCfg healthcheck.Config, stunListeners []*net.UDPConn) (*healthcheck.Server, error) {
