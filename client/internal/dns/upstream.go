@@ -202,6 +202,10 @@ func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dn
 
 	resutil.SetMeta(w, "upstream", upstream.String())
 
+	// Clear Zero bit from external responses to prevent upstream servers from
+	// manipulating our internal fallthrough signaling mechanism
+	rm.MsgHdr.Zero = false
+
 	if err := w.WriteMsg(rm); err != nil {
 		logger.Errorf("failed to write DNS response for question domain=%s: %s", domain, err)
 		return true

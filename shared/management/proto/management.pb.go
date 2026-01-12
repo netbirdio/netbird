@@ -2873,7 +2873,7 @@ type CustomZone struct {
 	Domain               string          `protobuf:"bytes,1,opt,name=Domain,proto3" json:"Domain,omitempty"`
 	Records              []*SimpleRecord `protobuf:"bytes,2,rep,name=Records,proto3" json:"Records,omitempty"`
 	SearchDomainDisabled bool            `protobuf:"varint,3,opt,name=SearchDomainDisabled,proto3" json:"SearchDomainDisabled,omitempty"`
-	SkipPTRProcess       bool            `protobuf:"varint,4,opt,name=SkipPTRProcess,proto3" json:"SkipPTRProcess,omitempty"`
+	NonAuthoritative     bool            `protobuf:"varint,4,opt,name=NonAuthoritative,proto3" json:"NonAuthoritative,omitempty"`
 }
 
 func (x *CustomZone) Reset() {
@@ -2929,9 +2929,9 @@ func (x *CustomZone) GetSearchDomainDisabled() bool {
 	return false
 }
 
-func (x *CustomZone) GetSkipPTRProcess() bool {
+func (x *CustomZone) GetNonAuthoritative() bool {
 	if x != nil {
-		return x.SkipPTRProcess
+		return x.NonAuthoritative
 	}
 	return false
 }

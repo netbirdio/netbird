@@ -16,7 +16,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // mockResolver implements resolver for testing
@@ -125,11 +124,11 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 
 	resolver := NewResolver()
 
-	update1 := []nbdns.SimpleRecord{record1}
-	update2 := []nbdns.SimpleRecord{record2}
+	zone1 := []nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{record1}}}
+	zone2 := []nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{record2}}}
 
 	// Apply first update
-	resolver.Update(update1, nil)
+	resolver.Update(zone1)
 
 	// Verify first update
 	resolver.mu.RLock()
@@ -141,7 +140,7 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 	assert.Contains(t, rrSlice1[0].String(), record1.RData, "Record after first update should be %s", record1.RData)
 
 	// Apply second update
-	resolver.Update(update2, nil)
+	resolver.Update(zone2)
 
 	// Verify second update
 	resolver.mu.RLock()
@@ -170,10 +169,10 @@ func TestLocalResolver_MultipleRecords_SameQuestion(t *testing.T) {
 		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2",
 	}
 
-	update := []nbdns.SimpleRecord{record1, record2}
+	zones := []nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{record1, record2}}}
 
 	// Apply update with both records
-	resolver.Update(update, nil)
+	resolver.Update(zones)
 
 	// Create question that matches both records
 	question := dns.Question{
@@ -214,10 +213,10 @@ func TestLocalResolver_RecordRotation(t *testing.T) {
 		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.3",
 	}
 
-	update := []nbdns.SimpleRecord{record1, record2, record3}
+	zones := []nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{record1, record2, record3}}}
 
 	// Apply update with all three records
-	resolver.Update(update, nil)
+	resolver.Update(zones)
 
 	msg := new(dns.Msg).SetQuestion(recordName, recordType)
 
@@ -283,7 +282,7 @@ func TestLocalResolver_CaseInsensitiveMatching(t *testing.T) {
 	}
 
 	// Update resolver with the records
-	resolver.Update([]nbdns.SimpleRecord{lowerCaseRecord, mixedCaseRecord}, nil)
+	resolver.Update([]nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{lowerCaseRecord, mixedCaseRecord}}})
 
 	testCases := []struct {
 		name          string
@@ -398,7 +397,7 @@ func TestLocalResolver_CNAMEFallback(t *testing.T) {
 	}
 
 	// Update resolver with both records
-	resolver.Update([]nbdns.SimpleRecord{cnameRecord, targetRecord}, nil)
+	resolver.Update([]nbdns.CustomZone{{Domain: "example.com.", Records: []nbdns.SimpleRecord{cnameRecord, targetRecord}}})
 
 	testCases := []struct {
 		name          string
@@ -526,7 +525,7 @@ func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 		RData: "target.example.com.",
 	}
 
-	resolver.Update([]nbdns.SimpleRecord{recordA, recordCNAME}, nil)
+	resolver.Update([]nbdns.CustomZone{{Domain: "netbird.cloud.", Records: []nbdns.SimpleRecord{recordA, recordCNAME}}})
 
 	testCases := []struct {
 		name           string
@@ -620,10 +619,13 @@ func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 func TestLocalResolver_CNAMEChainResolution(t *testing.T) {
 	t.Run("simple internal CNAME chain", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
-			{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.1"},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.1"},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeA)
 		var resp *dns.Msg
@@ -644,11 +646,14 @@ func TestLocalResolver_CNAMEChainResolution(t *testing.T) {
 
 	t.Run("multi-hop CNAME chain", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "hop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop2.test."},
-			{Name: "hop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop3.test."},
-			{Name: "hop3.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "hop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop2.test."},
+				{Name: "hop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "hop3.test."},
+				{Name: "hop3.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("hop1.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -661,9 +666,12 @@ func TestLocalResolver_CNAMEChainResolution(t *testing.T) {
 
 	t.Run("CNAME to non-existent internal target returns only CNAME", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.test."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.test."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -695,7 +703,7 @@ func TestLocalResolver_CNAMEMaxDepth(t *testing.T) {
 			Name: "hop8.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.10.10",
 		})
 
-		resolver.Update(records, nil)
+		resolver.Update([]nbdns.CustomZone{{Domain: "test.", Records: records}})
 
 		msg := new(dns.Msg).SetQuestion("hop1.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -723,7 +731,7 @@ func TestLocalResolver_CNAMEMaxDepth(t *testing.T) {
 			Name: "deep11.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.10.10",
 		})
 
-		resolver.Update(records, nil)
+		resolver.Update([]nbdns.CustomZone{{Domain: "test.", Records: records}})
 
 		msg := new(dns.Msg).SetQuestion("deep1.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -736,10 +744,13 @@ func TestLocalResolver_CNAMEMaxDepth(t *testing.T) {
 
 	t.Run("circular CNAME is protected by max depth", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "loop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop2.test."},
-			{Name: "loop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop1.test."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "loop1.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop2.test."},
+				{Name: "loop2.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "loop1.test."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("loop1.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -763,9 +774,12 @@ func TestLocalResolver_ExternalCNAMEResolution(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -794,9 +808,12 @@ func TestLocalResolver_ExternalCNAMEResolution(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeAAAA)
 		var resp *dns.Msg
@@ -825,9 +842,12 @@ func TestLocalResolver_ExternalCNAMEResolution(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "concurrent.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "concurrent.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		var wg sync.WaitGroup
 		results := make([]*dns.Msg, 10)
@@ -856,10 +876,12 @@ func TestLocalResolver_ZoneManagement(t *testing.T) {
 	t.Run("Update sets zones correctly", func(t *testing.T) {
 		resolver := NewResolver()
 
-		zones := []domain.Domain{"example.com", "test.local"}
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-		}, zones)
+		resolver.Update([]nbdns.CustomZone{
+			{Domain: "example.com.", Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			}},
+			{Domain: "test.local."},
+		})
 
 		assert.True(t, resolver.isInManagedZone("host.example.com."))
 		assert.True(t, resolver.isInManagedZone("other.example.com."))
@@ -869,7 +891,7 @@ func TestLocalResolver_ZoneManagement(t *testing.T) {
 
 	t.Run("isInManagedZone case insensitive", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update(nil, []domain.Domain{"Example.COM"})
+		resolver.Update([]nbdns.CustomZone{{Domain: "Example.COM."}})
 
 		assert.True(t, resolver.isInManagedZone("host.example.com."))
 		assert.True(t, resolver.isInManagedZone("HOST.EXAMPLE.COM."))
@@ -877,10 +899,10 @@ func TestLocalResolver_ZoneManagement(t *testing.T) {
 
 	t.Run("Update clears zones", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update(nil, []domain.Domain{"example.com"})
+		resolver.Update([]nbdns.CustomZone{{Domain: "example.com."}})
 		assert.True(t, resolver.isInManagedZone("host.example.com."))
 
-		resolver.Update(nil, nil)
+		resolver.Update(nil)
 		assert.False(t, resolver.isInManagedZone("host.example.com."))
 	})
 }
@@ -889,9 +911,12 @@ func TestLocalResolver_ZoneManagement(t *testing.T) {
 func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 	t.Run("CNAME target in managed zone returns NXDOMAIN per RFC 6604", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.myzone.test."},
-		}, []domain.Domain{"myzone.test"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "myzone.test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "nonexistent.myzone.test."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -913,9 +938,12 @@ func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.other.com."},
-		}, []domain.Domain{"myzone.test"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "myzone.test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.other.com."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -929,10 +957,13 @@ func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 	t.Run("CNAME target exists with different type returns NODATA not NXDOMAIN", func(t *testing.T) {
 		resolver := NewResolver()
 		// CNAME points to target that has A but no AAAA - query for AAAA should be NODATA
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.myzone.test."},
-			{Name: "target.myzone.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "1.1.1.1"},
-		}, []domain.Domain{"myzone.test"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "myzone.test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.myzone.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.myzone.test."},
+				{Name: "target.myzone.test.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "1.1.1.1"},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.myzone.test.", dns.TypeAAAA)
 		var resp *dns.Msg
@@ -963,9 +994,12 @@ func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeAAAA)
 		var resp *dns.Msg
@@ -1035,9 +1069,12 @@ func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 			resolver := NewResolver()
 			resolver.resolver = &mockResolver{lookupFunc: tc.lookupFunc}
 
-			resolver.Update([]nbdns.SimpleRecord{
-				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-			}, nil)
+			resolver.Update([]nbdns.CustomZone{{
+				Domain: "test.",
+				Records: []nbdns.SimpleRecord{
+					{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+				},
+			}})
 
 			msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
 			var resp *dns.Msg
@@ -1054,13 +1091,112 @@ func TestLocalResolver_CNAMEZoneAwareResolution(t *testing.T) {
 	}
 }
 
+// TestLocalResolver_Fallthrough verifies that non-authoritative zones
+// trigger fallthrough (Zero bit set) when no records match
+func TestLocalResolver_Fallthrough(t *testing.T) {
+	resolver := NewResolver()
+
+	record := nbdns.SimpleRecord{
+		Name:  "existing.custom.zone.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "10.0.0.1",
+	}
+
+	testCases := []struct {
+		name              string
+		zones             []nbdns.CustomZone
+		queryName         string
+		expectFallthrough bool
+		expectRecord      bool
+	}{
+		{
+			name: "Authoritative zone returns NXDOMAIN without fallthrough",
+			zones: []nbdns.CustomZone{{
+				Domain:  "custom.zone.",
+				Records: []nbdns.SimpleRecord{record},
+			}},
+			queryName:         "nonexistent.custom.zone.",
+			expectFallthrough: false,
+			expectRecord:      false,
+		},
+		{
+			name: "Non-authoritative zone triggers fallthrough",
+			zones: []nbdns.CustomZone{{
+				Domain:           "custom.zone.",
+				Records:          []nbdns.SimpleRecord{record},
+				NonAuthoritative: true,
+			}},
+			queryName:         "nonexistent.custom.zone.",
+			expectFallthrough: true,
+			expectRecord:      false,
+		},
+		{
+			name: "Record found in non-authoritative zone returns normally",
+			zones: []nbdns.CustomZone{{
+				Domain:           "custom.zone.",
+				Records:          []nbdns.SimpleRecord{record},
+				NonAuthoritative: true,
+			}},
+			queryName:         "existing.custom.zone.",
+			expectFallthrough: false,
+			expectRecord:      true,
+		},
+		{
+			name: "Record found in authoritative zone returns normally",
+			zones: []nbdns.CustomZone{{
+				Domain:  "custom.zone.",
+				Records: []nbdns.SimpleRecord{record},
+			}},
+			queryName:         "existing.custom.zone.",
+			expectFallthrough: false,
+			expectRecord:      true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver.Update(tc.zones)
+
+			var responseMSG *dns.Msg
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+
+			msg := new(dns.Msg).SetQuestion(tc.queryName, dns.TypeA)
+			resolver.ServeDNS(responseWriter, msg)
+
+			require.NotNil(t, responseMSG, "Should have received a response")
+
+			if tc.expectFallthrough {
+				assert.True(t, responseMSG.MsgHdr.Zero, "Zero bit should be set for fallthrough")
+				assert.Equal(t, dns.RcodeNameError, responseMSG.Rcode, "Should return NXDOMAIN")
+			} else {
+				assert.False(t, responseMSG.MsgHdr.Zero, "Zero bit should not be set")
+			}
+
+			if tc.expectRecord {
+				assert.Greater(t, len(responseMSG.Answer), 0, "Should have answer records")
+				assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode)
+			}
+		})
+	}
+}
+
 // TestLocalResolver_AuthoritativeFlag tests the AA flag behavior
 func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
 	t.Run("direct record lookup is authoritative", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-		}, []domain.Domain{"example.com"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
 		var resp *dns.Msg
@@ -1081,9 +1217,12 @@ func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		msg := new(dns.Msg).SetQuestion("alias.test.", dns.TypeA)
 		var resp *dns.Msg
@@ -1099,9 +1238,12 @@ func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
 func TestLocalResolver_Stop(t *testing.T) {
 	t.Run("Stop clears all state", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-		}, []domain.Domain{"example.com"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
 
 		resolver.Stop()
 
@@ -1116,9 +1258,12 @@ func TestLocalResolver_Stop(t *testing.T) {
 
 	t.Run("Stop is safe to call multiple times", func(t *testing.T) {
 		resolver := NewResolver()
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-		}, []domain.Domain{"example.com"})
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
 
 		resolver.Stop()
 		resolver.Stop()
@@ -1140,9 +1285,12 @@ func TestLocalResolver_Stop(t *testing.T) {
 			},
 		}
 
-		resolver.Update([]nbdns.SimpleRecord{
-			{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
-		}, nil)
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "test.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.test.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "external.example.com."},
+			},
+		}})
 
 		done := make(chan struct{})
 		go func() {
@@ -1166,4 +1314,108 @@ func TestLocalResolver_Stop(t *testing.T) {
 			t.Fatal("ServeDNS did not return after Stop")
 		}
 	})
+}
+
+// TestLocalResolver_FallthroughCaseInsensitive verifies case-insensitive domain matching for fallthrough
+func TestLocalResolver_FallthroughCaseInsensitive(t *testing.T) {
+	resolver := NewResolver()
+
+	resolver.Update([]nbdns.CustomZone{{
+		Domain:           "EXAMPLE.COM.",
+		Records:          []nbdns.SimpleRecord{{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "1.2.3.4"}},
+		NonAuthoritative: true,
+	}})
+
+	var responseMSG *dns.Msg
+	responseWriter := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			responseMSG = m
+			return nil
+		},
+	}
+
+	msg := new(dns.Msg).SetQuestion("nonexistent.example.com.", dns.TypeA)
+	resolver.ServeDNS(responseWriter, msg)
+
+	require.NotNil(t, responseMSG)
+	assert.True(t, responseMSG.MsgHdr.Zero, "Should fallthrough for non-authoritative zone with case-insensitive match")
+}
+
+// BenchmarkFindZone_BestCase benchmarks zone lookup with immediate match (first label)
+func BenchmarkFindZone_BestCase(b *testing.B) {
+	resolver := NewResolver()
+
+	// Single zone that matches immediately
+	resolver.Update([]nbdns.CustomZone{{
+		Domain:           "example.com.",
+		NonAuthoritative: true,
+	}})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resolver.shouldFallthrough("example.com.")
+	}
+}
+
+// BenchmarkFindZone_WorstCase benchmarks zone lookup with many zones, no match, many labels
+func BenchmarkFindZone_WorstCase(b *testing.B) {
+	resolver := NewResolver()
+
+	// 100 zones that won't match
+	var zones []nbdns.CustomZone
+	for i := 0; i < 100; i++ {
+		zones = append(zones, nbdns.CustomZone{
+			Domain:           fmt.Sprintf("zone%d.internal.", i),
+			NonAuthoritative: true,
+		})
+	}
+	resolver.Update(zones)
+
+	// Query with many labels that won't match any zone
+	qname := "a.b.c.d.e.f.g.h.external.com."
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resolver.shouldFallthrough(qname)
+	}
+}
+
+// BenchmarkFindZone_TypicalCase benchmarks typical usage: few zones, subdomain match
+func BenchmarkFindZone_TypicalCase(b *testing.B) {
+	resolver := NewResolver()
+
+	// Typical setup: peer zone (authoritative) + one user zone (non-authoritative)
+	resolver.Update([]nbdns.CustomZone{
+		{Domain: "netbird.cloud.", NonAuthoritative: false},
+		{Domain: "custom.local.", NonAuthoritative: true},
+	})
+
+	// Query for subdomain of user zone
+	qname := "myhost.custom.local."
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resolver.shouldFallthrough(qname)
+	}
+}
+
+// BenchmarkIsInManagedZone_ManyZones benchmarks isInManagedZone with 100 zones
+func BenchmarkIsInManagedZone_ManyZones(b *testing.B) {
+	resolver := NewResolver()
+
+	var zones []nbdns.CustomZone
+	for i := 0; i < 100; i++ {
+		zones = append(zones, nbdns.CustomZone{
+			Domain: fmt.Sprintf("zone%d.internal.", i),
+		})
+	}
+	resolver.Update(zones)
+
+	// Query that matches zone50
+	qname := "host.zone50.internal."
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resolver.isInManagedZone(qname)
+	}
 }

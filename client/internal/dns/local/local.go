@@ -28,10 +28,11 @@ type resolver interface {
 }
 
 type Resolver struct {
-	mu       sync.RWMutex
-	records  map[dns.Question][]dns.RR
-	domains  map[domain.Domain]struct{}
-	zones    []domain.Domain
+	mu      sync.RWMutex
+	records map[dns.Question][]dns.RR
+	domains map[domain.Domain]struct{}
+	// zones maps zone domain -> NonAuthoritative (true = non-authoritative, user-created zone)
+	zones    map[domain.Domain]bool
 	resolver resolver
 
 	ctx    context.Context
@@ -43,6 +44,7 @@ func NewResolver() *Resolver {
 	return &Resolver{
 		records: make(map[dns.Question][]dns.RR),
 		domains: make(map[domain.Domain]struct{}),
+		zones:   make(map[domain.Domain]bool),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -67,7 +69,7 @@ func (d *Resolver) Stop() {
 
 	maps.Clear(d.records)
 	maps.Clear(d.domains)
-	d.zones = nil
+	maps.Clear(d.zones)
 }
 
 // ID returns the unique handler ID
@@ -97,6 +99,11 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	replyMessage.Answer = result.records
 	replyMessage.Rcode = d.determineRcode(question, result)
 
+	if replyMessage.Rcode == dns.RcodeNameError && d.shouldFallthrough(question.Name) {
+		d.continueToNext(logger, w, r)
+		return
+	}
+
 	if err := w.WriteMsg(replyMessage); err != nil {
 		logger.Warnf("failed to write the local resolver response: %v", err)
 	}
@@ -120,6 +127,42 @@ func (d *Resolver) determineRcode(question dns.Question, result lookupResult) in
 	return dns.RcodeNameError
 }
 
+// findZone finds the matching zone for a query name using reverse suffix lookup.
+// Returns (nonAuthoritative, found). This is O(k) where k = number of labels in qname.
+func (d *Resolver) findZone(qname string) (nonAuthoritative bool, found bool) {
+	qname = strings.ToLower(dns.Fqdn(qname))
+	for {
+		if nonAuth, ok := d.zones[domain.Domain(qname)]; ok {
+			return nonAuth, true
+		}
+		// Move to parent domain
+		idx := strings.Index(qname, ".")
+		if idx == -1 || idx == len(qname)-1 {
+			return false, false
+		}
+		qname = qname[idx+1:]
+	}
+}
+
+// shouldFallthrough checks if the query should fallthrough to the next handler.
+// Returns true if the queried name belongs to a non-authoritative zone.
+func (d *Resolver) shouldFallthrough(qname string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	nonAuth, found := d.findZone(qname)
+	return found && nonAuth
+}
+
+func (d *Resolver) continueToNext(logger *log.Entry, w dns.ResponseWriter, r *dns.Msg) {
+	resp := &dns.Msg{}
+	resp.SetRcode(r, dns.RcodeNameError)
+	resp.MsgHdr.Zero = true
+	if err := w.WriteMsg(resp); err != nil {
+		logger.Warnf("failed to write continue signal: %v", err)
+	}
+}
+
 // hasRecordsForDomain checks if any records exist for the given domain name regardless of type
 func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
 	d.mu.RLock()
@@ -137,14 +180,8 @@ func (d *Resolver) isInManagedZone(name string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	name = dns.Fqdn(name)
-	for _, zone := range d.zones {
-		zoneStr := dns.Fqdn(zone.PunycodeString())
-		if strings.EqualFold(name, zoneStr) || strings.HasSuffix(strings.ToLower(name), strings.ToLower("."+zoneStr)) {
-			return true
-		}
-	}
-	return false
+	_, found := d.findZone(name)
+	return found
 }
 
 // lookupResult contains the result of a DNS lookup operation.
@@ -343,21 +380,23 @@ func (d *Resolver) logDNSError(logger *log.Entry, hostname string, qtype uint16,
 	}
 }
 
-// Update updates the resolver with new records and zone information.
-// The zones parameter specifies which DNS zones this resolver manages.
-func (d *Resolver) Update(update []nbdns.SimpleRecord, zones []domain.Domain) {
+// Update replaces all zones and their records
+func (d *Resolver) Update(customZones []nbdns.CustomZone) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	maps.Clear(d.records)
 	maps.Clear(d.domains)
+	maps.Clear(d.zones)
 
-	d.zones = zones
+	for _, zone := range customZones {
+		zoneDomain := domain.Domain(strings.ToLower(dns.Fqdn(zone.Domain)))
+		d.zones[zoneDomain] = zone.NonAuthoritative
 
-	for _, rec := range update {
-		if err := d.registerRecord(rec); err != nil {
-			log.Warnf("failed to register the record (%s): %v", rec, err)
-			continue
+		for _, rec := range zone.Records {
+			if err := d.registerRecord(rec); err != nil {
+				log.Warnf("failed to register the record (%s): %v", rec, err)
+			}
 		}
 	}
 }
