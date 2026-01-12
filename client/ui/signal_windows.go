@@ -164,7 +164,7 @@ func sendShowWindowSignal(pid int32) error {
 
 	err = windows.SetEvent(eventHandle)
 	if err != nil {
-		return fmt.Errorf("Error setting event: %w", err)
+		return fmt.Errorf("error setting event: %w", err)
 	}
 
 	return nil

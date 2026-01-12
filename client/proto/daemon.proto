@@ -24,7 +24,7 @@ service DaemonService {
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
-  // Down engine work in the daemon.
+  // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
 
   // GetConfig of the daemon.
@@ -93,7 +93,26 @@ service DaemonService {
 
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
+
+  rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
+
+  rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
 }
+
+
+
+message OSLifecycleRequest {
+  // avoid collision with loglevel enum
+  enum CycleType {
+    UNKNOWN = 0;
+    SLEEP = 1;
+    WAKEUP = 2;
+  }
+
+  CycleType type = 1;
+}
+
+message OSLifecycleResponse {}
 
 
 message LoginRequest {
@@ -198,6 +217,7 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
+  optional bool autoUpdate = 3;
 }
 
 message UpResponse {}
@@ -352,6 +372,7 @@ message SSHSessionInfo {
   string remoteAddress = 2;
   string command = 3;
   string jwtUsername = 4;
+  repeated string portForwards = 5;
 }
 
 // SSHServerState contains the latest state of the SSH server
@@ -754,4 +775,12 @@ message WaitJWTTokenResponse {
   string tokenType = 2;
   // expiration time in seconds
   int64 expiresIn = 3;
+}
+
+message InstallerResultRequest {
+}
+
+message InstallerResultResponse {
+  bool success = 1;
+  string errorMsg = 2;
 }

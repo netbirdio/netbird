@@ -83,6 +83,17 @@ const (
 	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
 )
 
+// Defines values for IdentityProviderType.
+const (
+	IdentityProviderTypeEntra     IdentityProviderType = "entra"
+	IdentityProviderTypeGoogle    IdentityProviderType = "google"
+	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
+	IdentityProviderTypeOidc      IdentityProviderType = "oidc"
+	IdentityProviderTypeOkta      IdentityProviderType = "okta"
+	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
+	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
+)
+
 // Defines values for IngressPortAllocationPortMappingProtocol.
 const (
 	IngressPortAllocationPortMappingProtocolTcp    IngressPortAllocationPortMappingProtocol = "tcp"
@@ -130,10 +141,11 @@ const (
 
 // Defines values for PolicyRuleProtocol.
 const (
-	PolicyRuleProtocolAll  PolicyRuleProtocol = "all"
-	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
-	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
-	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
+	PolicyRuleProtocolAll        PolicyRuleProtocol = "all"
+	PolicyRuleProtocolIcmp       PolicyRuleProtocol = "icmp"
+	PolicyRuleProtocolNetbirdSsh PolicyRuleProtocol = "netbird-ssh"
+	PolicyRuleProtocolTcp        PolicyRuleProtocol = "tcp"
+	PolicyRuleProtocolUdp        PolicyRuleProtocol = "udp"
 )
 
 // Defines values for PolicyRuleMinimumAction.
@@ -144,10 +156,11 @@ const (
 
 // Defines values for PolicyRuleMinimumProtocol.
 const (
-	PolicyRuleMinimumProtocolAll  PolicyRuleMinimumProtocol = "all"
-	PolicyRuleMinimumProtocolIcmp PolicyRuleMinimumProtocol = "icmp"
-	PolicyRuleMinimumProtocolTcp  PolicyRuleMinimumProtocol = "tcp"
-	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
+	PolicyRuleMinimumProtocolAll        PolicyRuleMinimumProtocol = "all"
+	PolicyRuleMinimumProtocolIcmp       PolicyRuleMinimumProtocol = "icmp"
+	PolicyRuleMinimumProtocolNetbirdSsh PolicyRuleMinimumProtocol = "netbird-ssh"
+	PolicyRuleMinimumProtocolTcp        PolicyRuleMinimumProtocol = "tcp"
+	PolicyRuleMinimumProtocolUdp        PolicyRuleMinimumProtocol = "udp"
 )
 
 // Defines values for PolicyRuleUpdateAction.
@@ -158,10 +171,11 @@ const (
 
 // Defines values for PolicyRuleUpdateProtocol.
 const (
-	PolicyRuleUpdateProtocolAll  PolicyRuleUpdateProtocol = "all"
-	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
-	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
-	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
+	PolicyRuleUpdateProtocolAll        PolicyRuleUpdateProtocol = "all"
+	PolicyRuleUpdateProtocolIcmp       PolicyRuleUpdateProtocol = "icmp"
+	PolicyRuleUpdateProtocolNetbirdSsh PolicyRuleUpdateProtocol = "netbird-ssh"
+	PolicyRuleUpdateProtocolTcp        PolicyRuleUpdateProtocol = "tcp"
+	PolicyRuleUpdateProtocolUdp        PolicyRuleUpdateProtocol = "udp"
 )
 
 // Defines values for ResourceType.
@@ -291,9 +305,15 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
-	DnsDomain *string               `json:"dns_domain,omitempty"`
-	Extra     *AccountExtraSettings `json:"extra,omitempty"`
+	DnsDomain *string `json:"dns_domain,omitempty"`
+
+	// EmbeddedIdpEnabled Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+	EmbeddedIdpEnabled *bool                 `json:"embedded_idp_enabled,omitempty"`
+	Extra              *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
@@ -514,6 +534,45 @@ type GroupRequest struct {
 	Resources *[]Resource `json:"resources,omitempty"`
 }
 
+// IdentityProvider defines model for IdentityProvider.
+type IdentityProvider struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// Id Identity provider ID
+	Id *string `json:"id,omitempty"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderRequest defines model for IdentityProviderRequest.
+type IdentityProviderRequest struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// ClientSecret OAuth2 client secret
+	ClientSecret string `json:"client_secret"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderType Type of identity provider
+type IdentityProviderType string
+
 // IngressPeer defines model for IngressPeer.
 type IngressPeer struct {
 	AvailablePorts AvailablePorts `json:"available_ports"`
@@ -646,6 +705,12 @@ type IngressPortAllocationRequestPortRange struct {
 
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
+
+// InstanceStatus Instance status information
+type InstanceStatus struct {
+	// SetupRequired Indicates whether the instance requires initial setup
+	SetupRequired bool `json:"setup_required"`
+}
 
 // Location Describe geographical location information
 type Location struct {
@@ -1074,7 +1139,8 @@ type Peer struct {
 	LastLogin time.Time `json:"last_login"`
 
 	// LastSeen Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 
 	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
 	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
@@ -1164,7 +1230,8 @@ type PeerBatch struct {
 	LastLogin time.Time `json:"last_login"`
 
 	// LastSeen Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	LocalFlags *PeerLocalFlags `json:"local_flags,omitempty"`
 
 	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
 	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
@@ -1192,6 +1259,39 @@ type PeerBatch struct {
 
 	// Version Peer's daemon or cli version
 	Version string `json:"version"`
+}
+
+// PeerLocalFlags defines model for PeerLocalFlags.
+type PeerLocalFlags struct {
+	// BlockInbound Indicates whether inbound traffic is blocked on this peer
+	BlockInbound *bool `json:"block_inbound,omitempty"`
+
+	// BlockLanAccess Indicates whether LAN access is blocked on this peer when used as a routing peer
+	BlockLanAccess *bool `json:"block_lan_access,omitempty"`
+
+	// DisableClientRoutes Indicates whether client routes are disabled on this peer or not
+	DisableClientRoutes *bool `json:"disable_client_routes,omitempty"`
+
+	// DisableDns Indicates whether DNS management is disabled on this peer or not
+	DisableDns *bool `json:"disable_dns,omitempty"`
+
+	// DisableFirewall Indicates whether firewall management is disabled on this peer or not
+	DisableFirewall *bool `json:"disable_firewall,omitempty"`
+
+	// DisableServerRoutes Indicates whether server routes are disabled on this peer or not
+	DisableServerRoutes *bool `json:"disable_server_routes,omitempty"`
+
+	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
+	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
+	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
+
+	// RosenpassPermissive Indicates whether Rosenpass is in permissive mode or not
+	RosenpassPermissive *bool `json:"rosenpass_permissive,omitempty"`
+
+	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not
+	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
@@ -1346,6 +1446,9 @@ type PolicyRule struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1390,6 +1493,9 @@ type PolicyRuleMinimum struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleMinimumAction `json:"action"`
 
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
+
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
 
@@ -1422,6 +1528,9 @@ type PolicyRuleMinimumProtocol string
 type PolicyRuleUpdate struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleUpdateAction `json:"action"`
+
+	// AuthorizedGroups Map of user group ids to a list of local users
+	AuthorizedGroups *map[string][]string `json:"authorized_groups,omitempty"`
 
 	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
 	Bidirectional bool `json:"bidirectional"`
@@ -1783,6 +1892,27 @@ type SetupKeyRequest struct {
 	Revoked bool `json:"revoked"`
 }
 
+// SetupRequest Request to set up the initial admin user
+type SetupRequest struct {
+	// Email Email address for the admin user
+	Email string `json:"email"`
+
+	// Name Display name for the admin user (defaults to email if not provided)
+	Name string `json:"name"`
+
+	// Password Password for the admin user (minimum 8 characters)
+	Password string `json:"password"`
+}
+
+// SetupResponse Response after successful instance setup
+type SetupResponse struct {
+	// Email Email address of the created user
+	Email string `json:"email"`
+
+	// UserId The ID of the created user
+	UserId string `json:"user_id"`
+}
+
 // User defines model for User.
 type User struct {
 	// AutoGroups Group IDs to auto-assign to peers registered by this user
@@ -1793,6 +1923,9 @@ type User struct {
 
 	// Id User ID
 	Id string `json:"id"`
+
+	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+	IdpId *string `json:"idp_id,omitempty"`
 
 	// IsBlocked Is true if this user is blocked. Blocked users can't use the system
 	IsBlocked bool `json:"is_blocked"`
@@ -1811,6 +1944,9 @@ type User struct {
 
 	// Name User's name from idp provider
 	Name string `json:"name"`
+
+	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+	Password *string `json:"password,omitempty"`
 
 	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
 	PendingApproval bool             `json:"pending_approval"`
@@ -1908,6 +2044,12 @@ type GetApiEventsNetworkTrafficParamsConnectionType string
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string
 
+// GetApiGroupsParams defines parameters for GetApiGroups.
+type GetApiGroupsParams struct {
+	// Name Filter groups by name (exact match)
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
 // GetApiPeersParams defines parameters for GetApiPeers.
 type GetApiPeersParams struct {
 	// Name Filter peers by name
@@ -1946,6 +2088,12 @@ type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
+
+// PostApiIdentityProvidersJSONRequestBody defines body for PostApiIdentityProviders for application/json ContentType.
+type PostApiIdentityProvidersJSONRequestBody = IdentityProviderRequest
+
+// PutApiIdentityProvidersIdpIdJSONRequestBody defines body for PutApiIdentityProvidersIdpId for application/json ContentType.
+type PutApiIdentityProvidersIdpIdJSONRequestBody = IdentityProviderRequest
 
 // PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
 type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
@@ -2000,6 +2148,9 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
+
+// PostApiSetupJSONRequestBody defines body for PostApiSetup for application/json ContentType.
+type PostApiSetupJSONRequestBody = SetupRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = CreateSetupKeyRequest

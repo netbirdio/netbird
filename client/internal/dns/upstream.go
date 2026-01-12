@@ -2,7 +2,6 @@ package dns
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -22,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
@@ -114,10 +114,7 @@ func (u *upstreamResolverBase) Stop() {
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	requestID := GenerateRequestID()
-	logger := log.WithField("request_id", requestID)
-
-	logger.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	logger := log.WithField("request_id", resutil.GetRequestID(w))
 
 	u.prepareRequest(r)
 
@@ -203,11 +200,18 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 
 func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
 	u.successCount.Add(1)
-	logger.Tracef("took %s to query the upstream %s for question domain=%s", t, upstream, domain)
+
+	resutil.SetMeta(w, "upstream", upstream.String())
+
+	// Clear Zero bit from external responses to prevent upstream servers from
+	// manipulating our internal fallthrough signaling mechanism
+	rm.MsgHdr.Zero = false
 
 	if err := w.WriteMsg(rm); err != nil {
 		logger.Errorf("failed to write DNS response for question domain=%s: %s", domain, err)
+		return true
 	}
+
 	return true
 }
 
@@ -464,15 +468,6 @@ func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upst
 	return reply, nil
 }
 
-func GenerateRequestID() string {
-	bytes := make([]byte, 4)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		log.Errorf("failed to generate request ID: %v", err)
-		return ""
-	}
-	return hex.EncodeToString(bytes)
-}
 
 // FormatPeerStatus formats peer connection status information for debugging DNS timeouts
 func FormatPeerStatus(peerState *peer.State) string {

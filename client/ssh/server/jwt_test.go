@@ -23,10 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/client"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func TestJWTEnforcement(t *testing.T) {
@@ -577,6 +579,22 @@ func TestJWTAuthentication(t *testing.T) {
 				tc.setupServer(server)
 			}
 
+			// Always set up authorization for test-user to ensure tests fail at JWT validation stage
+			testUserHash, err := sshuserhash.HashUserID("test-user")
+			require.NoError(t, err)
+
+			// Get current OS username for machine user mapping
+			currentUser := testutil.GetTestUsername(t)
+
+			authConfig := &sshauth.Config{
+				UserIDClaim:     sshauth.DefaultUserIDClaim,
+				AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+				MachineUsers: map[string][]uint32{
+					currentUser: {0}, // Allow test-user (index 0) to access current OS user
+				},
+			}
+			server.UpdateSSHAuth(authConfig)
+
 			serverAddr := StartTestServer(t, server)
 			defer require.NoError(t, server.Stop())
 
@@ -584,12 +602,13 @@ func TestJWTAuthentication(t *testing.T) {
 			require.NoError(t, err)
 
 			var authMethods []cryptossh.AuthMethod
-			if tc.token == "valid" {
+			switch tc.token {
+			case "valid":
 				token := generateValidJWT(t, privateKey, issuer, audience)
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(token),
 				}
-			} else if tc.token == "invalid" {
+			case "invalid":
 				invalidToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid"
 				authMethods = []cryptossh.AuthMethod{
 					cryptossh.Password(invalidToken),

@@ -16,6 +16,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -24,7 +25,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -55,15 +56,12 @@ const (
 type Server struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
-	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager network_map.PeersUpdateManager
-	config             *nbconfig.Config
-	secretsManager     SecretsManager
-	appMetrics         telemetry.AppMetrics
-	ephemeralManager   ephemeral.Manager
-	peerLocks          sync.Map
-	authManager        auth.Manager
+	config         *nbconfig.Config
+	secretsManager SecretsManager
+	appMetrics     telemetry.AppMetrics
+	peerLocks      sync.Map
+	authManager    auth.Manager
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -72,6 +70,8 @@ type Server struct {
 	loginFilter *loginFilter
 
 	networkMapController network_map.Controller
+
+	oAuthConfigProvider idp.OAuthConfigProvider
 
 	syncSem atomic.Int32
 	syncLim int32
@@ -82,23 +82,17 @@ func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
 	settingsManager settings.Manager,
-	peersUpdateManager network_map.PeersUpdateManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
+	oAuthConfigProvider idp.OAuthConfigProvider,
 ) (*Server, error) {
-	key, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		return nil, err
-	}
-
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
-		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-			return int64(peersUpdateManager.CountStreams())
+		err := appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+			return int64(networkMapController.CountStreams())
 		})
 		if err != nil {
 			return nil, err
@@ -120,20 +114,17 @@ func NewServer(
 	}
 
 	return &Server{
-		wgKey: key,
-		// peerKey -> event channel
-		peersUpdateManager:       peersUpdateManager,
 		accountManager:           accountManager,
 		settingsManager:          settingsManager,
 		config:                   config,
 		secretsManager:           secretsManager,
 		authManager:              authManager,
 		appMetrics:               appMetrics,
-		ephemeralManager:         ephemeralManager,
 		logBlockedPeers:          logBlockedPeers,
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
 		networkMapController:     networkMapController,
+		oAuthConfigProvider:      oAuthConfigProvider,
 
 		loginFilter: newLoginFilter(),
 
@@ -149,10 +140,6 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	}
 
 	log.WithContext(ctx).Tracef("GetServerKey request from %s", ip)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetServerKey from %s took %v", ip, time.Since(start))
-	}()
 
 	// todo introduce something more meaningful with the key expiration/rotation
 	if s.appMetrics != nil {
@@ -163,8 +150,14 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	nanos := int32(now.Nanosecond())
 	expiresAt := &timestamp.Timestamp{Seconds: secs, Nanos: nanos}
 
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wireguard key: %v", err)
+		return nil, errors.New("failed to get wireguard key")
+	}
+
 	return &proto.ServerKeyResponse{
-		Key:       s.wgKey.PublicKey().String(),
+		Key:       key.PublicKey().String(),
 		ExpiresAt: expiresAt,
 	}, nil
 }
@@ -197,13 +190,19 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
+	if err != nil {
+		s.syncSem.Add(-1)
+		return mapError(ctx, err)
+	}
+
 	metahashed := metaHash(peerMeta, sRealIP)
-	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
+	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
 		if s.blockPeersWithSameConfig {
 			s.syncSem.Add(-1)
@@ -231,8 +230,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	log.WithContext(ctx).Debugf("Sync: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
-
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
@@ -244,7 +241,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		}
 	}()
 	log.WithContext(ctx).Tracef("acquired peer lock for peer %s took %v", peerKey.String(), time.Since(start))
-	log.WithContext(ctx).Debugf("Sync: acquirePeerLockByUID since start %v", time.Since(reqStart))
 
 	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
@@ -269,9 +265,13 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
-
-	s.ephemeralManager.OnPeerConnected(ctx, peer)
+	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
+		s.syncSem.Add(-1)
+		s.cancelPeerRoutines(ctx, accountID, peer)
+		return err
+	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
@@ -281,6 +281,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	unlock()
 	unlock = nil
+
+	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
 
 	s.syncSem.Add(-1)
 
@@ -323,13 +325,19 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
 func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		s.cancelPeerRoutines(ctx, accountID, peer)
+		return status.Errorf(codes.Internal, "failed processing update message")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
 	if err != nil {
@@ -348,11 +356,10 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}
-	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
+	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
-	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 
-	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
+	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
 }
 
 func (s *Server) validateToken(ctx context.Context, jwtToken string) (string, error) {
@@ -504,7 +511,12 @@ func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, 
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, parsed)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return wgtypes.Key{}, status.Errorf(codes.Internal, "failed processing request")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, parsed)
 	if err != nil {
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
@@ -520,7 +532,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	reqStart := time.Now()
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
-	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(ctx, req, loginReq)
@@ -532,7 +543,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
-			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
+			log.WithContext(ctx).Tracef("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
 		}
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
@@ -556,16 +567,13 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	log.WithContext(ctx).Debugf("Login: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	defer func() {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
 		}
-		took := time.Since(reqStart)
-		if took > 7*time.Second {
-			log.WithContext(ctx).Debugf("Login: took %v", time.Since(reqStart))
-		}
+		log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
 	}()
 
 	if loginReq.GetMeta() == nil {
@@ -599,30 +607,26 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, mapError(ctx, err)
 	}
 
-	log.WithContext(ctx).Debugf("Login: LoginPeer since start %v", time.Since(reqStart))
-
-	// if the login request contains setup key then it is a registration request
-	if loginReq.GetSetupKey() != "" {
-		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
-		log.WithContext(ctx).Debugf("Login: OnPeerDisconnected since start %v", time.Since(reqStart))
-	}
-
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	log.WithContext(ctx).Debugf("Login: prepareLoginResponse since start %v", time.Since(reqStart))
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting server's WireGuard private key: %s", err)
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
+	}
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -646,7 +650,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, netMap.EnableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 
@@ -715,17 +719,20 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 
 	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed getting server key")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	sendStart := time.Now()
 	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
-	log.WithContext(ctx).Debugf("sendInitialSync: sending response took %s", time.Since(sendStart))
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
@@ -740,10 +747,6 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 // which will be used by our clients to Login
 func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow for pubKey: %s took %v", req.WgPubKey, time.Since(start))
-	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -752,43 +755,64 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.DeviceAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.DeviceAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
-		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+	var flowInfoResp *proto.DeviceAuthorizationFlow
+
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlow_HOSTED,
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.oAuthConfigProvider.GetCLIClientID(),
+				Audience:           s.oAuthConfigProvider.GetCLIClientID(),
+				DeviceAuthEndpoint: s.oAuthConfigProvider.GetDeviceAuthEndpoint(),
+				TokenEndpoint:      s.oAuthConfigProvider.GetTokenEndpoint(),
+				Scope:              s.oAuthConfigProvider.GetDefaultScopes(),
+			},
+		}
+	} else {
+		if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
+			return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+		}
+
+		provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
+		if !ok {
+			return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
+		}
+
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlowProvider(provider),
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+				Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
+				Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+				DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
+				TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
+				UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
+			},
+		}
 	}
 
-	provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
-	}
-
-	flowInfoResp := &proto.DeviceAuthorizationFlow{
-		Provider: proto.DeviceAuthorizationFlowProvider(provider),
-		ProviderConfig: &proto.ProviderConfig{
-			ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
-			Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
-			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
-			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
-			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
-			UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
-		},
-	}
-
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no device authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt device authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -798,10 +822,6 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 // which will be used by our clients to Login
 func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow for pubKey %s took %v", req.WgPubKey, time.Since(start))
-	}()
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -810,41 +830,63 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.PKCEAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.PKCEAuthorizationFlow == nil {
-		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
-	}
+	var initInfoFlow *proto.PKCEAuthorizationFlow
 
-	initInfoFlow := &proto.PKCEAuthorizationFlow{
-		ProviderConfig: &proto.ProviderConfig{
-			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
-			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
-			TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
-			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
-			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
-			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
-			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
-			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
-		},
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.oAuthConfigProvider.GetCLIClientID(),
+				ClientID:              s.oAuthConfigProvider.GetCLIClientID(),
+				TokenEndpoint:         s.oAuthConfigProvider.GetTokenEndpoint(),
+				AuthorizationEndpoint: s.oAuthConfigProvider.GetAuthorizationEndpoint(),
+				Scope:                 s.oAuthConfigProvider.GetDefaultScopes(),
+				RedirectURLs:          s.oAuthConfigProvider.GetCLIRedirectURLs(),
+				LoginFlag:             uint32(common.LoginFlagPromptLogin),
+			},
+		}
+	} else {
+		if s.config.PKCEAuthorizationFlow == nil {
+			return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
+		}
+
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
+				ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
+				TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
+				Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
+				RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
+				UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+				DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
+				LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
+			},
+		}
 	}
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no pkce authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt pkce authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }

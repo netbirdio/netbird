@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.0.23"
+  SIGN_PIPE_VER: "v0.1.0"
   GORELEASER_VER: "v2.3.2"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
@@ -19,6 +19,100 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release_freebsd_port:
+    name: "FreeBSD Port / Build & Test"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate FreeBSD port diff
+        run: bash release_files/freebsd-port-diff.sh
+
+      - name: Generate FreeBSD port issue body
+        run: bash release_files/freebsd-port-issue-body.sh
+
+      - name: Check if diff was generated
+        id: check_diff
+        run: |
+          if ls netbird-*.diff 1> /dev/null 2>&1; then
+            echo "diff_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "diff_exists=false" >> $GITHUB_OUTPUT
+            echo "No diff file generated (port may already be up to date)"
+          fi
+
+      - name: Extract version
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        id: version
+        run: |
+          VERSION=$(ls netbird-*.diff | sed 's/netbird-\(.*\)\.diff/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated files for version: $VERSION"
+          cat netbird-*.diff
+
+      - name: Test FreeBSD port
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          release: "15.0"
+          prepare: |
+            # Install required packages
+            pkg install -y git curl portlint go
+
+            # Install Go for building
+            GO_TARBALL="go1.25.5.freebsd-amd64.tar.gz"
+            GO_URL="https://go.dev/dl/$GO_TARBALL"
+            curl -LO "$GO_URL"
+            tar -C /usr/local -xzf "$GO_TARBALL"
+
+            # Clone ports tree (shallow, only what we need)
+            git clone --depth 1 --filter=blob:none https://git.FreeBSD.org/ports.git /usr/ports
+            cd /usr/ports
+
+          run: |
+            set -e -x
+            export PATH=$PATH:/usr/local/go/bin
+
+            # Find the diff file
+            echo "Finding diff file..."
+            DIFF_FILE=$(find $PWD -name "netbird-*.diff" -type f 2>/dev/null | head -1)
+            echo "Found: $DIFF_FILE"
+
+            if [[ -z "$DIFF_FILE" ]]; then
+              echo "ERROR: Could not find diff file"
+              find ~ -name "*.diff" -type f 2>/dev/null || true
+              exit 1
+            fi
+
+            # Apply the generated diff from /usr/ports (diff has a/security/netbird/... paths)
+            cd /usr/ports
+            patch -p1 -V none < "$DIFF_FILE"
+
+            # Show patched Makefile
+            version=$(cat security/netbird/Makefile | grep -E '^DISTVERSION=' | awk '{print $NF}')
+            
+            cd /usr/ports/security/netbird
+            export BATCH=yes
+            make package
+            pkg add ./work/pkg/netbird-*.pkg
+            
+            netbird version | grep "$version"
+
+            echo "FreeBSD port test completed successfully!"
+
+      - name: Upload FreeBSD port files
+        if: steps.check_diff.outputs.diff_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-port-files
+          path: |
+            ./netbird-*-issue.txt
+            ./netbird-*.diff
+          retention-days: 30
+
   release:
     runs-on: ubuntu-latest-m
     env:

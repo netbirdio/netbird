@@ -179,6 +179,13 @@ const (
 	PeerIPUpdated              Activity = 88
 	UserApproved               Activity = 89
 	UserRejected               Activity = 90
+	UserCreated                Activity = 91
+
+	AccountAutoUpdateVersionUpdated Activity = 92
+
+	IdentityProviderCreated Activity = 93
+	IdentityProviderUpdated Activity = 94
+	IdentityProviderDeleted Activity = 95
 
 	AccountDeleted Activity = 99999
 )
@@ -286,8 +293,16 @@ var activityMap = map[Activity]Code{
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
-	UserApproved:  {"User approved", "user.approve"},
-	UserRejected:  {"User rejected", "user.reject"},
+
+	UserApproved: {"User approved", "user.approve"},
+	UserRejected: {"User rejected", "user.reject"},
+	UserCreated:  {"User created", "user.create"},
+
+	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
+	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
+	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
 }
 
 // StringCode returns a string code of the activity

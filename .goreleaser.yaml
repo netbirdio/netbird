@@ -713,8 +713,10 @@ checksum:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh
 
 release:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh

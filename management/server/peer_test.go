@@ -28,6 +28,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
@@ -500,7 +502,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Users[someUser] = &types.User{
 		Id:   someUser,
 		Role: types.UserRoleUser,
@@ -687,7 +689,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+			account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 			account.Users[someUser] = &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
@@ -757,7 +759,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 	adminUser := "account_creator"
 	regularUser := "regular_user"
 
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Users[regularUser] = &types.User{
 		Id:   regularUser,
 		Role: types.UserRoleUser,
@@ -1058,6 +1060,7 @@ func testUpdateAccountPeers(t *testing.T) {
 
 			for _, channel := range peerChannels {
 				update := <-channel
+				assert.Nil(t, update.Update.NetbirdConfig)
 				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
 				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}
@@ -1290,7 +1293,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
@@ -1375,7 +1378,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
@@ -1528,7 +1531,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
@@ -1608,7 +1611,7 @@ func Test_LoginPeer(t *testing.T) {
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), &config.Config{})
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
@@ -2121,17 +2124,19 @@ func Test_DeletePeer(t *testing.T) {
 	// account with an admin and a regular user
 	accountID := "test_account"
 	adminUser := "account_creator"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Peers = map[string]*nbpeer.Peer{
 		"peer1": {
 			ID:        "peer1",
 			AccountID: accountID,
+			Key:       "key1",
 			IP:        net.IP{1, 1, 1, 1},
 			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
+			Key:       "key2",
 			IP:        net.IP{2, 2, 2, 2},
 			DNSLabel:  "peer2.test",
 		},
@@ -2304,12 +2309,12 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
-	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser := types.NewRegularUser("pending-user", "", "")
 	pendingUser.AccountID = account.Id
 	pendingUser.Blocked = true
 	pendingUser.PendingApproval = true
@@ -2341,12 +2346,12 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
-	regularUser := types.NewRegularUser("regular-user")
+	regularUser := types.NewRegularUser("regular-user", "", "")
 	regularUser.AccountID = account.Id
 	err = manager.Store.SaveUser(context.Background(), regularUser)
 	require.NoError(t, err)
@@ -2375,12 +2380,12 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
-	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser := types.NewRegularUser("pending-user", "", "")
 	pendingUser.AccountID = account.Id
 	pendingUser.Blocked = true
 	pendingUser.PendingApproval = true
@@ -2440,12 +2445,12 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
-	regularUser := types.NewRegularUser("regular-user")
+	regularUser := types.NewRegularUser("regular-user", "", "")
 	regularUser.AccountID = account.Id
 	err = manager.Store.SaveUser(context.Background(), regularUser)
 	require.NoError(t, err)
