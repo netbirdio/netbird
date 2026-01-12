@@ -147,7 +147,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize log: %s", err)
 	}
 
-	// === Resource creation phase (fail fast before starting any goroutines) ===
+	// Resource creation phase (fail fast before starting any goroutines)
 
 	metricsServer, err := metrics.NewServer(cobraConfig.MetricsPort, "")
 	if err != nil {
@@ -167,20 +167,9 @@ func execute(cmd *cobra.Command, args []string) error {
 	srvListenerCfg.TLSConfig = tlsConfig
 
 	// Create STUN listeners early to fail fast
-	var stunListeners []*net.UDPConn
-	if cobraConfig.EnableSTUN {
-		for _, port := range cobraConfig.STUNPorts {
-			listener, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
-			if err != nil {
-				// Close already opened listeners on failure
-				for _, l := range stunListeners {
-					_ = l.Close()
-				}
-				log.Debugf("failed to create STUN listener on port %d: %v", port, err)
-				return fmt.Errorf("failed to create STUN listener on port %d: %v", port, err)
-			}
-			stunListeners = append(stunListeners, listener)
-		}
+	stunListeners, err := createSTUNListeners()
+	if err != nil {
+		return err
 	}
 
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
@@ -193,28 +182,18 @@ func execute(cmd *cobra.Command, args []string) error {
 		TLSSupport:     tlsSupport,
 	}
 
-	srv, err := server.NewServer(cfg)
+	srv, err := createRelayServer(err, cfg, stunListeners)
 	if err != nil {
-		// Clean up STUN listeners on failure
-		for _, l := range stunListeners {
-			_ = l.Close()
-		}
-		log.Debugf("failed to create relay server: %v", err)
-		return fmt.Errorf("failed to create relay server: %v", err)
+		return err
 	}
 
 	hCfg := healthcheck.Config{
 		ListenAddress:  cobraConfig.HealthcheckListenAddress,
 		ServiceChecker: srv,
 	}
-	httpHealthcheck, err := healthcheck.NewServer(hCfg)
+	httpHealthcheck, err := createHealthCheck(err, hCfg, stunListeners)
 	if err != nil {
-		// Clean up STUN listeners on failure
-		for _, l := range stunListeners {
-			_ = l.Close()
-		}
-		log.Debugf("failed to create healthcheck server: %v", err)
-		return fmt.Errorf("failed to create healthcheck server: %v", err)
+		return err
 	}
 
 	var stunServer *stun.Server
@@ -222,7 +201,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		stunServer = stun.NewServer(stunListeners, cobraConfig.STUNLogLevel)
 	}
 
-	// === Start all servers (only after all resources are successfully created) ===
+	// Start all servers (only after all resources are successfully created)
 
 	wg.Add(1)
 	go func() {
@@ -292,6 +271,49 @@ func execute(cmd *cobra.Command, args []string) error {
 
 	wg.Wait()
 	return shutDownErrors
+}
+
+func createHealthCheck(err error, hCfg healthcheck.Config, stunListeners []*net.UDPConn) (*healthcheck.Server, error) {
+	httpHealthcheck, err := healthcheck.NewServer(hCfg)
+	if err != nil {
+		cleanupSTUNListeners(stunListeners)
+		log.Debugf("failed to create healthcheck server: %v", err)
+		return nil, fmt.Errorf("failed to create healthcheck server: %v", err)
+	}
+	return httpHealthcheck, nil
+}
+
+func createRelayServer(err error, cfg server.Config, stunListeners []*net.UDPConn) (*server.Server, error) {
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		cleanupSTUNListeners(stunListeners)
+		log.Debugf("failed to create relay server: %v", err)
+		return nil, fmt.Errorf("failed to create relay server: %v", err)
+	}
+	return srv, nil
+}
+
+func cleanupSTUNListeners(stunListeners []*net.UDPConn) {
+	for _, l := range stunListeners {
+		_ = l.Close()
+	}
+}
+
+func createSTUNListeners() ([]*net.UDPConn, error) {
+	var stunListeners []*net.UDPConn
+	if cobraConfig.EnableSTUN {
+		for _, port := range cobraConfig.STUNPorts {
+			listener, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
+			if err != nil {
+				// Close already opened listeners on failure
+				cleanupSTUNListeners(stunListeners)
+				log.Debugf("failed to create STUN listener on port %d: %v", port, err)
+				return nil, fmt.Errorf("failed to create STUN listener on port %d: %v", port, err)
+			}
+			stunListeners = append(stunListeners, listener)
+		}
+	}
+	return stunListeners, nil
 }
 
 func handleTLSConfig(cfg *Config) (*tls.Config, bool, error) {
