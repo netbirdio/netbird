@@ -671,9 +671,7 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 
 	// For JS platform: only relay connection is supported
 	if runtime.GOOS == "js" {
-		if conn.statusRelay.Get() == worker.StatusDisconnected {
-			return false
-		}
+		return conn.statusRelay.Get() == worker.StatusConnected
 	}
 
 	// For non-JS platforms: check ICE connection status
