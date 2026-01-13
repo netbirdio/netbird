@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/idp"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
+
+	"github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/netbird/encryption"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -250,7 +251,33 @@ func (s *BaseServer) SetContainer(key string, container any) {
 	log.Tracef("container with key %s set successfully", key)
 }
 
+// SetHandlerFunc allows overriding the default HTTP handler function.
+// This is useful for multiplexing additional services on the same port.
+func (s *BaseServer) SetHandlerFunc(handler http.Handler) {
+	s.container["customHandler"] = handler
+	log.Tracef("custom handler set successfully")
+}
+
+// HTTPHandler returns the HTTP API handler
+func (s *BaseServer) HTTPHandler() http.Handler {
+	if h, ok := s.GetContainer("apiHandler"); ok {
+		if handler, ok := h.(http.Handler); ok {
+			return handler
+		}
+	}
+	return nil
+}
+
 func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+	// Check if a custom handler was set (for multiplexing additional services)
+	if customHandler, ok := s.GetContainer("customHandler"); ok {
+		if handler, ok := customHandler.(http.Handler); ok {
+			log.Tracef("using custom handler")
+			return handler
+		}
+	}
+
+	// Use default handler
 	wsProxy := wsproxyserver.New(gRPCHandler, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
