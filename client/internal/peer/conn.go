@@ -669,10 +669,19 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		}
 	}()
 
-	if runtime.GOOS != "js" && conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
+	// For JS platform: only relay connection is supported
+	if runtime.GOOS == "js" {
+		if conn.statusRelay.Get() == worker.StatusDisconnected {
+			return false
+		}
+	}
+
+	// For non-JS platforms: check ICE connection status
+	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false
 	}
 
+	// If relay is supported with peer, it must also be connected
 	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
 		if conn.statusRelay.Get() == worker.StatusDisconnected {
 			return false
