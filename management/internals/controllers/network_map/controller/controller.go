@@ -143,7 +143,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		err     error
 	)
 	if c.experimentalNetworkMap(accountID) {
-		account = c.getAccountFromHolderOrInit(accountID)
+		account = c.getAccountFromHolderOrInit(ctx, accountID)
 	} else {
 		account, err = c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
@@ -427,7 +427,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		err     error
 	)
 	if c.experimentalNetworkMap(accountID) {
-		account = c.getAccountFromHolderOrInit(accountID)
+		account = c.getAccountFromHolderOrInit(ctx, accountID)
 	} else {
 		account, err = c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
@@ -496,7 +496,7 @@ func (c *Controller) getPeerNetworkMapExp(
 	accountZones []*zones.Zone,
 	metrics *telemetry.AccountManagerMetrics,
 ) *types.NetworkMap {
-	account := c.getAccountFromHolderOrInit(accountId)
+	account := c.getAccountFromHolderOrInit(ctx, accountId)
 	if account == nil {
 		log.WithContext(ctx).Warnf("account %s not found in holder when getting peer network map", accountId)
 		return &types.NetworkMap{
@@ -568,12 +568,12 @@ func (c *Controller) getAccountFromHolder(accountID string) *types.Account {
 	return c.holder.GetAccount(accountID)
 }
 
-func (c *Controller) getAccountFromHolderOrInit(accountID string) *types.Account {
+func (c *Controller) getAccountFromHolderOrInit(ctx context.Context, accountID string) *types.Account {
 	a := c.holder.GetAccount(accountID)
 	if a != nil {
 		return a
 	}
-	account, err := c.holder.LoadOrStoreFunc(accountID, c.requestBuffer.GetAccountWithBackpressure)
+	account, err := c.holder.LoadOrStoreFunc(ctx, accountID, c.requestBuffer.GetAccountWithBackpressure)
 	if err != nil {
 		return nil
 	}

@@ -169,8 +169,7 @@ init_environment() {
 
 render_caddyfile() {
   cat <<EOF
-{
-  debug
+{  
   servers :80,:443 {
     protocols h1 h2c h2 h3
   }
@@ -271,7 +270,7 @@ AUTH_CLIENT_ID=netbird-dashboard
 AUTH_CLIENT_SECRET=
 AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
 USE_AUTH0=false
-AUTH_SUPPORTED_SCOPES=openid profile email offline_access
+AUTH_SUPPORTED_SCOPES=openid profile email groups
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL

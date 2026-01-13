@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
+	"github.com/netbirdio/netbird/idp/dex"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -28,6 +29,7 @@ const (
 	defaultPushInterval = 12 * time.Hour
 	// requestTimeout http request timeout
 	requestTimeout = 45 * time.Second
+	EmbeddedType   = "embedded"
 )
 
 type getTokenResponse struct {
@@ -206,6 +208,8 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		peerActiveVersions        []string
 		osUIClients               map[string]int
 		rosenpassEnabled          int
+		localUsers                int
+		idpUsers                  int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -266,6 +270,16 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 				serviceUsers++
 			} else {
 				users++
+				if w.idpManager == EmbeddedType {
+					_, idpID, err := dex.DecodeDexUserID(user.Id)
+					if err == nil {
+						if idpID == "local" {
+							localUsers++
+						} else {
+							idpUsers++
+						}
+					}
+				}
 			}
 			pats += len(user.PATs)
 		}
@@ -353,6 +367,8 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["idp_manager"] = w.idpManager
 	metricsProperties["store_engine"] = w.dataSource.GetStoreEngine()
 	metricsProperties["rosenpass_enabled"] = rosenpassEnabled
+	metricsProperties["local_users_count"] = localUsers
+	metricsProperties["idp_users_count"] = idpUsers
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count

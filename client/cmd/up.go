@@ -216,6 +216,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

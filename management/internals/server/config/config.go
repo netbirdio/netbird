@@ -102,6 +102,9 @@ type HttpServerConfig struct {
 	CertKey string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
+	// CLIAuthAudience identifies the client app recipients that the JWT is intended for (aud in JWT)
+	// Used only in conjunction with EmbeddedIdP
+	CLIAuthAudience string
 	// AuthIssuer identifies principal that issued the JWT
 	AuthIssuer string
 	// AuthUserIDClaim is the name of the claim that used as user ID

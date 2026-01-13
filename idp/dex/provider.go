@@ -130,7 +130,21 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 
 // NewProviderFromYAML creates and initializes the Dex server from a YAMLConfig
 func NewProviderFromYAML(ctx context.Context, yamlConfig *YAMLConfig) (*Provider, error) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// Configure log level from config, default to WARN to avoid logging sensitive data (emails)
+	logLevel := slog.LevelWarn
+	if yamlConfig.Logger.Level != "" {
+		switch strings.ToLower(yamlConfig.Logger.Level) {
+		case "debug":
+			logLevel = slog.LevelDebug
+		case "info":
+			logLevel = slog.LevelInfo
+		case "warn", "warning":
+			logLevel = slog.LevelWarn
+		case "error":
+			logLevel = slog.LevelError
+		}
+	}
+	logger := slog.New(NewLogrusHandler(logLevel))
 
 	stor, err := yamlConfig.Storage.OpenStorage(logger)
 	if err != nil {
@@ -778,11 +792,12 @@ func (p *Provider) resolveRedirectURI(redirectURI string) string {
 // buildOIDCConnectorConfig creates config for OIDC-based connectors
 func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte, error) {
 	oidcConfig := map[string]interface{}{
-		"issuer":       cfg.Issuer,
-		"clientID":     cfg.ClientID,
-		"clientSecret": cfg.ClientSecret,
-		"redirectURI":  redirectURI,
-		"scopes":       []string{"openid", "profile", "email"},
+		"issuer":               cfg.Issuer,
+		"clientID":             cfg.ClientID,
+		"clientSecret":         cfg.ClientSecret,
+		"redirectURI":          redirectURI,
+		"scopes":               []string{"openid", "profile", "email"},
+		"insecureEnableGroups": true,
 	}
 	switch cfg.Type {
 	case "zitadel":
@@ -792,6 +807,9 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
 	case "okta":
 		oidcConfig["insecureSkipEmailVerified"] = true
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
+	case "pocketid":
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	}
 	return encodeConnectorConfig(oidcConfig)
 }

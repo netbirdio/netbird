@@ -7,12 +7,14 @@ import (
 
 // Identity provider validation errors
 var (
-	ErrIdentityProviderNameRequired     = errors.New("identity provider name is required")
-	ErrIdentityProviderTypeRequired     = errors.New("identity provider type is required")
-	ErrIdentityProviderTypeUnsupported  = errors.New("unsupported identity provider type")
-	ErrIdentityProviderIssuerRequired   = errors.New("identity provider issuer is required")
-	ErrIdentityProviderIssuerInvalid    = errors.New("identity provider issuer must be a valid URL")
-	ErrIdentityProviderClientIDRequired = errors.New("identity provider client ID is required")
+	ErrIdentityProviderNameRequired      = errors.New("identity provider name is required")
+	ErrIdentityProviderTypeRequired      = errors.New("identity provider type is required")
+	ErrIdentityProviderTypeUnsupported   = errors.New("unsupported identity provider type")
+	ErrIdentityProviderIssuerRequired    = errors.New("identity provider issuer is required")
+	ErrIdentityProviderIssuerInvalid     = errors.New("identity provider issuer must be a valid URL")
+	ErrIdentityProviderIssuerUnreachable = errors.New("identity provider issuer is unreachable")
+	ErrIdentityProviderIssuerMismatch    = errors.New("identity provider issuer does not match the issuer returned by the provider")
+	ErrIdentityProviderClientIDRequired  = errors.New("identity provider client ID is required")
 )
 
 // IdentityProviderType is the type of identity provider
