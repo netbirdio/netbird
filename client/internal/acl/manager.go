@@ -17,7 +17,6 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/acl/id"
-	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -82,22 +81,6 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 
 func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 	rules := networkMap.FirewallRules
-
-	enableSSH := networkMap.PeerConfig != nil &&
-		networkMap.PeerConfig.SshConfig != nil &&
-		networkMap.PeerConfig.SshConfig.SshEnabled
-
-	// If SSH enabled, add default firewall rule which accepts connection to any peer
-	// in the network by SSH (TCP port defined by ssh.DefaultSSHPort).
-	if enableSSH {
-		rules = append(rules, &mgmProto.FirewallRule{
-			PeerIP:    "0.0.0.0",
-			Direction: mgmProto.RuleDirection_IN,
-			Action:    mgmProto.RuleAction_ACCEPT,
-			Protocol:  mgmProto.RuleProtocol_TCP,
-			Port:      strconv.Itoa(ssh.DefaultSSHPort),
-		})
-	}
 
 	// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
 	// we have old version of management without rules handling, we should allow all traffic

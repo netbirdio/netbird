@@ -3,9 +3,11 @@ package profilemanager
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -44,24 +46,30 @@ var DefaultInterfaceBlacklist = []string{
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL       string
-	AdminURL            string
-	ConfigPath          string
-	StateFilePath       string
-	PreSharedKey        *string
-	ServerSSHAllowed    *bool
-	NATExternalIPs      []string
-	CustomDNSAddress    []byte
-	RosenpassEnabled    *bool
-	RosenpassPermissive *bool
-	InterfaceName       *string
-	WireguardPort       *int
-	NetworkMonitor      *bool
-	DisableAutoConnect  *bool
-	ExtraIFaceBlackList []string
-	DNSRouteInterval    *time.Duration
-	ClientCertPath      string
-	ClientCertKeyPath   string
+	ManagementURL                 string
+	AdminURL                      string
+	ConfigPath                    string
+	StateFilePath                 string
+	PreSharedKey                  *string
+	ServerSSHAllowed              *bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
+	SSHJWTCacheTTL                *int
+	NATExternalIPs                []string
+	CustomDNSAddress              []byte
+	RosenpassEnabled              *bool
+	RosenpassPermissive           *bool
+	InterfaceName                 *string
+	WireguardPort                 *int
+	NetworkMonitor                *bool
+	DisableAutoConnect            *bool
+	ExtraIFaceBlackList           []string
+	DNSRouteInterval              *time.Duration
+	ClientCertPath                string
+	ClientCertKeyPath             string
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
@@ -82,18 +90,24 @@ type ConfigInput struct {
 // Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
-	PrivateKey           string
-	PreSharedKey         string
-	ManagementURL        *url.URL
-	AdminURL             *url.URL
-	WgIface              string
-	WgPort               int
-	NetworkMonitor       *bool
-	IFaceBlackList       []string
-	DisableIPv6Discovery bool
-	RosenpassEnabled     bool
-	RosenpassPermissive  bool
-	ServerSSHAllowed     *bool
+	PrivateKey                    string
+	PreSharedKey                  string
+	ManagementURL                 *url.URL
+	AdminURL                      *url.URL
+	WgIface                       string
+	WgPort                        int
+	NetworkMonitor                *bool
+	IFaceBlackList                []string
+	DisableIPv6Discovery          bool
+	RosenpassEnabled              bool
+	RosenpassPermissive           bool
+	ServerSSHAllowed              *bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
+	SSHJWTCacheTTL                *int
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -153,19 +167,26 @@ func getConfigDir() (string, error) {
 	if ConfigDirOverride != "" {
 		return ConfigDirOverride, nil
 	}
-	configDir, err := os.UserConfigDir()
+
+	base, err := baseConfigDir()
 	if err != nil {
 		return "", err
 	}
 
-	configDir = filepath.Join(configDir, "netbird")
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return "", err
+	configDir := filepath.Join(base, "netbird")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return "", err
+	}
+	return configDir, nil
+}
+
+func baseConfigDir() (string, error) {
+	if runtime.GOOS == "darwin" {
+		if u, err := user.Current(); err == nil && u.HomeDir != "" {
+			return filepath.Join(u.HomeDir, "Library", "Application Support"), nil
 		}
 	}
-
-	return configDir, nil
+	return os.UserConfigDir()
 }
 
 func getConfigDirForUser(username string) (string, error) {
@@ -373,6 +394,62 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
+		if *input.EnableSSHRoot {
+			log.Infof("enabling SSH root login")
+		} else {
+			log.Infof("disabling SSH root login")
+		}
+		config.EnableSSHRoot = input.EnableSSHRoot
+		updated = true
+	}
+
+	if input.EnableSSHSFTP != nil && input.EnableSSHSFTP != config.EnableSSHSFTP {
+		if *input.EnableSSHSFTP {
+			log.Infof("enabling SSH SFTP subsystem")
+		} else {
+			log.Infof("disabling SSH SFTP subsystem")
+		}
+		config.EnableSSHSFTP = input.EnableSSHSFTP
+		updated = true
+	}
+
+	if input.EnableSSHLocalPortForwarding != nil && input.EnableSSHLocalPortForwarding != config.EnableSSHLocalPortForwarding {
+		if *input.EnableSSHLocalPortForwarding {
+			log.Infof("enabling SSH local port forwarding")
+		} else {
+			log.Infof("disabling SSH local port forwarding")
+		}
+		config.EnableSSHLocalPortForwarding = input.EnableSSHLocalPortForwarding
+		updated = true
+	}
+
+	if input.EnableSSHRemotePortForwarding != nil && input.EnableSSHRemotePortForwarding != config.EnableSSHRemotePortForwarding {
+		if *input.EnableSSHRemotePortForwarding {
+			log.Infof("enabling SSH remote port forwarding")
+		} else {
+			log.Infof("disabling SSH remote port forwarding")
+		}
+		config.EnableSSHRemotePortForwarding = input.EnableSSHRemotePortForwarding
+		updated = true
+	}
+
+	if input.DisableSSHAuth != nil && input.DisableSSHAuth != config.DisableSSHAuth {
+		if *input.DisableSSHAuth {
+			log.Infof("disabling SSH authentication")
+		} else {
+			log.Infof("enabling SSH authentication")
+		}
+		config.DisableSSHAuth = input.DisableSSHAuth
+		updated = true
+	}
+
+	if input.SSHJWTCacheTTL != nil && input.SSHJWTCacheTTL != config.SSHJWTCacheTTL {
+		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
+		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
 	}
 
@@ -608,7 +685,7 @@ func update(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// GetConfig read config file and return with Config. Errors out if it does not exist
+// GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
 func GetConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, false)
 }
@@ -743,4 +820,86 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 // WriteOutConfig write put the prepared config to the given path
 func WriteOutConfig(path string, config *Config) error {
 	return util.WriteJson(context.Background(), path, config)
+}
+
+// DirectWriteOutConfig writes config directly without atomic temp file operations.
+// Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
+func DirectWriteOutConfig(path string, config *Config) error {
+	return util.DirectWriteJson(context.Background(), path, config)
+}
+
+// DirectUpdateOrCreateConfig is like UpdateOrCreateConfig but uses direct (non-atomic) writes.
+// Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
+func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		cfg, err := createNewConfig(input)
+		if err != nil {
+			return nil, err
+		}
+		err = util.DirectWriteJson(context.Background(), input.ConfigPath, cfg)
+		return cfg, err
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+
+	// Enforce permissions on existing config files (same as UpdateOrCreateConfig)
+	if err := util.EnforcePermission(input.ConfigPath); err != nil {
+		log.Errorf("failed to enforce permission on config file: %v", err)
+	}
+
+	return directUpdate(input)
+}
+
+func directUpdate(input ConfigInput) (*Config, error) {
+	config := &Config{}
+
+	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
+		return nil, err
+	}
+
+	updated, err := config.apply(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if updated {
+		if err := util.DirectWriteJson(context.Background(), input.ConfigPath, config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+// ConfigToJSON serializes a Config struct to a JSON string.
+// This is useful for exporting config to alternative storage mechanisms
+// (e.g., UserDefaults on tvOS where file writes are blocked).
+func ConfigToJSON(config *Config) (string, error) {
+	bs, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return "", err
+	}
+	return string(bs), nil
+}
+
+// ConfigFromJSON deserializes a JSON string to a Config struct.
+// This is useful for restoring config from alternative storage mechanisms.
+// After unmarshaling, defaults are applied to ensure the config is fully initialized.
+func ConfigFromJSON(jsonStr string) (*Config, error) {
+	config := &Config{}
+	err := json.Unmarshal([]byte(jsonStr), config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply defaults to ensure required fields are initialized.
+	// This mirrors what readConfig does after loading from file.
+	if _, err := config.apply(ConfigInput{}); err != nil {
+		return nil, fmt.Errorf("failed to apply defaults to config: %w", err)
+	}
+
+	return config, nil
 }

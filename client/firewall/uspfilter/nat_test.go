@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
@@ -16,7 +17,7 @@ import (
 func TestDNATTranslationCorrectness(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -100,7 +101,7 @@ func parsePacket(t testing.TB, packetData []byte) *decoder {
 func TestDNATMappingManagement(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -148,7 +149,7 @@ func TestDNATMappingManagement(t *testing.T) {
 func TestInboundPortDNAT(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -198,7 +199,7 @@ func TestInboundPortDNAT(t *testing.T) {
 func TestInboundPortDNATNegative(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -233,9 +234,10 @@ func TestInboundPortDNATNegative(t *testing.T) {
 			require.False(t, translated, "Packet should NOT be translated for %s", tc.name)
 
 			d = parsePacket(t, packet)
-			if tc.protocol == layers.IPProtocolTCP {
+			switch tc.protocol {
+			case layers.IPProtocolTCP:
 				require.Equal(t, tc.dstPort, uint16(d.tcp.DstPort), "Port should remain unchanged")
-			} else if tc.protocol == layers.IPProtocolUDP {
+			case layers.IPProtocolUDP:
 				require.Equal(t, tc.dstPort, uint16(d.udp.DstPort), "Port should remain unchanged")
 			}
 		})

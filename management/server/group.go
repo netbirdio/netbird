@@ -138,6 +138,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		newGroup.AccountID = accountID
+
+		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		eventsToStore = append(eventsToStore, events...)
+
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
@@ -156,11 +161,6 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 				return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, newGroup.ID, err)
 			}
 		}
-
-		newGroup.AccountID = accountID
-
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
 
 		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
 		if err != nil {
@@ -335,6 +335,16 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 	if err == nil && oldGroup != nil {
 		addedPeers = util.Difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = util.Difference(oldGroup.Peers, newGroup.Peers)
+
+		if oldGroup.Name != newGroup.Name {
+			eventsToStore = append(eventsToStore, func() {
+				meta := map[string]any{
+					"old_name": oldGroup.Name,
+					"new_name": newGroup.Name,
+				}
+				am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupUpdated, meta)
+			})
+		}
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
 		eventsToStore = append(eventsToStore, func() {
@@ -354,7 +364,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		log.WithContext(ctx).Debugf("failed to get account settings for group events: %v", err)
 		return nil
 	}
-	dnsDomain := am.GetDNSDomain(settings)
+	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	for _, peerID := range addedPeers {
 		peer, ok := peers[peerID]
@@ -417,7 +427,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthUpdate, accountID, groupID)
+			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
 				allErrors = errors.Join(allErrors, err)
 				continue
@@ -430,6 +440,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 			groupIDsToDelete = append(groupIDsToDelete, groupID)
 			deletedGroups = append(deletedGroups, group)
+		}
+
+		if len(groupIDsToDelete) == 0 {
+			return allErrors
 		}
 
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {

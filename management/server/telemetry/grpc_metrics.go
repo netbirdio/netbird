@@ -16,7 +16,6 @@ type GRPCMetrics struct {
 	meter                          metric.Meter
 	syncRequestsCounter            metric.Int64Counter
 	syncRequestsBlockedCounter     metric.Int64Counter
-	syncRequestHighLatencyCounter  metric.Int64Counter
 	loginRequestsCounter           metric.Int64Counter
 	loginRequestsBlockedCounter    metric.Int64Counter
 	loginRequestHighLatencyCounter metric.Int64Counter
@@ -41,14 +40,6 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	syncRequestsBlockedCounter, err := meter.Int64Counter("management.grpc.sync.request.blocked.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of sync gRPC requests from blocked peers"),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	syncRequestHighLatencyCounter, err := meter.Int64Counter("management.grpc.sync.request.high.latency.counter",
-		metric.WithUnit("1"),
-		metric.WithDescription("Number of sync gRPC requests from the peers that took longer than the threshold to establish a connection and receive network map updates (update channel)"),
 	)
 	if err != nil {
 		return nil, err
@@ -126,7 +117,6 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		meter:                          meter,
 		syncRequestsCounter:            syncRequestsCounter,
 		syncRequestsBlockedCounter:     syncRequestsBlockedCounter,
-		syncRequestHighLatencyCounter:  syncRequestHighLatencyCounter,
 		loginRequestsCounter:           loginRequestsCounter,
 		loginRequestsBlockedCounter:    loginRequestsBlockedCounter,
 		loginRequestHighLatencyCounter: loginRequestHighLatencyCounter,
@@ -175,9 +165,6 @@ func (grpcMetrics *GRPCMetrics) CountLoginRequestDuration(duration time.Duration
 // CountSyncRequestDuration counts the duration of the sync gRPC requests
 func (grpcMetrics *GRPCMetrics) CountSyncRequestDuration(duration time.Duration, accountID string) {
 	grpcMetrics.syncRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
-	if duration > HighLatencyThreshold {
-		grpcMetrics.syncRequestHighLatencyCounter.Add(grpcMetrics.ctx, 1, metric.WithAttributes(attribute.String(AccountIDLabel, accountID)))
-	}
 }
 
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.

@@ -19,11 +19,10 @@ type SRWatcher struct {
 	signalClient chNotifier
 	relayManager chNotifier
 
-	listeners     map[chan struct{}]struct{}
-	mu            sync.Mutex
-	iFaceDiscover stdnet.ExternalIFaceDiscover
-	iceConfig     ice.Config
-
+	listeners        map[chan struct{}]struct{}
+	mu               sync.Mutex
+	iFaceDiscover    stdnet.ExternalIFaceDiscover
+	iceConfig        ice.Config
 	cancelIceMonitor context.CancelFunc
 }
 

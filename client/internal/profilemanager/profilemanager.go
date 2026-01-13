@@ -132,3 +132,21 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 
 	return nil
 }
+
+// GetLoginHint retrieves the email from the active profile to use as login_hint.
+func GetLoginHint() string {
+	pm := NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		log.Debugf("failed to get active profile for login hint: %v", err)
+		return ""
+	}
+
+	profileState, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+		return ""
+	}
+
+	return profileState.Email
+}

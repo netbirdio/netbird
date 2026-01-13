@@ -17,6 +17,7 @@ import (
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
@@ -169,7 +170,7 @@ func BenchmarkCoreFiltering(b *testing.B) {
 				// Create manager and basic setup
 				manager, _ := Create(&IFaceMock{
 					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				}, false, flowLogger)
+				}, false, flowLogger, iface.DefaultMTU)
 				defer b.Cleanup(func() {
 					require.NoError(b, manager.Close(nil))
 				})
@@ -209,7 +210,7 @@ func BenchmarkStateScaling(b *testing.B) {
 		b.Run(fmt.Sprintf("conns_%d", count), func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -252,7 +253,7 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -410,7 +411,7 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -537,7 +538,7 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -620,7 +621,7 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -731,7 +732,7 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -811,7 +812,7 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 
 			manager, _ := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, iface.DefaultMTU)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
@@ -896,38 +897,6 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 	}
 }
 
-// generateTCPPacketWithFlags creates a TCP packet with specific flags
-func generateTCPPacketWithFlags(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort, flags uint16) []byte {
-	b.Helper()
-
-	ipv4 := &layers.IPv4{
-		TTL:      64,
-		Version:  4,
-		SrcIP:    srcIP,
-		DstIP:    dstIP,
-		Protocol: layers.IPProtocolTCP,
-	}
-
-	tcp := &layers.TCP{
-		SrcPort: layers.TCPPort(srcPort),
-		DstPort: layers.TCPPort(dstPort),
-	}
-
-	// Set TCP flags
-	tcp.SYN = (flags & uint16(conntrack.TCPSyn)) != 0
-	tcp.ACK = (flags & uint16(conntrack.TCPAck)) != 0
-	tcp.PSH = (flags & uint16(conntrack.TCPPush)) != 0
-	tcp.RST = (flags & uint16(conntrack.TCPRst)) != 0
-	tcp.FIN = (flags & uint16(conntrack.TCPFin)) != 0
-
-	require.NoError(b, tcp.SetNetworkLayerForChecksum(ipv4))
-
-	buf := gopacket.NewSerializeBuffer()
-	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	require.NoError(b, gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload("test")))
-	return buf.Bytes()
-}
-
 func BenchmarkRouteACLs(b *testing.B) {
 	manager := setupRoutedManager(b, "10.10.0.100/16")
 
@@ -986,7 +955,235 @@ func BenchmarkRouteACLs(b *testing.B) {
 		for _, tc := range cases {
 			srcIP := netip.MustParseAddr(tc.srcIP)
 			dstIP := netip.MustParseAddr(tc.dstIP)
-			manager.routeACLsPass(srcIP, dstIP, tc.proto, 0, tc.dstPort)
+			manager.routeACLsPass(srcIP, dstIP, protoToLayer(tc.proto, layers.LayerTypeIPv4), 0, tc.dstPort)
 		}
 	}
+}
+
+// BenchmarkMSSClamping benchmarks the MSS clamping impact on filterOutbound.
+// This shows the overhead difference between the common case (non-SYN packets, fast path)
+// and the rare case (SYN packets that need clamping, expensive path).
+func BenchmarkMSSClamping(b *testing.B) {
+	scenarios := []struct {
+		name        string
+		description string
+		genPacket   func(*testing.B, net.IP, net.IP) []byte
+		frequency   string
+	}{
+		{
+			name:        "syn_needs_clamp",
+			description: "SYN packet needing MSS clamping",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateSYNPacketWithMSS(b, src, dst, 12345, 80, 1460)
+			},
+			frequency: "~0.1% of traffic - EXPENSIVE",
+		},
+		{
+			name:        "syn_no_clamp_needed",
+			description: "SYN packet with already-small MSS",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateSYNPacketWithMSS(b, src, dst, 12345, 80, 1200)
+			},
+			frequency: "~0.05% of traffic",
+		},
+		{
+			name:        "tcp_ack",
+			description: "Non-SYN TCP packet (ACK, data transfer)",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateTCPPacketWithFlags(b, src, dst, 12345, 80, uint16(conntrack.TCPAck))
+			},
+			frequency: "~60-70% of traffic - FAST PATH",
+		},
+		{
+			name:        "tcp_psh_ack",
+			description: "TCP data packet (PSH+ACK)",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateTCPPacketWithFlags(b, src, dst, 12345, 80, uint16(conntrack.TCPPush|conntrack.TCPAck))
+			},
+			frequency: "~10-20% of traffic - FAST PATH",
+		},
+		{
+			name:        "udp",
+			description: "UDP packet",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generatePacket(b, src, dst, 12345, 80, layers.IPProtocolUDP)
+			},
+			frequency: "~20-30% of traffic - FAST PATH",
+		},
+	}
+
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			manager, err := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			}, false, flowLogger, iface.DefaultMTU)
+			require.NoError(b, err)
+			defer func() {
+				require.NoError(b, manager.Close(nil))
+			}()
+
+			manager.mssClampEnabled = true
+			manager.mssClampValue = 1240
+
+			srcIP := net.ParseIP("100.64.0.2")
+			dstIP := net.ParseIP("8.8.8.8")
+			packet := sc.genPacket(b, srcIP, dstIP)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				manager.filterOutbound(packet, len(packet))
+			}
+		})
+	}
+}
+
+// BenchmarkMSSClampingOverhead compares overhead of MSS clamping enabled vs disabled
+// for the common case (non-SYN TCP packets).
+func BenchmarkMSSClampingOverhead(b *testing.B) {
+	scenarios := []struct {
+		name      string
+		enabled   bool
+		genPacket func(*testing.B, net.IP, net.IP) []byte
+	}{
+		{
+			name:    "disabled_tcp_ack",
+			enabled: false,
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateTCPPacketWithFlags(b, src, dst, 12345, 80, uint16(conntrack.TCPAck))
+			},
+		},
+		{
+			name:    "enabled_tcp_ack",
+			enabled: true,
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateTCPPacketWithFlags(b, src, dst, 12345, 80, uint16(conntrack.TCPAck))
+			},
+		},
+		{
+			name:    "disabled_syn_needs_clamp",
+			enabled: false,
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateSYNPacketWithMSS(b, src, dst, 12345, 80, 1460)
+			},
+		},
+		{
+			name:    "enabled_syn_needs_clamp",
+			enabled: true,
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateSYNPacketWithMSS(b, src, dst, 12345, 80, 1460)
+			},
+		},
+	}
+
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			manager, err := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			}, false, flowLogger, iface.DefaultMTU)
+			require.NoError(b, err)
+			defer func() {
+				require.NoError(b, manager.Close(nil))
+			}()
+
+			manager.mssClampEnabled = sc.enabled
+			if sc.enabled {
+				manager.mssClampValue = 1240
+			}
+
+			srcIP := net.ParseIP("100.64.0.2")
+			dstIP := net.ParseIP("8.8.8.8")
+			packet := sc.genPacket(b, srcIP, dstIP)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				manager.filterOutbound(packet, len(packet))
+			}
+		})
+	}
+}
+
+// BenchmarkMSSClampingMemory measures memory allocations for common vs rare cases
+func BenchmarkMSSClampingMemory(b *testing.B) {
+	scenarios := []struct {
+		name      string
+		genPacket func(*testing.B, net.IP, net.IP) []byte
+	}{
+		{
+			name: "tcp_ack_fast_path",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateTCPPacketWithFlags(b, src, dst, 12345, 80, uint16(conntrack.TCPAck))
+			},
+		},
+		{
+			name: "syn_needs_clamp",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generateSYNPacketWithMSS(b, src, dst, 12345, 80, 1460)
+			},
+		},
+		{
+			name: "udp_fast_path",
+			genPacket: func(b *testing.B, src, dst net.IP) []byte {
+				return generatePacket(b, src, dst, 12345, 80, layers.IPProtocolUDP)
+			},
+		},
+	}
+
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			manager, err := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			}, false, flowLogger, iface.DefaultMTU)
+			require.NoError(b, err)
+			defer func() {
+				require.NoError(b, manager.Close(nil))
+			}()
+
+			manager.mssClampEnabled = true
+			manager.mssClampValue = 1240
+
+			srcIP := net.ParseIP("100.64.0.2")
+			dstIP := net.ParseIP("8.8.8.8")
+			packet := sc.genPacket(b, srcIP, dstIP)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				manager.filterOutbound(packet, len(packet))
+			}
+		})
+	}
+}
+
+func generateSYNPacketNoMSS(b *testing.B, srcIP, dstIP net.IP, srcPort, dstPort uint16) []byte {
+	b.Helper()
+
+	ip := &layers.IPv4{
+		Version:  4,
+		IHL:      5,
+		TTL:      64,
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+	}
+
+	tcp := &layers.TCP{
+		SrcPort: layers.TCPPort(srcPort),
+		DstPort: layers.TCPPort(dstPort),
+		SYN:     true,
+		Seq:     1000,
+		Window:  65535,
+	}
+
+	require.NoError(b, tcp.SetNetworkLayerForChecksum(ip))
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+
+	require.NoError(b, gopacket.SerializeLayers(buf, opts, ip, tcp, gopacket.Payload([]byte{})))
+	return buf.Bytes()
 }

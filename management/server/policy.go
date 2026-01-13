@@ -10,7 +10,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -251,32 +250,4 @@ func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []strin
 	}
 
 	return validIDs
-}
-
-// toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
-func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-
-		fwRule := &proto.FirewallRule{
-			PolicyID:  []byte(rule.PolicyID),
-			PeerIP:    rule.PeerIP,
-			Direction: getProtoDirection(rule.Direction),
-			Action:    getProtoAction(rule.Action),
-			Protocol:  getProtoProtocol(rule.Protocol),
-			Port:      rule.Port,
-		}
-
-		if shouldUsePortRange(fwRule) {
-			fwRule.PortInfo = rule.PortRange.ToProto()
-		}
-
-		result[i] = fwRule
-	}
-	return result
-}
-
-func shouldUsePortRange(rule *proto.FirewallRule) bool {
-	return rule.Port == "" && (rule.Protocol == proto.RuleProtocol_UDP || rule.Protocol == proto.RuleProtocol_TCP)
 }

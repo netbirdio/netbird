@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -53,7 +54,7 @@ func TestIptablesManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// just check on the local interface
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -114,7 +115,7 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err)
 
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -160,7 +161,7 @@ func TestIptablesManagerDenyRules(t *testing.T) {
 			t.Logf("  [%d] %s", i, rule)
 		}
 
-		var denyRuleIndex, acceptRuleIndex int = -1, -1
+		var denyRuleIndex, acceptRuleIndex = -1, -1
 		for i, rule := range rules {
 			if strings.Contains(rule, "DROP") {
 				t.Logf("Found DROP rule at index %d: %s", i, rule)
@@ -198,7 +199,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	}
 
 	// just check on the local interface
-	manager, err := Create(mock)
+	manager, err := Create(mock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -264,7 +265,7 @@ func TestIptablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(mock, iface.DefaultMTU)
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second)

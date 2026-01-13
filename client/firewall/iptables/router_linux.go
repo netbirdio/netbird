@@ -10,7 +10,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/hashicorp/go-multierror"
-	"github.com/nadoo/ipset"
+	ipset "github.com/lrh3321/ipset-go"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -30,17 +30,20 @@ const (
 
 	chainPOSTROUTING        = "POSTROUTING"
 	chainPREROUTING         = "PREROUTING"
+	chainFORWARD            = "FORWARD"
 	chainRTNAT              = "NETBIRD-RT-NAT"
 	chainRTFWDIN            = "NETBIRD-RT-FWD-IN"
 	chainRTFWDOUT           = "NETBIRD-RT-FWD-OUT"
 	chainRTPRE              = "NETBIRD-RT-PRE"
 	chainRTRDR              = "NETBIRD-RT-RDR"
+	chainRTMSSCLAMP         = "NETBIRD-RT-MSSCLAMP"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
 	jumpManglePre  = "jump-mangle-pre"
 	jumpNatPre     = "jump-nat-pre"
 	jumpNatPost    = "jump-nat-post"
+	jumpMSSClamp   = "jump-mss-clamp"
 	markManglePre  = "mark-mangle-pre"
 	markManglePost = "mark-mangle-post"
 	matchSet       = "--match-set"
@@ -48,6 +51,9 @@ const (
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
 	fwdSuffix  = "_fwd"
+
+	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
+	ipTCPHeaderMinSize = 40
 )
 
 type ruleInfo struct {
@@ -77,16 +83,18 @@ type router struct {
 	ipsetCounter     *ipsetCounter
 	wgIface          iFaceMapper
 	legacyManagement bool
+	mtu              uint16
 
 	stateManager *statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
 }
 
-func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
+func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16) (*router, error) {
 	r := &router{
 		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,
+		mtu:            mtu,
 		ipFwdState:     ipfwdstate.NewIPForwardingState(),
 	}
 
@@ -98,10 +106,6 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router,
 			return r.deleteIpSet(name)
 		},
 	)
-
-	if err := ipset.Init(); err != nil {
-		return nil, fmt.Errorf("init ipset: %w", err)
-	}
 
 	return r, nil
 }
@@ -224,12 +228,12 @@ func (r *router) findSets(rule []string) []string {
 }
 
 func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
-	if err := ipset.Create(setName, ipset.OptTimeout(0)); err != nil {
+	if err := r.createIPSet(setName); err != nil {
 		return fmt.Errorf("create set %s: %w", setName, err)
 	}
 
 	for _, prefix := range sources {
-		if err := ipset.AddPrefix(setName, prefix); err != nil {
+		if err := r.addPrefixToIPSet(setName, prefix); err != nil {
 			return fmt.Errorf("add element to set %s: %w", setName, err)
 		}
 	}
@@ -238,7 +242,7 @@ func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
 }
 
 func (r *router) deleteIpSet(setName string) error {
-	if err := ipset.Destroy(setName); err != nil {
+	if err := r.destroyIPSet(setName); err != nil {
 		return fmt.Errorf("destroy set %s: %w", setName, err)
 	}
 
@@ -392,6 +396,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
 		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
 		if err != nil {
@@ -416,6 +421,7 @@ func (r *router) createContainers() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
 		if err := r.iptablesClient.NewChain(chainInfo.table, chainInfo.chain); err != nil {
 			return fmt.Errorf("create chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err)
@@ -436,6 +442,10 @@ func (r *router) createContainers() error {
 
 	if err := r.addJumpRules(); err != nil {
 		return fmt.Errorf("add jump rules: %w", err)
+	}
+
+	if err := r.addMSSClampingRules(); err != nil {
+		log.Errorf("failed to add MSS clamping rules: %s", err)
 	}
 
 	return nil
@@ -518,6 +528,35 @@ func (r *router) addPostroutingRules() error {
 	return nil
 }
 
+// addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
+// TODO: Add IPv6 support
+func (r *router) addMSSClampingRules() error {
+	mss := r.mtu - ipTCPHeaderMinSize
+
+	// Add jump rule from FORWARD chain in mangle table to our custom chain
+	jumpRule := []string{
+		"-j", chainRTMSSCLAMP,
+	}
+	if err := r.iptablesClient.Insert(tableMangle, chainFORWARD, 1, jumpRule...); err != nil {
+		return fmt.Errorf("add jump to MSS clamp chain: %w", err)
+	}
+	r.rules[jumpMSSClamp] = jumpRule
+
+	ruleOut := []string{
+		"-o", r.wgIface.Name(),
+		"-p", "tcp",
+		"--tcp-flags", "SYN,RST", "SYN",
+		"-j", "TCPMSS",
+		"--set-mss", fmt.Sprintf("%d", mss),
+	}
+	if err := r.iptablesClient.Append(tableMangle, chainRTMSSCLAMP, ruleOut...); err != nil {
+		return fmt.Errorf("add outbound MSS clamp rule: %w", err)
+	}
+	r.rules["mss-clamp-out"] = ruleOut
+
+	return nil
+}
+
 func (r *router) insertEstablishedRule(chain string) error {
 	establishedRule := getConntrackEstablished()
 
@@ -558,7 +597,7 @@ func (r *router) addJumpRules() error {
 }
 
 func (r *router) cleanJumpRules() error {
-	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre} {
+	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre, jumpMSSClamp} {
 		if rule, exists := r.rules[ruleKey]; exists {
 			var table, chain string
 			switch ruleKey {
@@ -571,6 +610,9 @@ func (r *router) cleanJumpRules() error {
 			case jumpNatPre:
 				table = tableNat
 				chain = chainPREROUTING
+			case jumpMSSClamp:
+				table = tableMangle
+				chain = chainFORWARD
 			default:
 				return fmt.Errorf("unknown jump rule: %s", ruleKey)
 			}
@@ -869,8 +911,8 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
 			continue
 		}
-		if err := ipset.AddPrefix(set.HashedName(), prefix); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("increment ipset counter: %w", err))
+		if err := r.addPrefixToIPSet(set.HashedName(), prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add prefix to ipset: %w", err))
 		}
 	}
 	if merr == nil {
@@ -946,4 +988,38 @@ func applyPort(flag string, port *firewall.Port) []string {
 	}
 
 	return []string{flag, strconv.Itoa(int(port.Values[0]))}
+}
+
+func (r *router) createIPSet(name string) error {
+	opts := ipset.CreateOptions{
+		Replace: true,
+	}
+
+	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {
+		return fmt.Errorf("create ipset %s: %w", name, err)
+	}
+
+	log.Debugf("created ipset %s with type hash:net", name)
+	return nil
+}
+
+func (r *router) addPrefixToIPSet(name string, prefix netip.Prefix) error {
+	addr := prefix.Addr()
+	ip := addr.AsSlice()
+
+	entry := &ipset.Entry{
+		IP:      ip,
+		CIDR:    uint8(prefix.Bits()),
+		Replace: true,
+	}
+
+	if err := ipset.Add(name, entry); err != nil {
+		return fmt.Errorf("add prefix to ipset %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func (r *router) destroyIPSet(name string) error {
+	return ipset.Destroy(name)
 }

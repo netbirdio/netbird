@@ -21,7 +21,7 @@ const (
 )
 
 func TestDefaultAccountManager_PostureCheck(t *testing.T) {
-	am, err := createManager(t)
+	am, _, err := createManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
@@ -109,7 +109,7 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, er
 		ID: "peer1",
 	}
 
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
 	account.Users[admin.Id] = admin
 	account.Users[user.Id] = user
 	account.Peers["peer1"] = peer1
@@ -123,7 +123,7 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, er
 }
 
 func TestPostureCheckAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	g := []*types.Group{
 		{
@@ -147,9 +147,9 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	postureCheckA := &posture.Checks{
@@ -359,9 +359,9 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	// Updating linked posture check to policy where destination has peers but source does not
 	// should trigger account peers update and send peer update
 	t.Run("updating linked posture check to policy where destination has peers but source does not", func(t *testing.T) {
-		updMsg1 := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
+		updMsg1 := updateManager.CreateChannel(context.Background(), peer2.ID)
 		t.Cleanup(func() {
-			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
+			updateManager.CloseChannel(context.Background(), peer2.ID)
 		})
 
 		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
@@ -445,7 +445,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 }
 
 func TestArePostureCheckChangesAffectPeers(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	require.NoError(t, err, "failed to create account manager")
 
 	account, err := initTestPostureChecksAccount(manager)

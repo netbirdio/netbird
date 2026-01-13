@@ -9,18 +9,19 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/netbirdio/netbird/shared/auth"
+
 	"github.com/netbirdio/netbird/base62"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 var _ Manager = (*manager)(nil)
 
 type Manager interface {
-	ValidateAndParseToken(ctx context.Context, value string) (nbcontext.UserAuth, *jwt.Token, error)
-	EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error)
+	ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error)
+	EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error)
 	MarkPATUsed(ctx context.Context, tokenID string) error
 	GetPATInfo(ctx context.Context, token string) (user *types.User, pat *types.PersonalAccessToken, domain string, category string, err error)
 }
@@ -48,27 +49,26 @@ func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim s
 	)
 
 	return &manager{
-		store: store,
-
+		store:     store,
 		validator: jwtValidator,
 		extractor: claimsExtractor,
 	}
 }
 
-func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (nbcontext.UserAuth, *jwt.Token, error) {
+func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (auth.UserAuth, *jwt.Token, error) {
 	token, err := m.validator.ValidateAndParse(ctx, value)
 	if err != nil {
-		return nbcontext.UserAuth{}, nil, err
+		return auth.UserAuth{}, nil, err
 	}
 
 	userAuth, err := m.extractor.ToUserAuth(token)
 	if err != nil {
-		return nbcontext.UserAuth{}, nil, err
+		return auth.UserAuth{}, nil, err
 	}
 	return userAuth, token, err
 }
 
-func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
+func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error) {
 	if userAuth.IsChild || userAuth.IsPAT {
 		return userAuth, nil
 	}

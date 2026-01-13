@@ -12,6 +12,7 @@ import (
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -31,7 +32,7 @@ func TestPeerACLFiltering(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -616,7 +617,7 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(tb, err)
 	require.NoError(tb, manager.EnableRouting())
 	require.NotNil(tb, manager)
@@ -1258,7 +1259,7 @@ func TestRouteACLFiltering(t *testing.T) {
 
 			// testing routeACLsPass only and not FilterInbound, as routed packets are dropped after being passed
 			// to the forwarder
-			_, isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
+			_, isAllowed := manager.routeACLsPass(srcIP, dstIP, protoToLayer(tc.proto, layers.LayerTypeIPv4), tc.srcPort, tc.dstPort)
 			require.Equal(t, tc.shouldPass, isAllowed)
 		})
 	}
@@ -1444,7 +1445,7 @@ func TestRouteACLOrder(t *testing.T) {
 				srcIP := netip.MustParseAddr(p.srcIP)
 				dstIP := netip.MustParseAddr(p.dstIP)
 
-				_, isAllowed := manager.routeACLsPass(srcIP, dstIP, p.proto, p.srcPort, p.dstPort)
+				_, isAllowed := manager.routeACLsPass(srcIP, dstIP, protoToLayer(p.proto, layers.LayerTypeIPv4), p.srcPort, p.dstPort)
 				require.Equal(t, p.shouldPass, isAllowed, "packet %d failed", i)
 			}
 		})
@@ -1462,7 +1463,7 @@ func TestRouteACLSet(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -1487,13 +1488,13 @@ func TestRouteACLSet(t *testing.T) {
 	dstIP := netip.MustParseAddr("192.168.1.100")
 
 	// Check that traffic is dropped (empty set shouldn't match anything)
-	_, isAllowed := manager.routeACLsPass(srcIP, dstIP, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed := manager.routeACLsPass(srcIP, dstIP, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 	require.False(t, isAllowed, "Empty set should not allow any traffic")
 
 	err = manager.UpdateSet(set, []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")})
 	require.NoError(t, err)
 
 	// Now the packet should be allowed
-	_, isAllowed = manager.routeACLsPass(srcIP, dstIP, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed = manager.routeACLsPass(srcIP, dstIP, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 	require.True(t, isAllowed, "After set update, traffic to the added network should be allowed")
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -44,6 +45,8 @@ interfaces.txt: Anonymized network interface information, if --system-info flag 
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
 iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
 nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
+scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
@@ -54,6 +57,7 @@ block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
 
 
 Anonymization Process
@@ -106,6 +110,9 @@ For example, to view the heap profile:
 go tool pprof -http=:8088 heap.prof
 
 This will open a web browser tab with the profiling information.
+
+Stack Trace
+The stack_trace.txt file contains a complete snapshot of all goroutine stack traces at the time the debug bundle was created.
 
 Routes
 The routes.txt file contains detailed routing table information in a tabular format:
@@ -184,6 +191,20 @@ The ip_rules.txt file contains detailed IP routing rule information:
 The table format provides comprehensive visibility into the IP routing decision process, including how traffic is directed to different routing tables based on various criteria. This is valuable for troubleshooting advanced routing configurations and policy-based routing.
 
 For anonymized rules, IP addresses and prefixes are replaced as described above. Interface names are anonymized using string anonymization. Table names, actions, and other non-sensitive information remain unchanged.
+
+DNS Configuration
+The debug bundle includes platform-specific DNS configuration files:
+
+resolv.conf (Unix systems):
+- Contains DNS resolver configuration from /etc/resolv.conf
+- Includes nameserver entries, search domains, and resolver options
+- All IP addresses and domain names are anonymized following the same rules as other files
+
+scutil_dns.txt (macOS only):
+- Contains detailed DNS configuration from scutil --dns
+- Shows DNS configuration for all network interfaces
+- Includes search domains, nameservers, and DNS resolver settings
+- All IP addresses and domain names are anonymized
 `
 
 const (
@@ -311,6 +332,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
 	}
 
+	if err := g.addStackTrace(); err != nil {
+		log.Errorf("failed to add stack trace to debug bundle: %v", err)
+	}
+
 	if err := g.addSyncResponse(); err != nil {
 		return fmt.Errorf("add sync response: %w", err)
 	}
@@ -338,6 +363,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add systemd logs: %v", err)
 	}
 
+	if err := g.addUpdateLogs(); err != nil {
+		log.Errorf("failed to add updater logs: %v", err)
+	}
+
 	return nil
 }
 
@@ -356,6 +385,10 @@ func (g *BundleGenerator) addSystemInfo() {
 
 	if err := g.addFirewallRules(); err != nil {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
+	}
+
+	if err := g.addDNSInfo(); err != nil {
+		log.Errorf("failed to add DNS info to debug bundle: %v", err)
 	}
 }
 
@@ -433,6 +466,18 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
 	}
+	if g.internalConfig.EnableSSHRoot != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHRoot: %v\n", *g.internalConfig.EnableSSHRoot))
+	}
+	if g.internalConfig.EnableSSHSFTP != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHSFTP: %v\n", *g.internalConfig.EnableSSHSFTP))
+	}
+	if g.internalConfig.EnableSSHLocalPortForwarding != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHLocalPortForwarding: %v\n", *g.internalConfig.EnableSSHLocalPortForwarding))
+	}
+	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
+	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))
@@ -487,6 +532,18 @@ func (g *BundleGenerator) addProf() (err error) {
 			return fmt.Errorf("add %s file to zip: %w", profile, err)
 		}
 	}
+	return nil
+}
+
+func (g *BundleGenerator) addStackTrace() error {
+	buf := make([]byte, 5242880) // 5 MB buffer
+	n := runtime.Stack(buf, true)
+
+	stackTrace := bytes.NewReader(buf[:n])
+	if err := g.addFileToZip(stackTrace, "stack_trace.txt"); err != nil {
+		return fmt.Errorf("add stack trace file to zip: %w", err)
+	}
+
 	return nil
 }
 
@@ -595,6 +652,29 @@ func (g *BundleGenerator) addStateFile() error {
 		return fmt.Errorf("add state file to zip: %w", err)
 	}
 
+	return nil
+}
+
+func (g *BundleGenerator) addUpdateLogs() error {
+	inst := installer.New()
+	logFiles := inst.LogFiles()
+	if len(logFiles) == 0 {
+		return nil
+	}
+
+	log.Infof("adding updater logs")
+	for _, logFile := range logFiles {
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			log.Warnf("failed to read update log file %s: %v", logFile, err)
+			continue
+		}
+
+		baseName := filepath.Base(logFile)
+		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
+			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
+		}
+	}
 	return nil
 }
 

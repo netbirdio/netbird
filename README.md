@@ -38,6 +38,11 @@
  
 </strong>
 <br>
+<strong>
+  🚀 <a href="https://careers.netbird.io">We are hiring! Join us at careers.netbird.io</a>
+</strong>
+<br>
+<br>
 <a href="https://registry.terraform.io/providers/netbirdio/netbird/latest">
     New: NetBird terraform provider
   </a> 
@@ -85,7 +90,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 
 **Infrastructure requirements:**
 - A Linux VM with at least **1CPU** and **2GB** of memory.
-- The VM should be publicly accessible on TCP ports **80** and **443** and UDP ports: **3478**, **49152-65535**.
+- The VM should be publicly accessible on TCP ports **80** and **443** and UDP port: **3478**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
@@ -98,7 +103,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 **Steps**
 - Download and run the installation script:
 ```bash
-export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
+export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
@@ -113,7 +118,7 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
 <p float="left" align="middle">
-  <img src="https://docs.netbird.io/docs-static/img/architecture/high-level-dia.png" width="700"/>
+  <img src="https://docs.netbird.io/docs-static/img/about-netbird/high-level-dia.png" width="700"/>
 </p>
 
 See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.

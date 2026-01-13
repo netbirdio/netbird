@@ -35,7 +35,6 @@ const (
 	wireguardPortFlag        = "wireguard-port"
 	networkMonitorFlag       = "network-monitor"
 	disableAutoConnectFlag   = "disable-auto-connect"
-	serverSSHAllowedFlag     = "allow-server-ssh"
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
 	enableLazyConnectionFlag = "enable-lazy-connection"
@@ -64,7 +63,6 @@ var (
 	customDNSAddress        string
 	rosenpassEnabled        bool
 	rosenpassPermissive     bool
-	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
@@ -87,6 +85,9 @@ var (
 
 // Execute executes the root command.
 func Execute() error {
+	if isUpdateBinary() {
+		return updateCmd.Execute()
+	}
 	return rootCmd.Execute()
 }
 
@@ -176,7 +177,6 @@ func init() {
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
-	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
 
@@ -390,6 +390,7 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

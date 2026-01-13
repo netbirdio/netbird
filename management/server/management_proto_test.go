@@ -22,11 +22,16 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -321,99 +326,6 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 	return loginResp, nil
 }
 
-func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
-	testingServerKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Errorf("unable to generate server wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
-	}
-
-	testingClientKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Errorf("unable to generate client wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
-	}
-
-	testCases := []struct {
-		name                   string
-		inputFlow              *config.DeviceAuthorizationFlow
-		expectedFlow           *mgmtProto.DeviceAuthorizationFlow
-		expectedErrFunc        require.ErrorAssertionFunc
-		expectedErrMSG         string
-		expectedComparisonFunc require.ComparisonAssertionFunc
-		expectedComparisonMSG  string
-	}{
-		{
-			name:            "Testing No Device Flow Config",
-			inputFlow:       nil,
-			expectedErrFunc: require.Error,
-			expectedErrMSG:  "should return error",
-		},
-		{
-			name: "Testing Invalid Device Flow Provider Config",
-			inputFlow: &config.DeviceAuthorizationFlow{
-				Provider: "NoNe",
-				ProviderConfig: config.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedErrFunc: require.Error,
-			expectedErrMSG:  "should return error",
-		},
-		{
-			name: "Testing Full Device Flow Config",
-			inputFlow: &config.DeviceAuthorizationFlow{
-				Provider: "hosted",
-				ProviderConfig: config.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedFlow: &mgmtProto.DeviceAuthorizationFlow{
-				Provider: 0,
-				ProviderConfig: &mgmtProto.ProviderConfig{
-					ClientID: "test",
-				},
-			},
-			expectedErrFunc:        require.NoError,
-			expectedErrMSG:         "should not return error",
-			expectedComparisonFunc: require.Equal,
-			expectedComparisonMSG:  "should match",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			mgmtServer := &GRPCServer{
-				wgKey: testingServerKey,
-				config: &config.Config{
-					DeviceAuthorizationFlow: testCase.inputFlow,
-				},
-			}
-
-			message := &mgmtProto.DeviceAuthorizationFlowRequest{}
-
-			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), mgmtServer.wgKey, message)
-			require.NoError(t, err, "should be able to encrypt message")
-
-			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
-				context.TODO(),
-				&mgmtProto.EncryptedMessage{
-					WgPubKey: testingClientKey.PublicKey().String(),
-					Body:     encryptedMSG,
-				},
-			)
-			testCase.expectedErrFunc(t, err, testCase.expectedErrMSG)
-			if testCase.expectedComparisonFunc != nil {
-				flowInfoResp := &mgmtProto.DeviceAuthorizationFlow{}
-
-				err = encryption.DecryptMessage(mgmtServer.wgKey.PublicKey(), testingClientKey, resp.Body, flowInfoResp)
-				require.NoError(t, err, "should be able to decrypt")
-
-				testCase.expectedComparisonFunc(t, testCase.expectedFlow.Provider, flowInfoResp.Provider, testCase.expectedComparisonMSG)
-				testCase.expectedComparisonFunc(t, testCase.expectedFlow.ProviderConfig.ClientID, flowInfoResp.ProviderConfig.ClientID, testCase.expectedComparisonMSG)
-			}
-		})
-	}
-}
-
 func startManagementForTest(t *testing.T, testFile string, config *config.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -427,7 +339,6 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		t.Fatal(err)
 	}
 
-	peersUpdateManager := NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
@@ -451,7 +362,12 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
 
-	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager))
+
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config)
+	accountManager, err := BuildManager(ctx, nil, store, networkMapController, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
@@ -459,10 +375,13 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		cleanup()
+		return nil, nil, "", cleanup, err
+	}
 
-	ephemeralMgr := manager.NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -764,9 +683,38 @@ func Test_LoginPerformance(t *testing.T) {
 						peerLogin := types.PeerLogin{
 							WireGuardPubKey: key.String(),
 							SSHKey:          "random",
-							Meta:            extractPeerMeta(context.Background(), meta),
-							SetupKey:        setupKey.Key,
-							ConnectionIP:    net.IP{1, 1, 1, 1},
+							Meta: nbpeer.PeerSystemMeta{
+								Hostname:           meta.GetHostname(),
+								GoOS:               meta.GetGoOS(),
+								Kernel:             meta.GetKernel(),
+								Platform:           meta.GetPlatform(),
+								OS:                 meta.GetOS(),
+								OSVersion:          meta.GetOSVersion(),
+								WtVersion:          meta.GetNetbirdVersion(),
+								UIVersion:          meta.GetUiVersion(),
+								KernelVersion:      meta.GetKernelVersion(),
+								SystemSerialNumber: meta.GetSysSerialNumber(),
+								SystemProductName:  meta.GetSysProductName(),
+								SystemManufacturer: meta.GetSysManufacturer(),
+								Environment: nbpeer.Environment{
+									Cloud:    meta.GetEnvironment().GetCloud(),
+									Platform: meta.GetEnvironment().GetPlatform(),
+								},
+								Flags: nbpeer.Flags{
+									RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
+									RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
+									ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+									DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
+									DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
+									DisableDNS:            meta.GetFlags().GetDisableDNS(),
+									DisableFirewall:       meta.GetFlags().GetDisableFirewall(),
+									BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
+									BlockInbound:          meta.GetFlags().GetBlockInbound(),
+									LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+								},
+							},
+							SetupKey:     setupKey.Key,
+							ConnectionIP: net.IP{1, 1, 1, 1},
 						}
 
 						login := func() error {

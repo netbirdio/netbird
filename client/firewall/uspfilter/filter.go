@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -27,7 +28,18 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-const layerTypeAll = 0
+const (
+	layerTypeAll = 255
+
+	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
+	ipTCPHeaderMinSize = 40
+)
+
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
 
 const (
 	// EnvDisableConntrack disables the stateful filter, replies to outbound traffic won't be allowed.
@@ -35,6 +47,9 @@ const (
 
 	// EnvDisableUserspaceRouting disables userspace routing, to-be-routed packets will be dropped.
 	EnvDisableUserspaceRouting = "NB_DISABLE_USERSPACE_ROUTING"
+
+	// EnvDisableMSSClamping disables TCP MSS clamping for forwarded traffic.
+	EnvDisableMSSClamping = "NB_DISABLE_MSS_CLAMPING"
 
 	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
@@ -113,6 +128,13 @@ type Manager struct {
 	portDNATEnabled atomic.Bool
 	portDNATRules   []portDNATRule
 	portDNATMutex   sync.RWMutex
+
+	netstackServices     map[serviceKey]struct{}
+	netstackServiceMutex sync.RWMutex
+
+	mtu             uint16
+	mssClampValue   uint16
+	mssClampEnabled bool
 }
 
 // decoder for packages
@@ -131,16 +153,16 @@ type decoder struct {
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes, flowLogger)
+func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+	return create(iface, nil, disableServerRoutes, flowLogger, mtu)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
 	if nativeFirewall == nil {
 		return nil, errors.New("native firewall is nil")
 	}
 
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger)
+	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger, mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -148,8 +170,8 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	return mgr, nil
 }
 
-func parseCreateEnv() (bool, bool) {
-	var disableConntrack, enableLocalForwarding bool
+func parseCreateEnv() (bool, bool, bool) {
+	var disableConntrack, enableLocalForwarding, disableMSSClamping bool
 	var err error
 	if val := os.Getenv(EnvDisableConntrack); val != "" {
 		disableConntrack, err = strconv.ParseBool(val)
@@ -168,12 +190,18 @@ func parseCreateEnv() (bool, bool) {
 			log.Warnf("failed to parse %s: %v", EnvEnableLocalForwarding, err)
 		}
 	}
+	if val := os.Getenv(EnvDisableMSSClamping); val != "" {
+		disableMSSClamping, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvDisableMSSClamping, err)
+		}
+	}
 
-	return disableConntrack, enableLocalForwarding
+	return disableConntrack, enableLocalForwarding, disableMSSClamping
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
-	disableConntrack, enableLocalForwarding := parseCreateEnv()
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+	disableConntrack, enableLocalForwarding, disableMSSClamping := parseCreateEnv()
 
 	m := &Manager{
 		decoders: sync.Pool{
@@ -203,13 +231,18 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
+		netstackServices:    make(map[serviceKey]struct{}),
+		mtu:                 mtu,
 	}
 	m.routingEnabled.Store(false)
 
+	if !disableMSSClamping {
+		m.mssClampEnabled = true
+		m.mssClampValue = mtu - ipTCPHeaderMinSize
+	}
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
-
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
@@ -217,14 +250,11 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, flowLogger)
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, flowLogger)
 	}
-
-	// netstack needs the forwarder for local traffic
 	if m.netstack && m.localForwarding {
 		if err := m.initForwarder(); err != nil {
 			log.Errorf("failed to initialize forwarder: %v", err)
 		}
 	}
-
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
@@ -232,10 +262,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 }
 
 func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
-	wgPrefix, err := netip.ParsePrefix(iface.Address().Network.String())
-	if err != nil {
-		return nil, fmt.Errorf("parse wireguard network: %w", err)
-	}
+	wgPrefix := iface.Address().Network
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
 	rule, err := m.addRouteFiltering(
@@ -327,7 +354,7 @@ func (m *Manager) initForwarder() error {
 		return errors.New("forwarding not supported")
 	}
 
-	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack)
+	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack, m.mtu)
 	if err != nil {
 		m.routingEnabled.Store(false)
 		return fmt.Errorf("create forwarder: %w", err)
@@ -409,19 +436,7 @@ func (m *Manager) AddPeerFiltering(
 	r.sPort = sPort
 	r.dPort = dPort
 
-	switch proto {
-	case firewall.ProtocolTCP:
-		r.protoLayer = layers.LayerTypeTCP
-	case firewall.ProtocolUDP:
-		r.protoLayer = layers.LayerTypeUDP
-	case firewall.ProtocolICMP:
-		r.protoLayer = layers.LayerTypeICMPv4
-		if r.ipLayer == layers.LayerTypeIPv6 {
-			r.protoLayer = layers.LayerTypeICMPv6
-		}
-	case firewall.ProtocolALL:
-		r.protoLayer = layerTypeAll
-	}
+	r.protoLayer = protoToLayer(proto, r.ipLayer)
 
 	m.mutex.Lock()
 	var targetMap map[netip.Addr]RuleSet
@@ -466,16 +481,17 @@ func (m *Manager) addRouteFiltering(
 	}
 
 	ruleID := uuid.New().String()
+
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:      ruleID,
-		mgmtId:  id,
-		sources: sources,
-		dstSet:  destination.Set,
-		proto:   proto,
-		srcPort: sPort,
-		dstPort: dPort,
-		action:  action,
+		id:         ruleID,
+		mgmtId:     id,
+		sources:    sources,
+		dstSet:     destination.Set,
+		protoLayer: protoToLayer(proto, layers.LayerTypeIPv4),
+		srcPort:    sPort,
+		dstPort:    dPort,
+		action:     action,
 	}
 	if destination.IsPrefix() {
 		rule.destinations = []netip.Prefix{destination.Prefix}
@@ -633,8 +649,17 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 		return false
 	}
 
-	if d.decoded[1] == layers.LayerTypeUDP && m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
-		return true
+	switch d.decoded[1] {
+	case layers.LayerTypeUDP:
+		if m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
+			return true
+		}
+	case layers.LayerTypeTCP:
+		// Clamp MSS on all TCP SYN packets, including those from local IPs.
+		// SNATed routed traffic may appear as local IP but still requires clamping.
+		if m.mssClampEnabled {
+			m.clampTCPMSS(packetData, d)
+		}
 	}
 
 	m.trackOutbound(d, srcIP, dstIP, packetData, size)
@@ -679,6 +704,97 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 		flags |= conntrack.TCPUrg
 	}
 	return flags
+}
+
+// clampTCPMSS clamps the TCP MSS option in SYN and SYN-ACK packets to prevent fragmentation.
+// Both sides advertise their MSS during connection establishment, so we need to clamp both.
+func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
+	if !d.tcp.SYN {
+		return false
+	}
+	if len(d.tcp.Options) == 0 {
+		return false
+	}
+
+	mssOptionIndex := -1
+	var currentMSS uint16
+	for i, opt := range d.tcp.Options {
+		if opt.OptionType == layers.TCPOptionKindMSS && len(opt.OptionData) == 2 {
+			currentMSS = binary.BigEndian.Uint16(opt.OptionData)
+			if currentMSS > m.mssClampValue {
+				mssOptionIndex = i
+				break
+			}
+		}
+	}
+
+	if mssOptionIndex == -1 {
+		return false
+	}
+
+	ipHeaderSize := int(d.ip4.IHL) * 4
+	if ipHeaderSize < 20 {
+		return false
+	}
+
+	if !m.updateMSSOption(packetData, d, mssOptionIndex, ipHeaderSize) {
+		return false
+	}
+
+	m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, m.mssClampValue)
+	return true
+}
+
+func (m *Manager) updateMSSOption(packetData []byte, d *decoder, mssOptionIndex, ipHeaderSize int) bool {
+	tcpHeaderStart := ipHeaderSize
+	tcpOptionsStart := tcpHeaderStart + 20
+
+	optOffset := tcpOptionsStart
+	for j := 0; j < mssOptionIndex; j++ {
+		switch d.tcp.Options[j].OptionType {
+		case layers.TCPOptionKindEndList, layers.TCPOptionKindNop:
+			optOffset++
+		default:
+			optOffset += 2 + len(d.tcp.Options[j].OptionData)
+		}
+	}
+
+	mssValueOffset := optOffset + 2
+	binary.BigEndian.PutUint16(packetData[mssValueOffset:mssValueOffset+2], m.mssClampValue)
+
+	m.recalculateTCPChecksum(packetData, d, tcpHeaderStart)
+	return true
+}
+
+func (m *Manager) recalculateTCPChecksum(packetData []byte, d *decoder, tcpHeaderStart int) {
+	tcpLayer := packetData[tcpHeaderStart:]
+	tcpLength := len(packetData) - tcpHeaderStart
+
+	tcpLayer[16] = 0
+	tcpLayer[17] = 0
+
+	var pseudoSum uint32
+	pseudoSum += uint32(d.ip4.SrcIP[0])<<8 | uint32(d.ip4.SrcIP[1])
+	pseudoSum += uint32(d.ip4.SrcIP[2])<<8 | uint32(d.ip4.SrcIP[3])
+	pseudoSum += uint32(d.ip4.DstIP[0])<<8 | uint32(d.ip4.DstIP[1])
+	pseudoSum += uint32(d.ip4.DstIP[2])<<8 | uint32(d.ip4.DstIP[3])
+	pseudoSum += uint32(d.ip4.Protocol)
+	pseudoSum += uint32(tcpLength)
+
+	var sum = pseudoSum
+	for i := 0; i < tcpLength-1; i += 2 {
+		sum += uint32(tcpLayer[i])<<8 | uint32(tcpLayer[i+1])
+	}
+	if tcpLength%2 == 1 {
+		sum += uint32(tcpLayer[tcpLength-1]) << 8
+	}
+
+	for sum > 0xFFFF {
+		sum = (sum & 0xFFFF) + (sum >> 16)
+	}
+
+	checksum := ^uint16(sum)
+	binary.BigEndian.PutUint16(tcpLayer[16:18], checksum)
 }
 
 func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) {
@@ -815,7 +931,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	ruleID, blocked := m.peerACLsBlock(srcIP, d, packetData)
 	if blocked {
-		_, pnum := getProtocolFromPacket(d)
+		pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
 		m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
@@ -838,9 +954,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// If requested we pass local traffic to internal interfaces to the forwarder.
-	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
-	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+	if m.shouldForward(d, dstIP) {
 		return m.handleForwardedLocalTraffic(packetData)
 	}
 
@@ -882,20 +996,22 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 		return false
 	}
 
-	proto, pnum := getProtocolFromPacket(d)
+	protoLayer := d.decoded[1]
 	srcPort, dstPort := getPortsFromPacket(d)
 
-	ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	ruleID, pass := m.routeACLsPass(srcIP, dstIP, protoLayer, srcPort, dstPort)
 	if !pass {
+		proto := getProtocolFromPacket(d)
+
 		m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+			ruleID, proto, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
 			Type:       nftypes.TypeDrop,
 			RuleID:     ruleID,
 			Direction:  nftypes.Ingress,
-			Protocol:   pnum,
+			Protocol:   proto,
 			SourceIP:   srcIP,
 			DestIP:     dstIP,
 			SourcePort: srcPort,
@@ -924,16 +1040,33 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	return true
 }
 
-func getProtocolFromPacket(d *decoder) (firewall.Protocol, nftypes.Protocol) {
+func protoToLayer(proto firewall.Protocol, ipLayer gopacket.LayerType) gopacket.LayerType {
+	switch proto {
+	case firewall.ProtocolTCP:
+		return layers.LayerTypeTCP
+	case firewall.ProtocolUDP:
+		return layers.LayerTypeUDP
+	case firewall.ProtocolICMP:
+		if ipLayer == layers.LayerTypeIPv6 {
+			return layers.LayerTypeICMPv6
+		}
+		return layers.LayerTypeICMPv4
+	case firewall.ProtocolALL:
+		return layerTypeAll
+	}
+	return 0
+}
+
+func getProtocolFromPacket(d *decoder) nftypes.Protocol {
 	switch d.decoded[1] {
 	case layers.LayerTypeTCP:
-		return firewall.ProtocolTCP, nftypes.TCP
+		return nftypes.TCP
 	case layers.LayerTypeUDP:
-		return firewall.ProtocolUDP, nftypes.UDP
+		return nftypes.UDP
 	case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-		return firewall.ProtocolICMP, nftypes.ICMP
+		return nftypes.ICMP
 	default:
-		return firewall.ProtocolALL, nftypes.ProtocolUnknown
+		return nftypes.ProtocolUnknown
 	}
 }
 
@@ -1105,19 +1238,30 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 }
 
 // routeACLsPass returns true if the packet is allowed by the route ACLs
-func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) ([]byte, bool) {
+func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	for _, rule := range m.routeRules {
-		if matches := m.ruleMatches(rule, srcIP, dstIP, proto, srcPort, dstPort); matches {
+		if matches := m.ruleMatches(rule, srcIP, dstIP, protoLayer, srcPort, dstPort); matches {
 			return rule.mgmtId, rule.action == firewall.ActionAccept
 		}
 	}
 	return nil, false
 }
 
-func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, protoLayer gopacket.LayerType, srcPort, dstPort uint16) bool {
+	// TODO: handle ipv6 vs ipv4 icmp rules
+	if rule.protoLayer != layerTypeAll && rule.protoLayer != protoLayer {
+		return false
+	}
+
+	if protoLayer == layers.LayerTypeTCP || protoLayer == layers.LayerTypeUDP {
+		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
+			return false
+		}
+	}
+
 	destMatched := false
 	for _, dst := range rule.destinations {
 		if dst.Contains(dstAddr) {
@@ -1136,21 +1280,8 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 			break
 		}
 	}
-	if !sourceMatched {
-		return false
-	}
 
-	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-		return false
-	}
-
-	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
-			return false
-		}
-	}
-
-	return true
+	return sourceMatched
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched
@@ -1273,4 +1404,87 @@ func (m *Manager) DisableRouting() error {
 	}
 
 	return nil
+}
+
+// RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
+func (m *Manager) RegisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	m.netstackServices[key] = struct{}{}
+	m.logger.Debug3("RegisterNetstackService: registered %s:%d (layerType=%s)", protocol, port, layerType)
+	m.logger.Debug1("RegisterNetstackService: current registry size: %d", len(m.netstackServices))
+}
+
+// UnregisterNetstackService removes a service from the netstack registry
+func (m *Manager) UnregisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	delete(m.netstackServices, key)
+	m.logger.Debug2("Unregistered netstack service on protocol %s port %d", protocol, port)
+}
+
+// protocolToLayerType converts nftypes.Protocol to gopacket.LayerType for internal use
+func (m *Manager) protocolToLayerType(protocol nftypes.Protocol) gopacket.LayerType {
+	switch protocol {
+	case nftypes.TCP:
+		return layers.LayerTypeTCP
+	case nftypes.UDP:
+		return layers.LayerTypeUDP
+	case nftypes.ICMP:
+		return layers.LayerTypeICMPv4
+	default:
+		return gopacket.LayerType(0) // Invalid/unknown
+	}
+}
+
+// shouldForward determines if a packet should be forwarded to the forwarder.
+// The forwarder handles routing packets to the native OS network stack.
+// Returns true if packet should go to the forwarder, false if it should go to netstack listeners or the native stack directly.
+func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
+	// not enabled, never forward
+	if !m.localForwarding {
+		return false
+	}
+
+	// netstack always needs to forward because it's lacking a native interface
+	// exception for registered netstack services, those should go to netstack listeners
+	if m.netstack {
+		return !m.hasMatchingNetstackService(d)
+	}
+
+	// traffic to our other local interfaces (not NetBird IP) - always forward
+	if dstIP != m.wgIface.Address().IP {
+		return true
+	}
+
+	// traffic to our NetBird IP, not netstack mode - send to netstack listeners
+	return false
+}
+
+// hasMatchingNetstackService checks if there's a registered netstack service for this packet
+func (m *Manager) hasMatchingNetstackService(d *decoder) bool {
+	if len(d.decoded) < 2 {
+		return false
+	}
+
+	var dstPort uint16
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		dstPort = uint16(d.tcp.DstPort)
+	case layers.LayerTypeUDP:
+		dstPort = uint16(d.udp.DstPort)
+	default:
+		return false
+	}
+
+	key := serviceKey{protocol: d.decoded[1], port: dstPort}
+	m.netstackServiceMutex.RLock()
+	_, exists := m.netstackServices[key]
+	m.netstackServiceMutex.RUnlock()
+
+	return exists
 }

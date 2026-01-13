@@ -7,12 +7,14 @@ import (
 	"strings"
 	"time"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
+
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbContext "github.com/netbirdio/netbird/management/server/context"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -39,7 +41,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	}
 
 	newUserID := uuid.New().String()
-	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI)
+	newUser := types.NewUser(newUserID, role, true, nonDeletable, serviceUserName, autoGroups, types.UserIssuedAPI, "", "")
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
@@ -103,7 +105,12 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		inviterID = createdBy
 	}
 
-	idpUser, err := am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	var idpUser *idp.UserData
+	if IsEmbeddedIdp(am.idpManager) {
+		idpUser, err = am.createEmbeddedIdpUser(ctx, accountID, inviterID, invite)
+	} else {
+		idpUser, err = am.createNewIdpUser(ctx, accountID, inviterID, invite)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -116,18 +123,26 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
+		Email:                invite.Email,
+		Name:                 invite.Name,
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
-	_, err = am.refreshCache(ctx, accountID)
-	if err != nil {
-		return nil, err
+	if !IsEmbeddedIdp(am.idpManager) {
+		_, err = am.refreshCache(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
+	eventType := activity.UserInvited
+	if IsEmbeddedIdp(am.idpManager) {
+		eventType = activity.UserCreated
+	}
+	am.StoreEvent(ctx, userID, newUser.Id, accountID, eventType, nil)
 
 	return newUser.ToUserInfo(idpUser)
 }
@@ -171,13 +186,41 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviterUser.Email)
 }
 
+// createEmbeddedIdpUser validates the invite and creates a new user in the embedded IdP.
+// Unlike createNewIdpUser, this method fetches user data directly from the database
+// since the embedded IdP usage ensures the username and email are stored locally in the User table.
+func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, inviterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inviter user: %w", err)
+	}
+
+	if inviter == nil {
+		return nil, status.Errorf(status.NotFound, "inviter user with ID %s doesn't exist", inviterID)
+	}
+
+	// check if the user is already registered with this email => reject
+	existingUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, user := range existingUsers {
+		if strings.EqualFold(user.Email, invite.Email) {
+			return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
+		}
+	}
+
+	return am.idpManager.CreateUser(ctx, invite.Email, invite.Name, accountID, inviter.Email)
+}
+
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
 	return am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 }
 
-// GetUser looks up a user by provided nbContext.UserAuths.
+// GetUser looks up a user by provided auth.UserAuths.
 // Expects account to have been created already.
-func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
+func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		return nil, err
@@ -262,13 +305,9 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	updateAccountPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
+	_, err = am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
 	if err != nil {
 		return err
-	}
-
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -526,16 +565,14 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
+			_, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 
-			if userHadPeers {
-				updateAccountPeers = true
-			}
+			updateAccountPeers = true
 
 			err = transaction.SaveUser(ctx, updatedUser)
 			if err != nil {
@@ -582,9 +619,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
-	}
-
-	if settings.GroupsPropagationEnabled && updateAccountPeers {
+	} else if updateAccountPeers {
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -595,8 +630,14 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool, isNewUser bool, removedGroupIDs, addedGroupIDs []string, tx store.Store) []func() {
 	var eventsToStore []func()
+
+	if isNewUser {
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, initiatorUserID, newUser.Id, accountID, activity.UserCreated, nil)
+		})
+	}
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
 		if newUser.IsBlocked() {
@@ -621,6 +662,35 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 		})
 	}
 
+	addedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, addedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get added groups for user %s update event: %v", oldUser.Id, err)
+	}
+
+	for _, group := range addedGroups {
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
+		})
+	}
+
+	removedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, removedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get removed groups for user %s update event: %v", oldUser.Id, err)
+	}
+	for _, group := range removedGroups {
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
+		})
+	}
+
 	return eventsToStore
 }
 
@@ -631,7 +701,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
-	oldUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
+	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
@@ -667,9 +737,10 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		peersToExpire = userPeers
 	}
 
+	var removedGroups, addedGroups []string
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
-		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		removedGroups = util.Difference(oldUser.AutoGroups, update.AutoGroups)
+		addedGroups = util.Difference(update.AutoGroups, oldUser.AutoGroups)
 		for _, peer := range userPeers {
 			for _, groupID := range removedGroups {
 				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
@@ -685,30 +756,30 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
-func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, accountID string, update *types.User, addIfNotExists bool) (*types.User, error) {
+func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, accountID string, update *types.User, addIfNotExists bool) (*types.User, bool, error) {
 	existingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, update.Id)
 	if err != nil {
 		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 			if !addIfNotExists {
-				return nil, status.Errorf(status.NotFound, "user to update doesn't exist: %s", update.Id)
+				return nil, false, status.Errorf(status.NotFound, "user to update doesn't exist: %s", update.Id)
 			}
 			update.AccountID = accountID
-			return update, nil // use all fields from update if addIfNotExists is true
+			return update, true, nil // use all fields from update if addIfNotExists is true
 		}
-		return nil, err
+		return nil, false, err
 	}
 
 	if existingUser.AccountID != accountID {
-		return nil, status.Errorf(status.InvalidArgument, "user account ID mismatch")
+		return nil, false, status.Errorf(status.InvalidArgument, "user account ID mismatch")
 	}
 
-	return existingUser, nil
+	return existingUser, false, nil
 }
 
 func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *types.User) (bool, error) {
@@ -728,7 +799,7 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	if !isNil(am.idpManager) && !user.IsServiceUser {
+	if !isNil(am.idpManager) && !user.IsServiceUser && !IsEmbeddedIdp(am.idpManager) {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
@@ -779,7 +850,10 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userID, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, userAuth auth.UserAuth) (*types.Account, error) {
+	userID := userAuth.UserId
+	domain := userAuth.Domain
+
 	start := time.Now()
 	unlock := am.Store.AcquireGlobalLock(ctx)
 	defer unlock()
@@ -790,7 +864,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 	account, err := am.Store.GetAccountByUser(ctx, userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err = am.newAccount(ctx, userID, lowerDomain)
+			account, err = am.newAccount(ctx, userID, lowerDomain, userAuth.Email, userAuth.Name)
 			if err != nil {
 				return nil, err
 			}
@@ -855,7 +929,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	var queriedUsers []*idp.UserData
 	var err error
 
-	if !isNil(am.idpManager) {
+	// embedded IdP ensures that we have user data (email and name) stored in the database.
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
 		for _, user := range accountUsers {
@@ -892,6 +967,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			if err != nil {
 				return nil, err
 			}
+			// Try to decode Dex user ID to extract the IdP ID (connector ID)
+			if _, connectorID, decodeErr := dex.DecodeDexUserID(accountUser.Id); decodeErr == nil && connectorID != "" {
+				info.IdPID = connectorID
+			}
 			userInfosMap[accountUser.Id] = info
 		}
 
@@ -913,7 +992,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 			info = &types.UserInfo{
 				ID:            localUser.Id,
-				Email:         "",
+				Email:         localUser.Email,
 				Name:          name,
 				Role:          string(localUser.Role),
 				AutoGroups:    localUser.AutoGroups,
@@ -921,6 +1000,10 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
 			}
+		}
+		// Try to decode Dex user ID to extract the IdP ID (connector ID)
+		if _, connectorID, decodeErr := dex.DecodeDexUserID(localUser.Id); decodeErr == nil && connectorID != "" {
+			info.IdPID = connectorID
 		}
 		userInfosMap[info.ID] = info
 	}
@@ -935,12 +1018,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return err
 	}
-	dnsDomain := am.GetDNSDomain(settings)
+	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
+		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
 
 		if peer.UserID == "" {
 			// we do not want to expire peers that are added via setup key
@@ -964,10 +1047,20 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	}
 
 	if len(peerIDs) != 0 {
+		if err := am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+	}
+
+	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs)
+	if err != nil {
+		return fmt.Errorf("notify network map controller of peer update: %w", err)
+	}
+
+	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.BufferUpdateAccountPeers(ctx, accountID)
+		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
 	}
 	return nil
 }
@@ -1013,7 +1106,6 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	var allErrors error
-	var updateAccountPeers bool
 
 	for _, targetUserID := range targetUserIDs {
 		if initiatorUserID == targetUserID {
@@ -1044,19 +1136,11 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		userHadPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
+		_, err = am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
 		if err != nil {
 			allErrors = errors.Join(allErrors, err)
 			continue
 		}
-
-		if userHadPeers {
-			updateAccountPeers = true
-		}
-	}
-
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return allErrors
@@ -1081,7 +1165,9 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 	var addPeerRemovedEvents []func()
 	var updateAccountPeers bool
+	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
+	var settings *types.Settings
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1090,14 +1176,19 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
-		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to get account settings: %w", err)
+		}
+
+		userPeers, err = transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user peers: %w", err)
 		}
 
 		if len(userPeers) > 0 {
 			updateAccountPeers = true
-			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers)
+			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers, settings)
 			if err != nil {
 				return fmt.Errorf("failed to delete user peers: %w", err)
 			}
@@ -1113,9 +1204,21 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 		return false, err
 	}
 
+	var peerIDs []string
+	for _, peer := range userPeers {
+		peerIDs = append(peerIDs, peer.ID)
+		if err = am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peer.ID, err)
+		}
+	}
+	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
+	}
+
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
 		addPeerRemovedEvent()
 	}
+
 	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt}
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
@@ -1171,7 +1274,7 @@ func validateUserInvite(invite *types.UserInfo) error {
 }
 
 // GetCurrentUserInfo retrieves the account's current user info and permissions
-func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)

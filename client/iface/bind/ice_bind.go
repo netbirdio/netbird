@@ -27,8 +27,23 @@ type receiverCreator struct {
 	iceBind *ICEBind
 }
 
-func (rc receiverCreator) CreateIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
-	return rc.iceBind.createIPv4ReceiverFn(pc, conn, rxOffload, msgPool)
+func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
+	if ipv4PC, ok := pc.(*ipv4.PacketConn); ok {
+		return rc.iceBind.createIPv4ReceiverFn(ipv4PC, conn, rxOffload, msgPool)
+	}
+	// IPv6 is currently not supported in the udpmux, this is a stub for compatibility with the
+	// wireguard-go ReceiverCreator interface which is called for both IPv4 and IPv6.
+	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
+		buf := bufs[0]
+		size, ep, err := conn.ReadFromUDPAddrPort(buf)
+		if err != nil {
+			return 0, err
+		}
+		sizes[0] = size
+		stdEp := &wgConn.StdNetEndpoint{AddrPort: ep}
+		eps[0] = stdEp
+		return 1, nil
+	}
 }
 
 // ICEBind is a bind implementation with two main features:

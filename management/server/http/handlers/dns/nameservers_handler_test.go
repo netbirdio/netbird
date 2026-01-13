@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -193,7 +194,7 @@ func TestNameserversHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				AccountId: testNSGroupAccountID,
 				Domain:    "hotmail.com",

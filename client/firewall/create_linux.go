@@ -34,12 +34,12 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 // FWType is the type for the firewall type
 type FWType int
 
-func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool) (firewall.Manager, error) {
+func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool, mtu uint16) (firewall.Manager, error) {
 	// on the linux system we try to user nftables or iptables
 	// in any case, because we need to allow netbird interface traffic
 	// so we use AllowNetbird traffic from these firewall managers
 	// for the userspace packet filtering firewall
-	fm, err := createNativeFirewall(iface, stateManager, disableServerRoutes)
+	fm, err := createNativeFirewall(iface, stateManager, disableServerRoutes, mtu)
 
 	if !iface.IsUserspaceBind() {
 		return fm, err
@@ -48,11 +48,11 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogg
 	if err != nil {
 		log.Warnf("failed to create native firewall: %v. Proceeding with userspace", err)
 	}
-	return createUserspaceFirewall(iface, fm, disableServerRoutes, flowLogger)
+	return createUserspaceFirewall(iface, fm, disableServerRoutes, flowLogger, mtu)
 }
 
-func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager, routes bool) (firewall.Manager, error) {
-	fm, err := createFW(iface)
+func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager, routes bool, mtu uint16) (firewall.Manager, error) {
+	fm, err := createFW(iface, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create firewall: %s", err)
 	}
@@ -64,26 +64,26 @@ func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager,
 	return fm, nil
 }
 
-func createFW(iface IFaceMapper) (firewall.Manager, error) {
+func createFW(iface IFaceMapper, mtu uint16) (firewall.Manager, error) {
 	switch check() {
 	case IPTABLES:
 		log.Info("creating an iptables firewall manager")
-		return nbiptables.Create(iface)
+		return nbiptables.Create(iface, mtu)
 	case NFTABLES:
 		log.Info("creating an nftables firewall manager")
-		return nbnftables.Create(iface)
+		return nbnftables.Create(iface, mtu)
 	default:
 		log.Info("no firewall manager found, trying to use userspace packet filtering firewall")
 		return nil, errors.New("no firewall manager found")
 	}
 }
 
-func createUserspaceFirewall(iface IFaceMapper, fm firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (firewall.Manager, error) {
+func createUserspaceFirewall(iface IFaceMapper, fm firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (firewall.Manager, error) {
 	var errUsp error
 	if fm != nil {
-		fm, errUsp = uspfilter.CreateWithNativeFirewall(iface, fm, disableServerRoutes, flowLogger)
+		fm, errUsp = uspfilter.CreateWithNativeFirewall(iface, fm, disableServerRoutes, flowLogger, mtu)
 	} else {
-		fm, errUsp = uspfilter.Create(iface, disableServerRoutes, flowLogger)
+		fm, errUsp = uspfilter.Create(iface, disableServerRoutes, flowLogger, mtu)
 	}
 
 	if errUsp != nil {

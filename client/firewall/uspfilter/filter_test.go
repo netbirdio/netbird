@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
@@ -17,9 +18,11 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nbiface "github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -66,7 +69,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger)
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -86,7 +89,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger)
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -119,7 +122,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger)
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -215,7 +218,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger)
+			}, false, flowLogger, nbiface.DefaultMTU)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
@@ -265,7 +268,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger)
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -304,7 +307,7 @@ func TestNotMatchByIP(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger)
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -367,7 +370,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface, false, flowLogger)
+	manager, err := Create(iface, false, flowLogger, nbiface.DefaultMTU)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -413,7 +416,7 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
 
 	manager.udpTracker.Close()
@@ -495,7 +498,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock, false, flowLogger)
+			manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -522,7 +525,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
 
 	manager.udpTracker.Close() // Close the existing tracker
@@ -729,7 +732,7 @@ func TestUpdateSetMerge(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -764,9 +767,9 @@ func TestUpdateSetMerge(t *testing.T) {
 	dstIP2 := netip.MustParseAddr("192.168.1.100")
 	dstIP3 := netip.MustParseAddr("172.16.0.100")
 
-	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 
 	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should be allowed")
 	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should be allowed")
@@ -781,8 +784,8 @@ func TestUpdateSetMerge(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that all original prefixes are still included
-	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should still be allowed after update")
 	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should still be allowed after update")
 
@@ -790,8 +793,8 @@ func TestUpdateSetMerge(t *testing.T) {
 	dstIP4 := netip.MustParseAddr("172.16.1.100")
 	dstIP5 := netip.MustParseAddr("10.1.0.50")
 
-	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, fw.ProtocolTCP, 12345, 80)
-	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
+	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 
 	require.True(t, isAllowed4, "Traffic to new prefix 172.16.0.0/16 should be allowed")
 	require.True(t, isAllowed5, "Traffic to new prefix 10.1.0.0/24 should be allowed")
@@ -815,7 +818,7 @@ func TestUpdateSetDeduplication(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -919,7 +922,331 @@ func TestUpdateSetDeduplication(t *testing.T) {
 
 	srcIP := netip.MustParseAddr("100.10.0.1")
 	for _, tc := range testCases {
-		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, fw.ProtocolTCP, 12345, 80)
+		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 		require.Equal(t, tc.expected, isAllowed, tc.desc)
+	}
+}
+
+func TestMSSClamping(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
+			}
+		},
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger, 1280)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	require.True(t, manager.mssClampEnabled, "MSS clamping should be enabled by default")
+	expectedMSSValue := uint16(1280 - ipTCPHeaderMinSize)
+	require.Equal(t, expectedMSSValue, manager.mssClampValue, "MSS clamp value should be MTU - 40")
+
+	err = manager.UpdateLocalIPs()
+	require.NoError(t, err)
+
+	srcIP := net.ParseIP("100.10.0.2")
+	dstIP := net.ParseIP("8.8.8.8")
+
+	t.Run("SYN packet with high MSS gets clamped", func(t *testing.T) {
+		highMSS := uint16(1460)
+		packet := generateSYNPacketWithMSS(t, srcIP, dstIP, 12345, 80, highMSS)
+
+		manager.filterOutbound(packet, len(packet))
+
+		d := parsePacket(t, packet)
+		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
+		require.Equal(t, uint8(layers.TCPOptionKindMSS), uint8(d.tcp.Options[0].OptionType))
+		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
+		require.Equal(t, expectedMSSValue, actualMSS, "MSS should be clamped to MTU - 40")
+	})
+
+	t.Run("SYN packet with low MSS unchanged", func(t *testing.T) {
+		lowMSS := uint16(1200)
+		packet := generateSYNPacketWithMSS(t, srcIP, dstIP, 12345, 80, lowMSS)
+
+		manager.filterOutbound(packet, len(packet))
+
+		d := parsePacket(t, packet)
+		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
+		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
+		require.Equal(t, lowMSS, actualMSS, "Low MSS should not be modified")
+	})
+
+	t.Run("SYN-ACK packet gets clamped", func(t *testing.T) {
+		highMSS := uint16(1460)
+		packet := generateSYNACKPacketWithMSS(t, srcIP, dstIP, 12345, 80, highMSS)
+
+		manager.filterOutbound(packet, len(packet))
+
+		d := parsePacket(t, packet)
+		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
+		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
+		require.Equal(t, expectedMSSValue, actualMSS, "MSS in SYN-ACK should be clamped")
+	})
+
+	t.Run("Non-SYN packet unchanged", func(t *testing.T) {
+		packet := generateTCPPacketWithFlags(t, srcIP, dstIP, 12345, 80, uint16(conntrack.TCPAck))
+
+		manager.filterOutbound(packet, len(packet))
+
+		d := parsePacket(t, packet)
+		require.Empty(t, d.tcp.Options, "ACK packet should have no options")
+	})
+}
+
+func generateSYNPacketWithMSS(tb testing.TB, srcIP, dstIP net.IP, srcPort, dstPort uint16, mss uint16) []byte {
+	tb.Helper()
+
+	ipLayer := &layers.IPv4{
+		Version:  4,
+		TTL:      64,
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+	}
+
+	tcpLayer := &layers.TCP{
+		SrcPort: layers.TCPPort(srcPort),
+		DstPort: layers.TCPPort(dstPort),
+		SYN:     true,
+		Window:  65535,
+		Options: []layers.TCPOption{
+			{
+				OptionType:   layers.TCPOptionKindMSS,
+				OptionLength: 4,
+				OptionData:   binary.BigEndian.AppendUint16(nil, mss),
+			},
+		},
+	}
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	require.NoError(tb, err)
+
+	return buf.Bytes()
+}
+
+func generateSYNACKPacketWithMSS(tb testing.TB, srcIP, dstIP net.IP, srcPort, dstPort uint16, mss uint16) []byte {
+	tb.Helper()
+
+	ipLayer := &layers.IPv4{
+		Version:  4,
+		TTL:      64,
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+	}
+
+	tcpLayer := &layers.TCP{
+		SrcPort: layers.TCPPort(srcPort),
+		DstPort: layers.TCPPort(dstPort),
+		SYN:     true,
+		ACK:     true,
+		Window:  65535,
+		Options: []layers.TCPOption{
+			{
+				OptionType:   layers.TCPOptionKindMSS,
+				OptionLength: 4,
+				OptionData:   binary.BigEndian.AppendUint16(nil, mss),
+			},
+		},
+	}
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	require.NoError(tb, err)
+
+	return buf.Bytes()
+}
+
+func generateTCPPacketWithFlags(tb testing.TB, srcIP, dstIP net.IP, srcPort, dstPort uint16, flags uint16) []byte {
+	tb.Helper()
+
+	ipLayer := &layers.IPv4{
+		Version:  4,
+		TTL:      64,
+		Protocol: layers.IPProtocolTCP,
+		SrcIP:    srcIP,
+		DstIP:    dstIP,
+	}
+
+	tcpLayer := &layers.TCP{
+		SrcPort: layers.TCPPort(srcPort),
+		DstPort: layers.TCPPort(dstPort),
+		Window:  65535,
+	}
+
+	if flags&uint16(conntrack.TCPSyn) != 0 {
+		tcpLayer.SYN = true
+	}
+	if flags&uint16(conntrack.TCPAck) != 0 {
+		tcpLayer.ACK = true
+	}
+	if flags&uint16(conntrack.TCPFin) != 0 {
+		tcpLayer.FIN = true
+	}
+	if flags&uint16(conntrack.TCPRst) != 0 {
+		tcpLayer.RST = true
+	}
+	if flags&uint16(conntrack.TCPPush) != 0 {
+		tcpLayer.PSH = true
+	}
+
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	require.NoError(tb, err)
+
+	return buf.Bytes()
+}
+
+func TestShouldForward(t *testing.T) {
+	// Set up test addresses
+	wgIP := netip.MustParseAddr("100.10.0.1")
+	otherIP := netip.MustParseAddr("100.10.0.2")
+
+	// Create test manager with mock interface
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+	// Set the mock to return our test WG IP
+	ifaceMock.AddressFunc = func() wgaddr.Address {
+		return wgaddr.Address{IP: wgIP, Network: netip.PrefixFrom(wgIP, 24)}
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	// Helper to create decoder with TCP packet
+	createTCPDecoder := func(dstPort uint16) *decoder {
+		ipv4 := &layers.IPv4{
+			Version:  4,
+			Protocol: layers.IPProtocolTCP,
+			SrcIP:    net.ParseIP("192.168.1.100"),
+			DstIP:    wgIP.AsSlice(),
+		}
+		tcp := &layers.TCP{
+			SrcPort: 54321,
+			DstPort: layers.TCPPort(dstPort),
+		}
+
+		err := tcp.SetNetworkLayerForChecksum(ipv4)
+		require.NoError(t, err)
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
+		err = gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload("test"))
+		require.NoError(t, err)
+
+		d := &decoder{
+			decoded: []gopacket.LayerType{},
+		}
+		d.parser = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv4,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser.IgnoreUnsupported = true
+
+		err = d.parser.DecodeLayers(buf.Bytes(), &d.decoded)
+		require.NoError(t, err)
+
+		return d
+	}
+
+	tests := []struct {
+		name              string
+		localForwarding   bool
+		netstack          bool
+		dstIP             netip.Addr
+		serviceRegistered bool
+		servicePort       uint16
+		expected          bool
+		description       string
+	}{
+		{
+			name:            "no local forwarding",
+			localForwarding: false,
+			netstack:        true,
+			dstIP:           wgIP,
+			expected:        false,
+			description:     "should never forward when local forwarding disabled",
+		},
+		{
+			name:            "traffic to other local interface",
+			localForwarding: true,
+			netstack:        false,
+			dstIP:           otherIP,
+			expected:        true,
+			description:     "should forward traffic to our other local interfaces (not NetBird IP)",
+		},
+		{
+			name:            "traffic to NetBird IP, no netstack",
+			localForwarding: true,
+			netstack:        false,
+			dstIP:           wgIP,
+			expected:        false,
+			description:     "should send to netstack listeners (final return false path)",
+		},
+		{
+			name:            "traffic to our IP, netstack mode, no service",
+			localForwarding: true,
+			netstack:        true,
+			dstIP:           wgIP,
+			expected:        true,
+			description:     "should forward when in netstack mode with no matching service",
+		},
+		{
+			name:              "traffic to our IP, netstack mode, with service",
+			localForwarding:   true,
+			netstack:          true,
+			dstIP:             wgIP,
+			serviceRegistered: true,
+			servicePort:       22,
+			expected:          false,
+			description:       "should send to netstack listeners when service is registered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Configure manager
+			manager.localForwarding = tt.localForwarding
+			manager.netstack = tt.netstack
+
+			// Register service if needed
+			if tt.serviceRegistered {
+				manager.RegisterNetstackService(nftypes.TCP, tt.servicePort)
+				defer manager.UnregisterNetstackService(nftypes.TCP, tt.servicePort)
+			}
+
+			// Create decoder for the test
+			decoder := createTCPDecoder(tt.servicePort)
+			if !tt.serviceRegistered {
+				decoder = createTCPDecoder(8080) // Use non-registered port
+			}
+
+			// Test the method
+			result := manager.shouldForward(decoder, tt.dstIP)
+			require.Equal(t, tt.expected, result, tt.description)
+		})
 	}
 }

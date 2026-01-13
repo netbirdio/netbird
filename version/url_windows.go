@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	urlWinExe = "https://pkgs.netbird.io/windows/x64"
+	urlWinExe    = "https://pkgs.netbird.io/windows/x64"
 	urlWinExeArm = "https://pkgs.netbird.io/windows/arm64"
 )
 
@@ -18,11 +18,11 @@ func DownloadUrl() string {
 	if err != nil {
 		return downloadURL
 	}
-	
+
 	url := urlWinExe
 	if runtime.GOARCH == "arm64" {
 		url = urlWinExeArm
 	}
-	
+
 	return url
 }

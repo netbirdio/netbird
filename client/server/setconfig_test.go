@@ -72,6 +72,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	lazyConnectionEnabled := true
 	blockInbound := true
 	mtu := int64(1280)
+	sshJWTCacheTTL := int32(300)
 
 	req := &proto.SetConfigRequest{
 		ProfileName:           profName,
@@ -102,6 +103,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		CleanDNSLabels:        false,
 		DnsRouteInterval:      durationpb.New(2 * time.Minute),
 		Mtu:                   &mtu,
+		SshJWTCacheTTL:        &sshJWTCacheTTL,
 	}
 
 	_, err = s.SetConfig(ctx, req)
@@ -146,6 +148,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, []string{"label1", "label2"}, cfg.DNSLabels.ToPunycodeList())
 	require.Equal(t, 2*time.Minute, cfg.DNSRouteInterval)
 	require.Equal(t, uint16(mtu), cfg.MTU)
+	require.NotNil(t, cfg.SSHJWTCacheTTL)
+	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
 
 	verifyAllFieldsCovered(t, req)
 }
@@ -167,30 +171,36 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 	}
 
 	expectedFields := map[string]bool{
-		"ManagementUrl":         true,
-		"AdminURL":              true,
-		"RosenpassEnabled":      true,
-		"RosenpassPermissive":   true,
-		"ServerSSHAllowed":      true,
-		"InterfaceName":         true,
-		"WireguardPort":         true,
-		"OptionalPreSharedKey":  true,
-		"DisableAutoConnect":    true,
-		"NetworkMonitor":        true,
-		"DisableClientRoutes":   true,
-		"DisableServerRoutes":   true,
-		"DisableDns":            true,
-		"DisableFirewall":       true,
-		"BlockLanAccess":        true,
-		"DisableNotifications":  true,
-		"LazyConnectionEnabled": true,
-		"BlockInbound":          true,
-		"NatExternalIPs":        true,
-		"CustomDNSAddress":      true,
-		"ExtraIFaceBlacklist":   true,
-		"DnsLabels":             true,
-		"DnsRouteInterval":      true,
-		"Mtu":                   true,
+		"ManagementUrl":                 true,
+		"AdminURL":                      true,
+		"RosenpassEnabled":              true,
+		"RosenpassPermissive":           true,
+		"ServerSSHAllowed":              true,
+		"InterfaceName":                 true,
+		"WireguardPort":                 true,
+		"OptionalPreSharedKey":          true,
+		"DisableAutoConnect":            true,
+		"NetworkMonitor":                true,
+		"DisableClientRoutes":           true,
+		"DisableServerRoutes":           true,
+		"DisableDns":                    true,
+		"DisableFirewall":               true,
+		"BlockLanAccess":                true,
+		"DisableNotifications":          true,
+		"LazyConnectionEnabled":         true,
+		"BlockInbound":                  true,
+		"NatExternalIPs":                true,
+		"CustomDNSAddress":              true,
+		"ExtraIFaceBlacklist":           true,
+		"DnsLabels":                     true,
+		"DnsRouteInterval":              true,
+		"Mtu":                           true,
+		"EnableSSHRoot":                 true,
+		"EnableSSHSFTP":                 true,
+		"EnableSSHLocalPortForwarding":  true,
+		"EnableSSHRemotePortForwarding": true,
+		"DisableSSHAuth":                true,
+		"SshJWTCacheTTL":                true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -221,29 +231,35 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 	// Map of CLI flag names to their corresponding SetConfigRequest field names.
 	// This map must be updated when adding new config-related CLI flags.
 	flagToField := map[string]string{
-		"management-url":         "ManagementUrl",
-		"admin-url":              "AdminURL",
-		"enable-rosenpass":       "RosenpassEnabled",
-		"rosenpass-permissive":   "RosenpassPermissive",
-		"allow-server-ssh":       "ServerSSHAllowed",
-		"interface-name":         "InterfaceName",
-		"wireguard-port":         "WireguardPort",
-		"preshared-key":          "OptionalPreSharedKey",
-		"disable-auto-connect":   "DisableAutoConnect",
-		"network-monitor":        "NetworkMonitor",
-		"disable-client-routes":  "DisableClientRoutes",
-		"disable-server-routes":  "DisableServerRoutes",
-		"disable-dns":            "DisableDns",
-		"disable-firewall":       "DisableFirewall",
-		"block-lan-access":       "BlockLanAccess",
-		"block-inbound":          "BlockInbound",
-		"enable-lazy-connection": "LazyConnectionEnabled",
-		"external-ip-map":        "NatExternalIPs",
-		"dns-resolver-address":   "CustomDNSAddress",
-		"extra-iface-blacklist":  "ExtraIFaceBlacklist",
-		"extra-dns-labels":       "DnsLabels",
-		"dns-router-interval":    "DnsRouteInterval",
-		"mtu":                    "Mtu",
+		"management-url":                    "ManagementUrl",
+		"admin-url":                         "AdminURL",
+		"enable-rosenpass":                  "RosenpassEnabled",
+		"rosenpass-permissive":              "RosenpassPermissive",
+		"allow-server-ssh":                  "ServerSSHAllowed",
+		"interface-name":                    "InterfaceName",
+		"wireguard-port":                    "WireguardPort",
+		"preshared-key":                     "OptionalPreSharedKey",
+		"disable-auto-connect":              "DisableAutoConnect",
+		"network-monitor":                   "NetworkMonitor",
+		"disable-client-routes":             "DisableClientRoutes",
+		"disable-server-routes":             "DisableServerRoutes",
+		"disable-dns":                       "DisableDns",
+		"disable-firewall":                  "DisableFirewall",
+		"block-lan-access":                  "BlockLanAccess",
+		"block-inbound":                     "BlockInbound",
+		"enable-lazy-connection":            "LazyConnectionEnabled",
+		"external-ip-map":                   "NatExternalIPs",
+		"dns-resolver-address":              "CustomDNSAddress",
+		"extra-iface-blacklist":             "ExtraIFaceBlacklist",
+		"extra-dns-labels":                  "DnsLabels",
+		"dns-router-interval":               "DnsRouteInterval",
+		"mtu":                               "Mtu",
+		"enable-ssh-root":                   "EnableSSHRoot",
+		"enable-ssh-sftp":                   "EnableSSHSFTP",
+		"enable-ssh-local-port-forwarding":  "EnableSSHLocalPortForwarding",
+		"enable-ssh-remote-port-forwarding": "EnableSSHRemotePortForwarding",
+		"disable-ssh-auth":                  "DisableSSHAuth",
+		"ssh-jwt-cache-ttl":                 "SshJWTCacheTTL",
 	}
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).

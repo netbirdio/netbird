@@ -340,3 +340,104 @@ func TestCreateIndexIfExists(t *testing.T) {
 	exist = db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
 	assert.True(t, exist, "Should have the index")
 }
+
+type testPeer struct {
+	ID                  string `gorm:"primaryKey"`
+	Key                 string `gorm:"index"`
+	PeerStatusLastSeen  time.Time
+	PeerStatusConnected bool
+}
+
+func (testPeer) TableName() string {
+	return "peers"
+}
+
+func setupPeerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testPeer{})
+	err := db.AutoMigrate(&testPeer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func TestRemoveDuplicatePeerKeys_NoDuplicates(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	now := time.Now()
+	peers := []testPeer{
+		{ID: "peer1", Key: "key1", PeerStatusLastSeen: now},
+		{ID: "peer2", Key: "key2", PeerStatusLastSeen: now},
+		{ID: "peer3", Key: "key3", PeerStatusLastSeen: now},
+	}
+
+	for _, p := range peers {
+		err := db.Create(&p).Error
+		require.NoError(t, err)
+	}
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testPeer{}).Count(&count)
+	assert.Equal(t, int64(len(peers)), count, "All peers should remain when no duplicates")
+}
+
+func TestRemoveDuplicatePeerKeys_WithDuplicates(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	now := time.Now()
+	peers := []testPeer{
+		{ID: "peer1", Key: "key1", PeerStatusLastSeen: now.Add(-2 * time.Hour)},
+		{ID: "peer2", Key: "key1", PeerStatusLastSeen: now.Add(-1 * time.Hour)},
+		{ID: "peer3", Key: "key1", PeerStatusLastSeen: now},
+		{ID: "peer4", Key: "key2", PeerStatusLastSeen: now},
+		{ID: "peer5", Key: "key3", PeerStatusLastSeen: now.Add(-1 * time.Hour)},
+		{ID: "peer6", Key: "key3", PeerStatusLastSeen: now},
+	}
+
+	for _, p := range peers {
+		err := db.Create(&p).Error
+		require.NoError(t, err)
+	}
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testPeer{}).Count(&count)
+	assert.Equal(t, int64(3), count, "Should have 3 peers after removing duplicates")
+
+	var remainingPeers []testPeer
+	err = db.Find(&remainingPeers).Error
+	require.NoError(t, err)
+
+	remainingIDs := make(map[string]bool)
+	for _, p := range remainingPeers {
+		remainingIDs[p.ID] = true
+	}
+
+	assert.True(t, remainingIDs["peer3"], "peer3 should remain (most recent for key1)")
+	assert.True(t, remainingIDs["peer4"], "peer4 should remain (only peer for key2)")
+	assert.True(t, remainingIDs["peer6"], "peer6 should remain (most recent for key3)")
+
+	assert.False(t, remainingIDs["peer1"], "peer1 should be deleted (older duplicate)")
+	assert.False(t, remainingIDs["peer2"], "peer2 should be deleted (older duplicate)")
+	assert.False(t, remainingIDs["peer5"], "peer5 should be deleted (older duplicate)")
+}
+
+func TestRemoveDuplicatePeerKeys_EmptyTable(t *testing.T) {
+	db := setupPeerTestDB(t)
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err, "Should not fail on empty table")
+}
+
+func TestRemoveDuplicatePeerKeys_NoTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testPeer{})
+
+	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
+	require.NoError(t, err, "Should not fail when table does not exist")
+}

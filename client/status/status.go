@@ -81,6 +81,19 @@ type NsServerGroupStateOutput struct {
 	Error   string   `json:"error" yaml:"error"`
 }
 
+type SSHSessionOutput struct {
+	Username      string   `json:"username" yaml:"username"`
+	RemoteAddress string   `json:"remoteAddress" yaml:"remoteAddress"`
+	Command       string   `json:"command" yaml:"command"`
+	JWTUsername   string   `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+	PortForwards  []string `json:"portForwards,omitempty" yaml:"portForwards,omitempty"`
+}
+
+type SSHServerStateOutput struct {
+	Enabled  bool               `json:"enabled" yaml:"enabled"`
+	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
+}
+
 type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
@@ -100,6 +113,7 @@ type OutputOverview struct {
 	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
+	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 }
 
 func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
@@ -121,6 +135,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
+	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
@@ -141,6 +156,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             profName,
+		SSHServerState:          sshServerOverview,
 	}
 
 	if anon {
@@ -188,6 +204,31 @@ func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
 		})
 	}
 	return mappedNSGroups
+}
+
+func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
+	if sshServerState == nil {
+		return SSHServerStateOutput{
+			Enabled:  false,
+			Sessions: []SSHSessionOutput{},
+		}
+	}
+
+	sessions := make([]SSHSessionOutput, 0, len(sshServerState.GetSessions()))
+	for _, session := range sshServerState.GetSessions() {
+		sessions = append(sessions, SSHSessionOutput{
+			Username:      session.GetUsername(),
+			RemoteAddress: session.GetRemoteAddress(),
+			Command:       session.GetCommand(),
+			JWTUsername:   session.GetJwtUsername(),
+			PortForwards:  session.GetPortForwards(),
+		})
+	}
+
+	return SSHServerStateOutput{
+		Enabled:  sshServerState.GetEnabled(),
+		Sessions: sessions,
+	}
 }
 
 func mapPeers(
@@ -300,7 +341,7 @@ func ParseToYAML(overview OutputOverview) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool, showNameServers bool) string {
+func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
 	var managementConnString string
 	if overview.ManagementState.Connected {
 		managementConnString = "Connected"
@@ -405,6 +446,44 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		lazyConnectionEnabledStatus = "true"
 	}
 
+	sshServerStatus := "Disabled"
+	if overview.SSHServerState.Enabled {
+		sessionCount := len(overview.SSHServerState.Sessions)
+		if sessionCount > 0 {
+			sessionWord := "session"
+			if sessionCount > 1 {
+				sessionWord = "sessions"
+			}
+			sshServerStatus = fmt.Sprintf("Enabled (%d active %s)", sessionCount, sessionWord)
+		} else {
+			sshServerStatus = "Enabled"
+		}
+
+		if showSSHSessions && sessionCount > 0 {
+			for _, session := range overview.SSHServerState.Sessions {
+				var sessionDisplay string
+				if session.JWTUsername != "" {
+					sessionDisplay = fmt.Sprintf("[%s@%s -> %s] %s",
+						session.JWTUsername,
+						session.RemoteAddress,
+						session.Username,
+						session.Command,
+					)
+				} else {
+					sessionDisplay = fmt.Sprintf("[%s@%s] %s",
+						session.Username,
+						session.RemoteAddress,
+						session.Command,
+					)
+				}
+				sshServerStatus += "\n  " + sessionDisplay
+				for _, pf := range session.PortForwards {
+					sshServerStatus += "\n    " + pf
+				}
+			}
+		}
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	goos := runtime.GOOS
@@ -428,6 +507,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
+			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
@@ -444,6 +524,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
+		sshServerStatus,
 		networks,
 		overview.NumberOfForwardingRules,
 		peersCountString,
@@ -454,7 +535,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 func ParseToFullDetailSummary(overview OutputOverview) string {
 	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
 	parsedEventsString := parseEvents(overview.Events)
-	summary := ParseGeneralSummary(overview, true, true, true)
+	summary := ParseGeneralSummary(overview, true, true, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
@@ -745,5 +826,14 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		for k, v := range event.Metadata {
 			event.Metadata[k] = a.AnonymizeString(v)
 		}
+	}
+
+	for i, session := range overview.SSHServerState.Sessions {
+		if host, port, err := net.SplitHostPort(session.RemoteAddress); err == nil {
+			overview.SSHServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+		} else {
+			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
+		}
+		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
 	}
 }

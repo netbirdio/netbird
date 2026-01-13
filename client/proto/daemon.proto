@@ -24,7 +24,7 @@ service DaemonService {
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
-  // Down engine work in the daemon.
+  // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
 
   // GetConfig of the daemon.
@@ -84,7 +84,35 @@ service DaemonService {
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
+
+  // GetPeerSSHHostKey retrieves SSH host key for a specific peer
+  rpc GetPeerSSHHostKey(GetPeerSSHHostKeyRequest) returns (GetPeerSSHHostKeyResponse) {}
+
+  // RequestJWTAuth initiates JWT authentication flow for SSH
+  rpc RequestJWTAuth(RequestJWTAuthRequest) returns (RequestJWTAuthResponse) {}
+
+  // WaitJWTToken waits for JWT authentication completion
+  rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
+
+  rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
+
+  rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
 }
+
+
+
+message OSLifecycleRequest {
+  // avoid collision with loglevel enum
+  enum CycleType {
+    UNKNOWN = 0;
+    SLEEP = 1;
+    WAKEUP = 2;
+  }
+
+  CycleType type = 1;
+}
+
+message OSLifecycleResponse {}
 
 
 message LoginRequest {
@@ -158,6 +186,16 @@ message LoginRequest {
   optional string username = 31;
 
   optional int64 mtu = 32;
+
+  // hint is used to pre-fill the email/username field during SSO authentication
+  optional string hint = 33;
+
+  optional bool enableSSHRoot = 34;
+  optional bool enableSSHSFTP = 35;
+  optional bool enableSSHLocalPortForwarding = 36;
+  optional bool enableSSHRemotePortForwarding = 37;
+  optional bool disableSSHAuth = 38;
+  optional int32 sshJWTCacheTTL = 39;
 }
 
 message LoginResponse {
@@ -179,15 +217,16 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
+  optional bool autoUpdate = 3;
 }
 
 message UpResponse {}
 
 message StatusRequest{
   bool getFullPeerStatus = 1;
-  bool shouldRunProbes   = 2;
+  bool shouldRunProbes = 2;
   // the UI do not using this yet, but CLIs could use it to wait until the status is ready
-  optional bool waitForReady     = 3;
+  optional bool waitForReady = 3;
 }
 
 message StatusResponse{
@@ -252,6 +291,18 @@ message GetConfigResponse {
   bool disable_server_routes = 19;
 
   bool block_lan_access = 20;
+
+  bool enableSSHRoot = 21;
+
+  bool enableSSHSFTP = 24;
+
+  bool enableSSHLocalPortForwarding = 22;
+
+  bool enableSSHRemotePortForwarding = 23;
+
+  bool disableSSHAuth = 25;
+
+  int32 sshJWTCacheTTL = 26;
 }
 
 // PeerState contains the latest state of a peer
@@ -273,6 +324,7 @@ message PeerState {
   repeated string networks = 16;
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
+  bytes sshHostKey = 19;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -314,6 +366,21 @@ message NSGroupState {
   string error = 4;
 }
 
+// SSHSessionInfo contains information about an active SSH session
+message SSHSessionInfo {
+  string username = 1;
+  string remoteAddress = 2;
+  string command = 3;
+  string jwtUsername = 4;
+  repeated string portForwards = 5;
+}
+
+// SSHServerState contains the latest state of the SSH server
+message SSHServerState {
+  bool enabled = 1;
+  repeated SSHSessionInfo sessions = 2;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -327,6 +394,7 @@ message FullStatus {
   repeated SystemEvent events = 7;
 
   bool lazyConnectionEnabled = 9;
+  SSHServerState sshServerState = 10;
 }
 
 // Networks
@@ -540,56 +608,63 @@ message SwitchProfileRequest {
 message SwitchProfileResponse {}
 
 message SetConfigRequest {
-    string username = 1;
-    string profileName = 2;
-    // managementUrl to authenticate.
-    string managementUrl = 3;
+  string username = 1;
+  string profileName = 2;
+  // managementUrl to authenticate.
+  string managementUrl = 3;
 
-    // adminUrl to manage keys.
-    string adminURL = 4;
+  // adminUrl to manage keys.
+  string adminURL = 4;
 
-    optional bool rosenpassEnabled = 5;
+  optional bool rosenpassEnabled = 5;
 
-    optional string interfaceName = 6;
+  optional string interfaceName = 6;
 
-    optional int64 wireguardPort = 7;
+  optional int64 wireguardPort = 7;
 
-    optional string optionalPreSharedKey = 8;
+  optional string optionalPreSharedKey = 8;
 
-    optional bool disableAutoConnect = 9;
+  optional bool disableAutoConnect = 9;
 
-    optional bool serverSSHAllowed = 10;
+  optional bool serverSSHAllowed = 10;
 
-    optional bool rosenpassPermissive = 11;
+  optional bool rosenpassPermissive = 11;
 
-    optional bool networkMonitor = 12;
+  optional bool networkMonitor = 12;
 
-    optional bool disable_client_routes = 13;
-    optional bool disable_server_routes = 14;
-    optional bool disable_dns = 15;
-    optional bool disable_firewall = 16;
-    optional bool block_lan_access = 17;
+  optional bool disable_client_routes = 13;
+  optional bool disable_server_routes = 14;
+  optional bool disable_dns = 15;
+  optional bool disable_firewall = 16;
+  optional bool block_lan_access = 17;
 
-    optional bool disable_notifications = 18;
+  optional bool disable_notifications = 18;
 
-    optional bool lazyConnectionEnabled = 19;
+  optional bool lazyConnectionEnabled = 19;
 
-    optional bool block_inbound = 20;
+  optional bool block_inbound = 20;
 
-    repeated string natExternalIPs = 21;
-    bool cleanNATExternalIPs = 22;
+  repeated string natExternalIPs = 21;
+  bool cleanNATExternalIPs = 22;
 
-    bytes customDNSAddress = 23;
+  bytes customDNSAddress = 23;
 
-    repeated string extraIFaceBlacklist = 24;
+  repeated string extraIFaceBlacklist = 24;
 
-    repeated string dns_labels = 25;
-    // cleanDNSLabels clean map list of DNS labels.
-    bool cleanDNSLabels = 26;
+  repeated string dns_labels = 25;
+  // cleanDNSLabels clean map list of DNS labels.
+  bool cleanDNSLabels = 26;
 
-    optional google.protobuf.Duration dnsRouteInterval = 27;
+  optional google.protobuf.Duration dnsRouteInterval = 27;
 
-    optional int64 mtu = 28;
+  optional int64 mtu = 28;
+
+  optional bool enableSSHRoot = 29;
+  optional bool enableSSHSFTP = 30;
+  optional bool enableSSHLocalPortForwarding = 31;
+  optional bool enableSSHRemotePortForwarding = 32;
+  optional bool disableSSHAuth = 33;
+  optional int32 sshJWTCacheTTL = 34;
 }
 
 message SetConfigResponse{}
@@ -640,4 +715,72 @@ message GetFeaturesRequest{}
 message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
+}
+
+// GetPeerSSHHostKeyRequest for retrieving SSH host key for a specific peer
+message GetPeerSSHHostKeyRequest {
+  // peer IP address or FQDN to get SSH host key for
+  string peerAddress = 1;
+}
+
+// GetPeerSSHHostKeyResponse contains the SSH host key for the requested peer
+message GetPeerSSHHostKeyResponse {
+  // SSH host key in SSH public key format (e.g., "ssh-ed25519 AAAAC3... hostname")
+  bytes sshHostKey = 1;
+  // peer IP address
+  string peerIP = 2;
+  // peer FQDN
+  string peerFQDN = 3;
+  // indicates if the SSH host key was found
+  bool found = 4;
+}
+
+// RequestJWTAuthRequest for initiating JWT authentication flow
+message RequestJWTAuthRequest {
+  // hint for OIDC login_hint parameter (typically email address)
+  optional string hint = 1;
+}
+
+// RequestJWTAuthResponse contains authentication flow information
+message RequestJWTAuthResponse {
+  // verification URI for user authentication
+  string verificationURI = 1;
+  // complete verification URI (with embedded user code)
+  string verificationURIComplete = 2;
+  // user code to enter on verification URI
+  string userCode = 3;
+  // device code for polling
+  string deviceCode = 4;
+  // expiration time in seconds
+  int64 expiresIn = 5;
+  // if a cached token is available, it will be returned here
+  string cachedToken = 6;
+  // maximum age of JWT tokens in seconds (from management server)
+  int64 maxTokenAge = 7;
+}
+
+// WaitJWTTokenRequest for waiting for authentication completion
+message WaitJWTTokenRequest {
+  // device code from RequestJWTAuthResponse
+  string deviceCode = 1;
+  // user code for verification
+  string userCode = 2;
+}
+
+// WaitJWTTokenResponse contains the JWT token after authentication
+message WaitJWTTokenResponse {
+  // JWT token (access token or ID token)
+  string token = 1;
+  // token type (e.g., "Bearer")
+  string tokenType = 2;
+  // expiration time in seconds
+  int64 expiresIn = 3;
+}
+
+message InstallerResultRequest {
+}
+
+message InstallerResultResponse {
+  bool success = 1;
+  string errorMsg = 2;
 }

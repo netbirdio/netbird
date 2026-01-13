@@ -44,6 +44,8 @@ type PKCEAuthProviderConfig struct {
 	DisablePromptLogin bool
 	// LoginFlag is used to configure the PKCE flow login behavior
 	LoginFlag common.LoginFlag
+	// LoginHint is used to pre-fill the email/username field during authentication
+	LoginHint string
 }
 
 // GetPKCEAuthorizationFlowInfo initialize a PKCEAuthorizationFlow instance and return with it

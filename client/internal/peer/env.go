@@ -2,6 +2,7 @@ package peer
 
 import (
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -10,5 +11,8 @@ const (
 )
 
 func isForceRelayed() bool {
+	if runtime.GOOS == "js" {
+		return true
+	}
 	return strings.EqualFold(os.Getenv(EnvKeyNBForceRelay), "true")
 }

@@ -128,7 +128,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	testCases := []struct {
 		name                string
 		initUpstreamMap     registeredHandlerMap
-		initLocalRecords    []nbdns.SimpleRecord
+		initLocalZones      []nbdns.CustomZone
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
@@ -181,7 +181,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "New Config Should Succeed",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   "netbird.cloud",
@@ -222,7 +222,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Smaller Config Serial Should Be Skipped",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       2,
 			inputSerial:      1,
@@ -230,7 +230,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -252,7 +252,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Invalid NS Group Nameservers list Should Fail",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -274,7 +274,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Invalid Custom Zone Records list Should Skip",
-			initLocalRecords: []nbdns.SimpleRecord{},
+			initLocalZones: []nbdns.CustomZone{},
 			initUpstreamMap:  make(registeredHandlerMap),
 			initSerial:       0,
 			inputSerial:      1,
@@ -300,7 +300,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Empty Config Should Succeed and Clean Maps",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -316,7 +316,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 		{
 			name:             "Disabled Service Should clean map",
-			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
+			initLocalZones: []nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -335,7 +335,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			privKey, _ := wgtypes.GenerateKey()
-			newNet, err := stdnet.NewNet(nil)
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -385,7 +385,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.Update(testCase.initLocalRecords)
+			dnsServer.localResolver.Update(testCase.initLocalZones)
 			dnsServer.updateSerial = testCase.initSerial
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -434,7 +434,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet([]string{"utun2301"})
+	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
 	if err != nil {
 		t.Errorf("create stdnet: %v", err)
 		return
@@ -510,8 +510,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 			priority: PriorityUpstream,
 		},
 	}
-	//dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
-	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}})
+	dnsServer.localResolver.Update([]nbdns.CustomZone{{Domain: "netbird.cloud", Records: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}}}})
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -915,7 +914,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet([]string{"utun2301"})
+	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
 	if err != nil {
 		t.Fatalf("create stdnet: %v", err)
 		return nil, err
@@ -944,7 +943,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	pf, err := uspfilter.Create(wgIface, false, flowLogger)
+	pf, err := uspfilter.Create(wgIface, false, flowLogger, iface.DefaultMTU)
 	if err != nil {
 		t.Fatalf("failed to create uspfilter: %v", err)
 		return nil, err
@@ -1602,7 +1601,10 @@ func TestExtraDomains(t *testing.T) {
 				"other.example.com.",
 				"duplicate.example.com.",
 			},
-			applyHostConfigCall: 4,
+			// Expect 3 calls instead of 4 because when deregistering duplicate.example.com,
+			// the domain remains in the config (ref count goes from 2 to 1), so the host
+			// config hash doesn't change and applyDNSConfig is not called.
+			applyHostConfigCall: 3,
 		},
 		{
 			name: "Config update with new domains after registration",
@@ -1657,7 +1659,10 @@ func TestExtraDomains(t *testing.T) {
 			expectedMatchOnly: []string{
 				"extra.example.com.",
 			},
-			applyHostConfigCall: 3,
+			// Expect 2 calls instead of 3 because when deregistering protected.example.com,
+			// it's removed from extraDomains but still remains in the config (from customZones),
+			// so the host config hash doesn't change and applyDNSConfig is not called.
+			applyHostConfigCall: 2,
 		},
 		{
 			name: "Register domain that is part of nameserver group",

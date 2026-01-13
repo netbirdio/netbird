@@ -100,6 +100,9 @@ type Manager interface {
 	//
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
+	//
+	// Note: Callers should call Flush() after adding rules to ensure
+	// they are applied to the kernel and rule handles are refreshed.
 	AddPeerFiltering(
 		id []byte,
 		ip net.IP,

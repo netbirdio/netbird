@@ -1,13 +1,14 @@
 package iptables
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"slices"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
-	"github.com/nadoo/ipset"
+	ipset "github.com/lrh3321/ipset-go"
 	log "github.com/sirupsen/logrus"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -40,19 +41,13 @@ type aclManager struct {
 }
 
 func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*aclManager, error) {
-	m := &aclManager{
+	return &aclManager{
 		iptablesClient:  iptablesClient,
 		wgIface:         wgIface,
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
-	}
-
-	if err := ipset.Init(); err != nil {
-		return nil, fmt.Errorf("init ipset: %w", err)
-	}
-
-	return m, nil
+	}, nil
 }
 
 func (m *aclManager) init(stateManager *statemanager.Manager) error {
@@ -98,8 +93,8 @@ func (m *aclManager) AddPeerFiltering(
 	specs = append(specs, "-j", actionToStr(action))
 	if ipsetName != "" {
 		if ipList, ipsetExists := m.ipsetStore.ipset(ipsetName); ipsetExists {
-			if err := ipset.Add(ipsetName, ip.String()); err != nil {
-				return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
+			if err := m.addToIPSet(ipsetName, ip); err != nil {
+				return nil, fmt.Errorf("add IP to ipset: %w", err)
 			}
 			// if ruleset already exists it means we already have the firewall rule
 			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
@@ -113,14 +108,18 @@ func (m *aclManager) AddPeerFiltering(
 			}}, nil
 		}
 
-		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("flush ipset %s before use it: %s", ipsetName, err)
+		if err := m.flushIPSet(ipsetName); err != nil {
+			if errors.Is(err, ipset.ErrSetNotExist) {
+				log.Debugf("flush ipset %s before use: %v", ipsetName, err)
+			} else {
+				log.Errorf("flush ipset %s before use: %v", ipsetName, err)
+			}
 		}
-		if err := ipset.Create(ipsetName); err != nil {
-			return nil, fmt.Errorf("failed to create ipset: %w", err)
+		if err := m.createIPSet(ipsetName); err != nil {
+			return nil, fmt.Errorf("create ipset: %w", err)
 		}
-		if err := ipset.Add(ipsetName, ip.String()); err != nil {
-			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
+		if err := m.addToIPSet(ipsetName, ip); err != nil {
+			return nil, fmt.Errorf("add IP to ipset: %w", err)
 		}
 
 		ipList := newIpList(ip.String())
@@ -172,11 +171,16 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
+	shouldDestroyIpset := false
 	if ipsetList, ok := m.ipsetStore.ipset(r.ipsetName); ok {
 		// delete IP from ruleset IPs list and ipset
 		if _, ok := ipsetList.ips[r.ip]; ok {
-			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
-				return fmt.Errorf("failed to delete ip from ipset: %w", err)
+			ip := net.ParseIP(r.ip)
+			if ip == nil {
+				return fmt.Errorf("parse IP %s", r.ip)
+			}
+			if err := m.delFromIPSet(r.ipsetName, ip); err != nil {
+				return fmt.Errorf("delete ip from ipset: %w", err)
 			}
 			delete(ipsetList.ips, r.ip)
 		}
@@ -190,10 +194,7 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 		// we delete last IP from the set, that means we need to delete
 		// set itself and associated firewall rule too
 		m.ipsetStore.deleteIpset(r.ipsetName)
-
-		if err := ipset.Destroy(r.ipsetName); err != nil {
-			log.Errorf("delete empty ipset: %v", err)
-		}
+		shouldDestroyIpset = true
 	}
 
 	if err := m.iptablesClient.Delete(tableName, r.chain, r.specs...); err != nil {
@@ -203,6 +204,16 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 	if r.mangleSpecs != nil {
 		if err := m.iptablesClient.Delete(tableMangle, chainRTPRE, r.mangleSpecs...); err != nil {
 			log.Errorf("failed to delete mangle rule: %v", err)
+		}
+	}
+
+	if shouldDestroyIpset {
+		if err := m.destroyIPSet(r.ipsetName); err != nil {
+			if errors.Is(err, ipset.ErrBusy) || errors.Is(err, ipset.ErrSetNotExist) {
+				log.Debugf("destroy empty ipset: %v", err)
+			} else {
+				log.Errorf("destroy empty ipset: %v", err)
+			}
 		}
 	}
 
@@ -264,11 +275,19 @@ func (m *aclManager) cleanChains() error {
 	}
 
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
-		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
+		if err := m.flushIPSet(ipsetName); err != nil {
+			if errors.Is(err, ipset.ErrSetNotExist) {
+				log.Debugf("flush ipset %q during reset: %v", ipsetName, err)
+			} else {
+				log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
+			}
 		}
-		if err := ipset.Destroy(ipsetName); err != nil {
-			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
+		if err := m.destroyIPSet(ipsetName); err != nil {
+			if errors.Is(err, ipset.ErrBusy) || errors.Is(err, ipset.ErrSetNotExist) {
+				log.Debugf("destroy ipset %q during reset: %v", ipsetName, err)
+			} else {
+				log.Errorf("destroy ipset %q during reset: %v", ipsetName, err)
+			}
 		}
 		m.ipsetStore.deleteIpset(ipsetName)
 	}
@@ -367,11 +386,8 @@ func (m *aclManager) updateState() {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
-	matchByIP := true
-	// don't use IP matching if IP is ip 0.0.0.0
-	if ip.String() == "0.0.0.0" {
-		matchByIP = false
-	}
+	// don't use IP matching if IP is 0.0.0.0
+	matchByIP := !ip.IsUnspecified()
 
 	if matchByIP {
 		if ipsetName != "" {
@@ -415,4 +431,62 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 	default:
 		return ipsetName + actionSuffix
 	}
+}
+
+func (m *aclManager) createIPSet(name string) error {
+	opts := ipset.CreateOptions{
+		Replace: true,
+	}
+
+	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {
+		return fmt.Errorf("create ipset %s: %w", name, err)
+	}
+
+	log.Debugf("created ipset %s with type hash:net", name)
+	return nil
+}
+
+func (m *aclManager) addToIPSet(name string, ip net.IP) error {
+	cidr := uint8(32)
+	if ip.To4() == nil {
+		cidr = 128
+	}
+
+	entry := &ipset.Entry{
+		IP:      ip,
+		CIDR:    cidr,
+		Replace: true,
+	}
+
+	if err := ipset.Add(name, entry); err != nil {
+		return fmt.Errorf("add IP to ipset %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func (m *aclManager) delFromIPSet(name string, ip net.IP) error {
+	cidr := uint8(32)
+	if ip.To4() == nil {
+		cidr = 128
+	}
+
+	entry := &ipset.Entry{
+		IP:   ip,
+		CIDR: cidr,
+	}
+
+	if err := ipset.Del(name, entry); err != nil {
+		return fmt.Errorf("delete IP from ipset %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func (m *aclManager) flushIPSet(name string) error {
+	return ipset.Flush(name)
+}
+
+func (m *aclManager) destroyIPSet(name string) error {
+	return ipset.Destroy(name)
 }

@@ -9,40 +9,62 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
-	"github.com/netbirdio/netbird/management/server/auth"
+	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-type EnsureAccountFunc func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
-type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth nbcontext.UserAuth) error
+type EnsureAccountFunc func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
+type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) error
 
-type GetUserFromUserAuthFunc func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
+type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
-	authManager         auth.Manager
+	authManager         serverauth.Manager
 	ensureAccount       EnsureAccountFunc
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
+	rateLimiter         *APIRateLimiter
+	patUsageTracker     *PATUsageTracker
 }
 
 // NewAuthMiddleware instance constructor
 func NewAuthMiddleware(
-	authManager auth.Manager,
+	authManager serverauth.Manager,
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
+	rateLimiterConfig *RateLimiterConfig,
+	meter metric.Meter,
 ) *AuthMiddleware {
+	var rateLimiter *APIRateLimiter
+	if rateLimiterConfig != nil {
+		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
+	var patUsageTracker *PATUsageTracker
+	if meter != nil {
+		var err error
+		patUsageTracker, err = NewPATUsageTracker(context.Background(), meter)
+		if err != nil {
+			log.Errorf("Failed to create PAT usage tracker: %s", err)
+		}
+	}
+
 	return &AuthMiddleware{
 		authManager:         authManager,
 		ensureAccount:       ensureAccount,
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
+		rateLimiter:         rateLimiter,
+		patUsageTracker:     patUsageTracker,
 	}
 }
 
@@ -53,18 +75,18 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			return
 		}
 
-		auth := strings.Split(r.Header.Get("Authorization"), " ")
-		authType := strings.ToLower(auth[0])
+		authHeader := strings.Split(r.Header.Get("Authorization"), " ")
+		authType := strings.ToLower(authHeader[0])
 
 		// fallback to token when receive pat as bearer
-		if len(auth) >= 2 && authType == "bearer" && strings.HasPrefix(auth[1], "nbp_") {
+		if len(authHeader) >= 2 && authType == "bearer" && strings.HasPrefix(authHeader[1], "nbp_") {
 			authType = "token"
-			auth[0] = authType
+			authHeader[0] = authType
 		}
 
 		switch authType {
 		case "bearer":
-			request, err := m.checkJWTFromRequest(r, auth)
+			request, err := m.checkJWTFromRequest(r, authHeader)
 			if err != nil {
 				log.WithContext(r.Context()).Errorf("Error when validating JWT: %s", err.Error())
 				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
@@ -73,10 +95,14 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 
 			h.ServeHTTP(w, request)
 		case "token":
-			request, err := m.checkPATFromRequest(r, auth)
+			request, err := m.checkPATFromRequest(r, authHeader)
 			if err != nil {
 				log.WithContext(r.Context()).Debugf("Error when validating PAT: %s", err.Error())
-				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
+				// Check if it's a status error, otherwise default to Unauthorized
+				if _, ok := status.FromError(err); !ok {
+					err = status.Errorf(status.Unauthorized, "token invalid")
+				}
+				util.WriteError(r.Context(), err, w)
 				return
 			}
 			h.ServeHTTP(w, request)
@@ -88,8 +114,8 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 }
 
 // CheckJWTFromRequest checks if the JWT is valid
-func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*http.Request, error) {
-	token, err := getTokenFromJWTRequest(auth)
+func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []string) (*http.Request, error) {
+	token, err := getTokenFromJWTRequest(authHeaderParts)
 
 	// If an error occurs, call the error handler and return an error
 	if err != nil {
@@ -108,6 +134,9 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*h
 		userAuth.IsChild = ok
 	}
 
+	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
+	// Available as userAuth.Email
+
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 	accountId, _, err := m.ensureAccount(ctx, userAuth)
 	if err != nil {
@@ -115,7 +144,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*h
 	}
 
 	if userAuth.AccountId != accountId {
-		log.WithContext(ctx).Debugf("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		log.WithContext(ctx).Tracef("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
 		userAuth.AccountId = accountId
 	}
 
@@ -139,10 +168,20 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, auth []string) (*h
 }
 
 // CheckPATFromRequest checks if the PAT is valid
-func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*http.Request, error) {
-	token, err := getTokenFromPATRequest(auth)
+func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []string) (*http.Request, error) {
+	token, err := getTokenFromPATRequest(authHeaderParts)
 	if err != nil {
 		return r, fmt.Errorf("error extracting token: %w", err)
+	}
+
+	if m.patUsageTracker != nil {
+		m.patUsageTracker.IncrementUsage(token)
+	}
+
+	if m.rateLimiter != nil {
+		if !m.rateLimiter.Allow(token) {
+			return r, status.Errorf(status.TooManyRequests, "too many requests")
+		}
 	}
 
 	ctx := r.Context()
@@ -159,7 +198,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*h
 		return r, err
 	}
 
-	userAuth := nbcontext.UserAuth{
+	userAuth := auth.UserAuth{
 		UserId:         user.Id,
 		AccountId:      user.AccountID,
 		Domain:         accDomain,

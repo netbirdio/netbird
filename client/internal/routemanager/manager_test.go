@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/stretchr/testify/require"
@@ -403,7 +403,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}

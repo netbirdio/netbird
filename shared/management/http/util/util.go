@@ -106,6 +106,8 @@ func WriteError(ctx context.Context, err error, w http.ResponseWriter) {
 			httpStatus = http.StatusUnauthorized
 		case status.BadRequest:
 			httpStatus = http.StatusBadRequest
+		case status.TooManyRequests:
+			httpStatus = http.StatusTooManyRequests
 		default:
 		}
 		msg = strings.ToLower(err.Error())

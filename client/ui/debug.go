@@ -500,7 +500,7 @@ func (s *serviceClient) createDebugBundleFromCollection(
 		if uploadFailureReason != "" {
 			showUploadFailedDialog(progress.window, localPath, uploadFailureReason)
 		} else {
-			showUploadSuccessDialog(progress.window, localPath, uploadedKey)
+			showUploadSuccessDialog(s.app, progress.window, localPath, uploadedKey)
 		}
 	} else {
 		showBundleCreatedDialog(progress.window, localPath)
@@ -565,7 +565,7 @@ func (s *serviceClient) handleDebugCreation(
 		if uploadFailureReason != "" {
 			showUploadFailedDialog(w, localPath, uploadFailureReason)
 		} else {
-			showUploadSuccessDialog(w, localPath, uploadedKey)
+			showUploadSuccessDialog(s.app, w, localPath, uploadedKey)
 		}
 	} else {
 		showBundleCreatedDialog(w, localPath)
@@ -665,7 +665,7 @@ func showUploadFailedDialog(w fyne.Window, localPath, failureReason string) {
 }
 
 // showUploadSuccessDialog displays a dialog when upload succeeds
-func showUploadSuccessDialog(w fyne.Window, localPath, uploadedKey string) {
+func showUploadSuccessDialog(a fyne.App, w fyne.Window, localPath, uploadedKey string) {
 	log.Infof("Upload key: %s", uploadedKey)
 	keyEntry := widget.NewEntry()
 	keyEntry.SetText(uploadedKey)
@@ -683,7 +683,7 @@ func showUploadSuccessDialog(w fyne.Window, localPath, uploadedKey string) {
 	customDialog := dialog.NewCustom("Upload Successful", "OK", content, w)
 
 	copyBtn := createButtonWithAction("Copy key", func() {
-		w.Clipboard().SetContent(uploadedKey)
+		a.Clipboard().SetContent(uploadedKey)
 		log.Info("Upload key copied to clipboard")
 	})
 

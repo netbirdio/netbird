@@ -9,8 +9,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
 )
@@ -128,13 +126,11 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	defer rs.mu.RUnlock()
 
 	if rs.deselectAll {
-		log.Debugf("Route %s not selected (deselect all)", routeID)
 		return false
 	}
 
 	_, deselected := rs.deselectedRoutes[routeID]
 	isSelected := !deselected
-	log.Debugf("Route %s selection status: %v (deselected: %v)", routeID, isSelected, deselected)
 	return isSelected
 }
 

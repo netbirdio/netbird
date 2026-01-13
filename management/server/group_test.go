@@ -37,7 +37,7 @@ const (
 )
 
 func TestDefaultAccountManager_CreateGroup(t *testing.T) {
-	am, err := createManager(t)
+	am, _, err := createManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
@@ -74,7 +74,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
-	am, err := createManager(t)
+	am, _, err := createManager(t)
 	if err != nil {
 		t.Fatalf("failed to create account manager: %s", err)
 	}
@@ -156,7 +156,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 }
 
 func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
-	am, err := createManager(t)
+	am, _, err := createManager(t)
 	assert.NoError(t, err, "Failed to create account manager")
 
 	manager, account, err := initTestGroupAccount(am)
@@ -379,7 +379,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
@@ -408,7 +408,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 }
 
 func TestGroupAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	g := []*types.Group{
 		{
@@ -442,9 +442,9 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Saving a group that is not linked to any resource should not update account peers
@@ -748,7 +748,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_AddPeerToGroup(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -805,7 +805,7 @@ func Test_AddPeerToGroup(t *testing.T) {
 }
 
 func Test_AddPeerToAll(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -862,7 +862,7 @@ func Test_AddPeerToAll(t *testing.T) {
 }
 
 func Test_AddPeerAndAddToAll(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -893,6 +893,7 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 			peer := &peer2.Peer{
 				ID:        strconv.Itoa(i),
 				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
 				DNSLabel:  "peer" + strconv.Itoa(i),
 				IP:        uint32ToIP(uint32(i)),
 			}
@@ -942,7 +943,7 @@ func uint32ToIP(n uint32) net.IP {
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return

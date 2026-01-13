@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -32,6 +33,7 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 		AnyTimes()
 
 	return &handler{
+		embeddedIdpEnabled: false,
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
@@ -120,6 +122,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -142,6 +146,32 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK with autoUpdateVersion",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"auto_update_version\": \"latest\", \"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr(""),
+				JwtGroupsEnabled:                br(false),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         false,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr("latest"),
+				EmbeddedIdpEnabled:              br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -164,6 +194,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -186,6 +218,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -208,6 +242,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
 				DnsDomain:                       sr(""),
+				AutoUpdateVersion:               sr(""),
+				EmbeddedIdpEnabled:              br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -236,7 +272,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    adminUser.Id,
 				AccountId: accountID,
 				Domain:    "hotmail.com",

@@ -14,12 +14,15 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +39,7 @@ const (
 	serviceUser = "service_user"
 )
 
-func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
+func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 
 	peersMap := make(map[string]*nbpeer.Peer)
 	for _, peer := range peers {
@@ -63,7 +66,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	srvUser := types.NewRegularUser(serviceUser)
+	srvUser := types.NewRegularUser(serviceUser, "", "")
 	srvUser.IsServiceUser = true
 
 	account := &types.Account{
@@ -72,7 +75,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 		Peers:  peersMap,
 		Users: map[string]*types.User{
 			adminUser:   types.NewAdminUser(adminUser),
-			regularUser: types.NewRegularUser(regularUser),
+			regularUser: types.NewRegularUser(regularUser, "", ""),
 			serviceUser: srvUser,
 		},
 		Groups: map[string]*types.Group{
@@ -98,6 +101,14 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			Serial: 51,
 		},
 	}
+
+	ctrl := gomock.NewController(t)
+
+	networkMapController := network_map.NewMockController(ctrl)
+	networkMapController.EXPECT().
+		GetDNSDomain(gomock.Any()).
+		Return("domain").
+		AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -187,6 +198,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				return account.Settings, nil
 			},
 		},
+		networkMapController: networkMapController,
 	}
 }
 
@@ -250,14 +262,6 @@ func TestGetPeers(t *testing.T) {
 			expectedPeer:   peer,
 		},
 		{
-			name:           "GetPeer with no update channel",
-			requestType:    http.MethodGet,
-			requestPath:    "/api/peers/" + peer1.ID,
-			expectedStatus: http.StatusOK,
-			expectedArray:  false,
-			expectedPeer:   expectedPeer1,
-		},
-		{
 			name:           "PutPeer",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/peers/" + testPeerID,
@@ -270,14 +274,14 @@ func TestGetPeers(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 
-	p := initTestMetaData(peer, peer1)
+	p := initTestMetaData(t, peer, peer1)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "admin_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -316,8 +320,6 @@ func TestGetPeers(t *testing.T) {
 				for _, peer := range respBody {
 					if peer.Id == testPeerID {
 						got = peer
-					} else {
-						assert.Equal(t, peer.Connected, false)
 					}
 				}
 
@@ -331,14 +333,14 @@ func TestGetPeers(t *testing.T) {
 
 			t.Log(got)
 
-			assert.Equal(t, got.Name, tc.expectedPeer.Name)
-			assert.Equal(t, got.Version, tc.expectedPeer.Meta.WtVersion)
-			assert.Equal(t, got.Ip, tc.expectedPeer.IP.String())
-			assert.Equal(t, got.Os, "OS core")
-			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
-			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
-			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
-			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
+			assert.Equal(t, tc.expectedPeer.Name, got.Name)
+			assert.Equal(t, tc.expectedPeer.Meta.WtVersion, got.Version)
+			assert.Equal(t, tc.expectedPeer.IP.String(), got.Ip)
+			assert.Equal(t, "OS core", got.Os)
+			assert.Equal(t, tc.expectedPeer.LoginExpirationEnabled, got.LoginExpirationEnabled)
+			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
+			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
+			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
 		})
 	}
 }
@@ -374,7 +376,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 		UserID:                 regularUser,
 	}
 
-	p := initTestMetaData(peer1, peer2, peer3)
+	p := initTestMetaData(t, peer1, peer2, peer3)
 
 	tt := []struct {
 		name           string
@@ -425,7 +427,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    tc.callerUserID,
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -477,7 +479,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		},
 	}
 
-	p := initTestMetaData(testPeer)
+	p := initTestMetaData(t, testPeer)
 
 	tt := []struct {
 		name           string
@@ -508,7 +510,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/peers/%s", tc.peerID), bytes.NewBuffer([]byte(tc.requestBody)))
 			req.Header.Set("Content-Type", "application/json")
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    tc.callerUserID,
 				Domain:    "hotmail.com",
 				AccountId: "test_id",

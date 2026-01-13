@@ -407,7 +407,7 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 	}
 
 	pending := true
-	return &UserData{
+	ret := &UserData{
 		Email: email,
 		Name:  name,
 		ID:    newUser.UserId,
@@ -416,7 +416,8 @@ func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID
 			WTPendingInvite: &pending,
 			WTInvitedBy:     invitedByEmail,
 		},
-	}, nil
+	}
+  return ret, nil
 }
 
 // GetUserByEmail searches users with a given email.

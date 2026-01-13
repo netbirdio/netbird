@@ -128,7 +128,32 @@ func (d *DeviceAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlow
 		deviceCode.VerificationURIComplete = deviceCode.VerificationURI
 	}
 
+	if d.providerConfig.LoginHint != "" {
+		deviceCode.VerificationURIComplete = appendLoginHint(deviceCode.VerificationURIComplete, d.providerConfig.LoginHint)
+		if deviceCode.VerificationURI != "" {
+			deviceCode.VerificationURI = appendLoginHint(deviceCode.VerificationURI, d.providerConfig.LoginHint)
+		}
+	}
+
 	return deviceCode, err
+}
+
+func appendLoginHint(uri, loginHint string) string {
+	if uri == "" || loginHint == "" {
+		return uri
+	}
+
+	parsedURL, err := url.Parse(uri)
+	if err != nil {
+		log.Debugf("failed to parse verification URI for login_hint: %v", err)
+		return uri
+	}
+
+	query := parsedURL.Query()
+	query.Set("login_hint", loginHint)
+	parsedURL.RawQuery = query.Encode()
+
+	return parsedURL.String()
 }
 
 func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestResponse, error) {

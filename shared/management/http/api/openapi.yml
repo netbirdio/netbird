@@ -32,6 +32,10 @@ tags:
   - name: Ingress Ports
     description: Interact with and view information about the ingress peers and ports.
     x-cloud-only: true
+  - name: Identity Providers
+    description: Interact with and view information about identity providers.
+  - name: Instance
+    description: Instance setup and status endpoints for initial configuration.
 components:
   schemas:
     Account:
@@ -145,6 +149,15 @@ components:
           description: Enables or disables experimental lazy connection
           type: boolean
           example: true
+        auto_update_version:
+          description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+          type: string
+          example: "0.51.2"
+        embedded_idp_enabled:
+          description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+          type: boolean
+          readOnly: true
+          example: false
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -202,6 +215,10 @@ components:
           description: User's email address
           type: string
           example: demo@netbird.io
+        password:
+          description: User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+          type: string
+          example: super_secure_password
         name:
           description: User's name from idp provider
           type: string
@@ -248,6 +265,10 @@ components:
           description: How user was issued by API or Integration
           type: string
           example: api
+        idp_id:
+          description: Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+          type: string
+          example: okta-abc123
         permissions:
           $ref: '#/components/schemas/UserPermissions'
       required:
@@ -484,6 +505,8 @@ components:
               description: Indicates whether the peer is ephemeral or not
               type: boolean
               example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
           required:
             - city_name
             - connected
@@ -510,6 +533,49 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
     PeerTemporaryAccessRequest:
       type: object
       properties:
@@ -932,7 +998,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp"]
+          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -945,6 +1011,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
+        authorized_groups:
+          description: Map of user group ids to a list of local users
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              example: "group1"
       required:
         - name
         - enabled
@@ -2193,6 +2267,118 @@ components:
         - page_size
         - total_records
         - total_pages
+    IdentityProviderType:
+      type: string
+      description: Type of identity provider
+      enum:
+        - oidc
+        - zitadel
+        - entra
+        - google
+        - okta
+        - pocketid
+        - microsoft
+      example: oidc
+    IdentityProvider:
+      type: object
+      properties:
+        id:
+          description: Identity provider ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7l0
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+    IdentityProviderRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+        client_secret:
+          description: OAuth2 client secret
+          type: string
+          example: secret123
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+        - client_secret
+    InstanceStatus:
+      type: object
+      description: Instance status information
+      properties:
+        setup_required:
+          description: Indicates whether the instance requires initial setup
+          type: boolean
+          example: true
+      required:
+        - setup_required
+    SetupRequest:
+      type: object
+      description: Request to set up the initial admin user
+      properties:
+        email:
+          description: Email address for the admin user
+          type: string
+          example: admin@example.com
+        password:
+          description: Password for the admin user (minimum 8 characters)
+          type: string
+          format: password
+          minLength: 8
+          example: securepassword123
+        name:
+          description: Display name for the admin user (defaults to email if not provided)
+          type: string
+          example: Admin User
+      required:
+        - email
+        - password
+        - name
+    SetupResponse:
+      type: object
+      description: Response after successful instance setup
+      properties:
+        user_id:
+          description: The ID of the created user
+          type: string
+          example: abc123def456
+        email:
+          description: Email address of the created user
+          type: string
+          example: admin@example.com
+      required:
+        - user_id
+        - email
   responses:
     not_found:
       description: Resource not found
@@ -2230,6 +2416,48 @@ security:
   - BearerAuth: [ ]
   - TokenAuth: [ ]
 paths:
+  /api/instance:
+    get:
+      summary: Get Instance Status
+      description: Returns the instance status including whether initial setup is required. This endpoint does not require authentication.
+      tags: [ Instance ]
+      security: [ ]
+      responses:
+        '200':
+          description: Instance status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceStatus'
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/setup:
+    post:
+      summary: Setup Instance
+      description: Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+      tags: [ Instance ]
+      security: [ ]
+      requestBody:
+        description: Initial admin user details
+        required: true
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '200':
+          description: Setup completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '412':
+          description: Setup already completed
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/accounts:
     get:
       summary: List all Accounts
@@ -3362,6 +3590,14 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: name
+          required: false
+          schema:
+            type: string
+          description: Filter groups by name (exact match)
+          example: "devs"
       responses:
         '200':
           description: A JSON Array of Groups
@@ -3375,6 +3611,8 @@ paths:
           "$ref": "#/components/responses/bad_request"
         '401':
           "$ref": "#/components/responses/requires_authentication"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '403':
           "$ref": "#/components/responses/forbidden"
         '500':
@@ -4802,6 +5040,150 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/City'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers:
+    get:
+      summary: List all Identity Providers
+      description: Returns a list of all identity providers configured for the account
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON array of identity providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Identity Provider
+      description: Creates a new identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Identity provider configuration
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers/{idpId}:
+    get:
+      summary: Retrieve an Identity Provider
+      description: Get information about a specific identity provider
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Identity Provider
+      description: Update an existing identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      requestBody:
+        description: Identity provider update
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Identity Provider
+      description: Delete an identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

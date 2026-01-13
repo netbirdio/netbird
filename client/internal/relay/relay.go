@@ -197,7 +197,7 @@ func (p *StunTurnProbe) probeSTUN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(ctx, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return
@@ -286,7 +286,7 @@ func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr stri
 		}
 	}()
 
-	net, err := stdnet.NewNet(nil)
+	net, err := stdnet.NewNet(ctx, nil)
 	if err != nil {
 		probeErr = fmt.Errorf("new net: %w", err)
 		return

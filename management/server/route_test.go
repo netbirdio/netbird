@@ -14,6 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -432,7 +437,7 @@ func TestCreateRoute(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			am, err := createRouterManager(t)
+			am, _, err := createRouterManager(t)
 			if err != nil {
 				t.Error("failed to create account manager")
 			}
@@ -922,7 +927,7 @@ func TestSaveRoute(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			am, err := createRouterManager(t)
+			am, _, err := createRouterManager(t)
 			if err != nil {
 				t.Error("failed to create account manager")
 			}
@@ -1024,7 +1029,7 @@ func TestDeleteRoute(t *testing.T) {
 		Enabled:     true,
 	}
 
-	am, err := createRouterManager(t)
+	am, _, err := createRouterManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
@@ -1071,7 +1076,7 @@ func TestGetNetworkMap_RouteSyncPeerGroups(t *testing.T) {
 		AccessControlGroups: []string{routeGroup1},
 	}
 
-	am, err := createRouterManager(t)
+	am, _, err := createRouterManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
@@ -1163,7 +1168,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		AccessControlGroups: []string{routeGroup1},
 	}
 
-	am, err := createRouterManager(t)
+	am, _, err := createRouterManager(t)
 	if err != nil {
 		t.Error("failed to create account manager")
 	}
@@ -1250,11 +1255,11 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
 }
 
-func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
+func createRouterManager(t *testing.T) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
 	store, err := createRouterStore(t)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
 
@@ -1285,7 +1290,16 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+
+	am, err := BuildManager(context.Background(), nil, store, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	return am, updateManager, nil
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
@@ -1306,7 +1320,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
@@ -1948,7 +1962,7 @@ func orderRuleSourceRanges(ruleList []*types.RouteFirewallRule) []*types.RouteFi
 }
 
 func TestRouteAccountPeersUpdate(t *testing.T) {
-	manager, err := createRouterManager(t)
+	manager, updateManager, err := createRouterManager(t)
 	require.NoError(t, err, "failed to create account manager")
 
 	account, err := initTestRouteAccount(t, manager)
@@ -1976,9 +1990,9 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 		require.NoError(t, err, "failed to create group %s", group.Name)
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		updateManager.CloseChannel(context.Background(), peer1ID)
 	})
 
 	// Creating a route with no routing peer and no peers in PeerGroups or Groups should not update account peers and not send peer update

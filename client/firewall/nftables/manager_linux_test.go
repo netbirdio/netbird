@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -56,7 +57,7 @@ func (i *iFaceMock) IsUserspaceBind() bool { return false }
 func TestNftablesManager(t *testing.T) {
 
 	// just check on the local interface
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 	time.Sleep(time.Second * 3)
@@ -168,7 +169,7 @@ func TestNftablesManager(t *testing.T) {
 func TestNftablesManagerRuleOrder(t *testing.T) {
 	// This test verifies rule insertion order in nftables peer ACLs
 	// We add accept rule first, then deny rule to test ordering behavior
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -197,7 +198,7 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	t.Logf("Found %d rules in nftables chain", len(rules))
 
 	// Find the accept and deny rules and verify deny comes before accept
-	var acceptRuleIndex, denyRuleIndex int = -1, -1
+	var acceptRuleIndex, denyRuleIndex = -1, -1
 	for i, rule := range rules {
 		hasAcceptHTTPSet := false
 		hasDenyHTTPSet := false
@@ -207,11 +208,13 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 		for _, e := range rule.Exprs {
 			// Check for set lookup
 			if lookup, ok := e.(*expr.Lookup); ok {
-				if lookup.SetName == "accept-http" {
+				switch lookup.SetName {
+				case "accept-http":
 					hasAcceptHTTPSet = true
-				} else if lookup.SetName == "deny-http" {
+				case "deny-http":
 					hasDenyHTTPSet = true
 				}
+
 			}
 			// Check for port 80
 			if cmp, ok := e.(*expr.Cmp); ok {
@@ -221,9 +224,10 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 			}
 			// Check for verdict
 			if verdict, ok := e.(*expr.Verdict); ok {
-				if verdict.Kind == expr.VerdictAccept {
+				switch verdict.Kind {
+				case expr.VerdictAccept:
 					action = "ACCEPT"
-				} else if verdict.Kind == expr.VerdictDrop {
+				case expr.VerdictDrop:
 					action = "DROP"
 				}
 			}
@@ -261,7 +265,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(mock, iface.DefaultMTU)
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second * 3)
@@ -345,7 +349,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
 
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "failed to create manager")
 	require.NoError(t, manager.Init(nil))
 
@@ -380,6 +384,97 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	}
 	err = manager.AddNatRule(pair)
 	require.NoError(t, err, "failed to add NAT rule")
+
+	stdout, stderr = runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func TestNftablesManagerCompatibilityWithIptablesFor6kPrefixes(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	if _, err := exec.LookPath("iptables-save"); err != nil {
+		t.Skipf("iptables-save not available on this system: %v", err)
+	}
+
+	// First ensure iptables-nft tables exist by running iptables-save
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "failed to create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		err := manager.Close(nil)
+		require.NoError(t, err, "failed to reset manager state")
+
+		// Verify iptables output after reset
+		stdout, stderr := runIptablesSave(t)
+		verifyIptablesOutput(t, stdout, stderr)
+	})
+
+	const octet2Count = 25
+	const octet3Count = 255
+	prefixes := make([]netip.Prefix, 0, (octet2Count-1)*(octet3Count-1))
+	for i := 1; i < octet2Count; i++ {
+		for j := 1; j < octet3Count; j++ {
+			addr := netip.AddrFrom4([4]byte{192, byte(j), byte(i), 0})
+			prefixes = append(prefixes, netip.PrefixFrom(addr, 24))
+		}
+	}
+	_, err = manager.AddRouteFiltering(
+		nil,
+		prefixes,
+		fw.Network{Prefix: netip.MustParsePrefix("10.2.0.0/24")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "failed to add route filtering rule")
+
+	stdout, stderr = runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func TestNftablesManagerCompatibilityWithIptablesForEmptyPrefixes(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	if _, err := exec.LookPath("iptables-save"); err != nil {
+		t.Skipf("iptables-save not available on this system: %v", err)
+	}
+
+	// First ensure iptables-nft tables exist by running iptables-save
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "failed to create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		err := manager.Close(nil)
+		require.NoError(t, err, "failed to reset manager state")
+
+		// Verify iptables output after reset
+		stdout, stderr := runIptablesSave(t)
+		verifyIptablesOutput(t, stdout, stderr)
+	})
+
+	_, err = manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{},
+		fw.Network{Prefix: netip.MustParsePrefix("10.2.0.0/24")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "failed to add route filtering rule")
 
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)

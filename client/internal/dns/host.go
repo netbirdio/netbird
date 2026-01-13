@@ -11,11 +11,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
-const (
-	ipv4ReverseZone = ".in-addr.arpa."
-	ipv6ReverseZone = ".ip6.arpa."
-)
-
 type hostManager interface {
 	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNS() error
@@ -110,10 +105,9 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) H
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
-		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
 			Domain:    strings.ToLower(dns.Fqdn(customZone.Domain)),
-			MatchOnly: matchOnly,
+			MatchOnly: customZone.SearchDomainDisabled,
 		})
 	}
 

@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -436,7 +436,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	require.NoError(t, err)
 
 	opts := iface.WGIFaceOpts{

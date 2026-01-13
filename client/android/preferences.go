@@ -201,6 +201,94 @@ func (p *Preferences) SetServerSSHAllowed(allowed bool) {
 	p.configInput.ServerSSHAllowed = &allowed
 }
 
+// GetEnableSSHRoot reads SSH root login setting from config file
+func (p *Preferences) GetEnableSSHRoot() (bool, error) {
+	if p.configInput.EnableSSHRoot != nil {
+		return *p.configInput.EnableSSHRoot, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	if cfg.EnableSSHRoot == nil {
+		// Default to false for security on Android
+		return false, nil
+	}
+	return *cfg.EnableSSHRoot, err
+}
+
+// SetEnableSSHRoot stores the given value and waits for commit
+func (p *Preferences) SetEnableSSHRoot(enabled bool) {
+	p.configInput.EnableSSHRoot = &enabled
+}
+
+// GetEnableSSHSFTP reads SSH SFTP setting from config file
+func (p *Preferences) GetEnableSSHSFTP() (bool, error) {
+	if p.configInput.EnableSSHSFTP != nil {
+		return *p.configInput.EnableSSHSFTP, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	if cfg.EnableSSHSFTP == nil {
+		// Default to false for security on Android
+		return false, nil
+	}
+	return *cfg.EnableSSHSFTP, err
+}
+
+// SetEnableSSHSFTP stores the given value and waits for commit
+func (p *Preferences) SetEnableSSHSFTP(enabled bool) {
+	p.configInput.EnableSSHSFTP = &enabled
+}
+
+// GetEnableSSHLocalPortForwarding reads SSH local port forwarding setting from config file
+func (p *Preferences) GetEnableSSHLocalPortForwarding() (bool, error) {
+	if p.configInput.EnableSSHLocalPortForwarding != nil {
+		return *p.configInput.EnableSSHLocalPortForwarding, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	if cfg.EnableSSHLocalPortForwarding == nil {
+		// Default to false for security on Android
+		return false, nil
+	}
+	return *cfg.EnableSSHLocalPortForwarding, err
+}
+
+// SetEnableSSHLocalPortForwarding stores the given value and waits for commit
+func (p *Preferences) SetEnableSSHLocalPortForwarding(enabled bool) {
+	p.configInput.EnableSSHLocalPortForwarding = &enabled
+}
+
+// GetEnableSSHRemotePortForwarding reads SSH remote port forwarding setting from config file
+func (p *Preferences) GetEnableSSHRemotePortForwarding() (bool, error) {
+	if p.configInput.EnableSSHRemotePortForwarding != nil {
+		return *p.configInput.EnableSSHRemotePortForwarding, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	if cfg.EnableSSHRemotePortForwarding == nil {
+		// Default to false for security on Android
+		return false, nil
+	}
+	return *cfg.EnableSSHRemotePortForwarding, err
+}
+
+// SetEnableSSHRemotePortForwarding stores the given value and waits for commit
+func (p *Preferences) SetEnableSSHRemotePortForwarding(enabled bool) {
+	p.configInput.EnableSSHRemotePortForwarding = &enabled
+}
+
 // GetBlockInbound reads block inbound setting from config file
 func (p *Preferences) GetBlockInbound() (bool, error) {
 	if p.configInput.BlockInbound != nil {

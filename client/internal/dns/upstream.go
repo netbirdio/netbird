@@ -2,7 +2,6 @@ package dns
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -21,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
@@ -113,10 +113,7 @@ func (u *upstreamResolverBase) Stop() {
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	requestID := GenerateRequestID()
-	logger := log.WithField("request_id", requestID)
-
-	logger.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	logger := log.WithField("request_id", resutil.GetRequestID(w))
 
 	u.prepareRequest(r)
 
@@ -197,16 +194,23 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 		timeoutMsg += " " + peerInfo
 	}
 	timeoutMsg += fmt.Sprintf(" - error: %v", err)
-	logger.Warnf(timeoutMsg)
+	logger.Warn(timeoutMsg)
 }
 
 func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
 	u.successCount.Add(1)
-	logger.Tracef("took %s to query the upstream %s for question domain=%s", t, upstream, domain)
+
+	resutil.SetMeta(w, "upstream", upstream.String())
+
+	// Clear Zero bit from external responses to prevent upstream servers from
+	// manipulating our internal fallthrough signaling mechanism
+	rm.MsgHdr.Zero = false
 
 	if err := w.WriteMsg(rm); err != nil {
 		logger.Errorf("failed to write DNS response for question domain=%s: %s", domain, err)
+		return true
 	}
+
 	return true
 }
 
@@ -412,16 +416,6 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	// TODO: once TCP is implemented, rm.Truncate() if the request came in over UDP
 
 	return rm, t, nil
-}
-
-func GenerateRequestID() string {
-	bytes := make([]byte, 4)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		log.Errorf("failed to generate request ID: %v", err)
-		return ""
-	}
-	return hex.EncodeToString(bytes)
 }
 
 // FormatPeerStatus formats peer connection status information for debugging DNS timeouts

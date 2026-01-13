@@ -24,9 +24,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -34,16 +39,17 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
 type ConnectClient struct {
-	ctx            context.Context
-	config         *profilemanager.Config
-	statusRecorder *peer.Status
-	engine         *Engine
-	engineMutex    sync.Mutex
+	ctx                 context.Context
+	config              *profilemanager.Config
+	statusRecorder      *peer.Status
+	doInitialAutoUpdate bool
+
+	engine      *Engine
+	engineMutex sync.Mutex
 
 	persistSyncResponse bool
 }
@@ -52,13 +58,15 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
+	doInitalAutoUpdate bool,
 
 ) *ConnectClient {
 	return &ConnectClient{
-		ctx:            ctx,
-		config:         config,
-		statusRecorder: statusRecorder,
-		engineMutex:    sync.Mutex{},
+		ctx:                 ctx,
+		config:              config,
+		statusRecorder:      statusRecorder,
+		doInitialAutoUpdate: doInitalAutoUpdate,
+		engineMutex:         sync.Mutex{},
 	}
 }
 
@@ -74,6 +82,7 @@ func (c *ConnectClient) RunOnAndroid(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
+	stateFilePath string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -82,6 +91,7 @@ func (c *ConnectClient) RunOnAndroid(
 		NetworkChangeListener: networkChangeListener,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil)
 }
@@ -158,6 +168,33 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	publicSSHKey, err := ssh.GeneratePublicKey([]byte(c.config.SSHKey))
 	if err != nil {
 		return err
+	}
+
+	var path string
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+		// On mobile, use the provided state file path directly
+		if !fileExists(mobileDependency.StateFilePath) {
+			if err := createFile(mobileDependency.StateFilePath); err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+		path = mobileDependency.StateFilePath
+	} else {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
+	stateManager := statemanager.New(path)
+	stateManager.RegisterState(&sshconfig.ShutdownState{})
+
+	updateManager, err := updatemanager.NewManager(c.statusRecorder, stateManager)
+	if err == nil {
+		updateManager.CheckUpdateSuccess(c.ctx)
+
+		inst := installer.New()
+		if err := inst.CleanUpInstallerFiles(); err != nil {
+			log.Errorf("failed to clean up temporary installer file: %v", err)
+		}
 	}
 
 	defer c.statusRecorder.ClientStop()
@@ -271,13 +308,23 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
-		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
+		engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		c.engine = engine
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
+		if err := engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
+		}
+
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			// AutoUpdate will be true when the user click on "Connect" menu on the UI
+			if c.doInitialAutoUpdate {
+				log.Infof("start engine by ui, run auto-update check")
+				c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+				c.doInitialAutoUpdate = false
+			}
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
@@ -289,15 +336,20 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		<-engineCtx.Done()
+
 		c.engineMutex.Lock()
-		if c.engine != nil && c.engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", c.engine.wgInterface.Name())
-			if err := c.engine.Stop(); err != nil {
+		c.engine = nil
+		c.engineMutex.Unlock()
+
+		// todo: consider to remove this condition. Is not thread safe.
+		// We should always call Stop(), but we need to verify that it is idempotent
+		if engine.wgInterface != nil {
+			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+
+			if err := engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
-			c.engine = nil
 		}
-		c.engineMutex.Unlock()
 		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()
@@ -382,19 +434,12 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
-	if c == nil {
-		return nil
+	engine := c.Engine()
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return fmt.Errorf("stop engine: %w", err)
+		}
 	}
-	c.engineMutex.Lock()
-	defer c.engineMutex.Unlock()
-
-	if c.engine == nil {
-		return nil
-	}
-	if err := c.engine.Stop(); err != nil {
-		return fmt.Errorf("stop engine: %w", err)
-	}
-
 	return nil
 }
 
@@ -420,20 +465,25 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		nm = *config.NetworkMonitor
 	}
 	engineConf := &EngineConfig{
-		WgIfaceName:          config.WgIface,
-		WgAddr:               peerConfig.Address,
-		IFaceBlackList:       config.IFaceBlackList,
-		DisableIPv6Discovery: config.DisableIPv6Discovery,
-		WgPrivateKey:         key,
-		WgPort:               config.WgPort,
-		NetworkMonitor:       nm,
-		SSHKey:               []byte(config.SSHKey),
-		NATExternalIPs:       config.NATExternalIPs,
-		CustomDNSAddress:     config.CustomDNSAddress,
-		RosenpassEnabled:     config.RosenpassEnabled,
-		RosenpassPermissive:  config.RosenpassPermissive,
-		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
-		DNSRouteInterval:     config.DNSRouteInterval,
+		WgIfaceName:                   config.WgIface,
+		WgAddr:                        peerConfig.Address,
+		IFaceBlackList:                config.IFaceBlackList,
+		DisableIPv6Discovery:          config.DisableIPv6Discovery,
+		WgPrivateKey:                  key,
+		WgPort:                        config.WgPort,
+		NetworkMonitor:                nm,
+		SSHKey:                        []byte(config.SSHKey),
+		NATExternalIPs:                config.NATExternalIPs,
+		CustomDNSAddress:              config.CustomDNSAddress,
+		RosenpassEnabled:              config.RosenpassEnabled,
+		RosenpassPermissive:           config.RosenpassPermissive,
+		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		EnableSSHRoot:                 config.EnableSSHRoot,
+		EnableSSHSFTP:                 config.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                config.DisableSSHAuth,
+		DNSRouteInterval:              config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -519,6 +569,11 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.LazyConnectionEnabled,
+		config.EnableSSHRoot,
+		config.EnableSSHSFTP,
+		config.EnableSSHLocalPortForwarding,
+		config.EnableSSHRemotePortForwarding,
+		config.DisableSSHAuth,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
