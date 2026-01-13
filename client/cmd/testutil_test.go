@@ -89,9 +89,6 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(cleanUp)
 
 	eventStore := &activity.InMemoryEventStore{}
-	if err != nil {
-		return nil, nil
-	}
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -127,7 +124,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

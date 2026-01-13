@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
@@ -63,7 +64,7 @@ var (
 				config.HttpConfig.IdpSignKeyRefreshEnabled = idpSignKeyRefreshEnabled
 			}
 
-			tlsEnabled := false
+			var tlsEnabled bool
 			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
 				tlsEnabled = true
 			}
@@ -135,76 +136,198 @@ var (
 
 func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
 	loadedConfig := &nbconfig.Config{}
-	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
+	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
+		return nil, err
+	}
+
+	applyCommandLineOverrides(loadedConfig)
+
+	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
+	err := applyEmbeddedIdPConfig(ctx, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
+
+	if err := applyOIDCConfig(ctx, loadedConfig); err != nil {
+		return nil, err
+	}
+
+	logConfigInfo(loadedConfig)
+
+	if err := ensureEncryptionKey(ctx, mgmtConfigPath, loadedConfig); err != nil {
+		return nil, err
+	}
+
+	return loadedConfig, nil
+}
+
+// applyCommandLineOverrides applies command-line flag overrides to the config
+func applyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
-		loadedConfig.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
+		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
-		loadedConfig.Datadir = mgmtDataDir
+		cfg.Datadir = mgmtDataDir
 	}
-
 	if certKey != "" && certFile != "" {
-		loadedConfig.HttpConfig.CertFile = certFile
-		loadedConfig.HttpConfig.CertKey = certKey
+		cfg.HttpConfig.CertFile = certFile
+		cfg.HttpConfig.CertKey = certKey
+	}
+}
+
+// applyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
+// This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
+func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
+	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
+		return nil
 	}
 
-	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
-	if oidcEndpoint != "" {
-		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
-		log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
-		oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
-		if err != nil {
-			return nil, err
-		}
-		log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+	// apply some defaults based on the EmbeddedIdP config
+	if disableSingleAccMode {
+		// Embedded IdP requires single account mode - multiple account mode is not supported
+		return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
+	}
+	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
+	userDeleteFromIDPEnabled = true
 
-		log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
-			oidcConfig.Issuer, loadedConfig.HttpConfig.AuthIssuer)
-		loadedConfig.HttpConfig.AuthIssuer = oidcConfig.Issuer
+	// Set LocalAddress for embedded IdP if enabled, used for internal JWT validation
+	cfg.EmbeddedIdP.LocalAddress = fmt.Sprintf("localhost:%d", mgmtPort)
 
-		log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
-			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
-		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
-
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE)) {
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.DeviceAuthEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
-
-			u, err := url.Parse(oidcEndpoint)
-			if err != nil {
-				return nil, err
-			}
-			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
-				u.Host, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain)
-			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
-
-			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = nbconfig.DefaultDeviceAuthFlowScope
-			}
-		}
-
-		if loadedConfig.PKCEAuthorizationFlow != nil {
-			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
-			log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
-			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
-		}
+	// Set storage defaults based on Datadir
+	if cfg.EmbeddedIdP.Storage.Type == "" {
+		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
+	}
+	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
+		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
 	}
 
-	if loadedConfig.Relay != nil {
-		log.Infof("Relay addresses: %v", loadedConfig.Relay.Addresses)
+	issuer := cfg.EmbeddedIdP.Issuer
+
+	if cfg.HttpConfig != nil {
+		log.WithContext(ctx).Warnf("overriding HttpConfig with EmbeddedIdP config. " +
+			"HttpConfig is ignored when EmbeddedIdP is enabled. Please remove HttpConfig section from the config file")
+	} else {
+		// Ensure HttpConfig exists. We need it for backwards compatibility with the old config format.
+		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
 	}
 
-	return loadedConfig, err
+	// Set HttpConfig values from EmbeddedIdP
+	cfg.HttpConfig.AuthIssuer = issuer
+	cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
+	cfg.HttpConfig.AuthUserIDClaim = "sub"
+	cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
+	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
+	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
+
+	return nil
+}
+
+// applyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
+func applyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
+	oidcEndpoint := cfg.HttpConfig.OIDCConfigEndpoint
+	if oidcEndpoint == "" {
+		return nil
+	}
+
+	if cfg.EmbeddedIdP != nil && cfg.EmbeddedIdP.Enabled {
+		// skip OIDC config fetching if EmbeddedIdP is enabled as it is unnecessary given it is embedded
+		return nil
+	}
+
+	log.WithContext(ctx).Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
+	oidcConfig, err := fetchOIDCConfig(ctx, oidcEndpoint)
+	if err != nil {
+		return err
+	}
+	log.WithContext(ctx).Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+
+	log.WithContext(ctx).Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
+		oidcConfig.Issuer, cfg.HttpConfig.AuthIssuer)
+	cfg.HttpConfig.AuthIssuer = oidcConfig.Issuer
+
+	log.WithContext(ctx).Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
+		oidcConfig.JwksURI, cfg.HttpConfig.AuthKeysLocation)
+	cfg.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
+
+	if err := applyDeviceAuthFlowConfig(ctx, cfg, &oidcConfig, oidcEndpoint); err != nil {
+		return err
+	}
+	applyPKCEFlowConfig(ctx, cfg, &oidcConfig)
+
+	return nil
+}
+
+// applyDeviceAuthFlowConfig applies OIDC config to DeviceAuthorizationFlow if enabled
+func applyDeviceAuthFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse, oidcEndpoint string) error {
+	if cfg.DeviceAuthorizationFlow == nil || strings.ToLower(cfg.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE) {
+		return nil
+	}
+
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.TokenEndpoint, cfg.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.DeviceAuthEndpoint, cfg.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
+
+	u, err := url.Parse(oidcEndpoint)
+	if err != nil {
+		return err
+	}
+	log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
+		u.Host, cfg.DeviceAuthorizationFlow.ProviderConfig.Domain)
+	cfg.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+
+	if cfg.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
+		cfg.DeviceAuthorizationFlow.ProviderConfig.Scope = nbconfig.DefaultDeviceAuthFlowScope
+	}
+	return nil
+}
+
+// applyPKCEFlowConfig applies OIDC config to PKCEAuthorizationFlow if configured
+func applyPKCEFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse) {
+	if cfg.PKCEAuthorizationFlow == nil {
+		return
+	}
+	log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.TokenEndpoint, cfg.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
+	cfg.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+
+	log.WithContext(ctx).Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
+		oidcConfig.AuthorizationEndpoint, cfg.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
+	cfg.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
+}
+
+// logConfigInfo logs informational messages about the loaded configuration
+func logConfigInfo(cfg *nbconfig.Config) {
+	if cfg.EmbeddedIdP != nil {
+		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
+	}
+	if cfg.Relay != nil {
+		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+	}
+}
+
+// ensureEncryptionKey generates and saves a DataStoreEncryptionKey if not set
+func ensureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.Config) error {
+	if cfg.DataStoreEncryptionKey != "" {
+		return nil
+	}
+
+	log.WithContext(ctx).Infof("DataStoreEncryptionKey is not set, generating a new key")
+	key, err := crypt.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("failed to generate datastore encryption key: %v", err)
+	}
+	cfg.DataStoreEncryptionKey = key
+
+	if err := util.DirectWriteJson(ctx, configPath, cfg); err != nil {
+		return fmt.Errorf("failed to save config with new encryption key: %v", err)
+	}
+	log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
+	return nil
 }
 
 // OIDCConfigResponse used for parsing OIDC config response

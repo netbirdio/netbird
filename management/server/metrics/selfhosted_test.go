@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/idp/dex"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -25,6 +26,8 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 
 // GetAllAccounts returns a list of *server.Account for use in tests with predefined information
 func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
+	localUserID := dex.EncodeDexUserID("10", "local")
+	idpUserID := dex.EncodeDexUserID("20", "zitadel")
 	return []*types.Account{
 		{
 			Id:       "1",
@@ -98,12 +101,14 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 			},
 			Users: map[string]*types.User{
 				"1": {
+					Id:            "1",
 					IsServiceUser: true,
 					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
-				"2": {
+				localUserID: {
+					Id:            localUserID,
 					IsServiceUser: false,
 					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
@@ -162,12 +167,14 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 			},
 			Users: map[string]*types.User{
 				"1": {
+					Id:            "1",
 					IsServiceUser: true,
 					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
 					},
 				},
-				"2": {
+				idpUserID: {
+					Id:            idpUserID,
 					IsServiceUser: false,
 					PATs: map[string]*types.PersonalAccessToken{
 						"1": {},
@@ -214,6 +221,7 @@ func TestGenerateProperties(t *testing.T) {
 	worker := Worker{
 		dataSource:  ds,
 		connManager: ds,
+		idpManager:  EmbeddedType,
 	}
 
 	properties := worker.generateProperties(context.Background())
@@ -327,4 +335,10 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 1 active_users_last_day, got %d", properties["active_users_last_day"])
 	}
 
+	if properties["local_users_count"] != 1 {
+		t.Errorf("expected 1 local_users_count, got %d", properties["local_users_count"])
+	}
+	if properties["idp_users_count"] != 1 {
+		t.Errorf("expected 1 idp_users_count, got %d", properties["idp_users_count"])
+	}
 }

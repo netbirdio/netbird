@@ -16,6 +16,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -69,6 +71,8 @@ type Server struct {
 
 	networkMapController network_map.Controller
 
+	oAuthConfigProvider idp.OAuthConfigProvider
+
 	syncSem atomic.Int32
 	syncLim int32
 }
@@ -83,6 +87,7 @@ func NewServer(
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
+	oAuthConfigProvider idp.OAuthConfigProvider,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -119,6 +124,7 @@ func NewServer(
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
 		networkMapController:     networkMapController,
+		oAuthConfigProvider:      oAuthConfigProvider,
 
 		loginFilter: newLoginFilter(),
 
@@ -275,6 +281,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	unlock()
 	unlock = nil
+
+	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
 
 	s.syncSem.Add(-1)
 
@@ -565,6 +573,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
 		}
+		log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
 	}()
 
 	if loginReq.GetMeta() == nil {
@@ -758,32 +767,48 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
-		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
-	}
+	var flowInfoResp *proto.DeviceAuthorizationFlow
 
-	provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
-	}
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlow_HOSTED,
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.oAuthConfigProvider.GetCLIClientID(),
+				Audience:           s.oAuthConfigProvider.GetCLIClientID(),
+				DeviceAuthEndpoint: s.oAuthConfigProvider.GetDeviceAuthEndpoint(),
+				TokenEndpoint:      s.oAuthConfigProvider.GetTokenEndpoint(),
+				Scope:              s.oAuthConfigProvider.GetDefaultScopes(),
+			},
+		}
+	} else {
+		if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(nbconfig.NONE) {
+			return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+		}
 
-	flowInfoResp := &proto.DeviceAuthorizationFlow{
-		Provider: proto.DeviceAuthorizationFlowProvider(provider),
-		ProviderConfig: &proto.ProviderConfig{
-			ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
-			Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
-			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
-			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
-			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
-			UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
-		},
+		provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
+		if !ok {
+			return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
+		}
+
+		flowInfoResp = &proto.DeviceAuthorizationFlow{
+			Provider: proto.DeviceAuthorizationFlowProvider(provider),
+			ProviderConfig: &proto.ProviderConfig{
+				ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+				Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
+				Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+				DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
+				TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
+				UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
+			},
+		}
 	}
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no device authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt device authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
@@ -817,30 +842,47 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.PKCEAuthorizationFlow == nil {
-		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
-	}
+	var initInfoFlow *proto.PKCEAuthorizationFlow
 
-	initInfoFlow := &proto.PKCEAuthorizationFlow{
-		ProviderConfig: &proto.ProviderConfig{
-			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
-			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
-			TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
-			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
-			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
-			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
-			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
-			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
-			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
-		},
+	// Use embedded IdP configuration if available
+	if s.oAuthConfigProvider != nil {
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.oAuthConfigProvider.GetCLIClientID(),
+				ClientID:              s.oAuthConfigProvider.GetCLIClientID(),
+				TokenEndpoint:         s.oAuthConfigProvider.GetTokenEndpoint(),
+				AuthorizationEndpoint: s.oAuthConfigProvider.GetAuthorizationEndpoint(),
+				Scope:                 s.oAuthConfigProvider.GetDefaultScopes(),
+				RedirectURLs:          s.oAuthConfigProvider.GetCLIRedirectURLs(),
+				LoginFlag:             uint32(common.LoginFlagPromptLogin),
+			},
+		}
+	} else {
+		if s.config.PKCEAuthorizationFlow == nil {
+			return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
+		}
+
+		initInfoFlow = &proto.PKCEAuthorizationFlow{
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
+				ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
+				TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
+				AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
+				Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
+				RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
+				UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+				DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
+				LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
+			},
+		}
 	}
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to encrypt no pkce authorization flow information")
+		return nil, status.Error(codes.Internal, "failed to encrypt pkce authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{

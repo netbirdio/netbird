@@ -30,8 +30,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
-	route2 "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
@@ -109,12 +109,12 @@ func runLargeTest(t *testing.T, store Store) {
 			AccountID: account.Id,
 		}
 		account.Users[user.Id] = user
-		route := &route2.Route{
-			ID:          route2.ID(fmt.Sprintf("network-id-%d", n)),
+		route := &nbroute.Route{
+			ID:          nbroute.ID(fmt.Sprintf("network-id-%d", n)),
 			Description: "base route",
-			NetID:       route2.NetID(fmt.Sprintf("network-id-%d", n)),
+			NetID:       nbroute.NetID(fmt.Sprintf("network-id-%d", n)),
 			Network:     netip.MustParsePrefix(netIP.String() + "/24"),
-			NetworkType: route2.IPv4Network,
+			NetworkType: nbroute.IPv4Network,
 			Metric:      9999,
 			Masquerade:  false,
 			Enabled:     true,
@@ -688,7 +688,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to insert Gob data")
 
 	type route struct {
-		route2.Route
+		nbroute.Route
 		Network    netip.Prefix `gorm:"serializer:gob"`
 		PeerGroups []string     `gorm:"serializer:gob"`
 	}
@@ -697,7 +697,7 @@ func TestMigrate(t *testing.T) {
 	rt := &route{
 		Network:    prefix,
 		PeerGroups: []string{"group1", "group2"},
-		Route:      route2.Route{ID: "route1"},
+		Route:      nbroute.Route{ID: "route1"},
 	}
 
 	err = store.(*SqlStore).db.Save(rt).Error
@@ -713,7 +713,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to delete Gob data")
 
 	prefix = netip.MustParsePrefix("12.0.0.0/24")
-	nRT := &route2.Route{
+	nRT := &nbroute.Route{
 		Network: prefix,
 		ID:      "route2",
 		Peer:    "peer-id",
@@ -968,6 +968,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
+		Key:       "key1",
 		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
@@ -982,6 +983,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
+		Key:       "key2",
 		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
@@ -1009,6 +1011,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
@@ -1022,6 +1025,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1-1",
 			IP:        net.IP{2, 2, 2, 2},
 		}
@@ -1048,6 +1052,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1056,6 +1061,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			DNSLabel:  "peer1.domain.test",
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
@@ -1073,6 +1079,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
+			Key:       "key1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
@@ -1081,6 +1088,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
+			Key:       "key2",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
@@ -2090,7 +2098,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := types.NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID, "", "")
 	owner.AccountID = accountID
 	users[userID] = owner
 
@@ -3114,6 +3122,138 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	require.Equal(t, users[1].AutoGroups, user.AutoGroups)
 }
 
+func TestSqlStore_SaveUserWithEncryption(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	// Enable encryption
+	key, err := crypt.GenerateKey()
+	require.NoError(t, err)
+	fieldEncrypt, err := crypt.NewFieldEncrypt(key)
+	require.NoError(t, err)
+	store.SetFieldEncrypt(fieldEncrypt)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	// rawUser is used to read raw (potentially encrypted) data from the database
+	// without any gorm hooks or automatic decryption
+	type rawUser struct {
+		Id    string
+		Email string
+		Name  string
+	}
+
+	t.Run("save user with empty email and name", func(t *testing.T) {
+		user := &types.User{
+			Id:         "user-empty-fields",
+			AccountID:  accountID,
+			Role:       types.UserRoleUser,
+			Email:      "",
+			Name:       "",
+			AutoGroups: []string{"groupA"},
+		}
+		err = store.SaveUser(context.Background(), user)
+		require.NoError(t, err)
+
+		// Verify using direct database query that empty strings remain empty (not encrypted)
+		var raw rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", user.Id).First(&raw).Error
+		require.NoError(t, err)
+		require.Equal(t, "", raw.Email, "empty email should remain empty in database")
+		require.Equal(t, "", raw.Name, "empty name should remain empty in database")
+
+		// Verify manual decryption returns empty strings
+		decryptedEmail, err := fieldEncrypt.Decrypt(raw.Email)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedEmail)
+
+		decryptedName, err := fieldEncrypt.Decrypt(raw.Name)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedName)
+	})
+
+	t.Run("save user with email and name", func(t *testing.T) {
+		user := &types.User{
+			Id:         "user-with-fields",
+			AccountID:  accountID,
+			Role:       types.UserRoleAdmin,
+			Email:      "test@example.com",
+			Name:       "Test User",
+			AutoGroups: []string{"groupB"},
+		}
+		err = store.SaveUser(context.Background(), user)
+		require.NoError(t, err)
+
+		// Verify using direct database query that the data is encrypted (not plaintext)
+		var raw rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", user.Id).First(&raw).Error
+		require.NoError(t, err)
+		require.NotEqual(t, "test@example.com", raw.Email, "email should be encrypted in database")
+		require.NotEqual(t, "Test User", raw.Name, "name should be encrypted in database")
+
+		// Verify manual decryption returns correct values
+		decryptedEmail, err := fieldEncrypt.Decrypt(raw.Email)
+		require.NoError(t, err)
+		require.Equal(t, "test@example.com", decryptedEmail)
+
+		decryptedName, err := fieldEncrypt.Decrypt(raw.Name)
+		require.NoError(t, err)
+		require.Equal(t, "Test User", decryptedName)
+	})
+
+	t.Run("save multiple users with mixed fields", func(t *testing.T) {
+		users := []*types.User{
+			{
+				Id:        "batch-user-1",
+				AccountID: accountID,
+				Email:     "",
+				Name:      "",
+			},
+			{
+				Id:        "batch-user-2",
+				AccountID: accountID,
+				Email:     "batch@example.com",
+				Name:      "Batch User",
+			},
+		}
+		err = store.SaveUsers(context.Background(), users)
+		require.NoError(t, err)
+
+		// Verify first user (empty fields) using direct database query
+		var raw1 rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", "batch-user-1").First(&raw1).Error
+		require.NoError(t, err)
+		require.Equal(t, "", raw1.Email, "empty email should remain empty in database")
+		require.Equal(t, "", raw1.Name, "empty name should remain empty in database")
+
+		// Verify second user (with fields) using direct database query
+		var raw2 rawUser
+		err = store.(*SqlStore).db.Table("users").Select("id, email, name").Where("id = ?", "batch-user-2").First(&raw2).Error
+		require.NoError(t, err)
+		require.NotEqual(t, "batch@example.com", raw2.Email, "email should be encrypted in database")
+		require.NotEqual(t, "Batch User", raw2.Name, "name should be encrypted in database")
+
+		// Verify manual decryption returns empty strings for first user
+		decryptedEmail1, err := fieldEncrypt.Decrypt(raw1.Email)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedEmail1)
+
+		decryptedName1, err := fieldEncrypt.Decrypt(raw1.Name)
+		require.NoError(t, err)
+		require.Equal(t, "", decryptedName1)
+
+		// Verify manual decryption returns correct values for second user
+		decryptedEmail2, err := fieldEncrypt.Decrypt(raw2.Email)
+		require.NoError(t, err)
+		require.Equal(t, "batch@example.com", decryptedEmail2)
+
+		decryptedName2, err := fieldEncrypt.Decrypt(raw2.Name)
+		require.NoError(t, err)
+		require.Equal(t, "Batch User", decryptedName2)
+	})
+}
+
 func TestSqlStore_DeleteUser(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
@@ -3411,13 +3551,13 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	route := &route2.Route{
+	route := &nbroute.Route{
 		ID:                  "route-id",
 		AccountID:           accountID,
 		Network:             netip.MustParsePrefix("10.10.0.0/16"),
 		NetID:               "netID",
 		PeerGroups:          []string{"routeA"},
-		NetworkType:         route2.IPv4Network,
+		NetworkType:         nbroute.IPv4Network,
 		Masquerade:          true,
 		Metric:              9999,
 		Enabled:             true,
@@ -3564,6 +3704,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 		peer := &nbpeer.Peer{
 			ID:        fmt.Sprintf("peer-%d", i),
 			AccountID: accountID,
+			Key:       fmt.Sprintf("key-%d", i),
 			DNSLabel:  fmt.Sprintf("peer%d.example.com", i),
 			IP:        intToIPv4(uint32(i)),
 		}
@@ -3856,4 +3997,31 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 			assert.Equal(t, 0, count)
 		})
 	})
+}
+
+func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
+	if os.Getenv("NETBIRD_STORE_ENGINE") == "mysql" {
+		t.Skip("Skipping timeout test for MySQL")
+	}
+
+	t.Setenv("NB_STORE_TRANSACTION_TIMEOUT", "1s")
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	sqlStore, ok := store.(*SqlStore)
+	require.True(t, ok)
+	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
+
+	ctx := context.Background()
+	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
+		// Sleep for 2 seconds to exceed the 1 second timeout
+		time.Sleep(2 * time.Second)
+		return nil
+	})
+
+	// The transaction should fail with an error (either timeout or already rolled back)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transaction has already been committed or rolled back", "expected transaction rolled back error, got: %v", err)
 }
