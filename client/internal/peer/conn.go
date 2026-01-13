@@ -98,6 +98,7 @@ type Conn struct {
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
+	wgWatcherICE *WGWatcher
 	wgWatcherWg sync.WaitGroup
 
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
@@ -125,6 +126,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 	}
 
 	connLog := log.WithField("peer", config.Key)
+	dumpState := newStateDump(config.Key, connLog, services.StatusRecorder)
 
 	var conn = &Conn{
 		Log:             connLog,
@@ -137,9 +139,10 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		semaphore:       services.Semaphore,
 		statusRelay:     worker.NewAtomicStatus(),
 		statusICE:       worker.NewAtomicStatus(),
-		dumpState:       newStateDump(config.Key, connLog, services.StatusRecorder),
+		dumpState:       dumpState,
 		endpointUpdater: NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 	}
+	conn.wgWatcherICE = NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState)
 
 	return conn, nil
 }
@@ -232,6 +235,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 	conn.ctxCancel()
 
 	conn.workerRelay.DisableWgWatcher()
+	conn.wgWatcherICE.DisableWgWatcher()
 	conn.workerRelay.CloseConn()
 	conn.workerICE.Close()
 
@@ -368,6 +372,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 
 	conn.workerRelay.DisableWgWatcher()
 	// todo consider to run conn.wgWatcherWg.Wait() here
+	conn.wgWatcherICE.DisableWgWatcher()
 
 	if conn.wgProxyRelay != nil {
 		conn.wgProxyRelay.Pause()
@@ -384,6 +389,12 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		return
 	}
 	wgConfigWorkaround()
+
+	conn.wgWatcherWg.Add(1)
+	go func() {
+		defer conn.wgWatcherWg.Done()
+		conn.wgWatcherICE.EnableWgWatcher(conn.ctx, conn.onICEStateDisconnected)
+	}()
 
 	if conn.wgProxyRelay != nil {
 		conn.Log.Debugf("redirect packets from relayed conn to WireGuard")
@@ -405,6 +416,7 @@ func (conn *Conn) onICEStateDisconnected() {
 	}
 
 	conn.Log.Tracef("ICE connection state changed to disconnected")
+	conn.wgWatcherICE.DisableWgWatcher()
 
 	if conn.wgProxyICE != nil {
 		if err := conn.wgProxyICE.CloseConn(); err != nil {
