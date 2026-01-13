@@ -12,7 +12,7 @@ import (
 // PresharedKeySetter is the interface for setting preshared keys on WireGuard peers.
 // This minimal interface allows rosenpass to update PSKs without depending on the full WGIface.
 type PresharedKeySetter interface {
-	SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [32]byte) error
+	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
 }
 
 type wireGuardPeer struct {
@@ -21,22 +21,17 @@ type wireGuardPeer struct {
 }
 
 type NetbirdHandler struct {
-	mu           sync.Mutex
-	iface        PresharedKeySetter
-	peers        map[rp.PeerID]wireGuardPeer
-	presharedKey [32]byte
+	mu               sync.Mutex
+	iface            PresharedKeySetter
+	peers            map[rp.PeerID]wireGuardPeer
+	initializedPeers map[rp.PeerID]bool
 }
 
-func NewNetbirdHandler(preSharedKey *[32]byte) *NetbirdHandler {
-	hdlr := &NetbirdHandler{
-		peers: map[rp.PeerID]wireGuardPeer{},
+func NewNetbirdHandler() *NetbirdHandler {
+	return &NetbirdHandler{
+		peers:            map[rp.PeerID]wireGuardPeer{},
+		initializedPeers: map[rp.PeerID]bool{},
 	}
-
-	if preSharedKey != nil {
-		hdlr.presharedKey = *preSharedKey
-	}
-
-	return hdlr
 }
 
 // SetInterface sets the WireGuard interface for the handler.
@@ -60,6 +55,7 @@ func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.peers, pid)
+	delete(h.initializedPeers, pid)
 }
 
 func (h *NetbirdHandler) HandshakeCompleted(pid rp.PeerID, key rp.Key) {
@@ -75,7 +71,7 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	h.mu.Lock()
 	iface := h.iface
 	wg, ok := h.peers[pid]
-	presharedKey := h.presharedKey
+	isInitialized := h.initializedPeers[pid]
 	h.mu.Unlock()
 
 	if iface == nil {
@@ -90,7 +86,17 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	peerKey := wgtypes.Key(wg.PublicKey).String()
 	pskKey := wgtypes.Key(psk)
 
-	if err := iface.SetPresharedKey(peerKey, pskKey, presharedKey); err != nil {
+	// Use updateOnly=true for later rotations (peer already has Rosenpass PSK)
+	// Use updateOnly=false for first rotation (peer has original/empty PSK)
+	if err := iface.SetPresharedKey(peerKey, pskKey, isInitialized); err != nil {
 		log.Errorf("Failed to apply rosenpass key: %v", err)
+		return
+	}
+
+	// Mark peer as isInitialized after the successful first rotation
+	if !isInitialized {
+		h.mu.Lock()
+		h.initializedPeers[pid] = true
+		h.mu.Unlock()
 	}
 }

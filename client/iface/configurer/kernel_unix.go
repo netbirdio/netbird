@@ -46,10 +46,14 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
-// ConfigureDevice applies a wgtypes.Config directly, allowing full control
-// over peer configuration including UpdateOnly semantics.
-func (c *KernelConfigurer) ConfigureDevice(config wgtypes.Config) error {
-	return c.configure(config)
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	cfg, err := buildPresharedKeyConfig(peerKey, psk, updateOnly)
+	if err != nil {
+		return err
+	}
+	return c.configure(cfg)
 }
 
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {

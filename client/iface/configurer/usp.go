@@ -71,10 +71,14 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-// ConfigureDevice applies a wgtypes.Config directly, allowing full control
-// over peer configuration including UpdateOnly semantics.
-func (c *WGUSPConfigurer) ConfigureDevice(config wgtypes.Config) error {
-	return c.device.IpcSet(toWgUserspaceString(config))
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	cfg, err := buildPresharedKeyConfig(peerKey, psk, updateOnly)
+	if err != nil {
+		return err
+	}
+	return c.device.IpcSet(toWgUserspaceString(cfg))
 }
 
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {

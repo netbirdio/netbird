@@ -112,7 +112,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.Peers = []rp.PeerConfig{}
 
 	m.lock.Lock()
-	m.rpWgHandler = NewNetbirdHandler(m.preSharedKey)
+	m.rpWgHandler = NewNetbirdHandler()
 	if m.wgIface != nil {
 		m.rpWgHandler.SetInterface(m.wgIface)
 	}

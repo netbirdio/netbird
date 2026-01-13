@@ -298,9 +298,8 @@ func (w *WGIface) FullStats() (*configurer.Stats, error) {
 }
 
 // SetPresharedKey sets or updates the preshared key for a peer.
-// If the peer has no PSK or has the original NetBird PSK, it restarts the connection
-// to ensure the new PSK takes effect. Otherwise, it updates the PSK in place.
-func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [32]byte) error {
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -308,78 +307,7 @@ func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, originalPSK [
 		return ErrIfaceNotFound
 	}
 
-	stats, err := w.configurer.FullStats()
-	if err != nil {
-		return fmt.Errorf("failed to get device stats: %w", err)
-	}
-
-	// Default: UpdateOnly mode - only update PSK, preserve all other settings
-	config := []wgtypes.PeerConfig{
-		{
-			UpdateOnly:   true,
-			PublicKey:    mustParseKey(peerKey),
-			PresharedKey: &psk,
-		},
-	}
-
-	// Find the peer and check if we need to restart the connection
-	for _, peer := range stats.Peers {
-		if peer.PublicKey == peerKey {
-			if pskEmpty(peer.PresharedKey) || peer.PresharedKey == originalPSK {
-				log.Debugf("Restart wireguard connection to peer %s", peerKey)
-
-				// Build full peer config preserving all settings including keepalive
-				var endpoint *net.UDPAddr
-				if peer.Endpoint.IP != nil {
-					endpoint = &peer.Endpoint
-				}
-				keepalive := 25 * time.Second
-
-				config = []wgtypes.PeerConfig{
-					{
-						PublicKey:                   mustParseKey(peerKey),
-						PresharedKey:                &psk,
-						Endpoint:                    endpoint,
-						AllowedIPs:                  peer.AllowedIPs,
-						PersistentKeepaliveInterval: &keepalive,
-					},
-				}
-
-				// Remove the peer first
-				err = w.configurer.ConfigureDevice(wgtypes.Config{
-					Peers: []wgtypes.PeerConfig{
-						{
-							Remove:    true,
-							PublicKey: mustParseKey(peerKey),
-						},
-					},
-				})
-				if err != nil {
-					log.Debugf("Failed to remove peer: %v", err)
-					return err
-				}
-			}
-			break
-		}
-	}
-
-	return w.configurer.ConfigureDevice(wgtypes.Config{
-		Peers: config,
-	})
-}
-
-func mustParseKey(key string) wgtypes.Key {
-	k, _ := wgtypes.ParseKey(key)
-	return k
-}
-
-func pskEmpty(key [32]byte) bool {
-	for _, b := range key {
-		if b != 0 {
-			return false
-		}
-	}
-	return true
+	return w.configurer.SetPresharedKey(peerKey, psk, updateOnly)
 }
 
 func (w *WGIface) waitUntilRemoved() error {
