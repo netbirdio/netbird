@@ -92,7 +92,7 @@ func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config
 	}
 	defer authClient.Close()
 
-	pkceFlowInfo, err := authClient.getPKCEFlow()
+	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
@@ -112,7 +112,7 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 	}
 	defer authClient.Close()
 
-	deviceFlowInfo, err := authClient.getDeviceFlow()
+	deviceFlowInfo, err := authClient.getDeviceFlow(authClient.client)
 	if err != nil {
 		switch s, ok := gstatus.FromError(err); {
 		case ok && s.Code() == codes.NotFound:
