@@ -96,7 +96,9 @@ func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.K
 	// Mark peer as isInitialized after the successful first rotation
 	if !isInitialized {
 		h.mu.Lock()
-		h.initializedPeers[pid] = true
+		if _, exists := h.peers[pid]; exists {
+			h.initializedPeers[pid] = true
+		}
 		h.mu.Unlock()
 	}
 }
