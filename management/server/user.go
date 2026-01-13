@@ -937,22 +937,27 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 		usersFromIntegration := make([]*idp.UserData, 0)
 		log.WithContext(ctx).Tracef("Querying users from IDP for account %s", accountID)
 		start := time.Now()
+
+		integrationKeys := make(map[string]struct{})
 		for _, user := range accountUsers {
 			if user.Issued == types.UserIssuedIntegration {
-				key := user.IntegrationReference.CacheKey(accountID, user.Id)
-				info, err := am.externalCacheManager.Get(am.ctx, key)
-				if err != nil {
-					log.WithContext(ctx).Infof("Get ExternalCache for key: %s, error: %s", key, err)
-					users[user.Id] = true
-					continue
-				}
-				usersFromIntegration = append(usersFromIntegration, info)
+				integrationKeys[user.IntegrationReference.CacheKey(accountID)] = struct{}{}
 				continue
 			}
 			if !user.IsServiceUser {
 				users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 			}
 		}
+
+		for key := range integrationKeys {
+			usersData, err := am.externalCacheManager.GetUsers(am.ctx, key)
+			if err != nil {
+				log.WithContext(ctx).Debugf("GetUsers from ExternalCache for key: %s, error: %s", key, err)
+				continue
+			}
+			usersFromIntegration = append(usersFromIntegration, usersData...)
+		}
+
 		log.WithContext(ctx).Tracef("Got user info from external cache after %s", time.Since(start))
 		start = time.Now()
 		queriedUsers, err = am.lookupCache(ctx, users, accountID)
