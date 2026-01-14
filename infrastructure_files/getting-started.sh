@@ -1001,7 +1001,7 @@ $NETBIRD_DOMAIN {
     reverse_proxy /management.ManagementService/* h2c://${BIND_ADDR}:${MANAGEMENT_HOST_PORT}
 
     # Embedded IdP OAuth2
-    reverse_proxy /oauth2/* ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}x
+    reverse_proxy /oauth2/* ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}
 
     # Dashboard (catch-all)
     reverse_proxy /* ${BIND_ADDR}:${DASHBOARD_HOST_PORT}
