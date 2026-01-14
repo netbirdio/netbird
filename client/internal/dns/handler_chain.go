@@ -16,8 +16,8 @@ import (
 
 const (
 	PriorityMgmtCache = 150
-	PriorityLocal     = 100
-	PriorityDNSRoute  = 75
+	PriorityDNSRoute  = 100
+	PriorityLocal     = 75
 	PriorityUpstream  = 50
 	PriorityDefault   = 1
 	PriorityFallback  = -100
