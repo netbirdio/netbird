@@ -18,7 +18,7 @@ import (
 type Server struct {
 	config     Config
 	grpcServer *grpcpkg.Server
-	caddyProxy *reverseproxy.CaddyProxy
+	proxy      *reverseproxy.Proxy
 
 	mu          sync.RWMutex
 	isRunning   bool
@@ -84,30 +84,37 @@ func NewServer(config Config) (*Server, error) {
 		exposedServices: make(map[string]*ExposedServiceConfig),
 	}
 
-	// Create Caddy reverse proxy with request callback
-	caddyConfig := reverseproxy.Config{
-		ListenAddress: ":54321", // Use port 54321 for local testing
-		EnableHTTPS:   false,    // TODO: Add HTTPS support
-		RequestDataCallback: func(data *reverseproxy.RequestData) {
-			// This is where access log data arrives - SET BREAKPOINT HERE
+	// Set defaults for reverse proxy config if not provided
+	httpListenAddr := config.HTTPListenAddress
+	if httpListenAddr == "" {
+		httpListenAddr = ":54321" // Use port 54321 for local testing
+	}
+
+	// Create reverse proxy with request callback
+	proxyConfig := reverseproxy.Config{
+		HTTPListenAddress: httpListenAddr,
+		EnableHTTPS:       config.EnableHTTPS,
+		TLSEmail:          config.TLSEmail,
+		CertCacheDir:      config.CertCacheDir,
+		RequestDataCallback: func(data reverseproxy.RequestData) {
 			log.WithFields(log.Fields{
 				"service_id":    data.ServiceID,
+				"host":          data.Host,
 				"method":        data.Method,
 				"path":          data.Path,
 				"response_code": data.ResponseCode,
 				"duration_ms":   data.DurationMs,
 				"source_ip":     data.SourceIP,
 			}).Info("Access log received")
-
-			// TODO: Send via gRPC to control service
-			// This would send pb.ProxyRequestData via the gRPC stream
 		},
+		// Use global OIDC configuration from config
+		OIDCConfig: config.OIDCConfig,
 	}
-	caddyProxy, err := reverseproxy.New(caddyConfig)
+	proxy, err := reverseproxy.New(proxyConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Caddy proxy: %w", err)
+		return nil, fmt.Errorf("failed to create reverse proxy: %w", err)
 	}
-	server.caddyProxy = caddyProxy
+	server.proxy = proxy
 
 	// Create gRPC server if enabled
 	if config.EnableGRPC && config.GRPCListenAddress != "" {
@@ -131,14 +138,14 @@ func (s *Server) Start() error {
 	s.isRunning = true
 	s.mu.Unlock()
 
-	log.Infof("Starting Caddy reverse proxy server on %s", s.config.ListenAddress)
+	log.Infof("Starting proxy reverse proxy server on %s", s.config.ListenAddress)
 
-	// Start Caddy proxy
-	if err := s.caddyProxy.Start(); err != nil {
+	// Start reverse proxy
+	if err := s.proxy.Start(); err != nil {
 		s.mu.Lock()
 		s.isRunning = false
 		s.mu.Unlock()
-		return fmt.Errorf("failed to start Caddy proxy: %w", err)
+		return fmt.Errorf("failed to start reverse proxy: %w", err)
 	}
 
 	// Start gRPC server if configured
@@ -162,21 +169,32 @@ func (s *Server) Start() error {
 		s.sendProxyEvent(pb.ProxyEvent_STARTED, "Proxy server started")
 	}
 
-	if err := s.caddyProxy.AddRoute(
+	// Enable Bearer authentication for the test route
+	// OIDC configuration is set globally in the proxy config above
+	testAuthConfig := &reverseproxy.AuthConfig{
+		Bearer: &reverseproxy.BearerConfig{
+			Enabled: true,
+		},
+	}
+
+	// Register main protected route with auth
+	// The /auth/callback endpoint is automatically handled globally for all routes
+	if err := s.proxy.AddRoute(
 		&reverseproxy.RouteConfig{
 			ID:           "test",
 			Domain:       "test.netbird.io",
 			PathMappings: map[string]string{"/": "localhost:8080"},
+			Conn:         reverseproxy.NewDefaultConn(),
+			AuthConfig:   testAuthConfig,
 		}); err != nil {
 		log.Warn("Failed to add test route: ", err)
 	}
 
-	// Block forever - Caddy runs in background
 	<-s.shutdownCtx.Done()
 	return nil
 }
 
-// Stop gracefully shuts down both Caddy and gRPC servers
+// Stop gracefully shuts down both proxy and gRPC servers
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.isRunning {
@@ -212,9 +230,9 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.mu.Unlock()
 	}
 
-	// Shutdown Caddy proxy
-	if err := s.caddyProxy.Stop(ctx); err != nil {
-		caddyErr = fmt.Errorf("Caddy proxy shutdown failed: %w", err)
+	// Shutdown reverse proxy
+	if err := s.proxy.Stop(ctx); err != nil {
+		caddyErr = fmt.Errorf("reverse proxy shutdown failed: %w", err)
 		log.Error(caddyErr)
 	}
 
@@ -401,14 +419,14 @@ func (s *Server) handleExposedServiceCreated(serviceID string, peerConfig *PeerC
 		pathMappings[path] = target
 	}
 
-	// Add route to Caddy
+	// Add route to proxy
 	route := &reverseproxy.RouteConfig{
 		ID:           serviceID,
 		Domain:       upstreamConfig.Domain,
 		PathMappings: pathMappings,
 	}
 
-	if err := s.caddyProxy.AddRoute(route); err != nil {
+	if err := s.proxy.AddRoute(route); err != nil {
 		return fmt.Errorf("failed to add route: %w", err)
 	}
 
@@ -449,14 +467,14 @@ func (s *Server) handleExposedServiceUpdated(serviceID string, peerConfig *PeerC
 		pathMappings[path] = target
 	}
 
-	// Update route in Caddy
+	// Update route in proxy
 	route := &reverseproxy.RouteConfig{
 		ID:           serviceID,
 		Domain:       upstreamConfig.Domain,
 		PathMappings: pathMappings,
 	}
 
-	if err := s.caddyProxy.UpdateRoute(route); err != nil {
+	if err := s.proxy.UpdateRoute(route); err != nil {
 		return fmt.Errorf("failed to update route: %w", err)
 	}
 
@@ -485,8 +503,8 @@ func (s *Server) handleExposedServiceRemoved(serviceID string) error {
 		"service_id": serviceID,
 	}).Info("Removing exposed service")
 
-	// Remove route from Caddy
-	if err := s.caddyProxy.RemoveRoute(serviceID); err != nil {
+	// Remove route from proxy
+	if err := s.proxy.RemoveRoute(serviceID); err != nil {
 		return fmt.Errorf("failed to remove route: %w", err)
 	}
 
