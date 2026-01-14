@@ -133,6 +133,16 @@ read_port_binding_preference() {
   return 0
 }
 
+read_npm_network() {
+  echo "" > /dev/stderr
+  echo "Is Nginx Proxy Manager running in Docker?" > /dev/stderr
+  echo "If yes, enter the Docker network NPM is on (NetBird will join it)." > /dev/stderr
+  echo -n "NPM Docker network (leave empty if NPM is not in Docker): " > /dev/stderr
+  read -r NETWORK < /dev/tty
+  echo "$NETWORK"
+  return 0
+}
+
 get_bind_address() {
   if [[ "$BIND_LOCALHOST_ONLY" == "true" ]]; then
     echo "127.0.0.1"
@@ -212,6 +222,7 @@ init_environment() {
   SIGNAL_GRPC_PORT="10000"
   RELAY_HOST_PORT="8084"
   BIND_LOCALHOST_ONLY="true"
+  NPM_NETWORK=""
 
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
@@ -237,6 +248,11 @@ init_environment() {
   # Handle port binding for external proxy options (2-5)
   if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
     BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+  fi
+
+  # Handle NPM-specific prompts (option 3)
+  if [[ "$REVERSE_PROXY_TYPE" == "3" ]]; then
+    NPM_NETWORK=$(read_npm_network)
   fi
 
   check_jq
@@ -286,9 +302,10 @@ init_environment() {
   render_turn_server_conf > turnserver.conf
   render_relay_env > relay.env
 
-  # For built-in Caddy, start immediately
-  # For external proxies, show instructions first and wait for user confirmation
+  # For built-in Caddy and Traefik, start containers immediately
+  # For other external proxies, show instructions first and wait for user confirmation
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    # Built-in Caddy - handles everything automatically
     echo -e "\nStarting NetBird services\n"
     $DOCKER_COMPOSE_COMMAND up -d
 
@@ -297,8 +314,21 @@ init_environment() {
 
     echo -e "\nDone!\n"
     print_post_setup_instructions
+  elif [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
+    # Traefik - start containers first, then show instructions
+    # Traefik discovers services via Docker labels, so containers must be running
+    echo -e "\nStarting NetBird services\n"
+    $DOCKER_COMPOSE_COMMAND up -d
+
+    sleep 3
+
+    echo -e "\nDone!\n"
+    print_post_setup_instructions
+    echo ""
+    echo "NetBird containers are running. Once Traefik is connected, access the dashboard at:"
+    echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   else
-    # Show setup instructions before starting containers
+    # External proxies (nginx, NPM, external Caddy, other) - need manual config first
     print_post_setup_instructions
 
     echo ""
@@ -689,6 +719,18 @@ EOF
 
 render_docker_compose_exposed_ports() {
   local BIND_ADDR=$(get_bind_address)
+  local NETWORKS="[netbird]"
+  local NETWORKS_CONFIG="networks:
+  netbird:"
+
+  # If NPM network is specified, add it as external and include in service networks
+  if [[ -n "$NPM_NETWORK" ]]; then
+    NETWORKS="[netbird, $NPM_NETWORK]"
+    NETWORKS_CONFIG="networks:
+  netbird:
+  $NPM_NETWORK:
+    external: true"
+  fi
 
   cat <<EOF
 services:
@@ -697,7 +739,7 @@ services:
     image: netbirdio/dashboard:latest
     container_name: netbird-dashboard
     restart: unless-stopped
-    networks: [netbird]
+    networks: ${NETWORKS}
     ports:
       - '${BIND_ADDR}:${DASHBOARD_HOST_PORT}:80'
     env_file:
@@ -713,7 +755,7 @@ services:
     image: netbirdio/signal:latest
     container_name: netbird-signal
     restart: unless-stopped
-    networks: [netbird]
+    networks: ${NETWORKS}
     ports:
       - '${BIND_ADDR}:${SIGNAL_HOST_PORT}:80'
       - '${BIND_ADDR}:${SIGNAL_GRPC_PORT}:10000'
@@ -728,7 +770,7 @@ services:
     image: netbirdio/relay:latest
     container_name: netbird-relay
     restart: unless-stopped
-    networks: [netbird]
+    networks: ${NETWORKS}
     ports:
       - '${BIND_ADDR}:${RELAY_HOST_PORT}:80'
     env_file:
@@ -744,7 +786,7 @@ services:
     image: netbirdio/management:latest
     container_name: netbird-management
     restart: unless-stopped
-    networks: [netbird]
+    networks: ${NETWORKS}
     ports:
       - '${BIND_ADDR}:${MANAGEMENT_HOST_PORT}:80'
     volumes:
@@ -784,8 +826,7 @@ services:
 volumes:
   netbird_management:
 
-networks:
-  netbird:
+${NETWORKS_CONFIG}
 EOF
   return 0
 }
@@ -951,6 +992,14 @@ EOF
 
 render_npm_advanced_config() {
   local BIND_ADDR=$(get_bind_address)
+  local SIGNAL_GRPC_ADDR="${BIND_ADDR}:${SIGNAL_GRPC_PORT}"
+  local MGMT_ADDR="${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
+
+  # If NPM network is specified, use container names instead of host addresses
+  if [[ -n "$NPM_NETWORK" ]]; then
+    SIGNAL_GRPC_ADDR="netbird-signal:10000"
+    MGMT_ADDR="netbird-management:80"
+  fi
 
   cat <<EOF
 # Advanced Configuration for Nginx Proxy Manager
@@ -965,7 +1014,7 @@ client_body_timeout 1d;
 
 # gRPC for Signal service
 location /signalexchange.SignalExchange/ {
-    grpc_pass grpc://${BIND_ADDR}:${SIGNAL_GRPC_PORT};
+    grpc_pass grpc://${SIGNAL_GRPC_ADDR};
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
@@ -973,7 +1022,7 @@ location /signalexchange.SignalExchange/ {
 
 # gRPC for Management service
 location /management.ManagementService/ {
-    grpc_pass grpc://${BIND_ADDR}:${MANAGEMENT_HOST_PORT};
+    grpc_pass grpc://${MGMT_ADDR};
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
@@ -1048,25 +1097,44 @@ print_post_setup_instructions() {
       echo ""
       echo "Generated: npm-advanced-config.txt"
       echo ""
-      echo "Container ports (bound to ${BIND_ADDR}):"
-      echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-      echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-      echo "  Management: ${MANAGEMENT_HOST_PORT}"
-      echo "  Relay:      ${RELAY_HOST_PORT}"
-      echo ""
-      echo "In NPM, create a Proxy Host:"
-      echo "  Domain: $NETBIRD_DOMAIN"
-      echo "  Forward Hostname/IP: ${BIND_ADDR}"
-      echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
-      echo "  Enable: Websockets Support, Block Common Exploits"
-      echo "  SSL: Request or use existing certificate"
-      echo ""
-      echo "Add Custom Locations for each path:"
-      echo "  /relay           -> ${BIND_ADDR}:${RELAY_HOST_PORT} (enable Websockets)"
-      echo "  /ws-proxy/signal -> ${BIND_ADDR}:${SIGNAL_HOST_PORT} (enable Websockets)"
-      echo "  /api             -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
-      echo "  /ws-proxy/management -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT} (enable Websockets)"
-      echo "  /oauth2          -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
+      if [[ -n "$NPM_NETWORK" ]]; then
+        echo "NetBird will join the '$NPM_NETWORK' Docker network."
+        echo "Use container names to reach NetBird services from NPM."
+        echo ""
+        echo "In NPM, create a Proxy Host:"
+        echo "  Domain: $NETBIRD_DOMAIN"
+        echo "  Forward Hostname/IP: netbird-dashboard"
+        echo "  Forward Port: 80"
+        echo "  Enable: Websockets Support, Block Common Exploits"
+        echo "  SSL: Request or use existing certificate"
+        echo ""
+        echo "Add Custom Locations for each path:"
+        echo "  /relay           -> netbird-relay:80 (enable Websockets)"
+        echo "  /ws-proxy/signal -> netbird-signal:80 (enable Websockets)"
+        echo "  /api             -> netbird-management:80"
+        echo "  /ws-proxy/management -> netbird-management:80 (enable Websockets)"
+        echo "  /oauth2          -> netbird-management:80"
+      else
+        echo "Container ports (bound to ${BIND_ADDR}):"
+        echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
+        echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
+        echo "  Management: ${MANAGEMENT_HOST_PORT}"
+        echo "  Relay:      ${RELAY_HOST_PORT}"
+        echo ""
+        echo "In NPM, create a Proxy Host:"
+        echo "  Domain: $NETBIRD_DOMAIN"
+        echo "  Forward Hostname/IP: ${BIND_ADDR}"
+        echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
+        echo "  Enable: Websockets Support, Block Common Exploits"
+        echo "  SSL: Request or use existing certificate"
+        echo ""
+        echo "Add Custom Locations for each path:"
+        echo "  /relay           -> ${BIND_ADDR}:${RELAY_HOST_PORT} (enable Websockets)"
+        echo "  /ws-proxy/signal -> ${BIND_ADDR}:${SIGNAL_HOST_PORT} (enable Websockets)"
+        echo "  /api             -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
+        echo "  /ws-proxy/management -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT} (enable Websockets)"
+        echo "  /oauth2          -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
+      fi
       echo ""
       echo "IMPORTANT: For gRPC support, paste the contents of npm-advanced-config.txt"
       echo "into the 'Advanced' tab of your Proxy Host configuration."
