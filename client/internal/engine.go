@@ -1748,22 +1748,26 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	}
 
 	e.syncMsgMux.Unlock()
-	var results []relay.ProbeResult
-	if waitForResult {
-		results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
-	} else {
-		results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
-	}
-	e.statusRecorder.UpdateRelayStates(results)
 
+	// Skip STUN/TURN probing for JS/WASM as it's not available
 	relayHealthy := true
-	for _, res := range results {
-		if res.Err != nil {
-			relayHealthy = false
-			break
+	if runtime.GOOS != "js" {
+		var results []relay.ProbeResult
+		if waitForResult {
+			results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+		} else {
+			results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
 		}
+		e.statusRecorder.UpdateRelayStates(results)
+
+		for _, res := range results {
+			if res.Err != nil {
+				relayHealthy = false
+				break
+			}
+		}
+		log.Debugf("relay health check: healthy=%t", relayHealthy)
 	}
-	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
 	allHealthy := signalHealthy && managementHealthy && relayHealthy
 	log.Debugf("all health checks completed: healthy=%t", allHealthy)

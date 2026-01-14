@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
@@ -417,6 +418,56 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 
 	return rm, t, nil
 }
+
+// ExchangeWithNetstack performs a DNS exchange using netstack for dialing.
+// This is needed when netstack is enabled to reach peer IPs through the tunnel.
+func ExchangeWithNetstack(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upstream string) (*dns.Msg, error) {
+	reply, err := netstackExchange(ctx, nsNet, r, upstream, "udp")
+	if err != nil {
+		return nil, err
+	}
+
+	// If response is truncated, retry with TCP
+	if reply != nil && reply.MsgHdr.Truncated {
+		log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP",
+			r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+		return netstackExchange(ctx, nsNet, r, upstream, "tcp")
+	}
+
+	return reply, nil
+}
+
+func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upstream, network string) (*dns.Msg, error) {
+	conn, err := nsNet.DialContext(ctx, network, upstream)
+	if err != nil {
+		return nil, fmt.Errorf("with %s: %w", network, err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Debugf("failed to close DNS connection: %v", err)
+		}
+	}()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return nil, fmt.Errorf("set deadline: %w", err)
+		}
+	}
+
+	dnsConn := &dns.Conn{Conn: conn}
+
+	if err := dnsConn.WriteMsg(r); err != nil {
+		return nil, fmt.Errorf("write %s message: %w", network, err)
+	}
+
+	reply, err := dnsConn.ReadMsg()
+	if err != nil {
+		return nil, fmt.Errorf("read %s message: %w", network, err)
+	}
+
+	return reply, nil
+}
+
 
 // FormatPeerStatus formats peer connection status information for debugging DNS timeouts
 func FormatPeerStatus(peerState *peer.State) string {
