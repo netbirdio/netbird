@@ -912,6 +912,7 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
     }
 
     # Signal WebSocket
@@ -921,6 +922,7 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
     }
 
     # Signal gRPC
@@ -932,8 +934,9 @@ server {
     }
 
     # Management API
-    location /api {
+    location /api/ {
         proxy_pass http://netbird_management;
+        proxy_set_header Host \$host;
     }
 
     # Management WebSocket
@@ -943,6 +946,7 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
+        proxy_read_timeout 1d;
     }
 
     # Management gRPC
@@ -956,6 +960,7 @@ server {
     # Embedded IdP OAuth2
     location /oauth2/ {
         proxy_pass http://netbird_management;
+        proxy_set_header Host \$host;
     }
 
     # Dashboard (catch-all)
