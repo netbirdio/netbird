@@ -1947,6 +1947,7 @@ func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, pee
 			Domain:               dns.Fqdn(zone.Domain),
 			Records:              simpleRecords,
 			SearchDomainDisabled: !zone.EnableSearchDomain,
+			NonAuthoritative:     true,
 		})
 	}
 
