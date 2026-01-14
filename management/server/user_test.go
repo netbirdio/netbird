@@ -1086,9 +1086,12 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	assert.NoError(t, err)
 
 	cacheManager := am.GetExternalCacheManager()
-	cacheKey := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
-	err = cacheManager.Set(context.Background(), cacheKey, &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"}, time.Minute)
+	tud := &idp.UserData{ID: externalUser.Id, Name: "Test User", Email: "user@example.com"}
+	cacheKeyUser := externalUser.IntegrationReference.CacheKey(mockAccountID, externalUser.Id)
+	err = cacheManager.Set(context.Background(), cacheKeyUser, tud, time.Minute)
 	assert.NoError(t, err)
+	cacheKeyAccount := externalUser.IntegrationReference.CacheKey(mockAccountID)
+	err = cacheManager.SetUsers(context.Background(), cacheKeyAccount, []*idp.UserData{tud}, time.Minute)
 
 	infos, err := am.GetUsersFromAccount(context.Background(), mockAccountID, mockUserID)
 	assert.NoError(t, err)

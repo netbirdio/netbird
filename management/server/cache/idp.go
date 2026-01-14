@@ -27,7 +27,7 @@ type UserDataCache interface {
 	Set(ctx context.Context, key string, value *idp.UserData, expiration time.Duration) error
 	Delete(ctx context.Context, key string) error
 	GetUsers(ctx context.Context, key string) ([]*idp.UserData, error)
-	SetUsers(ctx context.Context, key string, users []idp.UserData, expiration time.Duration) error
+	SetUsers(ctx context.Context, key string, users []*idp.UserData, expiration time.Duration) error
 }
 
 // UserDataCacheImpl is a struct that implements the UserDataCache interface.
@@ -70,7 +70,7 @@ func (u *UserDataCacheImpl) GetUsers(ctx context.Context, key string) ([]*idp.Us
 	return nil, fmt.Errorf("unexpected type: %T", v)
 }
 
-func (u *UserDataCacheImpl) SetUsers(ctx context.Context, key string, users []idp.UserData, expiration time.Duration) error {
+func (u *UserDataCacheImpl) SetUsers(ctx context.Context, key string, users []*idp.UserData, expiration time.Duration) error {
 	return u.cache.Set(ctx, key, users, store.WithExpiration(expiration))
 }
 
