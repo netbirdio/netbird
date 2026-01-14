@@ -303,6 +303,7 @@ init_environment() {
   render_relay_env > relay.env
 
   # For built-in Caddy and Traefik, start containers immediately
+  # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
     # Built-in Caddy - handles everything automatically
@@ -327,8 +328,22 @@ init_environment() {
     echo ""
     echo "NetBird containers are running. Once Traefik is connected, access the dashboard at:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  elif [[ "$REVERSE_PROXY_TYPE" == "3" ]]; then
+    # NPM - start containers first, then show instructions
+    # NPM requires backend services to be running before creating proxy hosts
+    echo -e "\nStarting NetBird services\n"
+    $DOCKER_COMPOSE_COMMAND up -d
+
+    sleep 3
+    wait_management_direct
+
+    echo -e "\nDone!\n"
+    print_post_setup_instructions
+    echo ""
+    echo "NetBird containers are running. Configure NPM as shown above, then access:"
+    echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   else
-    # External proxies (nginx, NPM, external Caddy, other) - need manual config first
+    # External proxies (nginx, external Caddy, other) - need manual config first
     print_post_setup_instructions
 
     echo ""
@@ -981,7 +996,7 @@ $NETBIRD_DOMAIN {
     reverse_proxy /management.ManagementService/* h2c://${BIND_ADDR}:${MANAGEMENT_HOST_PORT}
 
     # Embedded IdP OAuth2
-    reverse_proxy /oauth2/* ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}
+    reverse_proxy /oauth2/* ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}x
 
     # Dashboard (catch-all)
     reverse_proxy /* ${BIND_ADDR}:${DASHBOARD_HOST_PORT}
@@ -992,11 +1007,15 @@ EOF
 
 render_npm_advanced_config() {
   local BIND_ADDR=$(get_bind_address)
+  local RELAY_ADDR="${BIND_ADDR}:${RELAY_HOST_PORT}"
+  local SIGNAL_ADDR="${BIND_ADDR}:${SIGNAL_HOST_PORT}"
   local SIGNAL_GRPC_ADDR="${BIND_ADDR}:${SIGNAL_GRPC_PORT}"
   local MGMT_ADDR="${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
 
   # If NPM network is specified, use container names instead of host addresses
   if [[ -n "$NPM_NETWORK" ]]; then
+    RELAY_ADDR="netbird-relay:80"
+    SIGNAL_ADDR="netbird-signal:80"
     SIGNAL_GRPC_ADDR="netbird-signal:10000"
     MGMT_ADDR="netbird-management:80"
   fi
@@ -1005,12 +1024,68 @@ render_npm_advanced_config() {
 # Advanced Configuration for Nginx Proxy Manager
 # Paste this into the "Advanced" tab of your Proxy Host configuration
 #
-# NOTE: NPM has limited native gRPC support. These directives enable
-# proper gRPC proxying for NetBird's Signal and Management services.
+# IMPORTANT: Enable "HTTP/2 Support" in the SSL tab for gRPC to work!
 
-# Required for long-lived gRPC connections
+# Required for long-lived connections (gRPC and WebSocket)
 client_header_timeout 1d;
 client_body_timeout 1d;
+
+# Relay WebSocket
+location /relay {
+    proxy_pass http://${RELAY_ADDR};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# Signal WebSocket
+location /ws-proxy/signal {
+    proxy_pass http://${SIGNAL_ADDR};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# Management WebSocket
+location /ws-proxy/management {
+    proxy_pass http://${MGMT_ADDR};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1d;
+}
+
+# API routes
+location /api/ {
+    proxy_pass http://${MGMT_ADDR};
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+}
+
+# OAuth2/IdP routes
+location /oauth2/ {
+    proxy_pass http://${MGMT_ADDR};
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+}
 
 # gRPC for Signal service
 location /signalexchange.SignalExchange/ {
@@ -1098,22 +1173,20 @@ print_post_setup_instructions() {
       echo "Generated: npm-advanced-config.txt"
       echo ""
       if [[ -n "$NPM_NETWORK" ]]; then
-        echo "NetBird will join the '$NPM_NETWORK' Docker network."
-        echo "Use container names to reach NetBird services from NPM."
+        echo "NetBird containers have joined the '$NPM_NETWORK' Docker network."
         echo ""
         echo "In NPM, create a Proxy Host:"
         echo "  Domain: $NETBIRD_DOMAIN"
         echo "  Forward Hostname/IP: netbird-dashboard"
         echo "  Forward Port: 80"
-        echo "  Enable: Websockets Support, Block Common Exploits"
-        echo "  SSL: Request or use existing certificate"
+        echo "  Block Common Exploits: enabled"
         echo ""
-        echo "Add Custom Locations for each path:"
-        echo "  /relay           -> netbird-relay:80 (enable Websockets)"
-        echo "  /ws-proxy/signal -> netbird-signal:80 (enable Websockets)"
-        echo "  /api             -> netbird-management:80"
-        echo "  /ws-proxy/management -> netbird-management:80 (enable Websockets)"
-        echo "  /oauth2          -> netbird-management:80"
+        echo "  SSL tab:"
+        echo "    - Request or select existing certificate"
+        echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
+        echo ""
+        echo "  Advanced tab:"
+        echo "    - Paste contents of npm-advanced-config.txt"
       else
         echo "Container ports (bound to ${BIND_ADDR}):"
         echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
@@ -1125,19 +1198,15 @@ print_post_setup_instructions() {
         echo "  Domain: $NETBIRD_DOMAIN"
         echo "  Forward Hostname/IP: ${BIND_ADDR}"
         echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
-        echo "  Enable: Websockets Support, Block Common Exploits"
-        echo "  SSL: Request or use existing certificate"
+        echo "  Block Common Exploits: enabled"
         echo ""
-        echo "Add Custom Locations for each path:"
-        echo "  /relay           -> ${BIND_ADDR}:${RELAY_HOST_PORT} (enable Websockets)"
-        echo "  /ws-proxy/signal -> ${BIND_ADDR}:${SIGNAL_HOST_PORT} (enable Websockets)"
-        echo "  /api             -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
-        echo "  /ws-proxy/management -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT} (enable Websockets)"
-        echo "  /oauth2          -> ${BIND_ADDR}:${MANAGEMENT_HOST_PORT}"
+        echo "  SSL tab:"
+        echo "    - Request or select existing certificate"
+        echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
+        echo ""
+        echo "  Advanced tab:"
+        echo "    - Paste contents of npm-advanced-config.txt"
       fi
-      echo ""
-      echo "IMPORTANT: For gRPC support, paste the contents of npm-advanced-config.txt"
-      echo "into the 'Advanced' tab of your Proxy Host configuration."
       ;;
     4)
       # External Caddy
