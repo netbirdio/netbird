@@ -65,6 +65,8 @@ func (u *UserDataCacheImpl) GetUsers(ctx context.Context, key string) ([]*idp.Us
 		return v, nil
 	case *[]*idp.UserData:
 		return *v, nil
+	case []byte:
+		return unmarshalUserData(v)
 	}
 
 	return nil, fmt.Errorf("unexpected type: %T", v)
