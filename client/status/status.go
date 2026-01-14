@@ -325,61 +325,64 @@ func sortPeersByIP(peersStateDetail []PeerStateDetailOutput) {
 	}
 }
 
-func ParseToJSON(overview OutputOverview) (string, error) {
-	jsonBytes, err := json.Marshal(overview)
+// JSON returns the status overview as a JSON string.
+func (o *OutputOverview) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
 	if err != nil {
 		return "", fmt.Errorf("json marshal failed")
 	}
 	return string(jsonBytes), err
 }
 
-func ParseToYAML(overview OutputOverview) (string, error) {
-	yamlBytes, err := yaml.Marshal(overview)
+// YAML returns the status overview as a YAML string.
+func (o *OutputOverview) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
 	if err != nil {
 		return "", fmt.Errorf("yaml marshal failed")
 	}
 	return string(yamlBytes), nil
 }
 
-func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
+// GeneralSummary returns a general summary of the status overview.
+func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
 	var managementConnString string
-	if overview.ManagementState.Connected {
+	if o.ManagementState.Connected {
 		managementConnString = "Connected"
 		if showURL {
-			managementConnString = fmt.Sprintf("%s to %s", managementConnString, overview.ManagementState.URL)
+			managementConnString = fmt.Sprintf("%s to %s", managementConnString, o.ManagementState.URL)
 		}
 	} else {
 		managementConnString = "Disconnected"
-		if overview.ManagementState.Error != "" {
-			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, overview.ManagementState.Error)
+		if o.ManagementState.Error != "" {
+			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, o.ManagementState.Error)
 		}
 	}
 
 	var signalConnString string
-	if overview.SignalState.Connected {
+	if o.SignalState.Connected {
 		signalConnString = "Connected"
 		if showURL {
-			signalConnString = fmt.Sprintf("%s to %s", signalConnString, overview.SignalState.URL)
+			signalConnString = fmt.Sprintf("%s to %s", signalConnString, o.SignalState.URL)
 		}
 	} else {
 		signalConnString = "Disconnected"
-		if overview.SignalState.Error != "" {
-			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, overview.SignalState.Error)
+		if o.SignalState.Error != "" {
+			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, o.SignalState.Error)
 		}
 	}
 
 	interfaceTypeString := "Userspace"
-	interfaceIP := overview.IP
-	if overview.KernelInterface {
+	interfaceIP := o.IP
+	if o.KernelInterface {
 		interfaceTypeString = "Kernel"
-	} else if overview.IP == "" {
+	} else if o.IP == "" {
 		interfaceTypeString = "N/A"
 		interfaceIP = "N/A"
 	}
 
 	var relaysString string
 	if showRelays {
-		for _, relay := range overview.Relays.Details {
+		for _, relay := range o.Relays.Details {
 			available := "Available"
 			reason := ""
 
@@ -395,18 +398,18 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
 		}
 	} else {
-		relaysString = fmt.Sprintf("%d/%d Available", overview.Relays.Available, overview.Relays.Total)
+		relaysString = fmt.Sprintf("%d/%d Available", o.Relays.Available, o.Relays.Total)
 	}
 
 	networks := "-"
-	if len(overview.Networks) > 0 {
-		sort.Strings(overview.Networks)
-		networks = strings.Join(overview.Networks, ", ")
+	if len(o.Networks) > 0 {
+		sort.Strings(o.Networks)
+		networks = strings.Join(o.Networks, ", ")
 	}
 
 	var dnsServersString string
 	if showNameServers {
-		for _, nsServerGroup := range overview.NSServerGroups {
+		for _, nsServerGroup := range o.NSServerGroups {
 			enabled := "Available"
 			if !nsServerGroup.Enabled {
 				enabled = "Unavailable"
@@ -430,25 +433,25 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			)
 		}
 	} else {
-		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(overview.NSServerGroups), len(overview.NSServerGroups))
+		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(o.NSServerGroups), len(o.NSServerGroups))
 	}
 
 	rosenpassEnabledStatus := "false"
-	if overview.RosenpassEnabled {
+	if o.RosenpassEnabled {
 		rosenpassEnabledStatus = "true"
-		if overview.RosenpassPermissive {
+		if o.RosenpassPermissive {
 			rosenpassEnabledStatus = "true (permissive)" //nolint:gosec
 		}
 	}
 
 	lazyConnectionEnabledStatus := "false"
-	if overview.LazyConnectionEnabled {
+	if o.LazyConnectionEnabled {
 		lazyConnectionEnabledStatus = "true"
 	}
 
 	sshServerStatus := "Disabled"
-	if overview.SSHServerState.Enabled {
-		sessionCount := len(overview.SSHServerState.Sessions)
+	if o.SSHServerState.Enabled {
+		sessionCount := len(o.SSHServerState.Sessions)
 		if sessionCount > 0 {
 			sessionWord := "session"
 			if sessionCount > 1 {
@@ -460,7 +463,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		}
 
 		if showSSHSessions && sessionCount > 0 {
-			for _, session := range overview.SSHServerState.Sessions {
+			for _, session := range o.SSHServerState.Sessions {
 				var sessionDisplay string
 				if session.JWTUsername != "" {
 					sessionDisplay = fmt.Sprintf("[%s@%s -> %s] %s",
@@ -484,7 +487,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		}
 	}
 
-	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
+	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
@@ -512,30 +515,31 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
-		overview.DaemonVersion,
+		o.DaemonVersion,
 		version.NetbirdVersion(),
-		overview.ProfileName,
+		o.ProfileName,
 		managementConnString,
 		signalConnString,
 		relaysString,
 		dnsServersString,
-		domain.Domain(overview.FQDN).SafeString(),
+		domain.Domain(o.FQDN).SafeString(),
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
-		overview.NumberOfForwardingRules,
+		o.NumberOfForwardingRules,
 		peersCountString,
 	)
 	return summary
 }
 
-func ParseToFullDetailSummary(overview OutputOverview) string {
-	parsedPeersString := parsePeers(overview.Peers, overview.RosenpassEnabled, overview.RosenpassPermissive)
-	parsedEventsString := parseEvents(overview.Events)
-	summary := ParseGeneralSummary(overview, true, true, true, true)
+// FullDetailSummary returns a full detailed summary with peer details and events.
+func (o *OutputOverview) FullDetailSummary() string {
+	parsedPeersString := parsePeers(o.Peers, o.RosenpassEnabled, o.RosenpassPermissive)
+	parsedEventsString := parseEvents(o.Events)
+	summary := o.GeneralSummary(true, true, true, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
