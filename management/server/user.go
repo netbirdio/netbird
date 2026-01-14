@@ -935,6 +935,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
+		filtered := make(map[string]*idp.UserData, len(accountUsers))
 		log.WithContext(ctx).Tracef("Querying users from IDP for account %s", accountID)
 		start := time.Now()
 
@@ -955,7 +956,13 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				log.WithContext(ctx).Debugf("GetUsers from ExternalCache for key: %s, error: %s", key, err)
 				continue
 			}
-			usersFromIntegration = append(usersFromIntegration, usersData...)
+			for _, ud := range usersData {
+				filtered[ud.ID] = ud
+			}
+		}
+
+		for _, ud := range filtered {
+			usersFromIntegration = append(usersFromIntegration, ud)
 		}
 
 		log.WithContext(ctx).Tracef("Got user info from external cache after %s", time.Since(start))
