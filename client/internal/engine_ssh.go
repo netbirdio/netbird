@@ -74,7 +74,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
-			Audience:     protoJWT.GetAudience(),
+			Audiences:    protoJWT.GetAudiences(),
 			KeysLocation: protoJWT.GetKeysLocation(),
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}

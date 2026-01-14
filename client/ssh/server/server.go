@@ -176,9 +176,9 @@ type Server struct {
 
 type JWTConfig struct {
 	Issuer       string
-	Audience     string
 	KeysLocation string
 	MaxTokenAge  int64
+	Audiences    []string
 }
 
 // Config contains all SSH server configuration options
@@ -427,18 +427,17 @@ func (s *Server) ensureJWTValidator() error {
 		return fmt.Errorf("JWT config not set")
 	}
 
-	log.Debugf("Initializing JWT validator (issuer: %s, audience: %s)", config.Issuer, config.Audience)
-
+	log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
 	validator := jwt.NewValidator(
 		config.Issuer,
-		[]string{config.Audience},
+		config.Audiences,
 		config.KeysLocation,
 		true,
 	)
 
 	// Use custom userIDClaim from authorizer if available
 	extractorOptions := []jwt.ClaimsExtractorOption{
-		jwt.WithAudience(config.Audience),
+		jwt.WithAudience(config.Audiences[0]),
 	}
 	if authorizer.GetUserIDClaim() != "" {
 		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))
@@ -475,8 +474,8 @@ func (s *Server) validateJWTToken(tokenString string) (*gojwt.Token, error) {
 	if err != nil {
 		if jwtConfig != nil {
 			if claims, parseErr := s.parseTokenWithoutValidation(tokenString); parseErr == nil {
-				return nil, fmt.Errorf("validate token (expected issuer=%s, audience=%s, actual issuer=%v, audience=%v): %w",
-					jwtConfig.Issuer, jwtConfig.Audience, claims["iss"], claims["aud"], err)
+				return nil, fmt.Errorf("validate token (expected issuer=%s, audiences=%v, actual issuer=%v, audience=%v): %w",
+					jwtConfig.Issuer, jwtConfig.Audiences, claims["iss"], claims["aud"], err)
 			}
 		}
 		return nil, fmt.Errorf("validate token: %w", err)

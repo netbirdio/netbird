@@ -43,7 +43,7 @@ func TestJWTEnforcement(t *testing.T) {
 	t.Run("blocks_without_jwt", func(t *testing.T) {
 		jwtConfig := &JWTConfig{
 			Issuer:       "test-issuer",
-			Audience:     "test-audience",
+			Audiences:    []string{"test-audience"},
 			KeysLocation: "test-keys",
 		}
 		serverConfig := &Config{
@@ -202,7 +202,7 @@ func TestJWTDetection(t *testing.T) {
 
 	jwtConfig := &JWTConfig{
 		Issuer:       issuer,
-		Audience:     audience,
+		Audiences:    []string{audience},
 		KeysLocation: jwksURL,
 	}
 	serverConfig := &Config{
@@ -329,7 +329,7 @@ func TestJWTFailClose(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtConfig := &JWTConfig{
 				Issuer:       issuer,
-				Audience:     audience,
+				Audiences:    []string{audience},
 				KeysLocation: jwksURL,
 				MaxTokenAge:  3600,
 			}
@@ -567,7 +567,7 @@ func TestJWTAuthentication(t *testing.T) {
 
 			jwtConfig := &JWTConfig{
 				Issuer:       issuer,
-				Audience:     audience,
+				Audiences:    []string{audience},
 				KeysLocation: jwksURL,
 			}
 			serverConfig := &Config{

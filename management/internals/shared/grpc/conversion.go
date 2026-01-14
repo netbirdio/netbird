@@ -436,6 +436,7 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 	return &proto.JWTConfig{
 		Issuer:       issuer,
 		Audience:     audience,
+		Audiences:    []string{audience, config.AuthAudience, config.CLIAuthAudience},
 		KeysLocation: keysLocation,
 	}
 }
