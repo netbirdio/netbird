@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package proxy;
+
+option go_package = "github.com/netbirdio/netbird/proxy/pkg/grpc/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// ProxyService defines the bidirectional streaming service
+// The proxy runs this service, control service connects as client
+service ProxyService {
+  // Stream establishes a bidirectional stream between proxy and control service
+  // Control service (client) sends ControlMessage, Proxy (server) sends ProxyMessage
+  rpc Stream(stream ControlMessage) returns (stream ProxyMessage);
+}
+
+// ProxyMessage represents messages sent from proxy to control service
+message ProxyMessage {
+  oneof message {
+    ProxyStats stats = 1;
+    ProxyEvent event = 2;
+    ProxyLog log = 3;
+    ProxyHeartbeat heartbeat = 4;
+    ProxyRequestData request_data = 5;
+  }
+}
+
+// ControlMessage represents messages sent from control service to proxy
+message ControlMessage {
+  oneof message {
+    ControlEvent event = 1;
+    ControlCommand command = 2;
+    ControlConfig config = 3;
+    ExposedServiceEvent exposed_service = 4;
+  }
+}
+
+// ProxyStats contains proxy statistics
+message ProxyStats {
+  google.protobuf.Timestamp timestamp = 1;
+  uint64 total_requests = 2;
+  uint64 active_connections = 3;
+  uint64 bytes_sent = 4;
+  uint64 bytes_received = 5;
+  double cpu_usage = 6;
+  double memory_usage_mb = 7;
+  map<string, uint64> status_code_counts = 8;
+}
+
+// ProxyEvent represents events from the proxy
+message ProxyEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  EventType type = 2;
+  string message = 3;
+  map<string, string> metadata = 4;
+
+  enum EventType {
+    UNKNOWN = 0;
+    STARTED = 1;
+    STOPPED = 2;
+    ERROR = 3;
+    BACKEND_UNAVAILABLE = 4;
+    BACKEND_RECOVERED = 5;
+    CONFIG_UPDATED = 6;
+  }
+}
+
+// ProxyLog represents log entries
+message ProxyLog {
+  google.protobuf.Timestamp timestamp = 1;
+  LogLevel level = 2;
+  string message = 3;
+  map<string, string> fields = 4;
+
+  enum LogLevel {
+    DEBUG = 0;
+    INFO = 1;
+    WARN = 2;
+    ERROR = 3;
+  }
+}
+
+// ProxyHeartbeat is sent periodically to keep connection alive
+message ProxyHeartbeat {
+  google.protobuf.Timestamp timestamp = 1;
+  string proxy_id = 2;
+}
+
+// ControlEvent represents events from control service
+message ControlEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string event_id = 2;
+  string message = 3;
+}
+
+// ControlCommand represents commands sent to proxy
+message ControlCommand {
+  string command_id = 1;
+  CommandType type = 2;
+  map<string, string> parameters = 3;
+
+  enum CommandType {
+    UNKNOWN = 0;
+    RELOAD_CONFIG = 1;
+    ENABLE_DEBUG = 2;
+    DISABLE_DEBUG = 3;
+    GET_STATS = 4;
+    SHUTDOWN = 5;
+  }
+}
+
+// ControlConfig contains configuration updates from control service
+message ControlConfig {
+  string config_version = 1;
+  map<string, string> settings = 2;
+}
+
+// ExposedServiceEvent represents exposed service lifecycle events
+message ExposedServiceEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  EventType type = 2;
+  string service_id = 3;
+  PeerConfig peer_config = 4;
+  UpstreamConfig upstream_config = 5;
+
+  enum EventType {
+    UNKNOWN = 0;
+    CREATED = 1;
+    UPDATED = 2;
+    REMOVED = 3;
+  }
+}
+
+// PeerConfig contains WireGuard peer configuration
+message PeerConfig {
+  string peer_id = 1;
+  string public_key = 2;
+  repeated string allowed_ips = 3;
+  string endpoint = 4;
+  string tunnel_ip = 5;
+  uint32 persistent_keepalive = 6;
+}
+
+// UpstreamConfig contains reverse proxy upstream configuration
+message UpstreamConfig {
+  string domain = 1;
+  map<string, string> path_mappings = 2; // path -> port
+}
+
+// ProxyRequestData contains metadata about requests routed through the reverse proxy
+message ProxyRequestData {
+  google.protobuf.Timestamp timestamp = 1;
+  string service_id = 2;
+  string path = 3;
+  int64 duration_ms = 4;
+  string method = 5; // HTTP method (GET, POST, PUT, DELETE, etc.)
+  int32 response_code = 6;
+  string source_ip = 7;
+}

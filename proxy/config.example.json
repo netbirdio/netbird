@@ -1,0 +1,9 @@
+{
+  "listen_address": ":8080",
+  "target_url": "http://localhost:3000",
+  "read_timeout": "30s",
+  "write_timeout": "30s",
+  "idle_timeout": "60s",
+  "shutdown_timeout": "10s",
+  "log_level": "info"
+}
