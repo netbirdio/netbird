@@ -228,8 +228,9 @@ func (c *Client) Stop(ctx context.Context) error {
 	}
 
 	done := make(chan error, 1)
+	connect := c.connect
 	go func() {
-		done <- c.connect.Stop()
+		done <- connect.Stop()
 	}()
 
 	select {

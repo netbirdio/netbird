@@ -1238,6 +1238,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Networks:                   networks,
 			Latency:                    durationpb.New(peerState.Latency),
+			SshHostKey:                 peerState.SSHHostKey,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
