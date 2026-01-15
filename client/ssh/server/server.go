@@ -440,8 +440,12 @@ func (s *Server) ensureJWTValidator() error {
 	)
 
 	// Use custom userIDClaim from authorizer if available
+	audience := ""
+	if len(config.Audiences) != 0 {
+		audience = config.Audiences[0]
+	}
 	extractorOptions := []jwt.ClaimsExtractorOption{
-		jwt.WithAudience(config.Audiences[0]),
+		jwt.WithAudience(audience),
 	}
 	if authorizer.GetUserIDClaim() != "" {
 		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))

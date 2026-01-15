@@ -77,6 +77,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			audiences = []string{protoJWT.GetAudience()}
 		}
 
+		log.Debugf("starting SSH server with JWT authentication: audiences=%v", audiences)
+
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
 			Audiences:    audiences,
