@@ -427,6 +427,10 @@ func (s *Server) ensureJWTValidator() error {
 		return fmt.Errorf("JWT config not set")
 	}
 
+	if len(config.Audiences) == 0 {
+		return fmt.Errorf("JWT config has no audiences configured")
+	}
+
 	log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
 	validator := jwt.NewValidator(
 		config.Issuer,
