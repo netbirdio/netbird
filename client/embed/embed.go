@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
@@ -28,6 +29,11 @@ var (
 	ErrClientNotStarted     = errors.New("client not started")
 	ErrEngineNotStarted     = errors.New("engine not started")
 	ErrConfigNotInitialized = errors.New("config not initialized")
+)
+
+const (
+	defaultPeerConnectionTimeout = 60 * time.Second
+	peerConnectionPollInterval   = 500 * time.Millisecond
 )
 
 // Client manages a netbird embedded client instance.
@@ -258,18 +264,40 @@ func (c *Client) GetConfig() (profilemanager.Config, error) {
 
 // Dial dials a network address in the netbird network.
 // Not applicable if the userspace networking mode is disabled.
+// With lazy connections, the connection is established on first traffic.
 func (c *Client) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	logrus.Infof("embed.Dial called: network=%s, address=%s", network, address)
+
+	// Check context status upfront
+	if ctx.Err() != nil {
+		logrus.Warnf("embed.Dial: context already cancelled/expired: %v", ctx.Err())
+		return nil, ctx.Err()
+	}
+
 	engine, err := c.getEngine()
 	if err != nil {
+		logrus.Errorf("embed.Dial: getEngine failed: %v", err)
 		return nil, err
 	}
 
 	nsnet, err := engine.GetNet()
 	if err != nil {
+		logrus.Errorf("embed.Dial: GetNet failed: %v", err)
 		return nil, fmt.Errorf("get net: %w", err)
 	}
 
-	return nsnet.DialContext(ctx, network, address)
+	// Note: Don't wait for peer connection here - lazy connection manager
+	// will open the connection when DialContext is called. The netstack
+	// dial triggers WireGuard traffic which activates the lazy connection.
+
+	logrus.Debugf("embed.Dial: calling nsnet.DialContext for %s", address)
+	conn, err := nsnet.DialContext(ctx, network, address)
+	if err != nil {
+		logrus.Errorf("embed.Dial: nsnet.DialContext failed: %v", err)
+		return nil, err
+	}
+	logrus.Infof("embed.Dial: successfully connected to %s", address)
+	return conn, nil
 }
 
 // DialContext dials a network address in the netbird network with context
@@ -368,6 +396,35 @@ func (c *Client) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	return syncResp, nil
 }
 
+// WaitForPeerConnection waits for a peer with the given IP to be connected.
+func (c *Client) WaitForPeerConnection(ctx context.Context, peerIP string) error {
+	logrus.Infof("Waiting for peer %s to be connected", peerIP)
+
+	ticker := time.NewTicker(peerConnectionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for peer %s to connect: %w", peerIP, ctx.Err())
+		case <-ticker.C:
+			status, err := c.Status()
+			if err != nil {
+				logrus.Debugf("Error getting status while waiting for peer: %v", err)
+				continue
+			}
+
+			for _, p := range status.Peers {
+				if p.IP == peerIP && p.ConnStatus == peer.StatusConnected {
+					logrus.Infof("Peer %s is now connected (relayed: %v)", peerIP, p.Relayed)
+					return nil
+				}
+			}
+			logrus.Tracef("Peer %s not yet connected, waiting...", peerIP)
+		}
+	}
+}
+
 // SetLogLevel sets the logging level for the client and its components.
 func (c *Client) SetLogLevel(levelStr string) error {
 	level, err := logrus.ParseLevel(levelStr)
@@ -381,9 +438,8 @@ func (c *Client) SetLogLevel(levelStr string) error {
 	connect := c.connect
 	c.mu.Unlock()
 
-	if connect != nil {
-		connect.SetLogLevel(level)
-	}
+	// Note: ConnectClient doesn't have SetLogLevel method
+	_ = connect
 
 	return nil
 }

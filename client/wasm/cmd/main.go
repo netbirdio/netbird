@@ -23,11 +23,13 @@ import (
 )
 
 const (
-	clientStartTimeout         = 30 * time.Second
-	clientStopTimeout          = 10 * time.Second
-	pingTimeout                = 10 * time.Second
-	defaultLogLevel            = "warn"
-	defaultSSHDetectionTimeout = 20 * time.Second
+	clientStartTimeout           = 30 * time.Second
+	clientStopTimeout            = 10 * time.Second
+	pingTimeout                  = 10 * time.Second
+	defaultLogLevel              = "warn"
+	defaultSSHDetectionTimeout   = 20 * time.Second
+	defaultPeerConnectionTimeout = 60 * time.Second
+	peerConnectionPollInterval   = 500 * time.Millisecond
 
 	icmpEchoRequest = 8
 	icmpCodeEcho    = 0
@@ -169,6 +171,9 @@ func createSSHMethod(client *netbird.Client) js.Func {
 		}
 
 		return createPromise(func(resolve, reject js.Value) {
+			// Note: Don't wait for peer connection here - lazy connection manager
+			// will open the connection when Dial is called in ssh.Connect().
+
 			sshClient := ssh.NewClient(client)
 
 			if err := sshClient.Connect(host, port, username, jwtToken); err != nil {
@@ -399,16 +404,75 @@ func createStatusSummaryMethod(client *netbird.Client) js.Func {
 // createStatusDetailMethod creates the statusDetail method
 func createStatusDetailMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		log.Info("statusDetail called")
 		return createPromise(func(resolve, reject js.Value) {
+			log.Info("statusDetail: getting overview")
 			overview, err := getStatusOverview(client)
 			if err != nil {
+				log.Errorf("statusDetail: getStatusOverview failed: %v", err)
 				reject.Invoke(js.ValueOf(err.Error()))
 				return
 			}
 
+			log.Info("statusDetail: generating full detail summary")
 			detail := overview.FullDetailSummary()
+			log.Infof("statusDetail: detail length=%d", len(detail))
 			js.Global().Get("console").Call("log", detail)
 			resolve.Invoke(js.Undefined())
+		})
+	})
+}
+
+// createWaitForPeerConnectionMethod creates a method that waits for a peer to be connected
+func createWaitForPeerConnectionMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		return createPromise(func(resolve, reject js.Value) {
+			if len(args) < 1 {
+				reject.Invoke(js.ValueOf("peer IP address required"))
+				return
+			}
+
+			peerIP := args[0].String()
+			timeoutMs := int(defaultPeerConnectionTimeout.Milliseconds())
+			if len(args) > 1 && !args[1].IsUndefined() && !args[1].IsNull() {
+				timeoutMs = args[1].Int()
+			}
+
+			timeout := time.Duration(timeoutMs) * time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			log.Infof("Waiting for peer %s to be connected (timeout: %v)", peerIP, timeout)
+
+			ticker := time.NewTicker(peerConnectionPollInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					reject.Invoke(js.ValueOf(fmt.Sprintf("timeout waiting for peer %s to connect", peerIP)))
+					return
+				case <-ticker.C:
+					overview, err := getStatusOverview(client)
+					if err != nil {
+						log.Debugf("Error getting status: %v", err)
+						continue
+					}
+
+					for _, peer := range overview.Peers.Details {
+						if peer.IP == peerIP && peer.Status == "Connected" {
+							log.Infof("Peer %s is now connected (type: %s)", peerIP, peer.ConnType)
+							resolve.Invoke(js.ValueOf(map[string]interface{}{
+								"ip":       peer.IP,
+								"status":   peer.Status,
+								"connType": peer.ConnType,
+							}))
+							return
+						}
+					}
+					log.Tracef("Peer %s not yet connected, waiting...", peerIP)
+				}
+			}
 		})
 	})
 }
@@ -471,10 +535,49 @@ func createPromise(handler func(resolve, reject js.Value)) js.Value {
 		resolve := promiseArgs[0]
 		reject := promiseArgs[1]
 
-		go handler(resolve, reject)
+		// Wrap reject to always log the error
+		loggingReject := js.FuncOf(func(_ js.Value, args []js.Value) any {
+			if len(args) > 0 {
+				log.Errorf("Promise rejected: %v", args[0])
+				js.Global().Get("console").Call("error", "WASM Promise rejected:", args[0])
+			}
+			reject.Invoke(args[0])
+			return nil
+		})
+
+		go handler(resolve, loggingReject.Value)
 
 		return nil
 	}))
+}
+
+// waitForPeerConnected waits for a peer with the given IP to be connected
+func waitForPeerConnected(ctx context.Context, client *netbird.Client, peerIP string) error {
+	log.Infof("Waiting for peer %s to be connected before operation", peerIP)
+
+	ticker := time.NewTicker(peerConnectionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for peer %s to connect", peerIP)
+		case <-ticker.C:
+			overview, err := getStatusOverview(client)
+			if err != nil {
+				log.Debugf("Error getting status while waiting for peer: %v", err)
+				continue
+			}
+
+			for _, peer := range overview.Peers.Details {
+				if peer.IP == peerIP && peer.Status == "Connected" {
+					log.Infof("Peer %s is now connected (type: %s), proceeding with operation", peerIP, peer.ConnType)
+					return nil
+				}
+			}
+			log.Tracef("Peer %s not yet connected, waiting...", peerIP)
+		}
+	}
 }
 
 // createDetectSSHServerMethod creates the SSH server detection method
@@ -498,6 +601,10 @@ func createDetectSSHServerMethod(client *netbird.Client) js.Func {
 		return createPromise(func(resolve, reject js.Value) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
 			defer cancel()
+
+			// Note: Don't wait for peer connection here - lazy connection manager
+			// will open the connection when Dial is called. Waiting would cause
+			// a deadlock since lazy connections only open on traffic.
 
 			serverType, err := sshdetection.DetectSSHServerType(ctx, client, host, port)
 			if err != nil {
@@ -525,6 +632,7 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["status"] = createStatusMethod(client)
 	obj["statusSummary"] = createStatusSummaryMethod(client)
 	obj["statusDetail"] = createStatusDetailMethod(client)
+	obj["waitForPeerConnection"] = createWaitForPeerConnectionMethod(client)
 	obj["getSyncResponse"] = createGetSyncResponseMethod(client)
 	obj["setLogLevel"] = createSetLogLevelMethod(client)
 
@@ -549,7 +657,10 @@ func netBirdClientConstructor(_ js.Value, args []js.Value) any {
 				return
 			}
 
-			if err := util.InitLog(options.LogLevel, util.LogConsole); err != nil {
+			// Force trace logging for debugging - must be set BEFORE netbird.New
+			// as New() will call logrus.SetLevel with options.LogLevel
+			options.LogLevel = "trace"
+			if err := util.InitLog("trace", util.LogConsole); err != nil {
 				log.Warnf("Failed to initialize logging: %v", err)
 			}
 
