@@ -118,6 +118,28 @@ read_traefik_network() {
   return 0
 }
 
+read_traefik_entrypoint() {
+  echo "" > /dev/stderr
+  echo "Enter the name of your Traefik HTTPS entrypoint." > /dev/stderr
+  echo -n "HTTPS entrypoint name (default: websecure): " > /dev/stderr
+  read -r ENTRYPOINT < /dev/tty
+  if [[ -z "$ENTRYPOINT" ]]; then
+    ENTRYPOINT="websecure"
+  fi
+  echo "$ENTRYPOINT"
+  return 0
+}
+
+read_traefik_certresolver() {
+  echo "" > /dev/stderr
+  echo "Enter the name of your Traefik certificate resolver (for automatic TLS)." > /dev/stderr
+  echo "Leave empty if you handle TLS termination elsewhere or use a wildcard cert." > /dev/stderr
+  echo -n "Certificate resolver name (e.g., letsencrypt): " > /dev/stderr
+  read -r RESOLVER < /dev/tty
+  echo "$RESOLVER"
+  return 0
+}
+
 read_port_binding_preference() {
   echo "" > /dev/stderr
   echo "Should container ports be bound to localhost only (127.0.0.1)?" > /dev/stderr
@@ -217,6 +239,8 @@ init_environment() {
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
+  TRAEFIK_ENTRYPOINT="websecure"
+  TRAEFIK_CERTRESOLVER=""
   DASHBOARD_HOST_PORT="8080"
   MANAGEMENT_HOST_PORT="8081"
   SIGNAL_HOST_PORT="8083"
@@ -244,6 +268,8 @@ init_environment() {
   # Handle Traefik-specific prompts
   if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
     TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
+    TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
+    TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
   fi
 
   # Handle port binding for external proxy options (2-5)
@@ -610,6 +636,12 @@ render_docker_compose_traefik() {
     NETWORK_CONFIG="    external: true"
   fi
 
+  # Build TLS labels - certresolver is optional
+  local TLS_LABELS=""
+  if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+    TLS_LABELS="tls.certresolver=${TRAEFIK_CERTRESOLVER}"
+  fi
+
   cat <<EOF
 services:
   # UI dashboard
@@ -623,6 +655,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-dashboard.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-dashboard.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-dashboard.priority=1
       - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
     logging:
@@ -639,10 +674,18 @@ services:
     networks: [$NETWORK_NAME]
     labels:
       - traefik.enable=true
+      # WebSocket router
       - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/signal\`)
+      - traefik.http.routers.netbird-signal-ws.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-signal-ws.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-signal-ws.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-signal-ws.service=netbird-signal-ws
       - traefik.http.services.netbird-signal-ws.loadbalancer.server.port=80
+      # gRPC router
       - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
+      - traefik.http.routers.netbird-signal-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-signal-grpc.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-signal-grpc.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-signal-grpc.service=netbird-signal-grpc
       - traefik.http.services.netbird-signal-grpc.loadbalancer.server.port=10000
       - traefik.http.services.netbird-signal-grpc.loadbalancer.server.scheme=h2c
@@ -663,6 +706,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
+      - traefik.http.routers.netbird-relay.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-relay.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-relay.${TLS_LABELS}"; fi)
       - traefik.http.services.netbird-relay.loadbalancer.server.port=80
     logging:
       driver: "json-file"
@@ -690,17 +736,33 @@ services:
     ]
     labels:
       - traefik.enable=true
+      # API router
       - traefik.http.routers.netbird-api.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/api\`)
+      - traefik.http.routers.netbird-api.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-api.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-api.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-api.service=netbird-api
       - traefik.http.services.netbird-api.loadbalancer.server.port=80
+      # Management WebSocket router
       - traefik.http.routers.netbird-mgmt-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/management\`)
+      - traefik.http.routers.netbird-mgmt-ws.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-mgmt-ws.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-mgmt-ws.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-mgmt-ws.service=netbird-mgmt-ws
       - traefik.http.services.netbird-mgmt-ws.loadbalancer.server.port=80
+      # Management gRPC router
       - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
+      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-mgmt-grpc.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-mgmt-grpc.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-mgmt-grpc.service=netbird-mgmt-grpc
       - traefik.http.services.netbird-mgmt-grpc.loadbalancer.server.port=80
       - traefik.http.services.netbird-mgmt-grpc.loadbalancer.server.scheme=h2c
+      # OAuth2 router (embedded IdP)
       - traefik.http.routers.netbird-oauth2.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/oauth2\`)
+      - traefik.http.routers.netbird-oauth2.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-oauth2.tls=true
+$(if [[ -n "$TLS_LABELS" ]]; then echo "      - traefik.http.routers.netbird-oauth2.${TLS_LABELS}"; fi)
       - traefik.http.routers.netbird-oauth2.service=netbird-oauth2
       - traefik.http.services.netbird-oauth2.loadbalancer.server.port=80
     logging:
@@ -717,6 +779,8 @@ services:
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
     network_mode: host
+    labels:
+      - traefik.enable=false
     command:
       - -c /etc/turnserver.conf
     logging:
@@ -1166,6 +1230,14 @@ print_post_setup_instructions() {
       echo ""
       echo "NetBird containers are configured with Traefik labels."
       echo ""
+      echo "Configuration:"
+      echo "  Entrypoint: $TRAEFIK_ENTRYPOINT"
+      if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+        echo "  Certificate resolver: $TRAEFIK_CERTRESOLVER"
+      else
+        echo "  Certificate resolver: (none - TLS handled externally)"
+      fi
+      echo ""
       if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
         echo "Using external network: $TRAEFIK_EXTERNAL_NETWORK"
         echo "Ensure your Traefik container is connected to this network."
@@ -1177,6 +1249,10 @@ print_post_setup_instructions() {
       echo ""
       echo "Traefik requirements:"
       echo "  - providers.docker.exposedByDefault=false"
+      echo "  - Entrypoint '$TRAEFIK_ENTRYPOINT' must be configured for HTTPS (port 443)"
+      if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+        echo "  - Certificate resolver '$TRAEFIK_CERTRESOLVER' must be configured"
+      fi
       echo "  - HTTP to HTTPS redirect (recommended)"
       ;;
     2)
