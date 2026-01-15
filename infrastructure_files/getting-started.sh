@@ -169,6 +169,7 @@ read_proxy_docker_network() {
   echo -n "Docker network (leave empty if not in Docker): " > /dev/stderr
   read -r NETWORK < /dev/tty
   echo "$NETWORK"
+  return 0
 }
 
 get_bind_address() {
