@@ -10,7 +10,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/netbirdio/netbird/proxy/internal/reverseproxy"
+	"github.com/netbirdio/netbird/proxy/internal/auth/oidc"
 )
 
 var (
@@ -89,7 +89,7 @@ type Config struct {
 	CertCacheDir string `json:"cert_cache_dir"`
 
 	// OIDCConfig is the global OIDC/OAuth configuration for authentication
-	OIDCConfig *reverseproxy.OIDCConfig `json:"oidc_config,omitempty"`
+	OIDCConfig *oidc.Config `json:"oidc_config,omitempty"`
 }
 
 // ParseAndLoad parses configuration from environment variables

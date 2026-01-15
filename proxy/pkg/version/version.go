@@ -24,7 +24,7 @@ type Info struct {
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildDate string `json:"build_date"`
-	GoVersion string `json:"go_version"`
+	GoVersion string `json:"NewSingleHostReverseProxygo_version"`
 	OS        string `json:"os"`
 	Arch      string `json:"arch"`
 }

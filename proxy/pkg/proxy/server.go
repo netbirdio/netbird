@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/proxy/internal/auth"
+	"github.com/netbirdio/netbird/proxy/internal/auth/methods"
 	"github.com/netbirdio/netbird/proxy/internal/reverseproxy"
 	grpcpkg "github.com/netbirdio/netbird/proxy/pkg/grpc"
 	pb "github.com/netbirdio/netbird/proxy/pkg/grpc/proto"
@@ -171,8 +173,8 @@ func (s *Server) Start() error {
 
 	// Enable Bearer authentication for the test route
 	// OIDC configuration is set globally in the proxy config above
-	testAuthConfig := &reverseproxy.AuthConfig{
-		Bearer: &reverseproxy.BearerConfig{
+	testAuthConfig := &auth.Config{
+		Bearer: &methods.BearerConfig{
 			Enabled: true,
 		},
 	}
