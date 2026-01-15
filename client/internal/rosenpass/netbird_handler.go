@@ -58,6 +58,14 @@ func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
 	delete(h.initializedPeers, pid)
 }
 
+// IsPeerInitialized returns true if Rosenpass has completed a handshake
+// and set a PSK for this peer.
+func (h *NetbirdHandler) IsPeerInitialized(pid rp.PeerID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.initializedPeers[pid]
+}
+
 func (h *NetbirdHandler) HandshakeCompleted(pid rp.PeerID, key rp.Key) {
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }

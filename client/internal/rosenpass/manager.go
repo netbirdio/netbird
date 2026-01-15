@@ -213,6 +213,20 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 	}
 }
 
+// IsPresharedKeyInitialized returns true if Rosenpass has completed a handshake
+// and set a PSK for the given WireGuard peer.
+func (m *Manager) IsPresharedKeyInitialized(wireGuardPubKey string) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	peerID, ok := m.rpPeerIDs[wireGuardPubKey]
+	if !ok || peerID == nil {
+		return false
+	}
+
+	return m.rpWgHandler.IsPeerInitialized(*peerID)
+}
+
 func findRandomAvailableUDPPort() (int, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
