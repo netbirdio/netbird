@@ -1635,7 +1635,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	if err != nil {
 		return nil, "", err
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil)
 	if err != nil {
 		return nil, "", err
 	}

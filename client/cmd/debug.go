@@ -136,6 +136,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	level := server.ParseLogLevel(args[0])
 	if level == proto.LogLevel_UNKNOWN {
+		//nolint
 		return fmt.Errorf("unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
 	}
 
@@ -313,9 +314,8 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 			profName = activeProf.Name
 		}
 
-		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
-		)
+		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName)
+		statusOutputString = overview.FullDetailSummary()
 	}
 	return statusOutputString
 }

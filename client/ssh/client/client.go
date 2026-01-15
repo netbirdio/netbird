@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -551,14 +550,15 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 	defer func() {
 		if err := localConn.Close(); err != nil {
-			log.Debugf("local connection close error: %v", err)
+			log.Debugf("local port forwarding: close local connection: %v", err)
 		}
 	}()
 
 	channel, err := c.client.Dial("tcp", remoteAddr)
 	if err != nil {
-		if strings.Contains(err.Error(), "administratively prohibited") {
-			_, _ = fmt.Fprintf(os.Stderr, "channel open failed: administratively prohibited: port forwarding is disabled\n")
+		var openErr *ssh.OpenChannelError
+		if errors.As(err, &openErr) && openErr.Reason == ssh.Prohibited {
+			_, _ = fmt.Fprintf(os.Stderr, "channel open failed: port forwarding is disabled\n")
 		} else {
 			log.Debugf("local port forwarding to %s failed: %v", remoteAddr, err)
 		}
@@ -566,19 +566,11 @@ func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 	}
 	defer func() {
 		if err := channel.Close(); err != nil {
-			log.Debugf("remote channel close error: %v", err)
+			log.Debugf("local port forwarding: close remote channel: %v", err)
 		}
 	}()
 
-	go func() {
-		if _, err := io.Copy(channel, localConn); err != nil {
-			log.Debugf("local forward copy error (local->remote): %v", err)
-		}
-	}()
-
-	if _, err := io.Copy(localConn, channel); err != nil {
-		log.Debugf("local forward copy error (remote->local): %v", err)
-	}
+	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
 }
 
 // RemotePortForward sets up remote port forwarding, binding on remote and forwarding to localAddr
@@ -633,7 +625,7 @@ func (c *Client) sendTCPIPForwardRequest(req tcpipForwardMsg) error {
 		return fmt.Errorf("send tcpip-forward request: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("remote port forwarding denied by server (check if --allow-ssh-remote-port-forwarding is enabled)")
+		return fmt.Errorf("remote port forwarding denied by server")
 	}
 	return nil
 }
@@ -676,7 +668,7 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 	}
 	defer func() {
 		if err := channel.Close(); err != nil {
-			log.Debugf("remote channel close error: %v", err)
+			log.Debugf("remote port forwarding: close remote channel: %v", err)
 		}
 	}()
 
@@ -688,19 +680,11 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 	}
 	defer func() {
 		if err := localConn.Close(); err != nil {
-			log.Debugf("local connection close error: %v", err)
+			log.Debugf("remote port forwarding: close local connection: %v", err)
 		}
 	}()
 
-	go func() {
-		if _, err := io.Copy(localConn, channel); err != nil {
-			log.Debugf("remote forward copy error (remote->local): %v", err)
-		}
-	}()
-
-	if _, err := io.Copy(channel, localConn); err != nil {
-		log.Debugf("remote forward copy error (local->remote): %v", err)
-	}
+	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
 }
 
 // tcpipForwardMsg represents the structure for tcpip-forward requests
