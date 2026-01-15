@@ -56,15 +56,24 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 	// Add route with domain as key
 	p.routes[route.Domain] = route
 
+	// Register domain with certificate manager
+	p.certManager.AddDomain(route.Domain)
+
 	log.WithFields(log.Fields{
 		"route_id": route.ID,
 		"domain":   route.Domain,
 		"paths":    len(route.PathMappings),
 	}).Info("Added route")
 
-	// Note: With this architecture, we don't need to reload the server
-	// The handler dynamically looks up routes on each request
-	// Certificates will be obtained automatically when the domain is first accessed
+	// Eagerly issue certificate in background
+	go func(domain string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		if err := p.certManager.IssueCertificate(ctx, domain); err != nil {
+			log.Errorf("Failed to issue certificate: %v", err)
+		}
+	}(route.Domain)
 
 	return nil
 }
@@ -81,6 +90,9 @@ func (p *Proxy) RemoveRoute(domain string) error {
 
 	// Remove route
 	delete(p.routes, domain)
+
+	// Unregister domain from certificate manager
+	p.certManager.RemoveDomain(domain)
 
 	log.Infof("Removed route for domain: %s", domain)
 	return nil

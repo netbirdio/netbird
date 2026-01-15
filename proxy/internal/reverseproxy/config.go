@@ -18,16 +18,18 @@ type Config struct {
 	ManagementURL string `env:"NB_REVERSE_PROXY_MANAGEMENT_URL" json:"management_url"`
 
 	// HTTPListenAddress is the address for HTTP (default ":80")
-	// Used for ACME challenges when HTTPS is enabled, or as main listener when HTTPS is disabled
+	// Used for ACME challenges (Let's Encrypt HTTP-01 challenge)
 	HTTPListenAddress string `env:"NB_REVERSE_PROXY_HTTP_LISTEN_ADDRESS" envDefault:":80" json:"http_listen_address"`
 
-	// EnableHTTPS enables automatic HTTPS with Let's Encrypt
-	EnableHTTPS bool `env:"NB_REVERSE_PROXY_ENABLE_HTTPS" envDefault:"false" json:"enable_https"`
+	// CertMode specifies certificate mode: "letsencrypt" or "selfsigned" (default: "letsencrypt")
+	// "letsencrypt" - Uses Let's Encrypt for production certificates (requires public domain)
+	// "selfsigned" - Generates self-signed certificates for local testing
+	CertMode string `env:"NB_REVERSE_PROXY_CERT_MODE" envDefault:"letsencrypt" json:"cert_mode"`
 
-	// TLSEmail is the email for Let's Encrypt registration
+	// TLSEmail is the email for Let's Encrypt registration (required for letsencrypt mode)
 	TLSEmail string `env:"NB_REVERSE_PROXY_TLS_EMAIL" json:"tls_email"`
 
-	// CertCacheDir is the directory to cache certificates (default "./certs")
+	// CertCacheDir is the directory to cache certificates (for letsencrypt mode, default "./certs")
 	CertCacheDir string `env:"NB_REVERSE_PROXY_CERT_CACHE_DIR" envDefault:"./certs" json:"cert_cache_dir"`
 
 	// OIDCConfig is the global OIDC/OAuth configuration for authentication
