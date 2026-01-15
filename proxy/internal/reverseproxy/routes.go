@@ -3,6 +3,7 @@ package reverseproxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -40,7 +41,7 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 		return fmt.Errorf("route for domain %s already exists", route.Domain)
 	}
 
-	client, err := embed.New(embed.Options{DeviceName: fmt.Sprintf("ingress-%s", route.ID), ManagementURL: p.config.ManagementURL, SetupKey: route.SetupKey})
+	client, err := embed.New(embed.Options{DeviceName: fmt.Sprintf("ingress-%s", route.ID), ManagementURL: p.config.ManagementURL, SetupKey: route.SetupKey, LogOutput: io.Discard})
 	if err != nil {
 		return fmt.Errorf("failed to create embedded client for route %s: %v", route.ID, err)
 	}
