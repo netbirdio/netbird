@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
@@ -45,12 +46,12 @@ type eventWithNames struct {
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
 	db           *gorm.DB
-	fieldEncrypt *FieldEncrypt
+	fieldEncrypt *crypt.FieldEncrypt
 }
 
 // NewSqlStore creates a new Store with an event table if not exists.
 func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
-	crypt, err := NewFieldEncrypt(encryptionKey)
+	crypt, err := crypt.NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
 		return nil, err
