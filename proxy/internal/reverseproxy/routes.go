@@ -1,9 +1,17 @@
 package reverseproxy
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/embed"
+)
+
+const (
+	clientStartupTimeout = 30 * time.Second
 )
 
 // AddRoute adds a new route to the proxy
@@ -20,8 +28,8 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 	if len(route.PathMappings) == 0 {
 		return fmt.Errorf("route must have at least one path mapping")
 	}
-	if route.Conn == nil {
-		return fmt.Errorf("route connection (Conn) is required")
+	if route.SetupKey == "" {
+		return fmt.Errorf("route setup key is required")
 	}
 
 	p.mu.Lock()
@@ -31,6 +39,19 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 	if _, exists := p.routes[route.Domain]; exists {
 		return fmt.Errorf("route for domain %s already exists", route.Domain)
 	}
+
+	client, err := embed.New(embed.Options{DeviceName: fmt.Sprintf("ingress-%s", route.ID), ManagementURL: p.config.ManagementURL, SetupKey: route.SetupKey})
+	if err != nil {
+		return fmt.Errorf("failed to create embedded client for route %s: %v", route.ID, err)
+	}
+
+	ctx, _ := context.WithTimeout(context.Background(), clientStartupTimeout)
+	err = client.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start embedded client for route %s: %v", route.ID, err)
+	}
+
+	route.nbClient = client
 
 	// Add route with domain as key
 	p.routes[route.Domain] = route

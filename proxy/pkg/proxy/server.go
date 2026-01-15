@@ -86,33 +86,24 @@ func NewServer(config Config) (*Server, error) {
 		exposedServices: make(map[string]*ExposedServiceConfig),
 	}
 
-	// Set defaults for reverse proxy config if not provided
-	httpListenAddr := config.HTTPListenAddress
-	if httpListenAddr == "" {
-		httpListenAddr = ":54321" // Use port 54321 for local testing
+	// Create reverse proxy using embedded config
+	proxy, err := reverseproxy.New(config.ReverseProxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reverse proxy: %w", err)
 	}
 
-	// Create reverse proxy with request callback
-	proxyConfig := reverseproxy.Config{
-		HTTPListenAddress: httpListenAddr,
-		EnableHTTPS:       config.EnableHTTPS,
-		TLSEmail:          config.TLSEmail,
-		CertCacheDir:      config.CertCacheDir,
-		RequestDataCallback: func(data reverseproxy.RequestData) {
-			log.WithFields(log.Fields{
-				"service_id":    data.ServiceID,
-				"host":          data.Host,
-				"method":        data.Method,
-				"path":          data.Path,
-				"response_code": data.ResponseCode,
-				"duration_ms":   data.DurationMs,
-				"source_ip":     data.SourceIP,
-			}).Info("Access log received")
-		},
-		// Use global OIDC configuration from config
-		OIDCConfig: config.OIDCConfig,
-	}
-	proxy, err := reverseproxy.New(proxyConfig)
+	// Set request data callback
+	proxy.SetRequestCallback(func(data reverseproxy.RequestData) {
+		log.WithFields(log.Fields{
+			"service_id":    data.ServiceID,
+			"host":          data.Host,
+			"method":        data.Method,
+			"path":          data.Path,
+			"response_code": data.ResponseCode,
+			"duration_ms":   data.DurationMs,
+			"source_ip":     data.SourceIP,
+		}).Info("Access log received")
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reverse proxy: %w", err)
 	}
@@ -140,7 +131,7 @@ func (s *Server) Start() error {
 	s.isRunning = true
 	s.mu.Unlock()
 
-	log.Infof("Starting proxy reverse proxy server on %s", s.config.ListenAddress)
+	log.Infof("Starting proxy reverse proxy server on %s", s.config.ReverseProxy.ListenAddress)
 
 	// Start reverse proxy
 	if err := s.proxy.Start(); err != nil {
@@ -185,9 +176,9 @@ func (s *Server) Start() error {
 		&reverseproxy.RouteConfig{
 			ID:           "test",
 			Domain:       "test.netbird.io",
-			PathMappings: map[string]string{"/": "localhost:8080"},
-			Conn:         reverseproxy.NewDefaultConn(),
+			PathMappings: map[string]string{"/": "localhost:8181"},
 			AuthConfig:   testAuthConfig,
+			SetupKey:     "setup-key",
 		}); err != nil {
 		log.Warn("Failed to add test route: ", err)
 	}

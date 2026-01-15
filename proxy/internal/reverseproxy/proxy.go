@@ -49,10 +49,9 @@ func New(config Config) (*Proxy, error) {
 	}
 
 	p := &Proxy{
-		config:          config,
-		routes:          make(map[string]*RouteConfig),
-		isRunning:       false,
-		requestCallback: config.RequestDataCallback,
+		config:    config,
+		routes:    make(map[string]*RouteConfig),
+		isRunning: false,
 	}
 
 	// Initialize OIDC handler if OIDC is configured
@@ -63,6 +62,13 @@ func New(config Config) (*Proxy, error) {
 	}
 
 	return p, nil
+}
+
+// SetRequestCallback sets the callback for request metrics
+func (p *Proxy) SetRequestCallback(callback RequestDataCallback) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.requestCallback = callback
 }
 
 // GetConfig returns the proxy configuration

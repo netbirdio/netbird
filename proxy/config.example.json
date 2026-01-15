@@ -1,5 +1,4 @@
 {
-  "listen_address": ":443",
   "read_timeout": "30s",
   "write_timeout": "30s",
   "idle_timeout": "60s",
@@ -8,20 +7,24 @@
   "grpc_listen_address": ":50051",
   "proxy_id": "proxy-1",
   "enable_grpc": true,
-  "http_listen_address": ":80",
-  "enable_https": false,
-  "tls_email": "your-email@example.com",
-  "cert_cache_dir": "./certs",
-  "oidc_config": {
-    "provider_url": "https://your-oidc-provider.com",
-    "client_id": "your-client-id",
-    "client_secret": "your-client-secret-if-needed",
-    "redirect_url": "http://localhost:80/auth/callback",
-    "scopes": ["openid", "profile", "email"],
-    "jwt_keys_location": "https://your-oidc-provider.com/.well-known/jwks.json",
-    "jwt_issuer": "https://your-oidc-provider.com/",
-    "jwt_audience": ["your-api-identifier-or-client-id"],
-    "jwt_idp_signkey_refresh_enabled": false,
-    "session_cookie_name": "auth_session"
+  "reverse_proxy": {
+    "listen_address": ":443",
+    "management_url": "https://api.netbird.io",
+    "http_listen_address": ":80",
+    "enable_https": false,
+    "tls_email": "your-email@example.com",
+    "cert_cache_dir": "./certs",
+    "oidc_config": {
+      "provider_url": "https://your-oidc-provider.com",
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret-if-needed",
+      "redirect_url": "http://localhost:80/auth/callback",
+      "scopes": ["openid", "profile", "email"],
+      "jwt_keys_location": "https://your-oidc-provider.com/.well-known/jwks.json",
+      "jwt_issuer": "https://your-oidc-provider.com/",
+      "jwt_audience": ["your-api-identifier-or-client-id"],
+      "jwt_idp_signkey_refresh_enabled": false,
+      "session_cookie_name": "auth_session"
+    }
   }
 }

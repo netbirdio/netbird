@@ -10,7 +10,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/netbirdio/netbird/proxy/internal/auth/oidc"
+	"github.com/netbirdio/netbird/proxy/internal/reverseproxy"
 )
 
 var (
@@ -48,9 +48,6 @@ func (d Duration) ToDuration() time.Duration {
 
 // Config holds the configuration for the reverse proxy server
 type Config struct {
-	// ListenAddress is the address the proxy server will listen on (e.g., ":443" or "0.0.0.0:443")
-	ListenAddress string `env:"NB_PROXY_LISTEN_ADDRESS" envDefault:":443" json:"listen_address"`
-
 	// ReadTimeout is the maximum duration for reading the entire request, including the body
 	ReadTimeout time.Duration `env:"NB_PROXY_READ_TIMEOUT" envDefault:"30s" json:"read_timeout"`
 
@@ -76,20 +73,7 @@ type Config struct {
 	EnableGRPC bool `env:"NB_PROXY_ENABLE_GRPC" envDefault:"false" json:"enable_grpc"`
 
 	// Reverse Proxy Configuration
-	// HTTPListenAddress is the address for HTTP (default ":80")
-	HTTPListenAddress string `json:"http_listen_address"`
-
-	// EnableHTTPS enables automatic HTTPS with Let's Encrypt
-	EnableHTTPS bool `json:"enable_https"`
-
-	// TLSEmail is the email for Let's Encrypt registration
-	TLSEmail string `json:"tls_email"`
-
-	// CertCacheDir is the directory to cache certificates (default "./certs")
-	CertCacheDir string `json:"cert_cache_dir"`
-
-	// OIDCConfig is the global OIDC/OAuth configuration for authentication
-	OIDCConfig *oidc.Config `json:"oidc_config,omitempty"`
+	ReverseProxy reverseproxy.Config `json:"reverse_proxy"`
 }
 
 // ParseAndLoad parses configuration from environment variables
@@ -138,11 +122,11 @@ func LoadFromFileOrEnv(configPath string) (Config, error) {
 			return Config{}, fmt.Errorf("failed to load config from file: %w", err)
 		}
 		cfg = fileCfg
-	}
-
-	// Parse environment variables (will override file config with any set env vars)
-	if err := env.Parse(&cfg); err != nil {
-		return Config{}, fmt.Errorf("%w: %s", ErrFailedToParseConfig, err)
+	} else {
+		// Parse environment variables (will override file config with any set env vars)
+		if err := env.Parse(&cfg); err != nil {
+			return Config{}, fmt.Errorf("%w: %s", ErrFailedToParseConfig, err)
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -228,10 +212,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
-	if c.ListenAddress == "" {
-		return errors.New("listen_address is required")
-	}
-
 	validLogLevels := map[string]bool{
 		"debug": true,
 		"info":  true,

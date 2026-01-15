@@ -1,10 +1,10 @@
 package reverseproxy
 
 import (
-	"net"
 	"net/http"
 	"net/http/httputil"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/auth/oidc"
 )
@@ -12,28 +12,28 @@ import (
 // Config holds the reverse proxy configuration
 type Config struct {
 	// ListenAddress is the address to listen on for HTTPS (default ":443")
-	ListenAddress string
+	ListenAddress string `env:"NB_REVERSE_PROXY_LISTEN_ADDRESS" envDefault:":443" json:"listen_address"`
+
+	// ManagementURL is the URL of the management server
+	ManagementURL string `env:"NB_REVERSE_PROXY_MANAGEMENT_URL" json:"management_url"`
 
 	// HTTPListenAddress is the address for HTTP (default ":80")
 	// Used for ACME challenges when HTTPS is enabled, or as main listener when HTTPS is disabled
-	HTTPListenAddress string
+	HTTPListenAddress string `env:"NB_REVERSE_PROXY_HTTP_LISTEN_ADDRESS" envDefault:":80" json:"http_listen_address"`
 
 	// EnableHTTPS enables automatic HTTPS with Let's Encrypt
-	EnableHTTPS bool
+	EnableHTTPS bool `env:"NB_REVERSE_PROXY_ENABLE_HTTPS" envDefault:"false" json:"enable_https"`
 
 	// TLSEmail is the email for Let's Encrypt registration
-	TLSEmail string
+	TLSEmail string `env:"NB_REVERSE_PROXY_TLS_EMAIL" json:"tls_email"`
 
 	// CertCacheDir is the directory to cache certificates (default "./certs")
-	CertCacheDir string
-
-	// RequestDataCallback is called for each proxied request with metrics
-	RequestDataCallback RequestDataCallback
+	CertCacheDir string `env:"NB_REVERSE_PROXY_CERT_CACHE_DIR" envDefault:"./certs" json:"cert_cache_dir"`
 
 	// OIDCConfig is the global OIDC/OAuth configuration for authentication
 	// This is shared across all routes that use Bearer authentication
 	// If nil, routes with Bearer auth will fail to initialize
-	OIDCConfig *oidc.Config
+	OIDCConfig *oidc.Config `json:"oidc_config"`
 }
 
 // RouteConfig defines a routing configuration
@@ -50,10 +50,8 @@ type RouteConfig struct {
 	// Must have at least one entry. Use "/" or "" for the default/catch-all route.
 	PathMappings map[string]string
 
-	// Conn is the network connection to use for this route
-	// This allows routing through specific tunnels (e.g., WireGuard) per route
-	// This connection will be reused for all requests to this route
-	Conn net.Conn
+	SetupKey string
+	nbClient *embed.Client
 
 	// AuthConfig is optional authentication configuration for this route
 	// Configure ONE of: BasicAuth, PIN, or Bearer (JWT/OIDC)

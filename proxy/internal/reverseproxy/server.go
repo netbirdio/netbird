@@ -9,7 +9,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// Start starts the reverse proxy server
+// Start starts the reverse proxy server (non-blocking)
 func (p *Proxy) Start() error {
 	p.mu.Lock()
 	if p.isRunning {
@@ -29,7 +29,7 @@ func (p *Proxy) Start() error {
 	return p.startHTTP(handler)
 }
 
-// startHTTPS starts the proxy with HTTPS and Let's Encrypt
+// startHTTPS starts the proxy with HTTPS and Let's Encrypt (non-blocking)
 func (p *Proxy) startHTTPS(handler http.Handler) error {
 	// Setup autocert manager with dynamic host policy
 	p.autocertManager = &autocert.Manager{
@@ -53,32 +53,36 @@ func (p *Proxy) startHTTPS(handler http.Handler) error {
 		}
 	}()
 
-	// Start HTTPS server
+	// Start HTTPS server in background
 	p.server = &http.Server{
 		Addr:      p.config.ListenAddress,
 		Handler:   handler,
 		TLSConfig: p.autocertManager.TLSConfig(),
 	}
 
-	log.Infof("Starting HTTPS reverse proxy server on %s", p.config.ListenAddress)
-	if err := p.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("HTTPS server failed: %w", err)
-	}
+	go func() {
+		log.Infof("Starting HTTPS reverse proxy server on %s", p.config.ListenAddress)
+		if err := p.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Errorf("HTTPS server failed: %v", err)
+		}
+	}()
 
 	return nil
 }
 
-// startHTTP starts the proxy with HTTP only (no TLS)
+// startHTTP starts the proxy with HTTP only (non-blocking)
 func (p *Proxy) startHTTP(handler http.Handler) error {
 	p.server = &http.Server{
 		Addr:    p.config.HTTPListenAddress,
 		Handler: handler,
 	}
 
-	log.Infof("Starting HTTP reverse proxy server on %s (HTTPS disabled)", p.config.HTTPListenAddress)
-	if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("HTTP server failed: %w", err)
-	}
+	go func() {
+		log.Infof("Starting HTTP reverse proxy server on %s (HTTPS disabled)", p.config.HTTPListenAddress)
+		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Errorf("HTTP server failed: %w", err)
+		}
+	}()
 
 	return nil
 }

@@ -1,8 +1,6 @@
 package reverseproxy
 
 import (
-	"context"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -187,32 +185,15 @@ func (p *Proxy) createProxy(routeConfig *RouteConfig, target string) *httputil.R
 	// Create reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-	// Check if this is a defaultConn (for testing)
-	if dc, ok := routeConfig.Conn.(*defaultConn); ok {
-		// For defaultConn, use its dialer directly
-		proxy.Transport = &http.Transport{
-			DialContext:           dc.dialer.DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		log.Infof("Using default network dialer for route %s (testing mode)", routeConfig.ID)
-	} else {
-		// Configure transport to use the provided connection (WireGuard, etc.)
-		proxy.Transport = &http.Transport{
-			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-				log.Debugf("Using custom connection for route %s to %s", routeConfig.ID, address)
-				return routeConfig.Conn, nil
-			},
-			MaxIdleConns:          1,
-			MaxIdleConnsPerHost:   1,
-			IdleConnTimeout:       0, // Keep alive indefinitely
-			DisableKeepAlives:     false,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		log.Infof("Using custom connection for route %s", routeConfig.ID)
+	// Configure transport to use the provided connection (WireGuard, etc.)
+	proxy.Transport = &http.Transport{
+		DialContext:           routeConfig.nbClient.DialContext,
+		MaxIdleConns:          1,
+		MaxIdleConnsPerHost:   1,
+		IdleConnTimeout:       0, // Keep alive indefinitely
+		DisableKeepAlives:     false,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	// Custom error handler

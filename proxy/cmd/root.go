@@ -52,7 +52,7 @@ func run(cmd *cobra.Command, args []string) error {
 	log.Infof("Starting Netbird Proxy - %s", version.Short())
 	log.Debugf("Full version info: %s", version.String())
 	log.Info("Configuration loaded successfully")
-	log.Infof("Listen Address: %s", config.ListenAddress)
+	log.Infof("Listen Address: %s", config.ReverseProxy.ListenAddress)
 	log.Infof("Log Level: %s", config.LogLevel)
 
 	// Create server instance
