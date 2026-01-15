@@ -420,6 +420,19 @@ func (c *ConnectClient) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) 
 	return syncResponse, nil
 }
 
+// SetLogLevel sets the log level for the firewall manager if the engine is running.
+func (c *ConnectClient) SetLogLevel(level log.Level) {
+	engine := c.Engine()
+	if engine == nil {
+		return
+	}
+
+	fwManager := engine.GetFirewallManager()
+	if fwManager != nil {
+		fwManager.SetLogLevel(level)
+	}
+}
+
 // Status returns the current client status
 func (c *ConnectClient) Status() StatusType {
 	if c == nil {
