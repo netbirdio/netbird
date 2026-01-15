@@ -20,6 +20,7 @@ type Client interface {
 	GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error)
+	GetServerURL() string
 	IsHealthy() bool
 	SyncMeta(sysInfo *system.Info) error
 	Logout() error

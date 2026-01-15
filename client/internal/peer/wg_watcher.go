@@ -34,14 +34,17 @@ type WGWatcher struct {
 	ctxCancel   context.CancelFunc
 	ctxLock     sync.Mutex
 	enabledTime time.Time
+
+	onFirstHandshakeFn func()
 }
 
-func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
+func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump, onFirstHandshakeFn func()) *WGWatcher {
 	return &WGWatcher{
-		log:           log,
-		wgIfaceStater: wgIfaceStater,
-		peerKey:       peerKey,
-		stateDump:     stateDump,
+		log:                log,
+		wgIfaceStater:      wgIfaceStater,
+		peerKey:            peerKey,
+		stateDump:          stateDump,
+		onFirstHandshakeFn: onFirstHandshakeFn,
 	}
 }
 
@@ -100,12 +103,17 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
-				onDisconnectedFn()
+				if onDisconnectedFn != nil {
+					onDisconnectedFn()
+				}
 				return
 			}
 			if lastHandshake.IsZero() {
-				elapsed := handshake.Sub(w.enabledTime).Seconds()
+				elapsed := w.calcElapsed(handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
+				if w.onFirstHandshakeFn != nil {
+					w.onFirstHandshakeFn()
+				}
 			}
 
 			lastHandshake = *handshake
@@ -134,19 +142,19 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 
 	// the current know handshake did not change
 	if handshake.Equal(lastHandshake) {
-		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out: %v", handshake)
 		return nil, false
 	}
 
 	// in case if the machine is suspended, the handshake time will be in the past
 	if handshake.Add(checkPeriod).Before(time.Now()) {
-		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out: %v", handshake)
 		return nil, false
 	}
 
 	// error handling for handshake time in the future
 	if handshake.After(time.Now()) {
-		w.log.Warnf("WireGuard handshake is in the future, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake is in the future: %v", handshake)
 		return nil, false
 	}
 
@@ -163,4 +171,14 @@ func (w *WGWatcher) wgState() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("peer %s not found in WireGuard endpoints", w.peerKey)
 	}
 	return wgState.LastHandshake, nil
+}
+
+// calcElapsed calculates elapsed time since watcher was enabled.
+// The watcher started after the wg configuration happens, because of this need to normalise the negative value
+func (w *WGWatcher) calcElapsed(handshake *time.Time) float64 {
+	elapsed := handshake.Sub(w.enabledTime).Seconds()
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return elapsed
 }

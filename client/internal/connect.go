@@ -22,7 +22,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
-	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -53,7 +52,6 @@ type ConnectClient struct {
 	engineMutex sync.Mutex
 
 	persistSyncResponse bool
-	clientMetrics       *metrics.ClientMetrics
 }
 
 func NewConnectClient(
@@ -61,7 +59,6 @@ func NewConnectClient(
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 	doInitalAutoUpdate bool,
-	clientMetrics *metrics.ClientMetrics,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:                 ctx,
@@ -69,7 +66,6 @@ func NewConnectClient(
 		statusRecorder:      statusRecorder,
 		doInitialAutoUpdate: doInitalAutoUpdate,
 		engineMutex:         sync.Mutex{},
-		clientMetrics:       clientMetrics,
 	}
 }
 
@@ -311,7 +307,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager, c.clientMetrics)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
 		c.engineMutex.Unlock()

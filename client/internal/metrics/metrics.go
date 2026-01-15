@@ -1,32 +1,62 @@
 package metrics
 
 import (
+	"context"
 	"io"
-
-	"github.com/VictoriaMetrics/metrics"
+	"time"
 )
 
-// ClientMetrics holds all client-side metrics
+// metricsImplementation defines the internal interface for metrics implementations
+type metricsImplementation interface {
+	// RecordConnectionStages records connection stage metrics from timestamps
+	RecordConnectionStages(
+		ctx context.Context,
+		connectionType ConnectionType,
+		isReconnection bool,
+		timestamps ConnectionStageTimestamps,
+	)
+
+	// Export exports metrics in Prometheus format
+	Export(w io.Writer) error
+}
+
 type ClientMetrics struct {
-	// ICE negotiation metrics
-	iceNegotiationDuration *metrics.Histogram
+	impl metricsImplementation
+}
+
+// ConnectionStageTimestamps holds timestamps for each connection stage
+type ConnectionStageTimestamps struct {
+	Created            time.Time
+	SemaphoreAcquired  time.Time
+	Signaling          time.Time // First signal sent (initial) or signal received (reconnection)
+	ConnectionReady    time.Time
+	WgHandshakeSuccess time.Time
 }
 
 // NewClientMetrics creates a new ClientMetrics instance
-func NewClientMetrics() *ClientMetrics {
-	return &ClientMetrics{
-		// ICE negotiation metrics
-		iceNegotiationDuration: metrics.NewHistogram(`netbird_client_ice_negotiation_duration_seconds`),
+// If enabled is true, uses an OpenTelemetry implementation
+// If enabled is false, uses a no-op implementation
+func NewClientMetrics(deploymentType DeploymentType, enabled bool) *ClientMetrics {
+	var impl metricsImplementation
+	if !enabled {
+		impl = &noopMetrics{}
+	} else {
+		impl = newOtelMetrics(deploymentType)
 	}
+	return &ClientMetrics{impl: impl}
 }
 
-// RecordICENegotiationDuration records the time taken for ICE negotiation
-func (m *ClientMetrics) RecordICENegotiationDuration(seconds float64) {
-	m.iceNegotiationDuration.Update(seconds)
+// RecordConnectionStages calculates stage durations from timestamps and records them
+func (c *ClientMetrics) RecordConnectionStages(
+	ctx context.Context,
+	connectionType ConnectionType,
+	isReconnection bool,
+	timestamps ConnectionStageTimestamps,
+) {
+	c.impl.RecordConnectionStages(ctx, connectionType, isReconnection, timestamps)
 }
 
-// Export writes all metrics in Prometheus format to the provided writer
-func (m *ClientMetrics) Export(w io.Writer) error {
-	metrics.WritePrometheus(w, true)
-	return nil
+// Export exports metrics to the writer
+func (c *ClientMetrics) Export(w io.Writer) error {
+	return c.impl.Export(w)
 }

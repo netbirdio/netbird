@@ -228,7 +228,13 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager, clientMetrics *metrics.ClientMetrics) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager) *Engine {
+	// Initialize metrics based on deployment type
+	var deploymentType metrics.DeploymentType
+	if mgmClient != nil {
+		deploymentType = metrics.DetermineDeploymentType(mgmClient.GetServerURL())
+	}
+
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -248,7 +254,7 @@ func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signa
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
-		clientMetrics:  clientMetrics,
+		clientMetrics:  metrics.NewClientMetrics(deploymentType, true),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -292,11 +298,6 @@ func (e *Engine) Stop() error {
 
 	if e.updateManager != nil {
 		e.updateManager.Stop()
-	}
-
-	// Update metrics engine status
-	if e.clientMetrics != nil {
-		e.clientMetrics.SetEngineStatus(0) // 0=stopped
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -528,11 +529,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			log.Warnf("WireGuard interface monitor: %s", err)
 		}
 	}()
-
-	// Update metrics engine status
-	if e.clientMetrics != nil {
-		e.clientMetrics.SetEngineStatus(1) // 1=running
-	}
 
 	return nil
 }
@@ -1400,12 +1396,13 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder: e.statusRecorder,
-		Signaler:       e.signaler,
-		IFaceDiscover:  e.mobileDep.IFaceDiscover,
-		RelayManager:   e.relayManager,
-		SrWatcher:      e.srWatcher,
-		Semaphore:      e.connSemaphore,
+		StatusRecorder:  e.statusRecorder,
+		Signaler:        e.signaler,
+		IFaceDiscover:   e.mobileDep.IFaceDiscover,
+		RelayManager:    e.relayManager,
+		SrWatcher:       e.srWatcher,
+		Semaphore:       e.connSemaphore,
+		MetricsRecorder: e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1687,6 +1684,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 // GetFirewallManager returns the firewall manager
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
+}
+
+// GetClientMetrics returns the client metrics
+func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
+	return e.clientMetrics
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
