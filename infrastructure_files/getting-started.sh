@@ -181,6 +181,13 @@ get_bind_address() {
   return 0
 }
 
+get_upstream_host() {
+  # Always return 127.0.0.1 for health checks and upstream targets
+  # Cannot use 0.0.0.0 as a connection target
+  echo "127.0.0.1"
+  return 0
+}
+
 wait_management() {
   set +e
   echo -n "Waiting for Management server to become ready"
@@ -207,12 +214,12 @@ wait_management() {
 
 wait_management_direct() {
   set +e
-  local bind_addr=$(get_bind_address)
+  local upstream_host=$(get_upstream_host)
   echo -n "Waiting for Management server to become ready"
   counter=1
   while true; do
     # Check the embedded IdP endpoint directly (no reverse proxy)
-    if curl -sk -f -o /dev/null "http://${bind_addr}:${MANAGEMENT_HOST_PORT}/oauth2/.well-known/openid-configuration" 2>/dev/null; then
+    if curl -sk -f -o /dev/null "http://${upstream_host}:${MANAGEMENT_HOST_PORT}/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
@@ -927,11 +934,12 @@ EOF
 
 render_nginx_conf() {
   local bind_addr=$(get_bind_address)
-  local dashboard_addr="${bind_addr}:${DASHBOARD_HOST_PORT}"
-  local signal_grpc_addr="${bind_addr}:${SIGNAL_GRPC_PORT}"
-  local signal_ws_addr="${bind_addr}:${SIGNAL_HOST_PORT}"
-  local mgmt_addr="${bind_addr}:${MANAGEMENT_HOST_PORT}"
-  local relay_addr="${bind_addr}:${RELAY_HOST_PORT}"
+  local upstream_host=$(get_upstream_host)
+  local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
+  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
+  local signal_ws_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
   local install_note="# 1. Update SSL certificate paths below
 # 2. Copy to your nginx config directory:
 #    Debian/Ubuntu: /etc/nginx/sites-available/netbird (then symlink to sites-enabled)
@@ -985,9 +993,28 @@ server {
     listen 443 ssl http2;
     server_name $NETBIRD_DOMAIN;
 
-    # TODO: Update with your SSL certificate paths
+    # SSL/TLS Configuration
+    # Update these paths based on your certificate source:
+    #
+    # Let's Encrypt (certbot):
+    #   ssl_certificate /etc/letsencrypt/live/$NETBIRD_DOMAIN/fullchain.pem;
+    #   ssl_certificate_key /etc/letsencrypt/live/$NETBIRD_DOMAIN/privkey.pem;
+    #
+    # Let's Encrypt (acme.sh):
+    #   ssl_certificate /root/.acme.sh/$NETBIRD_DOMAIN/fullchain.cer;
+    #   ssl_certificate_key /root/.acme.sh/$NETBIRD_DOMAIN/$NETBIRD_DOMAIN.key;
+    #
+    # Custom certificates:
+    #   ssl_certificate /etc/ssl/certs/$NETBIRD_DOMAIN.crt;
+    #   ssl_certificate_key /etc/ssl/private/$NETBIRD_DOMAIN.key;
+    #
     ssl_certificate /path/to/your/fullchain.pem;
     ssl_certificate_key /path/to/your/privkey.pem;
+
+    # Recommended SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
 
     # Required for long-lived gRPC connections
     client_header_timeout 1d;
@@ -1070,11 +1097,12 @@ EOF
 
 render_external_caddyfile() {
   local bind_addr=$(get_bind_address)
-  local dashboard_addr="${bind_addr}:${DASHBOARD_HOST_PORT}"
-  local signal_grpc_addr="${bind_addr}:${SIGNAL_GRPC_PORT}"
-  local signal_ws_addr="${bind_addr}:${SIGNAL_HOST_PORT}"
-  local mgmt_addr="${bind_addr}:${MANAGEMENT_HOST_PORT}"
-  local relay_addr="${bind_addr}:${RELAY_HOST_PORT}"
+  local upstream_host=$(get_upstream_host)
+  local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
+  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
+  local signal_ws_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
   local install_note="# Add this block to your existing Caddyfile and reload Caddy"
 
   # If running in Docker network, use container names
@@ -1125,10 +1153,11 @@ EOF
 
 render_npm_advanced_config() {
   local bind_addr=$(get_bind_address)
-  local relay_addr="${bind_addr}:${RELAY_HOST_PORT}"
-  local signal_addr="${bind_addr}:${SIGNAL_HOST_PORT}"
-  local signal_grpc_addr="${bind_addr}:${SIGNAL_GRPC_PORT}"
-  local mgmt_addr="${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  local upstream_host=$(get_upstream_host)
+  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+  local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
+  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
+  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
 
   # If external network is specified, use container names instead of host addresses
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
@@ -1276,25 +1305,30 @@ print_post_setup_instructions() {
       echo ""
       echo "Generated: nginx-netbird.conf"
       echo ""
+      echo "IMPORTANT: Unlike Caddy, Nginx requires manual TLS certificate setup."
+      echo "You'll need to obtain SSL/TLS certificates and configure the paths in the"
+      echo "generated config file. The config includes examples for common certificate sources."
+      echo ""
       if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
         echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
         echo "The config uses container names for upstream servers."
         echo ""
         echo "$MSG_NEXT_STEPS"
-        echo "  1. Edit nginx-netbird.conf and update SSL certificate paths"
-        echo "  2. Include the config in your Nginx container's configuration"
-        echo "  3. Reload Nginx"
+        echo "  1. Ensure your Nginx container has access to SSL certificates"
+        echo "     (mount certificate directory as volume if needed)"
+        echo "  2. Edit nginx-netbird.conf and update SSL certificate paths"
+        echo "     The config includes examples for certbot, acme.sh, and custom certs"
+        echo "  3. Include the config in your Nginx container's configuration"
+        echo "  4. Reload Nginx"
       else
         echo "$MSG_NEXT_STEPS"
-        echo "  1. Edit nginx-netbird.conf and update SSL certificate paths"
-        echo "  2. Copy to your nginx config directory:"
-        echo "     # Debian/Ubuntu:"
-        echo "     sudo cp nginx-netbird.conf /etc/nginx/sites-available/netbird"
-        echo "     sudo ln -s /etc/nginx/sites-available/netbird /etc/nginx/sites-enabled/"
-        echo "     # RHEL/CentOS/Fedora:"
-        echo "     sudo cp nginx-netbird.conf /etc/nginx/conf.d/netbird.conf"
-        echo "  3. Test and reload:"
-        echo "     sudo nginx -t && sudo systemctl reload nginx"
+        echo "  1. Obtain SSL/TLS certificates (Let's Encrypt recommended)"
+        echo "  2. Edit nginx-netbird.conf and update certificate paths"
+        echo "  3. Install to /etc/nginx/sites-available/ (Debian) or /etc/nginx/conf.d/ (RHEL)"
+        echo "  4. Test and reload: nginx -t && systemctl reload nginx"
+        echo ""
+        echo "For detailed TLS setup instructions, see:"
+        echo "https://docs.netbird.io/selfhosted/reverse-proxy#tls-certificate-setup-for-nginx"
         echo ""
         echo "Container ports (bound to ${bind_addr}):"
         echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
