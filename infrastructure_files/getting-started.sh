@@ -1308,8 +1308,6 @@ print_traefik_instructions() {
   echo "  Entrypoint: $TRAEFIK_ENTRYPOINT"
   if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
     echo "  Certificate resolver: $TRAEFIK_CERTRESOLVER"
-  else
-    echo "  Network: ${TRAEFIK_EXTERNAL_NETWORK:-netbird}"
   fi
   if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
     echo "  Network: $TRAEFIK_EXTERNAL_NETWORK (external)"
@@ -1375,6 +1373,7 @@ print_nginx_instructions() {
 
 print_npm_instructions() {
   local bind_addr=$(get_bind_address)
+  local upstream_host=$(get_upstream_host)
   echo ""
   echo "$MSG_SEPARATOR"
   echo "  NGINX PROXY MANAGER SETUP"
@@ -1406,7 +1405,7 @@ print_npm_instructions() {
     echo ""
     echo "In NPM, create a Proxy Host:"
     echo "  Domain: $NETBIRD_DOMAIN"
-    echo "  Forward Hostname/IP: ${bind_addr}"
+    echo "  Forward Hostname/IP: ${upstream_host}"
     echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
     echo "  Block Common Exploits: enabled"
     echo ""
@@ -1452,6 +1451,7 @@ print_external_caddy_instructions() {
 
 print_manual_instructions() {
   local bind_addr=$(get_bind_address)
+  local upstream_host=$(get_upstream_host)
   echo ""
   echo "$MSG_SEPARATOR"
   echo "  MANUAL REVERSE PROXY SETUP"
@@ -1465,28 +1465,28 @@ print_manual_instructions() {
   echo ""
   echo "Configure your reverse proxy with these routes:"
   echo ""
-  echo "  /relay*                          -> ${bind_addr}:${RELAY_HOST_PORT}"
+  echo "  /relay*                          -> ${upstream_host}:${RELAY_HOST_PORT}"
   echo "    (HTTP with WebSocket upgrade)"
   echo ""
-  echo "  /ws-proxy/signal*                -> ${bind_addr}:${SIGNAL_HOST_PORT}"
+  echo "  /ws-proxy/signal*                -> ${upstream_host}:${SIGNAL_HOST_PORT}"
   echo "    (HTTP with WebSocket upgrade)"
   echo ""
-  echo "  /signalexchange.SignalExchange/* -> ${bind_addr}:${SIGNAL_GRPC_PORT}"
+  echo "  /signalexchange.SignalExchange/* -> ${upstream_host}:${SIGNAL_GRPC_PORT}"
   echo "    (gRPC/h2c - plaintext HTTP/2)"
   echo ""
-  echo "  /api/*                           -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "  /api/*                           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (HTTP)"
   echo ""
-  echo "  /ws-proxy/management*            -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "  /ws-proxy/management*            -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (HTTP with WebSocket upgrade)"
   echo ""
-  echo "  /management.ManagementService/*  -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "  /management.ManagementService/*  -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (gRPC/h2c - plaintext HTTP/2)"
   echo ""
-  echo "  /oauth2/*                        -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "  /oauth2/*                        -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (HTTP - embedded IdP)"
   echo ""
-  echo "  /*                               -> ${bind_addr}:${DASHBOARD_HOST_PORT}"
+  echo "  /*                               -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
   echo "    (HTTP - catch-all for dashboard)"
   echo ""
   echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
