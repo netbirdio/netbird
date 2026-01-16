@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package management;
+
+option go_package = "/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// ProxyService - Management is the SERVER, Proxy is the CLIENT
+// Proxy initiates connection to management
+service ProxyService {
+  // Bidirectional stream for proxy-management communication
+  rpc Stream(stream ProxyMessage) returns (stream ManagementMessage);
+}
+
+// Messages FROM Proxy TO Management
+message ProxyMessage {
+  oneof payload {
+    ProxyHello hello = 1;           // First message on connect
+    ProxyRequestData request_data = 2; // Real-time access logs
+  }
+}
+
+// Proxy identification on connect
+message ProxyHello {
+  string proxy_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp started_at = 3;
+}
+
+// Access log from proxy to management
+message ProxyRequestData {
+  google.protobuf.Timestamp timestamp = 1;
+  string service_id = 2;
+  string host = 3;
+  string path = 4;
+  int64 duration_ms = 5;
+  string method = 6;
+  int32 response_code = 7;
+  string source_ip = 8;
+  string auth_mechanism = 9;
+  string user_id = 10;
+  bool auth_success = 11;
+}
+
+// Messages FROM Management TO Proxy
+message ManagementMessage {
+  oneof payload {
+    ServicesSnapshot snapshot = 1;   // Full snapshot on initial connect
+    ServiceUpdate update = 2;         // Incremental service update
+  }
+}
+
+// Full snapshot of all services for this proxy
+message ServicesSnapshot {
+  repeated ExposedServiceConfig services = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Incremental service update
+message ServiceUpdate {
+  enum UpdateType {
+    CREATED = 0;
+    UPDATED = 1;
+    REMOVED = 2;
+  }
+  UpdateType type = 1;
+  ExposedServiceConfig service = 2;  // Set for CREATED and UPDATED
+  string service_id = 3;              // Service ID (always set)
+}
+
+// Exposed service configuration
+message ExposedServiceConfig {
+  string id = 1;
+  string domain = 2;
+  map<string, string> path_mappings = 3;  // path -> target
+  string setup_key = 4;
+  AuthConfig auth = 5;
+}
+
+// Authentication configuration
+message AuthConfig {
+  oneof auth_type {
+    BasicAuthConfig basic_auth = 1;
+    PinAuthConfig pin_auth = 2;
+    BearerAuthConfig bearer_auth = 3;
+  }
+}
+
+message BasicAuthConfig {
+  string username = 1;
+  string password = 2;
+}
+
+message PinAuthConfig {
+  string pin = 1;
+  string header = 2;
+}
+
+message BearerAuthConfig {
+  bool enabled = 1;
+}
