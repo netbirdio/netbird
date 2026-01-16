@@ -36,6 +36,8 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
+  - name: Services
+    description: Interact with and view information about exposed services.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
 components:
@@ -1905,7 +1907,8 @@ components:
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
                   "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable", "peer.login.expire",
-                  "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
+                  "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete",
+                  "service.create", "service.update", "service.delete" ]
           example: route.add
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -2428,6 +2431,147 @@ components:
         - issuer
         - client_id
         - client_secret
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Service ID
+        name:
+          type: string
+          description: Service name
+        description:
+          type: string
+          description: Service description
+        domain:
+          type: string
+          description: Domain for the service
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        distribution_groups:
+          type: array
+          items:
+            type: string
+          description: List of group IDs that can access this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+        exposed:
+          type: boolean
+          description: Whether the service is exposed
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+      required:
+        - id
+        - name
+        - domain
+        - targets
+        - distribution_groups
+        - enabled
+        - exposed
+    ServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Service name
+        description:
+          type: string
+          description: Service description
+        domain:
+          type: string
+          description: Domain for the service
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        distribution_groups:
+          type: array
+          items:
+            type: string
+          description: List of group IDs that can access this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+          default: true
+        exposed:
+          type: boolean
+          description: Whether the service is exposed
+          default: false
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+      required:
+        - name
+        - domain
+        - targets
+        - distribution_groups
+    ServiceTarget:
+      type: object
+      properties:
+        path:
+          type: string
+          description: URL path prefix for this target
+        host:
+          type: string
+          description: Backend host:port for this target
+        enabled:
+          type: boolean
+          description: Whether this target is enabled
+      required:
+        - path
+        - host
+        - enabled
+    ServiceAuthConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [basic, pin, bearer]
+          description: Authentication type
+        basic_auth:
+          $ref: '#/components/schemas/BasicAuthConfig'
+        pin_auth:
+          $ref: '#/components/schemas/PINAuthConfig'
+        bearer_auth:
+          $ref: '#/components/schemas/BearerAuthConfig'
+      required:
+        - type
+    BasicAuthConfig:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Basic auth username
+        password:
+          type: string
+          description: Basic auth password
+      required:
+        - username
+        - password
+    PINAuthConfig:
+      type: object
+      properties:
+        pin:
+          type: string
+          description: PIN value
+        header:
+          type: string
+          description: HTTP header name for PIN
+      required:
+        - pin
+        - header
+    BearerAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether bearer auth is enabled
+      required:
+        - enabled
     InstanceStatus:
       type: object
       description: Instance status information
@@ -5627,5 +5771,152 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/services:
+    get:
+      summary: List all Services
+      description: Returns a list of all exposed services
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Service
+      description: Creates a new exposed service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New service request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/services/{serviceId}:
+    get:
+      summary: Retrieve a Service
+      description: Get information about a specific service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: A Service object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Service
+      description: Update an existing service configuration
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      requestBody:
+        description: Service update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Service
+      description: Delete an existing service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: Service deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"

@@ -17,6 +17,7 @@ const (
 	SetupKeys         Module = "setup_keys"
 	Pats              Module = "pats"
 	IdentityProviders Module = "identity_providers"
+	Services          Module = "services"
 )
 
 var All = map[Module]struct{}{

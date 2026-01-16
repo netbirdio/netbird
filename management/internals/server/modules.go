@@ -8,6 +8,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/services"
+	nbservices "github.com/netbirdio/netbird/management/internals/modules/services/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -172,5 +174,11 @@ func (s *BaseServer) ZonesManager() zones.Manager {
 func (s *BaseServer) RecordsManager() records.Manager {
 	return Create(s, func() records.Manager {
 		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+	})
+}
+
+func (s *BaseServer) ServiceManager() services.Manager {
+	return Create(s, func() services.Manager {
+		return nbservices.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
 	})
 }

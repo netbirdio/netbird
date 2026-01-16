@@ -193,6 +193,13 @@ const (
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
+// Defines values for ServiceAuthConfigType.
+const (
+	ServiceAuthConfigTypeBasic  ServiceAuthConfigType = "basic"
+	ServiceAuthConfigTypeBearer ServiceAuthConfigType = "bearer"
+	ServiceAuthConfigTypePin    ServiceAuthConfigType = "pin"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -366,6 +373,21 @@ type AvailablePorts struct {
 
 	// Udp Number of available UDP ports left on the ingress peer
 	Udp int `json:"udp"`
+}
+
+// BasicAuthConfig defines model for BasicAuthConfig.
+type BasicAuthConfig struct {
+	// Password Basic auth password
+	Password string `json:"password"`
+
+	// Username Basic auth username
+	Username string `json:"username"`
+}
+
+// BearerAuthConfig defines model for BearerAuthConfig.
+type BearerAuthConfig struct {
+	// Enabled Whether bearer auth is enabled
+	Enabled bool `json:"enabled"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -1125,6 +1147,15 @@ type OSVersionCheck struct {
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
 }
 
+// PINAuthConfig defines model for PINAuthConfig.
+type PINAuthConfig struct {
+	// Header HTTP header name for PIN
+	Header string `json:"header"`
+
+	// Pin PIN value
+	Pin string `json:"pin"`
+}
+
 // Peer defines model for Peer.
 type Peer struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
@@ -1785,6 +1816,86 @@ type RulePortRange struct {
 	Start int `json:"start"`
 }
 
+// Service defines model for Service.
+type Service struct {
+	Auth *ServiceAuthConfig `json:"auth,omitempty"`
+
+	// Description Service description
+	Description *string `json:"description,omitempty"`
+
+	// DistributionGroups List of group IDs that can access this service
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Exposed Whether the service is exposed
+	Exposed bool `json:"exposed"`
+
+	// Id Service ID
+	Id string `json:"id"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceAuthConfig defines model for ServiceAuthConfig.
+type ServiceAuthConfig struct {
+	BasicAuth  *BasicAuthConfig  `json:"basic_auth,omitempty"`
+	BearerAuth *BearerAuthConfig `json:"bearer_auth,omitempty"`
+	PinAuth    *PINAuthConfig    `json:"pin_auth,omitempty"`
+
+	// Type Authentication type
+	Type ServiceAuthConfigType `json:"type"`
+}
+
+// ServiceAuthConfigType Authentication type
+type ServiceAuthConfigType string
+
+// ServiceRequest defines model for ServiceRequest.
+type ServiceRequest struct {
+	Auth *ServiceAuthConfig `json:"auth,omitempty"`
+
+	// Description Service description
+	Description *string `json:"description,omitempty"`
+
+	// DistributionGroups List of group IDs that can access this service
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Exposed Whether the service is exposed
+	Exposed *bool `json:"exposed,omitempty"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceTarget defines model for ServiceTarget.
+type ServiceTarget struct {
+	// Enabled Whether this target is enabled
+	Enabled bool `json:"enabled"`
+
+	// Host Backend host:port for this target
+	Host string `json:"host"`
+
+	// Path URL path prefix for this target
+	Path string `json:"path"`
+}
+
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
@@ -2245,6 +2356,12 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
+
+// PostApiServicesJSONRequestBody defines body for PostApiServices for application/json ContentType.
+type PostApiServicesJSONRequestBody = ServiceRequest
+
+// PutApiServicesServiceIdJSONRequestBody defines body for PutApiServicesServiceId for application/json ContentType.
+type PutApiServicesServiceIdJSONRequestBody = ServiceRequest
 
 // PostApiSetupJSONRequestBody defines body for PostApiSetup for application/json ContentType.
 type PostApiSetupJSONRequestBody = SetupRequest

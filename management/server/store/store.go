@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/services"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -226,6 +227,13 @@ type Store interface {
 	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
 	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
 	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
+
+	CreateService(ctx context.Context, service *services.Service) error
+	UpdateService(ctx context.Context, service *services.Service) error
+	DeleteService(ctx context.Context, accountID, serviceID string) error
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*services.Service, error)
+	GetServiceByDomain(ctx context.Context, accountID, domain string) (*services.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*services.Service, error)
 }
 
 const (

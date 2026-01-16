@@ -195,6 +195,10 @@ const (
 	DNSRecordUpdated Activity = 100
 	DNSRecordDeleted Activity = 101
 
+	ServiceCreated Activity = 102
+	ServiceUpdated Activity = 103
+	ServiceDeleted Activity = 104
+
 	AccountDeleted Activity = 99999
 )
 
@@ -319,6 +323,10 @@ var activityMap = map[Activity]Code{
 	DNSRecordCreated: {"DNS zone record created", "dns.zone.record.create"},
 	DNSRecordUpdated: {"DNS zone record updated", "dns.zone.record.update"},
 	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
+
+	ServiceCreated: {"Service created", "service.create"},
+	ServiceUpdated: {"Service updated", "service.update"},
+	ServiceDeleted: {"Service deleted", "service.delete"},
 }
 
 // StringCode returns a string code of the activity

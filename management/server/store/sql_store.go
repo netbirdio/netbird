@@ -27,6 +27,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/services"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -125,7 +126,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&zones.Zone{}, &records.Record{},
+		&zones.Zone{}, &records.Record{}, &services.Service{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -4362,4 +4363,89 @@ func (s *SqlStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID s
 	}
 
 	return nil
+}
+
+func (s *SqlStore) CreateService(ctx context.Context, service *services.Service) error {
+	result := s.db.Create(service)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create service to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create service to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateService(ctx context.Context, service *services.Service) error {
+	result := s.db.Select("*").Save(service)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update service to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update service to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
+	result := s.db.Delete(&services.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete service from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "service %s not found", serviceID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*services.Service, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var service *services.Service
+	result := tx.Take(&service, accountAndIDQueryCondition, accountID, serviceID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service %s not found", serviceID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get service from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service from store")
+	}
+
+	return service, nil
+}
+
+func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*services.Service, error) {
+	var service *services.Service
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get service by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service by domain from store")
+	}
+
+	return service, nil
+}
+
+func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*services.Service, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var servicesList []*services.Service
+	result := tx.Find(&servicesList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	return servicesList, nil
 }
