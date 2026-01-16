@@ -15,8 +15,6 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
-var zeroKey wgtypes.Key
-
 type KernelConfigurer struct {
 	deviceName string
 }
@@ -46,6 +44,12 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, c.deviceName, port)
 	}
 	return nil
+}
+
+// ConfigureDevice applies a wgtypes.Config directly, allowing full control
+// over peer configuration including UpdateOnly semantics.
+func (c *KernelConfigurer) ConfigureDevice(config wgtypes.Config) error {
+	return c.configure(config)
 }
 
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
@@ -279,7 +283,7 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 			TxBytes:       p.TransmitBytes,
 			RxBytes:       p.ReceiveBytes,
 			LastHandshake: p.LastHandshakeTime,
-			PresharedKey:  p.PresharedKey != zeroKey,
+			PresharedKey:  [32]byte(p.PresharedKey),
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint

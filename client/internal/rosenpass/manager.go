@@ -34,6 +34,7 @@ type Manager struct {
 	server       *rp.Server
 	lock         sync.Mutex
 	port         int
+	wgIface      PresharedKeySetter
 }
 
 // NewManager creates a new Rosenpass manager
@@ -109,7 +110,13 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey, m.ifaceName)
+
+	m.lock.Lock()
+	m.rpWgHandler = NewNetbirdHandler(m.preSharedKey)
+	if m.wgIface != nil {
+		m.rpWgHandler.SetInterface(m.wgIface)
+	}
+	m.lock.Unlock()
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
@@ -170,6 +177,20 @@ func (m *Manager) Close() error {
 		m.server = nil
 	}
 	return nil
+}
+
+// SetInterface sets the WireGuard interface for the rosenpass handler.
+// This can be called before or after Run() - the interface will be stored
+// and passed to the handler when it's created or updated immediately if
+// already running.
+func (m *Manager) SetInterface(iface PresharedKeySetter) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.wgIface = iface
+	if m.rpWgHandler != nil {
+		m.rpWgHandler.SetInterface(iface)
+	}
 }
 
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
