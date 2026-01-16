@@ -195,10 +195,11 @@ type lookupResult struct {
 func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) lookupResult {
 	d.mu.RLock()
 	records, found := d.records[question]
-
+	usingWildcard := false
+	wildQuestion := transformToWildcard(question)
 	if !found && supportsWildcard(question.Qtype) {
-		wildQuestion := transformToWildcard(question)
 		records, found = d.records[wildQuestion]
+		usingWildcard = found
 	}
 
 	if !found {
@@ -221,11 +222,15 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	// if there's more than one record, rotate them (round-robin)
 	if len(recordsCopy) > 1 {
 		d.mu.Lock()
-		records = d.records[question]
+		q := question
+		if usingWildcard {
+			q = wildQuestion
+		}
+		records = d.records[q]
 		if len(records) > 1 {
 			first := records[0]
 			records = append(records[1:], first)
-			d.records[question] = records
+			d.records[q] = records
 		}
 		d.mu.Unlock()
 	}
