@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -98,7 +99,6 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	resourcesManagerMock := resources.NewManagerMock()
 	routersManagerMock := routers.NewManagerMock()
 	groupsManagerMock := groups.NewManagerMock()
-	peersManager := peers.NewManager(store, permissionsManager)
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 

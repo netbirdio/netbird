@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -30,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/version"
 )
 
