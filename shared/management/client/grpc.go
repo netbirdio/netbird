@@ -186,18 +186,23 @@ func (c *GrpcClient) handleJobStream(
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
 		if err != nil {
 			c.notifyDisconnected(err)
-			s, _ := gstatus.FromError(err)
-			switch s.Code() {
-			case codes.PermissionDenied:
-				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			case codes.Canceled:
-				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-				return err
-			case codes.Unimplemented:
-				log.Warn("Job feature is not supported by the current management server version. " +
-					"Please update the management service to use this feature.")
-				return nil
-			default:
+			if s, ok := gstatus.FromError(err); ok {
+				switch s.Code() {
+				case codes.PermissionDenied:
+					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+				case codes.Canceled:
+					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+					return err
+				case codes.Unimplemented:
+					log.Warn("Job feature is not supported by the current management server version. " +
+						"Please update the management service to use this feature.")
+					return nil
+				default:
+					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+					return err
+				}
+			} else {
+				// non-gRPC error
 				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 				return err
 			}
@@ -323,14 +328,19 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
-		s, _ := gstatus.FromError(err)
-		switch s.Code() {
-		case codes.PermissionDenied:
-			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-		case codes.Canceled:
-			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-			return nil
-		default:
+		if s, ok := gstatus.FromError(err); ok {
+			switch s.Code() {
+			case codes.PermissionDenied:
+				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return nil
+			default:
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
+			}
+		} else {
+			// non-gRPC error
 			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
