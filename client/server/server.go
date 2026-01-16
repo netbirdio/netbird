@@ -1358,6 +1358,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
 	blockLANAccess := cfg.BlockLANAccess
+	disableFirewall := cfg.DisableFirewall
 
 	enableSSHRoot := false
 	if cfg.EnableSSHRoot != nil {
@@ -1414,6 +1415,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
+		DisableFirewall:               disableFirewall,
 	}, nil
 }
 
