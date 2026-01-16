@@ -798,15 +798,15 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		"redirectURI":          redirectURI,
 		"scopes":               []string{"openid", "profile", "email"},
 		"insecureEnableGroups": true,
+		//some providers don't return email verified, so we need to skip it if not present (e.g., Entra, Okta, Duo)
+		"insecureSkipEmailVerified": true,
 	}
 	switch cfg.Type {
 	case "zitadel":
 		oidcConfig["getUserInfo"] = true
 	case "entra":
-		oidcConfig["insecureSkipEmailVerified"] = true
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
 	case "okta":
-		oidcConfig["insecureSkipEmailVerified"] = true
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "pocketid":
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
