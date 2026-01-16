@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -13,13 +12,13 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/auth/methods"
 	"github.com/netbirdio/netbird/proxy/internal/reverseproxy"
 	grpcpkg "github.com/netbirdio/netbird/proxy/pkg/grpc"
-	pb "github.com/netbirdio/netbird/proxy/pkg/grpc/proto"
+	pb "github.com/netbirdio/netbird/shared/management/proto"
 )
 
-// Server represents the reverse proxy server with integrated gRPC control server
+// Server represents the reverse proxy server with integrated gRPC client
 type Server struct {
 	config     Config
-	grpcServer *grpcpkg.Server
+	grpcClient *grpcpkg.Client
 	proxy      *reverseproxy.Proxy
 
 	mu          sync.RWMutex
@@ -69,7 +68,6 @@ type UpstreamConfig struct {
 
 // NewServer creates a new reverse proxy server instance
 func NewServer(config Config) (*Server, error) {
-	// Validate config
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -86,40 +84,40 @@ func NewServer(config Config) (*Server, error) {
 		exposedServices: make(map[string]*ExposedServiceConfig),
 	}
 
-	// Create reverse proxy using embedded config
 	proxy, err := reverseproxy.New(config.ReverseProxy)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create reverse proxy: %w", err)
-	}
-
-	// Set request data callback
-	proxy.SetRequestCallback(func(data reverseproxy.RequestData) {
-		log.WithFields(log.Fields{
-			"service_id":     data.ServiceID,
-			"host":           data.Host,
-			"method":         data.Method,
-			"path":           data.Path,
-			"response_code":  data.ResponseCode,
-			"duration_ms":    data.DurationMs,
-			"source_ip":      data.SourceIP,
-			"auth_mechanism": data.AuthMechanism,
-			"user_id":        data.UserID,
-			"auth_success":   data.AuthSuccess,
-		}).Info("Access log received")
-	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reverse proxy: %w", err)
 	}
 	server.proxy = proxy
 
-	// Create gRPC server if enabled
-	if config.EnableGRPC && config.GRPCListenAddress != "" {
-		grpcConfig := grpcpkg.Config{
-			ListenAddr: config.GRPCListenAddress,
-			Handler:    server, // Server implements StreamHandler interface
-		}
-		server.grpcServer = grpcpkg.NewServer(grpcConfig)
+	if config.ReverseProxy.ManagementURL == "" {
+		return nil, fmt.Errorf("management URL is required")
 	}
+
+	grpcClient := grpcpkg.NewClient(grpcpkg.ClientConfig{
+		ProxyID:              config.ProxyID,
+		ManagementURL:        config.ReverseProxy.ManagementURL,
+		ServiceUpdateHandler: server.handleServiceUpdate,
+	})
+	server.grpcClient = grpcClient
+
+	// Set request data callback to send access logs to management
+	proxy.SetRequestCallback(func(data reverseproxy.RequestData) {
+		accessLog := &pb.ProxyRequestData{
+			Timestamp:     timestamppb.Now(),
+			ServiceId:     data.ServiceID,
+			Host:          data.Host,
+			Path:          data.Path,
+			DurationMs:    data.DurationMs,
+			Method:        data.Method,
+			ResponseCode:  data.ResponseCode,
+			SourceIp:      data.SourceIP,
+			AuthMechanism: data.AuthMechanism,
+			UserId:        data.UserID,
+			AuthSuccess:   data.AuthSuccess,
+		}
+		server.grpcClient.SendAccessLog(accessLog)
+	})
 
 	return server, nil
 }
@@ -136,7 +134,6 @@ func (s *Server) Start() error {
 
 	log.Infof("Starting proxy reverse proxy server on %s", s.config.ReverseProxy.ListenAddress)
 
-	// Start reverse proxy
 	if err := s.proxy.Start(); err != nil {
 		s.mu.Lock()
 		s.isRunning = false
@@ -144,47 +141,20 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start reverse proxy: %w", err)
 	}
 
-	// Start gRPC server if configured
-	if s.grpcServer != nil {
+	s.mu.Lock()
+	s.grpcRunning = true
+	s.mu.Unlock()
+
+	if err := s.grpcClient.Start(); err != nil {
 		s.mu.Lock()
-		s.grpcRunning = true
+		s.isRunning = false
+		s.grpcRunning = false
 		s.mu.Unlock()
-
-		go func() {
-			log.Infof("Starting gRPC control server on %s", s.config.GRPCListenAddress)
-			if err := s.grpcServer.Start(); err != nil {
-				log.Errorf("gRPC server error: %v", err)
-				s.mu.Lock()
-				s.grpcRunning = false
-				s.mu.Unlock()
-			}
-		}()
-
-		// Send started event
-		time.Sleep(100 * time.Millisecond) // Give gRPC server time to start
-		s.sendProxyEvent(pb.ProxyEvent_STARTED, "Proxy server started")
+		return fmt.Errorf("failed to start gRPC client: %w", err)
 	}
 
-	// Enable Bearer authentication for the test route
-	// OIDC configuration is set globally in the proxy config above
-	testAuthConfig := &auth.Config{
-		Bearer: &methods.BearerConfig{
-			Enabled: true,
-		},
-	}
-
-	// Register main protected route with auth
-	// The /auth/callback endpoint is automatically handled globally for all routes
-	if err := s.proxy.AddRoute(
-		&reverseproxy.RouteConfig{
-			ID:           "test",
-			Domain:       "test.netbird.io",
-			PathMappings: map[string]string{"/": "100.116.118.156:8181"},
-			AuthConfig:   testAuthConfig,
-			SetupKey:     "88B2382A-93D2-47A9-A80F-D0055D741636",
-		}); err != nil {
-		log.Warn("Failed to add test route: ", err)
-	}
+	log.Info("Proxy started and connected to management")
+	log.Info("Waiting for service configurations from management...")
 
 	<-s.shutdownCtx.Done()
 	return nil
@@ -208,17 +178,12 @@ func (s *Server) Stop(ctx context.Context) error {
 		defer cancel()
 	}
 
-	// Send stopped event before shutdown
-	if s.grpcServer != nil && s.grpcRunning {
-		s.sendProxyEvent(pb.ProxyEvent_STOPPED, "Proxy server shutting down")
-	}
+	var proxyErr, grpcErr error
 
-	var caddyErr, grpcErr error
-
-	// Shutdown gRPC server first
-	if s.grpcServer != nil && s.grpcRunning {
-		if err := s.grpcServer.Stop(ctx); err != nil {
-			grpcErr = fmt.Errorf("gRPC server shutdown failed: %w", err)
+	// Stop gRPC client first
+	if s.grpcRunning {
+		if err := s.grpcClient.Stop(); err != nil {
+			grpcErr = fmt.Errorf("gRPC client shutdown failed: %w", err)
 			log.Error(grpcErr)
 		}
 		s.mu.Lock()
@@ -228,16 +193,16 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	// Shutdown reverse proxy
 	if err := s.proxy.Stop(ctx); err != nil {
-		caddyErr = fmt.Errorf("reverse proxy shutdown failed: %w", err)
-		log.Error(caddyErr)
+		proxyErr = fmt.Errorf("reverse proxy shutdown failed: %w", err)
+		log.Error(proxyErr)
 	}
 
 	s.mu.Lock()
 	s.isRunning = false
 	s.mu.Unlock()
 
-	if caddyErr != nil {
-		return caddyErr
+	if proxyErr != nil {
+		return proxyErr
 	}
 	if grpcErr != nil {
 		return grpcErr
@@ -259,119 +224,173 @@ func (s *Server) GetConfig() Config {
 	return s.config
 }
 
-// GetStats returns a copy of current statistics
-func (s *Server) GetStats() *pb.ProxyStats {
-	s.stats.mu.RLock()
-	defer s.stats.mu.RUnlock()
-
-	return &pb.ProxyStats{
-		Timestamp:         timestamppb.Now(),
-		TotalRequests:     s.stats.totalRequests,
-		ActiveConnections: s.stats.activeConns,
-		BytesSent:         s.stats.bytesSent,
-		BytesReceived:     s.stats.bytesReceived,
-	}
-}
-
-// StreamHandler interface implementation
-
-// HandleControlEvent handles incoming control events
-// This is where ExposedService events will be routed
-func (s *Server) HandleControlEvent(ctx context.Context, event *pb.ControlEvent) error {
+// handleServiceUpdate processes service updates from management
+func (s *Server) handleServiceUpdate(update *pb.ServiceUpdate) error {
 	log.WithFields(log.Fields{
-		"event_id": event.EventId,
-		"message":  event.Message,
-	}).Info("Received control event")
+		"service_id": update.ServiceId,
+		"type":       update.Type.String(),
+	}).Info("Received service update from management")
 
-	// TODO: Parse event type and route to appropriate handler
-	// if event.Type == "ExposedServiceCreated" {
-	//     return s.handleExposedServiceCreated(ctx, event)
-	// } else if event.Type == "ExposedServiceUpdated" {
-	//     return s.handleExposedServiceUpdated(ctx, event)
-	// } else if event.Type == "ExposedServiceRemoved" {
-	//     return s.handleExposedServiceRemoved(ctx, event)
-	// }
+	switch update.Type {
+	case pb.ServiceUpdate_CREATED:
+		if update.Service == nil {
+			return fmt.Errorf("service config is nil for CREATED update")
+		}
+		return s.addServiceFromProto(update.Service)
 
-	return nil
-}
+	case pb.ServiceUpdate_UPDATED:
+		if update.Service == nil {
+			return fmt.Errorf("service config is nil for UPDATED update")
+		}
+		return s.updateServiceFromProto(update.Service)
 
-// HandleControlCommand handles incoming control commands
-func (s *Server) HandleControlCommand(ctx context.Context, command *pb.ControlCommand) error {
-	log.WithFields(log.Fields{
-		"command_id": command.CommandId,
-		"type":       command.Type.String(),
-	}).Info("Received control command")
-
-	switch command.Type {
-	case pb.ControlCommand_GET_STATS:
-		// Stats are automatically sent, just log
-		log.Debug("Stats requested via command")
-	case pb.ControlCommand_RELOAD_CONFIG:
-		log.Info("Config reload requested (not implemented yet)")
-	case pb.ControlCommand_ENABLE_DEBUG:
-		log.SetLevel(log.DebugLevel)
-		log.Info("Debug logging enabled")
-	case pb.ControlCommand_DISABLE_DEBUG:
-		log.SetLevel(log.InfoLevel)
-		log.Info("Debug logging disabled")
-	case pb.ControlCommand_SHUTDOWN:
-		log.Warn("Shutdown command received")
-		go func() {
-			time.Sleep(1 * time.Second)
-			s.cancelFunc() // Trigger graceful shutdown
-		}()
-	}
-
-	return nil
-}
-
-// HandleControlConfig handles incoming configuration updates
-func (s *Server) HandleControlConfig(ctx context.Context, config *pb.ControlConfig) error {
-	log.WithFields(log.Fields{
-		"config_version": config.ConfigVersion,
-		"settings":       config.Settings,
-	}).Info("Received config update")
-	return nil
-}
-
-// HandleExposedServiceEvent handles exposed service lifecycle events
-func (s *Server) HandleExposedServiceEvent(ctx context.Context, event *pb.ExposedServiceEvent) error {
-	log.WithFields(log.Fields{
-		"service_id": event.ServiceId,
-		"type":       event.Type.String(),
-	}).Info("Received exposed service event")
-
-	// Convert proto types to internal types
-	peerConfig := &PeerConfig{
-		PeerID:     event.PeerConfig.PeerId,
-		PublicKey:  event.PeerConfig.PublicKey,
-		AllowedIPs: event.PeerConfig.AllowedIps,
-		Endpoint:   event.PeerConfig.Endpoint,
-		TunnelIP:   event.PeerConfig.TunnelIp,
-	}
-
-	upstreamConfig := &UpstreamConfig{
-		Domain:       event.UpstreamConfig.Domain,
-		PathMappings: event.UpstreamConfig.PathMappings,
-	}
-
-	// Route to appropriate handler based on event type
-	switch event.Type {
-	case pb.ExposedServiceEvent_CREATED:
-		return s.handleExposedServiceCreated(event.ServiceId, peerConfig, upstreamConfig)
-
-	case pb.ExposedServiceEvent_UPDATED:
-		return s.handleExposedServiceUpdated(event.ServiceId, peerConfig, upstreamConfig)
-
-	case pb.ExposedServiceEvent_REMOVED:
-		return s.handleExposedServiceRemoved(event.ServiceId)
+	case pb.ServiceUpdate_REMOVED:
+		return s.removeService(update.ServiceId)
 
 	default:
-		return fmt.Errorf("unknown exposed service event type: %v", event.Type)
+		return fmt.Errorf("unknown service update type: %v", update.Type)
 	}
 }
 
-// Exposed Service Handlers
+// addServiceFromProto adds a service from proto config
+func (s *Server) addServiceFromProto(serviceConfig *pb.ExposedServiceConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if service already exists
+	if _, exists := s.exposedServices[serviceConfig.Id]; exists {
+		log.Warnf("Service %s already exists, updating instead", serviceConfig.Id)
+		return s.updateServiceFromProtoLocked(serviceConfig)
+	}
+
+	log.WithFields(log.Fields{
+		"service_id": serviceConfig.Id,
+		"domain":     serviceConfig.Domain,
+	}).Info("Adding service from management")
+
+	// Convert proto auth config to internal auth config
+	var authConfig *auth.Config
+	if serviceConfig.Auth != nil {
+		authConfig = convertProtoAuthConfig(serviceConfig.Auth)
+	}
+
+	// Add route to proxy
+	route := &reverseproxy.RouteConfig{
+		ID:           serviceConfig.Id,
+		Domain:       serviceConfig.Domain,
+		PathMappings: serviceConfig.PathMappings,
+		AuthConfig:   authConfig,
+		SetupKey:     serviceConfig.SetupKey,
+	}
+
+	if err := s.proxy.AddRoute(route); err != nil {
+		return fmt.Errorf("failed to add route: %w", err)
+	}
+
+	// Store service config (simplified, no peer config for now)
+	s.exposedServices[serviceConfig.Id] = &ExposedServiceConfig{
+		ServiceID: serviceConfig.Id,
+		UpstreamConfig: &UpstreamConfig{
+			Domain:       serviceConfig.Domain,
+			PathMappings: serviceConfig.PathMappings,
+		},
+	}
+
+	log.Infof("Service %s added successfully", serviceConfig.Id)
+	return nil
+}
+
+// updateServiceFromProto updates an existing service from proto config
+func (s *Server) updateServiceFromProto(serviceConfig *pb.ExposedServiceConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.updateServiceFromProtoLocked(serviceConfig)
+}
+
+func (s *Server) updateServiceFromProtoLocked(serviceConfig *pb.ExposedServiceConfig) error {
+	log.WithFields(log.Fields{
+		"service_id": serviceConfig.Id,
+		"domain":     serviceConfig.Domain,
+	}).Info("Updating service from management")
+
+	// Convert proto auth config to internal auth config
+	var authConfig *auth.Config
+	if serviceConfig.Auth != nil {
+		authConfig = convertProtoAuthConfig(serviceConfig.Auth)
+	}
+
+	// Update route in proxy
+	route := &reverseproxy.RouteConfig{
+		ID:           serviceConfig.Id,
+		Domain:       serviceConfig.Domain,
+		PathMappings: serviceConfig.PathMappings,
+		AuthConfig:   authConfig,
+		SetupKey:     serviceConfig.SetupKey,
+	}
+
+	if err := s.proxy.UpdateRoute(route); err != nil {
+		return fmt.Errorf("failed to update route: %w", err)
+	}
+
+	// Update service config
+	s.exposedServices[serviceConfig.Id] = &ExposedServiceConfig{
+		ServiceID: serviceConfig.Id,
+		UpstreamConfig: &UpstreamConfig{
+			Domain:       serviceConfig.Domain,
+			PathMappings: serviceConfig.PathMappings,
+		},
+	}
+
+	log.Infof("Service %s updated successfully", serviceConfig.Id)
+	return nil
+}
+
+// removeService removes a service
+func (s *Server) removeService(serviceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	log.WithFields(log.Fields{
+		"service_id": serviceID,
+	}).Info("Removing service from management")
+
+	// Remove route from proxy
+	if err := s.proxy.RemoveRoute(serviceID); err != nil {
+		return fmt.Errorf("failed to remove route: %w", err)
+	}
+
+	// Remove service config
+	delete(s.exposedServices, serviceID)
+
+	log.Infof("Service %s removed successfully", serviceID)
+	return nil
+}
+
+// convertProtoAuthConfig converts proto auth config to internal auth config
+func convertProtoAuthConfig(protoAuth *pb.AuthConfig) *auth.Config {
+	authConfig := &auth.Config{}
+
+	switch authType := protoAuth.AuthType.(type) {
+	case *pb.AuthConfig_BasicAuth:
+		authConfig.BasicAuth = &methods.BasicAuthConfig{
+			Username: authType.BasicAuth.Username,
+			Password: authType.BasicAuth.Password,
+		}
+	case *pb.AuthConfig_PinAuth:
+		authConfig.PIN = &methods.PINConfig{
+			PIN:    authType.PinAuth.Pin,
+			Header: authType.PinAuth.Header,
+		}
+	case *pb.AuthConfig_BearerAuth:
+		authConfig.Bearer = &methods.BearerConfig{
+			Enabled: authType.BearerAuth.Enabled,
+		}
+	}
+
+	return authConfig
+}
+
+// Exposed Service Handlers (deprecated - keeping for backwards compatibility)
 
 // handleExposedServiceCreated handles the creation of a new exposed service
 func (s *Server) handleExposedServiceCreated(serviceID string, peerConfig *PeerConfig, upstreamConfig *UpstreamConfig) error {
@@ -536,17 +555,6 @@ func (s *Server) GetExposedService(serviceID string) (*ExposedServiceConfig, err
 	}
 
 	return service, nil
-}
-
-// Helper methods
-
-func (s *Server) sendProxyEvent(eventType pb.ProxyEvent_EventType, message string) {
-	// This would typically be called to send events
-	// The actual sending happens via the gRPC stream
-	log.WithFields(log.Fields{
-		"type":    eventType.String(),
-		"message": message,
-	}).Debug("Proxy event")
 }
 
 // Stats methods
