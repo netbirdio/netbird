@@ -285,12 +285,16 @@ message FlowConfig {
   bool dnsCollection = 8;
 }
 
-// JWTConfig represents JWT authentication configuration
+// JWTConfig represents JWT authentication configuration for validating tokens.
 message JWTConfig {
   string issuer = 1;
+  // Deprecated: audience is kept for backwards compatibility only. Use audiences instead in the client code but populate this field.
   string audience = 2;
   string keysLocation = 3;
   int64 maxTokenAge = 4;
+  // audiences contains the list of valid audiences for JWT validation.
+  // Tokens matching any audience in this list are considered valid.
+  repeated string audiences = 5;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password

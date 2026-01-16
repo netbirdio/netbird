@@ -72,9 +72,16 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	}
 
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
+		audiences := protoJWT.GetAudiences()
+		if len(audiences) == 0 && protoJWT.GetAudience() != "" {
+			audiences = []string{protoJWT.GetAudience()}
+		}
+
+		log.Debugf("starting SSH server with JWT authentication: audiences=%v", audiences)
+
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
-			Audience:     protoJWT.GetAudience(),
+			Audiences:    audiences,
 			KeysLocation: protoJWT.GetKeysLocation(),
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
