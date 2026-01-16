@@ -404,7 +404,7 @@ func (g *BundleGenerator) addStatus() error {
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
-		statusOutput := nbstatus.ParseToFullDetailSummary(overview)
+		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
