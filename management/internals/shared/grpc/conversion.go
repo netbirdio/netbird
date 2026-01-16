@@ -434,9 +434,16 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 	if config.CLIAuthAudience != "" {
 		audience = config.CLIAuthAudience
 	}
+
+	audiences := []string{config.AuthAudience}
+	if config.CLIAuthAudience != "" && config.CLIAuthAudience != config.AuthAudience {
+		audiences = append(audiences, config.CLIAuthAudience)
+	}
+
 	return &proto.JWTConfig{
 		Issuer:       issuer,
 		Audience:     audience,
+		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}
 }
