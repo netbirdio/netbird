@@ -12,6 +12,13 @@ const (
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
+// Defines values for DNSRecordType.
+const (
+	DNSRecordTypeA     DNSRecordType = "A"
+	DNSRecordTypeAAAA  DNSRecordType = "AAAA"
+	DNSRecordTypeCNAME DNSRecordType = "CNAME"
+)
+
 // Defines values for EventActivityCode.
 const (
 	EventActivityCodeAccountCreate                            EventActivityCode = "account.create"
@@ -426,6 +433,42 @@ type CreateSetupKeyRequest struct {
 	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
 	UsageLimit int `json:"usage_limit"`
 }
+
+// DNSRecord defines model for DNSRecord.
+type DNSRecord struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Id DNS record ID
+	Id string `json:"id"`
+
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordRequest defines model for DNSRecordRequest.
+type DNSRecordRequest struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordType DNS record type
+type DNSRecordType string
 
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
@@ -1999,6 +2042,48 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// Zone defines model for Zone.
+type Zone struct {
+	// DistributionGroups Group IDs that defines groups of peers that will resolve this zone
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Zone domain (FQDN)
+	Domain string `json:"domain"`
+
+	// EnableSearchDomain Enable this zone as a search domain
+	EnableSearchDomain bool `json:"enable_search_domain"`
+
+	// Enabled Zone status
+	Enabled bool `json:"enabled"`
+
+	// Id Zone ID
+	Id string `json:"id"`
+
+	// Name Zone name identifier
+	Name string `json:"name"`
+
+	// Records DNS records associated with this zone
+	Records []DNSRecord `json:"records"`
+}
+
+// ZoneRequest defines model for ZoneRequest.
+type ZoneRequest struct {
+	// DistributionGroups Group IDs that defines groups of peers that will resolve this zone
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Zone domain (FQDN)
+	Domain string `json:"domain"`
+
+	// EnableSearchDomain Enable this zone as a search domain
+	EnableSearchDomain bool `json:"enable_search_domain"`
+
+	// Enabled Zone status
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Name Zone name identifier
+	Name string `json:"name"`
+}
+
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
 	// Page Page number
@@ -2082,6 +2167,18 @@ type PutApiDnsNameserversNsgroupIdJSONRequestBody = NameserverGroupRequest
 
 // PutApiDnsSettingsJSONRequestBody defines body for PutApiDnsSettings for application/json ContentType.
 type PutApiDnsSettingsJSONRequestBody = DNSSettings
+
+// PostApiDnsZonesJSONRequestBody defines body for PostApiDnsZones for application/json ContentType.
+type PostApiDnsZonesJSONRequestBody = ZoneRequest
+
+// PutApiDnsZonesZoneIdJSONRequestBody defines body for PutApiDnsZonesZoneId for application/json ContentType.
+type PutApiDnsZonesZoneIdJSONRequestBody = ZoneRequest
+
+// PostApiDnsZonesZoneIdRecordsJSONRequestBody defines body for PostApiDnsZonesZoneIdRecords for application/json ContentType.
+type PostApiDnsZonesZoneIdRecordsJSONRequestBody = DNSRecordRequest
+
+// PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody defines body for PutApiDnsZonesZoneIdRecordsRecordId for application/json ContentType.
+type PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody = DNSRecordRequest
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest
