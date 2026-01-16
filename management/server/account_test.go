@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -397,7 +398,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		}
 
 		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, nil, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -1676,7 +1677,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.GetRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.GetRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}}, account.GetPeerGroups("peer-2"))
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[route.ID]struct{}, 2)
@@ -1686,7 +1687,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 	assert.Contains(t, routeIDs, route.ID("route-3"))
 
-	emptyRoutes := account.GetRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.GetRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}}, account.GetPeerGroups("peer-3"))
 
 	assert.Len(t, emptyRoutes, 0)
 }
@@ -2093,6 +2094,35 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) 
 	for _, peer := range accountPeers {
 		assert.False(t, peer.Status.RequiresApproval, "peer %s should not require approval after disabling peer approval", peer.ID)
 	}
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_DNSDomainConflict(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	ctx := context.Background()
+	err = manager.Store.CreateZone(ctx, &zones.Zone{
+		ID:                 "test-zone-id",
+		AccountID:          accountID,
+		Name:               "Test Zone",
+		Domain:             "custom.example.com",
+		Enabled:            true,
+		EnableSearchDomain: false,
+		DistributionGroups: []string{},
+	})
+	require.NoError(t, err, "unable to create custom DNS zone")
+
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		DNSDomain:                  "custom.example.com",
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.Error(t, err, "expecting to fail when DNS domain conflicts with custom zone")
+	assert.Contains(t, err.Error(), "conflicts with existing custom DNS zone")
 }
 
 func TestAccount_GetExpiredPeers(t *testing.T) {

@@ -17,13 +17,13 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
+	iface "github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -38,11 +38,6 @@ type internalDNATer interface {
 	AddInternalDNATMapping(netip.Addr, netip.Addr) error
 }
 
-type wgInterface interface {
-	Name() string
-	Address() wgaddr.Address
-}
-
 type DnsInterceptor struct {
 	mu                   sync.RWMutex
 	route                *route.Route
@@ -52,7 +47,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedDomains   domainMap
-	wgInterface          wgInterface
+	wgInterface          iface.WGIface
 	peerStore            *peerstore.Store
 	firewall             firewall.Manager
 	fakeIPManager        *fakeip.Manager
@@ -250,12 +245,6 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
-	if err != nil {
-		d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", err))
-		return
-	}
-
 	if r.Extra == nil {
 		r.MsgHdr.AuthenticatedData = true
 	}
@@ -264,20 +253,8 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
 
-	startTime := time.Now()
-	reply, _, err := nbdns.ExchangeWithFallback(ctx, client, r, upstream)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			elapsed := time.Since(startTime)
-			peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
-			logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
-				elapsed.Truncate(time.Millisecond), dnsTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
-		} else {
-			logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
-		}
-		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
-			logger.Errorf("failed writing DNS response: %v", err)
-		}
+	reply := d.queryUpstreamDNS(ctx, w, r, upstream, upstreamIP, peerKey, logger)
+	if reply == nil {
 		return
 	}
 
@@ -584,6 +561,44 @@ func determinePrefixChanges(oldPrefixes, newPrefixes []netip.Prefix) (toAdd, toR
 		}
 	}
 	return
+}
+
+// queryUpstreamDNS queries the upstream DNS server using netstack if available, otherwise uses regular client.
+// Returns the DNS reply on success, or nil on error (error responses are written internally).
+func (d *DnsInterceptor) queryUpstreamDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, upstream string, upstreamIP netip.Addr, peerKey string, logger *log.Entry) *dns.Msg {
+	startTime := time.Now()
+
+	nsNet := d.wgInterface.GetNet()
+	var reply *dns.Msg
+	var err error
+
+	if nsNet != nil {
+		reply, err = nbdns.ExchangeWithNetstack(ctx, nsNet, r, upstream)
+	} else {
+		client, clientErr := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
+		if clientErr != nil {
+			d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", clientErr))
+			return nil
+		}
+		reply, _, err = nbdns.ExchangeWithFallback(ctx, client, r, upstream)
+	}
+
+	if err == nil {
+		return reply
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		elapsed := time.Since(startTime)
+		peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
+		logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
+			elapsed.Truncate(time.Millisecond), dnsTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
+	} else {
+		logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+	}
+	if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
+		logger.Errorf("failed writing DNS response: %v", err)
+	}
+	return nil
 }
 
 func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) string {
