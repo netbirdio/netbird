@@ -15,6 +15,10 @@ readonly MSG_DONE="\nDone!\n"
 readonly MSG_NEXT_STEPS="Next steps:"
 readonly MSG_SEPARATOR="=========================================="
 
+############################################
+# Utility Functions
+############################################
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
@@ -236,7 +240,11 @@ wait_management_direct() {
   return 0
 }
 
-init_environment() {
+############################################
+# Initialization and Configuration
+############################################
+
+initialize_default_values() {
   CADDY_SECURE_DOMAIN=""
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
@@ -262,7 +270,10 @@ init_environment() {
   RELAY_HOST_PORT="8084"
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+  return 0
+}
 
+configure_domain() {
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
@@ -275,7 +286,10 @@ init_environment() {
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
+  return 0
+}
 
+configure_reverse_proxy() {
   # Prompt for reverse proxy type
   REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
 
@@ -298,11 +312,10 @@ init_environment() {
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
+  return 0
+}
 
-  check_jq
-
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
-
+check_existing_installation() {
   if [[ -f management.json ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
@@ -311,7 +324,10 @@ init_environment() {
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
+  return 0
+}
 
+generate_configuration_files() {
   echo Rendering initial files...
 
   # Render docker-compose and proxy config based on selection
@@ -349,7 +365,10 @@ init_environment() {
   render_management_json > management.json
   render_turn_server_conf > turnserver.conf
   render_relay_env > relay.env
+  return 0
+}
 
+start_services_and_show_instructions() {
   # For built-in Caddy and Traefik, start containers immediately
   # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
@@ -408,9 +427,26 @@ init_environment() {
     echo "NetBird is now running. Access the dashboard at:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   fi
-
   return 0
 }
+
+init_environment() {
+  initialize_default_values
+  configure_domain
+  configure_reverse_proxy
+
+  check_jq
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+
+  check_existing_installation
+  generate_configuration_files
+  start_services_and_show_instructions
+  return 0
+}
+
+############################################
+# Configuration File Renderers
+############################################
 
 render_caddyfile() {
   cat <<EOF
@@ -1250,210 +1286,238 @@ EOF
   return 0
 }
 
-print_post_setup_instructions() {
-  local bind_addr=$(get_bind_address)
+############################################
+# Post-Setup Instructions per Proxy Type
+############################################
 
+print_caddy_instructions() {
+  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "Follow the onboarding steps to set up your NetBird instance."
+  return 0
+}
+
+print_traefik_instructions() {
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  TRAEFIK SETUP"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "NetBird containers are configured with Traefik labels."
+  echo ""
+  echo "Configuration:"
+  echo "  Entrypoint: $TRAEFIK_ENTRYPOINT"
+  if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+    echo "  Certificate resolver: $TRAEFIK_CERTRESOLVER"
+  else
+    echo "  Network: ${TRAEFIK_EXTERNAL_NETWORK:-netbird}"
+  fi
+  if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
+    echo "  Network: $TRAEFIK_EXTERNAL_NETWORK (external)"
+  else
+    echo "  Network: netbird"
+  fi
+  echo ""
+  echo "$MSG_NEXT_STEPS"
+  echo "  - Ensure Traefik is running and configured"
+  if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
+    echo "  - Traefik must be on the '$TRAEFIK_EXTERNAL_NETWORK' network"
+  fi
+  echo "  - Entrypoint '$TRAEFIK_ENTRYPOINT' must be defined"
+  if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
+    echo "  - Certificate resolver '$TRAEFIK_CERTRESOLVER' must be configured"
+  fi
+  echo "  - HTTP to HTTPS redirect (recommended)"
+  return 0
+}
+
+print_nginx_instructions() {
+  local bind_addr=$(get_bind_address)
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  NGINX SETUP"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "Generated: nginx-netbird.conf"
+  echo ""
+  echo "IMPORTANT: Unlike Caddy, Nginx requires manual TLS certificate setup."
+  echo "You'll need to obtain SSL/TLS certificates and configure the paths in the"
+  echo "generated config file. The config includes examples for common certificate sources."
+  echo ""
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
+    echo "The config uses container names for upstream servers."
+    echo ""
+    echo "$MSG_NEXT_STEPS"
+    echo "  1. Ensure your Nginx container has access to SSL certificates"
+    echo "     (mount certificate directory as volume if needed)"
+    echo "  2. Edit nginx-netbird.conf and update SSL certificate paths"
+    echo "     The config includes examples for certbot, acme.sh, and custom certs"
+    echo "  3. Include the config in your Nginx container's configuration"
+    echo "  4. Reload Nginx"
+  else
+    echo "$MSG_NEXT_STEPS"
+    echo "  1. Obtain SSL/TLS certificates (Let's Encrypt recommended)"
+    echo "  2. Edit nginx-netbird.conf and update certificate paths"
+    echo "  3. Install to /etc/nginx/sites-available/ (Debian) or /etc/nginx/conf.d/ (RHEL)"
+    echo "  4. Test and reload: nginx -t && systemctl reload nginx"
+    echo ""
+    echo "For detailed TLS setup instructions, see:"
+    echo "https://docs.netbird.io/selfhosted/reverse-proxy#tls-certificate-setup-for-nginx"
+    echo ""
+    echo "Container ports (bound to ${bind_addr}):"
+    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
+    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
+    echo "  Management: ${MANAGEMENT_HOST_PORT}"
+    echo "  Relay:      ${RELAY_HOST_PORT}"
+  fi
+  return 0
+}
+
+print_npm_instructions() {
+  local bind_addr=$(get_bind_address)
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  NGINX PROXY MANAGER SETUP"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "Generated: npm-advanced-config.txt"
+  echo ""
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
+    echo ""
+    echo "In NPM, create a Proxy Host:"
+    echo "  Domain: $NETBIRD_DOMAIN"
+    echo "  Forward Hostname: netbird-dashboard"
+    echo "  Forward Port: 80"
+    echo "  Block Common Exploits: enabled"
+    echo ""
+    echo "  SSL tab:"
+    echo "    - Request or select existing certificate"
+    echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
+    echo ""
+    echo "  Advanced tab:"
+    echo "    - Paste contents of npm-advanced-config.txt"
+  else
+    echo "Container ports (bound to ${bind_addr}):"
+    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
+    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
+    echo "  Management: ${MANAGEMENT_HOST_PORT}"
+    echo "  Relay:      ${RELAY_HOST_PORT}"
+    echo ""
+    echo "In NPM, create a Proxy Host:"
+    echo "  Domain: $NETBIRD_DOMAIN"
+    echo "  Forward Hostname/IP: ${bind_addr}"
+    echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
+    echo "  Block Common Exploits: enabled"
+    echo ""
+    echo "  SSL tab:"
+    echo "    - Request or select existing certificate"
+    echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
+    echo ""
+    echo "  Advanced tab:"
+    echo "    - Paste contents of npm-advanced-config.txt"
+  fi
+  return 0
+}
+
+print_external_caddy_instructions() {
+  local bind_addr=$(get_bind_address)
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  EXTERNAL CADDY SETUP"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "Generated: caddyfile-netbird.txt"
+  echo ""
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
+    echo "The config uses container names for upstream servers."
+    echo ""
+    echo "$MSG_NEXT_STEPS"
+    echo "  1. Add the contents of caddyfile-netbird.txt to your Caddyfile"
+    echo "  2. Reload Caddy"
+  else
+    echo "$MSG_NEXT_STEPS"
+    echo "  1. Add the contents of caddyfile-netbird.txt to your Caddyfile"
+    echo "  2. Reload Caddy: caddy reload --config /path/to/Caddyfile"
+    echo ""
+    echo "Container ports (bound to ${bind_addr}):"
+    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
+    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
+    echo "  Management: ${MANAGEMENT_HOST_PORT}"
+    echo "  Relay:      ${RELAY_HOST_PORT}"
+  fi
+  return 0
+}
+
+print_manual_instructions() {
+  local bind_addr=$(get_bind_address)
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  MANUAL REVERSE PROXY SETUP"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "Container ports (bound to ${bind_addr}):"
+  echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
+  echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
+  echo "  Management: ${MANAGEMENT_HOST_PORT}"
+  echo "  Relay:      ${RELAY_HOST_PORT}"
+  echo ""
+  echo "Configure your reverse proxy with these routes:"
+  echo ""
+  echo "  /relay*                          -> ${bind_addr}:${RELAY_HOST_PORT}"
+  echo "    (HTTP with WebSocket upgrade)"
+  echo ""
+  echo "  /ws-proxy/signal*                -> ${bind_addr}:${SIGNAL_HOST_PORT}"
+  echo "    (HTTP with WebSocket upgrade)"
+  echo ""
+  echo "  /signalexchange.SignalExchange/* -> ${bind_addr}:${SIGNAL_GRPC_PORT}"
+  echo "    (gRPC/h2c - plaintext HTTP/2)"
+  echo ""
+  echo "  /api/*                           -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "    (HTTP)"
+  echo ""
+  echo "  /ws-proxy/management*            -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "    (HTTP with WebSocket upgrade)"
+  echo ""
+  echo "  /management.ManagementService/*  -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "    (gRPC/h2c - plaintext HTTP/2)"
+  echo ""
+  echo "  /oauth2/*                        -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
+  echo "    (HTTP - embedded IdP)"
+  echo ""
+  echo "  /*                               -> ${bind_addr}:${DASHBOARD_HOST_PORT}"
+  echo "    (HTTP - catch-all for dashboard)"
+  echo ""
+  echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
+  echo "Long-running connections need extended timeouts (recommend 1 day)."
+  return 0
+}
+
+print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
     0)
-      # Built-in Caddy
-      echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-      echo "Follow the onboarding steps to set up your NetBird instance."
+      print_caddy_instructions
       ;;
     1)
-      # Traefik
-      echo ""
-      echo "$MSG_SEPARATOR"
-      echo "  TRAEFIK SETUP"
-      echo "$MSG_SEPARATOR"
-      echo ""
-      echo "NetBird containers are configured with Traefik labels."
-      echo ""
-      echo "Configuration:"
-      echo "  Entrypoint: $TRAEFIK_ENTRYPOINT"
-      if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
-        echo "  Certificate resolver: $TRAEFIK_CERTRESOLVER"
-      else
-        echo "  Certificate resolver: (none - TLS handled externally)"
-      fi
-      echo ""
-      if [[ -n "$TRAEFIK_EXTERNAL_NETWORK" ]]; then
-        echo "Using external network: $TRAEFIK_EXTERNAL_NETWORK"
-        echo "Ensure your Traefik container is connected to this network."
-      else
-        echo "A new 'netbird' network has been created."
-        echo "Connect your Traefik container to it:"
-        echo "  docker network connect netbird <traefik-container-name>"
-      fi
-      echo ""
-      echo "Traefik requirements:"
-      echo "  - providers.docker.exposedByDefault=false"
-      echo "  - Entrypoint '$TRAEFIK_ENTRYPOINT' must be configured for HTTPS (port 443)"
-      if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
-        echo "  - Certificate resolver '$TRAEFIK_CERTRESOLVER' must be configured"
-      fi
-      echo "  - HTTP to HTTPS redirect (recommended)"
+      print_traefik_instructions
       ;;
     2)
-      # Nginx
-      echo ""
-      echo "$MSG_SEPARATOR"
-      echo "  NGINX SETUP"
-      echo "$MSG_SEPARATOR"
-      echo ""
-      echo "Generated: nginx-netbird.conf"
-      echo ""
-      echo "IMPORTANT: Unlike Caddy, Nginx requires manual TLS certificate setup."
-      echo "You'll need to obtain SSL/TLS certificates and configure the paths in the"
-      echo "generated config file. The config includes examples for common certificate sources."
-      echo ""
-      if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
-        echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
-        echo "The config uses container names for upstream servers."
-        echo ""
-        echo "$MSG_NEXT_STEPS"
-        echo "  1. Ensure your Nginx container has access to SSL certificates"
-        echo "     (mount certificate directory as volume if needed)"
-        echo "  2. Edit nginx-netbird.conf and update SSL certificate paths"
-        echo "     The config includes examples for certbot, acme.sh, and custom certs"
-        echo "  3. Include the config in your Nginx container's configuration"
-        echo "  4. Reload Nginx"
-      else
-        echo "$MSG_NEXT_STEPS"
-        echo "  1. Obtain SSL/TLS certificates (Let's Encrypt recommended)"
-        echo "  2. Edit nginx-netbird.conf and update certificate paths"
-        echo "  3. Install to /etc/nginx/sites-available/ (Debian) or /etc/nginx/conf.d/ (RHEL)"
-        echo "  4. Test and reload: nginx -t && systemctl reload nginx"
-        echo ""
-        echo "For detailed TLS setup instructions, see:"
-        echo "https://docs.netbird.io/selfhosted/reverse-proxy#tls-certificate-setup-for-nginx"
-        echo ""
-        echo "Container ports (bound to ${bind_addr}):"
-        echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-        echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-        echo "  Management: ${MANAGEMENT_HOST_PORT}"
-        echo "  Relay:      ${RELAY_HOST_PORT}"
-      fi
+      print_nginx_instructions
       ;;
     3)
-      # Nginx Proxy Manager
-      echo ""
-      echo "$MSG_SEPARATOR"
-      echo "  NGINX PROXY MANAGER SETUP"
-      echo "$MSG_SEPARATOR"
-      echo ""
-      echo "Generated: npm-advanced-config.txt"
-      echo ""
-      if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
-        echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
-        echo ""
-        echo "In NPM, create a Proxy Host:"
-        echo "  Domain: $NETBIRD_DOMAIN"
-        echo "  Forward Hostname/IP: netbird-dashboard"
-        echo "  Forward Port: 80"
-        echo "  Block Common Exploits: enabled"
-        echo ""
-        echo "  SSL tab:"
-        echo "    - Request or select existing certificate"
-        echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
-        echo ""
-        echo "  Advanced tab:"
-        echo "    - Paste contents of npm-advanced-config.txt"
-      else
-        echo "Container ports (bound to ${bind_addr}):"
-        echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-        echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-        echo "  Management: ${MANAGEMENT_HOST_PORT}"
-        echo "  Relay:      ${RELAY_HOST_PORT}"
-        echo ""
-        echo "In NPM, create a Proxy Host:"
-        echo "  Domain: $NETBIRD_DOMAIN"
-        echo "  Forward Hostname/IP: ${bind_addr}"
-        echo "  Forward Port: ${DASHBOARD_HOST_PORT}"
-        echo "  Block Common Exploits: enabled"
-        echo ""
-        echo "  SSL tab:"
-        echo "    - Request or select existing certificate"
-        echo "    - Enable 'HTTP/2 Support' (REQUIRED for gRPC)"
-        echo ""
-        echo "  Advanced tab:"
-        echo "    - Paste contents of npm-advanced-config.txt"
-      fi
+      print_npm_instructions
       ;;
     4)
-      # External Caddy
-      echo ""
-      echo "$MSG_SEPARATOR"
-      echo "  EXTERNAL CADDY SETUP"
-      echo "$MSG_SEPARATOR"
-      echo ""
-      echo "Generated: caddyfile-netbird.txt"
-      echo ""
-      if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
-        echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
-        echo "The config uses container names for upstream servers."
-        echo ""
-        echo "$MSG_NEXT_STEPS"
-        echo "  1. Add the contents of caddyfile-netbird.txt to your Caddyfile"
-        echo "  2. Reload Caddy"
-      else
-        echo "$MSG_NEXT_STEPS"
-        echo "  1. Add the contents of caddyfile-netbird.txt to your Caddyfile"
-        echo "  2. Reload Caddy: caddy reload --config /path/to/Caddyfile"
-        echo ""
-        echo "Container ports (bound to ${bind_addr}):"
-        echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-        echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-        echo "  Management: ${MANAGEMENT_HOST_PORT}"
-        echo "  Relay:      ${RELAY_HOST_PORT}"
-      fi
+      print_external_caddy_instructions
       ;;
     5)
-      # Other/Manual
-      echo ""
-      echo "$MSG_SEPARATOR"
-      echo "  MANUAL REVERSE PROXY SETUP"
-      echo "$MSG_SEPARATOR"
-      echo ""
-      echo "Container ports (bound to ${bind_addr}):"
-      echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-      echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-      echo "  Management: ${MANAGEMENT_HOST_PORT}"
-      echo "  Relay:      ${RELAY_HOST_PORT}"
-      echo ""
-      echo "Configure your reverse proxy with these routes:"
-      echo ""
-      echo "  /relay*                          -> ${bind_addr}:${RELAY_HOST_PORT}"
-      echo "    (HTTP with WebSocket upgrade)"
-      echo ""
-      echo "  /ws-proxy/signal*                -> ${bind_addr}:${SIGNAL_HOST_PORT}"
-      echo "    (HTTP with WebSocket upgrade)"
-      echo ""
-      echo "  /signalexchange.SignalExchange/* -> ${bind_addr}:${SIGNAL_GRPC_PORT}"
-      echo "    (gRPC/h2c - plaintext HTTP/2)"
-      echo ""
-      echo "  /api/*                           -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
-      echo "    (HTTP)"
-      echo ""
-      echo "  /ws-proxy/management*            -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
-      echo "    (HTTP with WebSocket upgrade)"
-      echo ""
-      echo "  /management.ManagementService/*  -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
-      echo "    (gRPC/h2c - plaintext HTTP/2)"
-      echo ""
-      echo "  /oauth2/*                        -> ${bind_addr}:${MANAGEMENT_HOST_PORT}"
-      echo "    (HTTP - embedded IdP)"
-      echo ""
-      echo "  /*                               -> ${bind_addr}:${DASHBOARD_HOST_PORT}"
-      echo "    (HTTP - catch-all for dashboard)"
-      echo ""
-      echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
-      echo "Long-running connections need extended timeouts (recommend 1 day)."
+      print_manual_instructions
       ;;
     *)
       echo "Unknown reverse proxy type: $REVERSE_PROXY_TYPE" > /dev/stderr
       ;;
   esac
-
   return 0
 }
 
