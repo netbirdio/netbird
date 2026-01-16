@@ -248,14 +248,6 @@ func (c *GrpcClient) receiveJobRequest(
 		return nil, err
 	}
 
-	// Verify that the message is intended for this peer
-	currentPeerID := c.key.PublicKey().String()
-	if encryptedMsg.WgPubKey != currentPeerID {
-		err := fmt.Errorf("job request peer ID mismatch: expected %s, got %s", currentPeerID, encryptedMsg.WgPubKey)
-		log.Warnf("%v", err)
-		return nil, err
-	}
-
 	jobReq := &proto.JobRequest{}
 	if err := encryption.DecryptMessage(serverPubKey, c.key, encryptedMsg.Body, jobReq); err != nil {
 		log.Warnf("failed to decrypt job request: %v", err)
