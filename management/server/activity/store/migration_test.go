@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/migration"
 	"github.com/netbirdio/netbird/management/server/testutil"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
@@ -40,10 +41,10 @@ func setupDatabase(t *testing.T) *gorm.DB {
 func TestMigrateLegacyEncryptedUsersToGCM(t *testing.T) {
 	db := setupDatabase(t)
 
-	key, err := GenerateKey()
+	key, err := crypt.GenerateKey()
 	require.NoError(t, err, "Failed to generate key")
 
-	crypt, err := NewFieldEncrypt(key)
+	crypt, err := crypt.NewFieldEncrypt(key)
 	require.NoError(t, err, "Failed to initialize FieldEncrypt")
 
 	t.Run("empty table, no migration required", func(t *testing.T) {
