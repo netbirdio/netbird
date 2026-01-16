@@ -73,7 +73,7 @@ read_nb_domain() {
 
 get_turn_external_ip() {
   TURN_EXTERNAL_IP_CONFIG="#external-ip="
-  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
+  IP=$(curl --silent --ipv4 https://checkip.amazonaws.com)
   if [[ "x-$IP" != "x-" ]]; then
     TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
   fi
@@ -131,7 +131,7 @@ init_environment() {
     NETBIRD_DOMAIN=$(get_main_ip_address)
   else
     NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    CADDY_SECURE_DOMAIN="$NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
@@ -200,7 +200,7 @@ render_caddyfile() {
     }
 }
 
-:80${CADDY_SECURE_DOMAIN} {
+${CADDY_SECURE_DOMAIN} {
     import security_headers
     # Relay
     reverse_proxy /relay* relay:80
