@@ -13,7 +13,7 @@ const (
 // PINConfig holds PIN authentication settings
 type PINConfig struct {
 	PIN    string
-	Header string // Header name (default: "X-PIN")
+	Header string
 }
 
 // Validate checks PIN from the request header
@@ -28,6 +28,5 @@ func (c *PINConfig) Validate(r *http.Request) bool {
 		return false
 	}
 
-	// Use constant-time comparison to prevent timing attacks
 	return subtle.ConstantTimeCompare([]byte(providedPIN), []byte(c.PIN)) == 1
 }

@@ -54,19 +54,16 @@ func (m *SelfSignedManager) IssueCertificate(ctx context.Context, domain string)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if we already have a certificate for this domain
 	if _, exists := m.certificates[domain]; exists {
 		log.Debugf("Self-signed certificate already exists for domain: %s", domain)
 		return nil
 	}
 
-	// Generate self-signed certificate
 	cert, err := m.generateCertificate(domain)
 	if err != nil {
 		return err
 	}
 
-	// Cache the certificate
 	m.certificates[domain] = cert
 
 	return nil
@@ -94,7 +91,6 @@ func (m *SelfSignedManager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Cer
 		return cert, nil
 	}
 
-	// Generate certificate on-demand if not cached
 	log.Infof("Generating self-signed certificate on-demand for: %s", hello.ServerName)
 
 	newCert, err := m.generateCertificate(hello.ServerName)
@@ -102,7 +98,6 @@ func (m *SelfSignedManager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Cer
 		return nil, err
 	}
 
-	// Cache it
 	m.mu.Lock()
 	m.certificates[hello.ServerName] = newCert
 	m.mu.Unlock()
@@ -112,13 +107,11 @@ func (m *SelfSignedManager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Cer
 
 // generateCertificate generates a self-signed certificate for a domain
 func (m *SelfSignedManager) generateCertificate(domain string) (*tls.Certificate, error) {
-	// Generate private key
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
 
-	// Create certificate template
 	notBefore := time.Now()
 	notAfter := notBefore.Add(365 * 24 * time.Hour) // Valid for 1 year
 
@@ -141,13 +134,11 @@ func (m *SelfSignedManager) generateCertificate(domain string) (*tls.Certificate
 		DNSNames:              []string{domain},
 	}
 
-	// Create self-signed certificate
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate: %w", err)
 	}
 
-	// Parse certificate
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse certificate: %w", err)

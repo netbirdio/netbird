@@ -53,18 +53,13 @@ func (p *Proxy) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 			host = host[:idx]
 		}
 
-		// Get auth info from headers set by auth middleware
+		// TODO: extract logging data
 		authMechanism := r.Header.Get("X-Auth-Method")
 		if authMechanism == "" {
 			authMechanism = "none"
 		}
-
 		userID := r.Header.Get("X-Auth-User-ID")
-
-		// Determine auth success based on status code
 		authSuccess := rw.statusCode != http.StatusUnauthorized && rw.statusCode != http.StatusForbidden
-
-		// Extract source IP directly
 		sourceIP := extractSourceIP(r)
 
 		data := RequestData{
@@ -89,29 +84,22 @@ func (p *Proxy) findRoute(host, path string) *routeEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	// Strip port from host
 	if idx := strings.LastIndex(host, ":"); idx != -1 {
 		host = host[:idx]
 	}
 
-	// O(1) lookup by host
 	routeConfig, exists := p.routes[host]
 	if !exists {
 		return nil
 	}
 
-	// Build list of route entries sorted by path specificity
 	var entries []*routeEntry
 
-	// Create entries for each path mapping
 	for routePath, target := range routeConfig.PathMappings {
 		proxy := p.createProxy(routeConfig, target)
 
-		// ALWAYS wrap proxy with auth middleware (even if no auth configured)
-		// This ensures consistent auth handling and logging
 		handler := auth.Wrap(proxy, routeConfig.AuthConfig, routeConfig.ID, routeConfig.AuthRejectResponse, p.oidcHandler)
 
-		// Log auth configuration
 		if routeConfig.AuthConfig != nil && !routeConfig.AuthConfig.IsEmpty() {
 			var authType string
 			if routeConfig.AuthConfig.BasicAuth != nil {
@@ -169,11 +157,9 @@ func (p *Proxy) findRoute(host, path string) *routeEntry {
 
 // createProxy creates a reverse proxy for a target with the route's connection
 func (p *Proxy) createProxy(routeConfig *RouteConfig, target string) *httputil.ReverseProxy {
-	// Parse target URL
 	targetURL, err := url.Parse("http://" + target)
 	if err != nil {
 		log.Errorf("Failed to parse target URL %s: %v", target, err)
-		// Return a proxy that returns 502
 		return &httputil.ReverseProxy{
 			Director: func(req *http.Request) {},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -182,21 +168,18 @@ func (p *Proxy) createProxy(routeConfig *RouteConfig, target string) *httputil.R
 		}
 	}
 
-	// Create reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
-	// Configure transport to use the provided connection (WireGuard, etc.)
 	proxy.Transport = &http.Transport{
 		DialContext:           routeConfig.nbClient.DialContext,
 		MaxIdleConns:          1,
 		MaxIdleConnsPerHost:   1,
-		IdleConnTimeout:       0, // Keep alive indefinitely
+		IdleConnTimeout:       0,
 		DisableKeepAlives:     false,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	// Custom error handler
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Errorf("Proxy error for %s%s: %v", r.Host, r.URL.Path, err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -207,14 +190,12 @@ func (p *Proxy) createProxy(routeConfig *RouteConfig, target string) *httputil.R
 
 // handleOIDCCallback handles the global /auth/callback endpoint for all routes
 func (p *Proxy) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
-	// Check if OIDC handler is available
 	if p.oidcHandler == nil {
 		log.Error("OIDC callback received but no OIDC handler configured")
 		http.Error(w, "Authentication not configured", http.StatusInternalServerError)
 		return
 	}
 
-	// Use the OIDC handler's callback method
 	handler := p.oidcHandler.HandleCallback()
 	handler(w, r)
 }

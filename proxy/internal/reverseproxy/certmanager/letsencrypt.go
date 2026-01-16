@@ -39,7 +39,7 @@ func NewLetsEncrypt(config LetsEncryptConfig) *LetsEncryptManager {
 		HostPolicy:  m.hostPolicy,
 		Cache:       autocert.DirCache(config.CertCacheDir),
 		Email:       config.Email,
-		RenewBefore: 0, // Use default
+		RenewBefore: 0, // Use default 30 days prior to expiration
 	}
 
 	log.Info("Let's Encrypt certificate manager initialized")
@@ -71,8 +71,6 @@ func (m *LetsEncryptManager) RemoveDomain(domain string) {
 func (m *LetsEncryptManager) IssueCertificate(ctx context.Context, domain string) error {
 	log.Infof("Issuing Let's Encrypt certificate for domain: %s", domain)
 
-	// Use GetCertificate to trigger certificate issuance
-	// This will go through the ACME challenge flow
 	hello := &tls.ClientHelloInfo{
 		ServerName: domain,
 	}

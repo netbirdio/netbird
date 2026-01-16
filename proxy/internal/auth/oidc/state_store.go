@@ -34,7 +34,6 @@ func (s *StateStore) Store(stateToken, originalURL, routeID string) {
 		RouteID:     routeID,
 	}
 
-	// Clean up expired states
 	s.cleanup()
 }
 

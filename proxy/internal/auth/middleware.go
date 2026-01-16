@@ -28,26 +28,22 @@ type authResult struct {
 
 // ServeHTTP implements the http.Handler interface
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// If no auth configured, allow request
 	if m.config.IsEmpty() {
 		m.allowWithoutAuth(w, r)
 		return
 	}
 
-	// Try to authenticate the request
 	result := m.authenticate(w, r)
 	if result == nil {
 		// Authentication triggered a redirect (e.g., OIDC flow)
 		return
 	}
 
-	// Reject if authentication failed
 	if !result.authenticated {
 		m.rejectRequest(w, r)
 		return
 	}
 
-	// Authentication successful - continue to next handler
 	m.continueWithAuth(w, r, result)
 }
 
@@ -65,17 +61,14 @@ func (m *Middleware) allowWithoutAuth(w http.ResponseWriter, r *http.Request) {
 // authenticate attempts to authenticate the request using configured methods
 // Returns nil if a redirect occurred (e.g., OIDC flow initiated)
 func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *authResult {
-	// Try Basic Auth
 	if result := m.tryBasicAuth(r); result.authenticated {
 		return result
 	}
 
-	// Try PIN Auth
 	if result := m.tryPINAuth(r); result.authenticated {
 		return result
 	}
 
-	// Try Bearer/OIDC Auth
 	return m.tryBearerAuth(w, r)
 }
 
@@ -94,7 +87,6 @@ func (m *Middleware) tryBasicAuth(r *http.Request) *authResult {
 		method:        "basic",
 	}
 
-	// Extract username from Basic Auth
 	if username, _, ok := r.BasicAuth(); ok {
 		result.userID = username
 	}
@@ -128,24 +120,20 @@ func (m *Middleware) tryBearerAuth(w http.ResponseWriter, r *http.Request) *auth
 
 	cookieName := m.oidcHandler.SessionCookieName()
 
-	// Handle auth token in query parameter (from OIDC callback)
 	if m.handleAuthTokenParameter(w, r, cookieName) {
-		return nil // Redirect occurred
+		return nil
 	}
 
-	// Try session cookie
 	if result := m.trySessionCookie(r, cookieName); result.authenticated {
 		return result
 	}
 
-	// Try Authorization header
 	if result := m.tryAuthorizationHeader(r); result.authenticated {
 		return result
 	}
 
-	// No valid auth - redirect to OIDC provider
 	m.oidcHandler.RedirectToProvider(w, r, m.routeID)
-	return nil // Redirect occurred
+	return nil
 }
 
 // handleAuthTokenParameter processes the _auth_token query parameter from OIDC callback
@@ -161,7 +149,6 @@ func (m *Middleware) handleAuthTokenParameter(w http.ResponseWriter, r *http.Req
 		"host":     r.Host,
 	}).Info("Found auth token in query parameter, setting cookie and redirecting")
 
-	// Validate the token before setting cookie
 	if !m.oidcHandler.ValidateJWT(authToken) {
 		log.WithFields(log.Fields{
 			"route_id": m.routeID,
@@ -169,7 +156,6 @@ func (m *Middleware) handleAuthTokenParameter(w http.ResponseWriter, r *http.Req
 		return false
 	}
 
-	// Set session cookie
 	cookie := &http.Cookie{
 		Name:     cookieName,
 		Value:    authToken,
@@ -288,7 +274,7 @@ func (m *Middleware) continueWithAuth(w http.ResponseWriter, r *http.Request, re
 		"path":        r.URL.Path,
 	}).Debug("Authentication successful")
 
-	// Store auth info in headers for logging
+	// TODO: Find other means of auth logging than headers
 	r.Header.Set("X-Auth-Method", result.method)
 	r.Header.Set("X-Auth-User-ID", result.userID)
 
@@ -299,7 +285,7 @@ func (m *Middleware) continueWithAuth(w http.ResponseWriter, r *http.Request, re
 // Wrap wraps an HTTP handler with authentication middleware
 func Wrap(next http.Handler, authConfig *Config, routeID string, rejectResponse func(w http.ResponseWriter, r *http.Request), oidcHandler *oidc.Handler) http.Handler {
 	if authConfig == nil {
-		authConfig = &Config{} // Empty config = no auth
+		authConfig = &Config{}
 	}
 
 	return &Middleware{

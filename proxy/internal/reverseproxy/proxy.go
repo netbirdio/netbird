@@ -27,7 +27,6 @@ type Proxy struct {
 
 // New creates a new reverse proxy
 func New(config Config) (*Proxy, error) {
-	// Set defaults
 	if config.ListenAddress == "" {
 		config.ListenAddress = ":443"
 	}
@@ -38,22 +37,18 @@ func New(config Config) (*Proxy, error) {
 		config.CertCacheDir = "./certs"
 	}
 
-	// Set default cert mode
 	if config.CertMode == "" {
 		config.CertMode = "letsencrypt"
 	}
 
-	// Validate config based on cert mode
 	if config.CertMode == "letsencrypt" && config.TLSEmail == "" {
 		return nil, fmt.Errorf("TLSEmail is required for letsencrypt mode")
 	}
 
-	// Set default OIDC session cookie name if not provided
 	if config.OIDCConfig != nil && config.OIDCConfig.SessionCookieName == "" {
 		config.OIDCConfig.SessionCookieName = "auth_session"
 	}
 
-	// Initialize certificate manager based on mode
 	var certMgr certmanager.Manager
 	if config.CertMode == "selfsigned" {
 		// HTTPS with self-signed certificates (for local testing)
@@ -73,8 +68,6 @@ func New(config Config) (*Proxy, error) {
 		isRunning:   false,
 	}
 
-	// Initialize OIDC handler if OIDC is configured
-	// The handler internally creates and manages its own state store
 	if config.OIDCConfig != nil {
 		stateStore := oidc.NewStateStore()
 		p.oidcHandler = oidc.NewHandler(config.OIDCConfig, stateStore)
@@ -93,28 +86,25 @@ func (p *Proxy) Start() error {
 	p.isRunning = true
 	p.mu.Unlock()
 
-	// Build the main HTTP handler
 	handler := p.buildHandler()
 
 	return p.startHTTPS(handler)
 }
 
-// startHTTPS starts the proxy with HTTPS (non-blocking)
+// startHTTPS starts the proxy with HTTPS
 func (p *Proxy) startHTTPS(handler http.Handler) error {
-	// Start HTTP server for ACME challenges (Let's Encrypt HTTP-01)
 	p.httpServer = &http.Server{
 		Addr:    p.config.HTTPListenAddress,
 		Handler: p.certManager.HTTPHandler(nil),
 	}
 
 	go func() {
-		log.Infof("Starting HTTP server for ACME challenges on %s", p.config.HTTPListenAddress)
+		log.Infof("Starting HTTP server on %s", p.config.HTTPListenAddress)
 		if err := p.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("HTTP server error: %v", err)
 		}
 	}()
 
-	// Start HTTPS server in background
 	p.server = &http.Server{
 		Addr:      p.config.ListenAddress,
 		Handler:   handler,
@@ -143,14 +133,12 @@ func (p *Proxy) Stop(ctx context.Context) error {
 
 	log.Info("Stopping reverse proxy server...")
 
-	// Stop HTTP server (for ACME challenges)
 	if p.httpServer != nil {
 		if err := p.httpServer.Shutdown(ctx); err != nil {
 			log.Errorf("Error shutting down HTTP server: %v", err)
 		}
 	}
 
-	// Stop main server
 	if p.server != nil {
 		if err := p.server.Shutdown(ctx); err != nil {
 			return fmt.Errorf("error shutting down server: %w", err)

@@ -18,7 +18,6 @@ func (c *BasicAuthConfig) Validate(r *http.Request) bool {
 		return false
 	}
 
-	// Use constant-time comparison to prevent timing attacks
 	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte(c.Username)) == 1
 	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(c.Password)) == 1
 

@@ -24,7 +24,6 @@ type Handler struct {
 
 // NewHandler creates a new OIDC handler
 func NewHandler(config *Config, stateStore *StateStore) *Handler {
-	// Initialize JWT validator
 	var jwtValidator *jwt.Validator
 	if config.JWTKeysLocation != "" {
 		jwtValidator = jwt.NewValidator(
@@ -67,7 +66,6 @@ func (h *Handler) RedirectToProvider(w http.ResponseWriter, r *http.Request, rou
 		scopes = []string{"openid", "profile", "email"}
 	}
 
-	// Build authorization URL
 	authURL, err := url.Parse(h.config.ProviderURL)
 	if err != nil {
 		log.WithError(err).Error("Invalid OIDC provider URL")
@@ -80,7 +78,6 @@ func (h *Handler) RedirectToProvider(w http.ResponseWriter, r *http.Request, rou
 		authURL.Path = strings.TrimSuffix(authURL.Path, "/") + "/authorize"
 	}
 
-	// Build query parameters
 	params := url.Values{}
 	params.Set("client_id", h.config.ClientID)
 	params.Set("redirect_uri", h.config.RedirectURL)
@@ -88,8 +85,6 @@ func (h *Handler) RedirectToProvider(w http.ResponseWriter, r *http.Request, rou
 	params.Set("scope", strings.Join(scopes, " "))
 	params.Set("state", state)
 
-	// Add audience parameter to get an access token for the API
-	// This ensures we get a proper JWT for the API audience, not just an ID token
 	if len(h.config.JWTAudience) > 0 && h.config.JWTAudience[0] != h.config.ClientID {
 		params.Set("audience", h.config.JWTAudience[0])
 	}
@@ -103,7 +98,6 @@ func (h *Handler) RedirectToProvider(w http.ResponseWriter, r *http.Request, rou
 		"state":        state,
 	}).Info("Redirecting to OIDC provider for authentication")
 
-	// Redirect user to identity provider login page
 	http.Redirect(w, r, authURL.String(), http.StatusFound)
 }
 

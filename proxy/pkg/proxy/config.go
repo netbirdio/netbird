@@ -63,7 +63,7 @@ type Config struct {
 	// LogLevel sets the logging verbosity (debug, info, warn, error)
 	LogLevel string `env:"NB_PROXY_LOG_LEVEL" envDefault:"info" json:"log_level"`
 
-	// GRPCListenAddress is the address for the gRPC control server (empty to disable)
+	// GRPCListenAddress is the address for the gRPC control server
 	GRPCListenAddress string `env:"NB_PROXY_GRPC_LISTEN_ADDRESS" envDefault:":50051" json:"grpc_listen_address"`
 
 	// ProxyID is a unique identifier for this proxy instance
@@ -111,7 +111,6 @@ func LoadFromFile(path string) (Config, error) {
 }
 
 // LoadFromFileOrEnv loads configuration from a file if path is provided, otherwise from environment variables
-// Environment variables will override file-based configuration if both are present
 func LoadFromFileOrEnv(configPath string) (Config, error) {
 	var cfg Config
 
@@ -123,7 +122,6 @@ func LoadFromFileOrEnv(configPath string) (Config, error) {
 		}
 		cfg = fileCfg
 	} else {
-		// Parse environment variables (will override file config with any set env vars)
 		if err := env.Parse(&cfg); err != nil {
 			return Config{}, fmt.Errorf("%w: %s", ErrFailedToParseConfig, err)
 		}
@@ -137,30 +135,24 @@ func LoadFromFileOrEnv(configPath string) (Config, error) {
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling with automatic duration parsing
-// Uses reflection to find all time.Duration fields and parse them from string
 func (c *Config) UnmarshalJSON(data []byte) error {
-	// First unmarshal into a map to get raw values
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	// Get reflection value and type
 	val := reflect.ValueOf(c).Elem()
 	typ := val.Type()
 
-	// Iterate through all fields
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		fieldType := typ.Field(i)
 
-		// Get JSON tag name
 		jsonTag := fieldType.Tag.Get("json")
 		if jsonTag == "" || jsonTag == "-" {
 			continue
 		}
 
-		// Parse tag to get field name (handle omitempty, etc.)
 		jsonFieldName := jsonTag
 		if idx := len(jsonTag); idx > 0 {
 			for j, c := range jsonTag {
@@ -171,15 +163,12 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			}
 		}
 
-		// Get raw value from JSON
 		rawValue, exists := raw[jsonFieldName]
 		if !exists {
 			continue
 		}
 
-		// Check if this field is a time.Duration
 		if field.Type() == reflect.TypeOf(time.Duration(0)) {
-			// Try to parse as string duration
 			if strValue, ok := rawValue.(string); ok {
 				duration, err := time.ParseDuration(strValue)
 				if err != nil {
@@ -190,13 +179,11 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 				return fmt.Errorf("field %s must be a duration string", jsonFieldName)
 			}
 		} else {
-			// For non-duration fields, unmarshal normally
 			fieldData, err := json.Marshal(rawValue)
 			if err != nil {
 				return fmt.Errorf("failed to marshal field %s: %w", jsonFieldName, err)
 			}
 
-			// Create a new instance of the field type
 			if field.CanSet() {
 				newVal := reflect.New(field.Type())
 				if err := json.Unmarshal(fieldData, newVal.Interface()); err != nil {

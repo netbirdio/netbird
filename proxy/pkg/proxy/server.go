@@ -95,13 +95,16 @@ func NewServer(config Config) (*Server, error) {
 	// Set request data callback
 	proxy.SetRequestCallback(func(data reverseproxy.RequestData) {
 		log.WithFields(log.Fields{
-			"service_id":    data.ServiceID,
-			"host":          data.Host,
-			"method":        data.Method,
-			"path":          data.Path,
-			"response_code": data.ResponseCode,
-			"duration_ms":   data.DurationMs,
-			"source_ip":     data.SourceIP,
+			"service_id":     data.ServiceID,
+			"host":           data.Host,
+			"method":         data.Method,
+			"path":           data.Path,
+			"response_code":  data.ResponseCode,
+			"duration_ms":    data.DurationMs,
+			"source_ip":      data.SourceIP,
+			"auth_mechanism": data.AuthMechanism,
+			"user_id":        data.UserID,
+			"auth_success":   data.AuthSuccess,
 		}).Info("Access log received")
 	})
 	if err != nil {
@@ -176,9 +179,9 @@ func (s *Server) Start() error {
 		&reverseproxy.RouteConfig{
 			ID:           "test",
 			Domain:       "test.netbird.io",
-			PathMappings: map[string]string{"/": "localhost:8181"},
+			PathMappings: map[string]string{"/": "100.116.118.156:8181"},
 			AuthConfig:   testAuthConfig,
-			SetupKey:     "setup-key",
+			SetupKey:     "88B2382A-93D2-47A9-A80F-D0055D741636",
 		}); err != nil {
 		log.Warn("Failed to add test route: ", err)
 	}

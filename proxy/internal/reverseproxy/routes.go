@@ -36,7 +36,6 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Check if route already exists for this domain
 	if _, exists := p.routes[route.Domain]; exists {
 		return fmt.Errorf("route for domain %s already exists", route.Domain)
 	}
@@ -54,10 +53,8 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 
 	route.nbClient = client
 
-	// Add route with domain as key
 	p.routes[route.Domain] = route
 
-	// Register domain with certificate manager
 	p.certManager.AddDomain(route.Domain)
 
 	log.WithFields(log.Fields{
@@ -66,13 +63,13 @@ func (p *Proxy) AddRoute(route *RouteConfig) error {
 		"paths":    len(route.PathMappings),
 	}).Info("Added route")
 
-	// Eagerly issue certificate in background
 	go func(domain string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
 		if err := p.certManager.IssueCertificate(ctx, domain); err != nil {
 			log.Errorf("Failed to issue certificate: %v", err)
+			// TODO: Better error feedback mechanism
 		}
 	}(route.Domain)
 
@@ -84,15 +81,12 @@ func (p *Proxy) RemoveRoute(domain string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Check if route exists
 	if _, exists := p.routes[domain]; !exists {
 		return fmt.Errorf("route for domain %s not found", domain)
 	}
 
-	// Remove route
 	delete(p.routes, domain)
 
-	// Unregister domain from certificate manager
 	p.certManager.RemoveDomain(domain)
 
 	log.Infof("Removed route for domain: %s", domain)
@@ -114,12 +108,10 @@ func (p *Proxy) UpdateRoute(route *RouteConfig) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Check if route exists for this domain
 	if _, exists := p.routes[route.Domain]; !exists {
 		return fmt.Errorf("route for domain %s not found", route.Domain)
 	}
 
-	// Update route using domain as key
 	p.routes[route.Domain] = route
 
 	log.WithFields(log.Fields{
