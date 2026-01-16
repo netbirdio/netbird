@@ -389,6 +389,7 @@ start_services_and_show_instructions() {
     $DOCKER_COMPOSE_COMMAND up -d
 
     sleep 3
+    wait_management_direct
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions
