@@ -933,7 +933,6 @@ EOF
 }
 
 render_nginx_conf() {
-  local bind_addr=$(get_bind_address)
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
   local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
@@ -1096,7 +1095,6 @@ EOF
 }
 
 render_external_caddyfile() {
-  local bind_addr=$(get_bind_address)
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
   local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
@@ -1152,7 +1150,6 @@ EOF
 }
 
 render_npm_advanced_config() {
-  local bind_addr=$(get_bind_address)
   local upstream_host=$(get_upstream_host)
   local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
   local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
