@@ -27,6 +27,8 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -37,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
@@ -58,12 +61,14 @@ const (
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
-	db                *gorm.DB
-	globalAccountLock sync.Mutex
-	metrics           telemetry.AppMetrics
-	installationPK    int
-	storeEngine       types.Engine
-	pool              *pgxpool.Pool
+	db                 *gorm.DB
+	globalAccountLock  sync.Mutex
+	metrics            telemetry.AppMetrics
+	installationPK     int
+	storeEngine        types.Engine
+	pool               *pgxpool.Pool
+	fieldEncrypt       *crypt.FieldEncrypt
+	transactionTimeout time.Duration
 }
 
 type installation struct {
@@ -85,6 +90,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
+	transactionTimeout := 5 * time.Minute
+	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			transactionTimeout = parsed
+		}
+	}
+	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
+
 	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -102,7 +115,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
@@ -113,7 +126,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{},
+		&types.Job{}, &zones.Zone{}, &records.Record{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -122,7 +135,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -257,6 +270,13 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
 
 	generateAccountSQLTypes(account)
+
+	// Encrypt sensitive user data before saving
+	for i := range account.UsersG {
+		if err := account.UsersG[i].EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+	}
 
 	for _, group := range account.GroupsG {
 		group.StoreGroupPeers()
@@ -523,7 +543,18 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 		return nil
 	}
 
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&users)
+	usersCopy := make([]*types.User, len(users))
+	for i, user := range users {
+		userCopy := user.Copy()
+		userCopy.Email = user.Email
+		userCopy.Name = user.Name
+		if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+		usersCopy[i] = userCopy
+	}
+
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&usersCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -533,7 +564,15 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
-	result := s.db.Save(user)
+	userCopy := user.Copy()
+	userCopy.Email = user.Email
+	userCopy.Name = user.Name
+
+	if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt user: %w", err)
+	}
+
+	result := s.db.Save(userCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user to store")
@@ -683,6 +722,10 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 		return nil, status.NewGetUserFromStoreError()
 	}
 
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
+	}
+
 	return &user, nil
 }
 
@@ -699,6 +742,10 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 			return nil, status.NewUserNotFoundError(userID)
 		}
 		return nil, status.NewGetUserFromStoreError()
+	}
+
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
 	return &user, nil
@@ -737,6 +784,12 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "issue getting users from store")
 	}
 
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
 	return users, nil
 }
 
@@ -753,6 +806,10 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 			return nil, status.Errorf(status.NotFound, "account owner not found: index lookup failed")
 		}
 		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
+	}
+
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
 	return &user, nil
@@ -948,6 +1005,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
+		}
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 		account.Users[user.Id] = &user
 		user.PATsG = nil
@@ -1224,6 +1284,9 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for i := range account.UsersG {
 		user := &account.UsersG[i]
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
 		user.PATs = make(map[string]*types.PersonalAccessToken)
 		if userPats, ok := patsByUserID[user.Id]; ok {
 			for j := range userPats {
@@ -1628,7 +1691,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 }
 
 func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User, error) {
-	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type FROM users WHERE account_id = $1`
+	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1638,7 +1701,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 		var autoGroups []byte
 		var lastLogin, createdAt sql.NullTime
 		var isServiceUser, nonDeletable, blocked, pendingApproval sql.NullBool
-		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
+		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType, &u.Email, &u.Name)
 		if err == nil {
 			if lastLogin.Valid {
 				u.LastLogin = &lastLogin.Time
@@ -2990,8 +3053,11 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
+	defer cancel()
+
 	startTime := time.Now()
-	tx := s.db.Begin()
+	tx := s.db.WithContext(timeoutCtx).Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
@@ -3026,6 +3092,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
 		return err
 	}
 
@@ -3038,19 +3107,26 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}
 
 	err = tx.Commit().Error
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
+		return err
+	}
 
 	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
 
-	return err
+	return nil
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	return &SqlStore{
-		db:          tx,
-		storeEngine: s.storeEngine,
+		db:           tx,
+		storeEngine:  s.storeEngine,
+		fieldEncrypt: s.fieldEncrypt,
 	}
 }
 
@@ -3081,6 +3157,11 @@ func (s *SqlStore) transaction(fn func(*gorm.DB) error) error {
 
 func (s *SqlStore) GetDB() *gorm.DB {
 	return s.db
+}
+
+// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+func (s *SqlStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
+	s.fieldEncrypt = enc
 }
 
 func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error) {
@@ -4192,6 +4273,187 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 	}
 
 	return userID, nil
+}
+
+func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Create(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Select("*").Save(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteZone(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&zones.Zone{}, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewZoneNotFoundError(zoneID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zone *zones.Zone
+	result := tx.Preload("Records").Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(zoneID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error) {
+	var zone *zones.Zone
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&zone)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone by domain from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zones []*zones.Zone
+	result := tx.Preload("Records").Find(&zones, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zones from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zones from store")
+	}
+
+	return zones, nil
+}
+
+func (s *SqlStore) CreateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Create(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Select("*").Save(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete dns record from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete dns record from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewDNSRecordNotFoundError(recordID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var record *records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID).Take(&record)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewDNSRecordNotFoundError(recordID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get dns record from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get dns record from store")
+	}
+
+	return record, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ?", accountID, zoneID).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND name = ?", accountID, zoneID, name).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records by name from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records by name from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ?", accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone dns records from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone dns records from store")
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error) {

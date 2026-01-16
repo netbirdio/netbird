@@ -66,7 +66,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	srvUser := types.NewRegularUser(serviceUser)
+	srvUser := types.NewRegularUser(serviceUser, "", "")
 	srvUser.IsServiceUser = true
 
 	account := &types.Account{
@@ -75,7 +75,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		Peers:  peersMap,
 		Users: map[string]*types.User{
 			adminUser:   types.NewAdminUser(adminUser),
-			regularUser: types.NewRegularUser(regularUser),
+			regularUser: types.NewRegularUser(regularUser, "", ""),
 			serviceUser: srvUser,
 		},
 		Groups: map[string]*types.Group{

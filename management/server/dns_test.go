@@ -279,7 +279,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain, "", "", false)
 
 	account.Users[dnsRegularUserID] = &types.User{
 		Id:   dnsRegularUserID,

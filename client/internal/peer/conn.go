@@ -148,13 +148,15 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
-	conn.semaphore.Add(engineCtx)
+	if err := conn.semaphore.Add(engineCtx); err != nil {
+		return err
+	}
 
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	if conn.opened {
-		conn.semaphore.Done(engineCtx)
+		conn.semaphore.Done()
 		return nil
 	}
 
@@ -165,6 +167,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 	if err != nil {
+		conn.semaphore.Done()
 		return err
 	}
 	conn.workerICE = workerICE
@@ -200,7 +203,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		defer conn.wg.Done()
 
 		conn.waitInitialRandomSleepTime(conn.ctx)
-		conn.semaphore.Done(conn.ctx)
+		conn.semaphore.Done()
 
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
@@ -666,10 +669,17 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		}
 	}()
 
-	if runtime.GOOS != "js" && conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
+	// For JS platform: only relay connection is supported
+	if runtime.GOOS == "js" {
+		return conn.statusRelay.Get() == worker.StatusConnected
+	}
+
+	// For non-JS platforms: check ICE connection status
+	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false
 	}
 
+	// If relay is supported with peer, it must also be connected
 	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
 		if conn.statusRelay.Get() == worker.StatusDisconnected {
 			return false

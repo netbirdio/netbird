@@ -2013,6 +2013,7 @@ type SSHSessionInfo struct {
 	RemoteAddress string                 `protobuf:"bytes,2,opt,name=remoteAddress,proto3" json:"remoteAddress,omitempty"`
 	Command       string                 `protobuf:"bytes,3,opt,name=command,proto3" json:"command,omitempty"`
 	JwtUsername   string                 `protobuf:"bytes,4,opt,name=jwtUsername,proto3" json:"jwtUsername,omitempty"`
+	PortForwards  []string               `protobuf:"bytes,5,rep,name=portForwards,proto3" json:"portForwards,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2073,6 +2074,13 @@ func (x *SSHSessionInfo) GetJwtUsername() string {
 		return x.JwtUsername
 	}
 	return ""
+}
+
+func (x *SSHSessionInfo) GetPortForwards() []string {
+	if x != nil {
+		return x.PortForwards
+	}
+	return nil
 }
 
 // SSHServerState contains the latest state of the SSH server
@@ -5698,12 +5706,13 @@ const file_daemon_proto_rawDesc = "" +
 	"\aservers\x18\x01 \x03(\tR\aservers\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x18\n" +
 	"\aenabled\x18\x03 \x01(\bR\aenabled\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"\x8e\x01\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\xb2\x01\n" +
 	"\x0eSSHSessionInfo\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12$\n" +
 	"\rremoteAddress\x18\x02 \x01(\tR\rremoteAddress\x12\x18\n" +
 	"\acommand\x18\x03 \x01(\tR\acommand\x12 \n" +
-	"\vjwtUsername\x18\x04 \x01(\tR\vjwtUsername\"^\n" +
+	"\vjwtUsername\x18\x04 \x01(\tR\vjwtUsername\x12\"\n" +
+	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
 	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xaf\x04\n" +

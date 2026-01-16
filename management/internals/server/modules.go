@@ -8,6 +8,10 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -95,6 +99,17 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+		// Use embedded IdP manager if embedded Dex is configured and enabled.
+		// Legacy IdpManager won't be used anymore even if configured.
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
+			if err != nil {
+				log.Fatalf("failed to create embedded IDP manager: %v", err)
+			}
+			return idpManager
+		}
+
+		// Fall back to external IdP manager
 		if s.Config.IdpManagerConfig != nil {
 			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
@@ -103,6 +118,25 @@ func (s *BaseServer) IdpManager() idp.Manager {
 		}
 		return idpManager
 	})
+}
+
+// OAuthConfigProvider is only relevant when we have an embedded IdP manager. Otherwise must be nil
+func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
+	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
+		return nil
+	}
+
+	idpManager := s.IdpManager()
+	if idpManager == nil {
+		return nil
+	}
+
+	// Reuse the EmbeddedIdPManager instance from IdpManager
+	// EmbeddedIdPManager implements both idp.Manager and idp.OAuthConfigProvider
+	if provider, ok := idpManager.(idp.OAuthConfigProvider); ok {
+		return provider
+	}
+	return nil
 }
 
 func (s *BaseServer) GroupsManager() groups.Manager {
@@ -126,5 +160,17 @@ func (s *BaseServer) RoutesManager() routers.Manager {
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
 		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) ZonesManager() zones.Manager {
+	return Create(s, func() zones.Manager {
+		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
+	})
+}
+
+func (s *BaseServer) RecordsManager() records.Manager {
+	return Create(s, func() records.Manager {
+		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
 	})
 }

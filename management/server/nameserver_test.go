@@ -867,7 +867,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	userID := testUserID
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, "", "", false)
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 

@@ -372,6 +372,7 @@ message SSHSessionInfo {
   string remoteAddress = 2;
   string command = 3;
   string jwtUsername = 4;
+  repeated string portForwards = 5;
 }
 
 // SSHServerState contains the latest state of the SSH server

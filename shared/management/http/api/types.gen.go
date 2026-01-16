@@ -16,6 +16,13 @@ const (
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
+// Defines values for DNSRecordType.
+const (
+	DNSRecordTypeA     DNSRecordType = "A"
+	DNSRecordTypeAAAA  DNSRecordType = "AAAA"
+	DNSRecordTypeCNAME DNSRecordType = "CNAME"
+)
+
 // Defines values for EventActivityCode.
 const (
 	EventActivityCodeAccountCreate                            EventActivityCode = "account.create"
@@ -85,6 +92,17 @@ const (
 	GroupMinimumIssuedApi         GroupMinimumIssued = "api"
 	GroupMinimumIssuedIntegration GroupMinimumIssued = "integration"
 	GroupMinimumIssuedJwt         GroupMinimumIssued = "jwt"
+)
+
+// Defines values for IdentityProviderType.
+const (
+	IdentityProviderTypeEntra     IdentityProviderType = "entra"
+	IdentityProviderTypeGoogle    IdentityProviderType = "google"
+	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
+	IdentityProviderTypeOidc      IdentityProviderType = "oidc"
+	IdentityProviderTypeOkta      IdentityProviderType = "okta"
+	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
+	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
 )
 
 // Defines values for IngressPortAllocationPortMappingProtocol.
@@ -314,8 +332,11 @@ type AccountSettings struct {
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
 	// DnsDomain Allows to define a custom dns domain for the account
-	DnsDomain *string               `json:"dns_domain,omitempty"`
-	Extra     *AccountExtraSettings `json:"extra,omitempty"`
+	DnsDomain *string `json:"dns_domain,omitempty"`
+
+	// EmbeddedIdpEnabled Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+	EmbeddedIdpEnabled *bool                 `json:"embedded_idp_enabled,omitempty"`
+	Extra              *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
@@ -470,6 +491,42 @@ type CreateSetupKeyRequest struct {
 	UsageLimit int `json:"usage_limit"`
 }
 
+// DNSRecord defines model for DNSRecord.
+type DNSRecord struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Id DNS record ID
+	Id string `json:"id"`
+
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordRequest defines model for DNSRecordRequest.
+type DNSRecordRequest struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordType DNS record type
+type DNSRecordType string
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
@@ -576,6 +633,45 @@ type GroupRequest struct {
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
 }
+
+// IdentityProvider defines model for IdentityProvider.
+type IdentityProvider struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// Id Identity provider ID
+	Id *string `json:"id,omitempty"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderRequest defines model for IdentityProviderRequest.
+type IdentityProviderRequest struct {
+	// ClientId OAuth2 client ID
+	ClientId string `json:"client_id"`
+
+	// ClientSecret OAuth2 client secret
+	ClientSecret string `json:"client_secret"`
+
+	// Issuer OIDC issuer URL
+	Issuer string `json:"issuer"`
+
+	// Name Human-readable name for the identity provider
+	Name string `json:"name"`
+
+	// Type Type of identity provider
+	Type IdentityProviderType `json:"type"`
+}
+
+// IdentityProviderType Type of identity provider
+type IdentityProviderType string
 
 // IngressPeer defines model for IngressPeer.
 type IngressPeer struct {
@@ -709,6 +805,12 @@ type IngressPortAllocationRequestPortRange struct {
 
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
+
+// InstanceStatus Instance status information
+type InstanceStatus struct {
+	// SetupRequired Indicates whether the instance requires initial setup
+	SetupRequired bool `json:"setup_required"`
+}
 
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
@@ -1909,6 +2011,27 @@ type SetupKeyRequest struct {
 	Revoked bool `json:"revoked"`
 }
 
+// SetupRequest Request to set up the initial admin user
+type SetupRequest struct {
+	// Email Email address for the admin user
+	Email string `json:"email"`
+
+	// Name Display name for the admin user (defaults to email if not provided)
+	Name string `json:"name"`
+
+	// Password Password for the admin user (minimum 8 characters)
+	Password string `json:"password"`
+}
+
+// SetupResponse Response after successful instance setup
+type SetupResponse struct {
+	// Email Email address of the created user
+	Email string `json:"email"`
+
+	// UserId The ID of the created user
+	UserId string `json:"user_id"`
+}
+
 // User defines model for User.
 type User struct {
 	// AutoGroups Group IDs to auto-assign to peers registered by this user
@@ -1919,6 +2042,9 @@ type User struct {
 
 	// Id User ID
 	Id string `json:"id"`
+
+	// IdpId Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+	IdpId *string `json:"idp_id,omitempty"`
 
 	// IsBlocked Is true if this user is blocked. Blocked users can't use the system
 	IsBlocked bool `json:"is_blocked"`
@@ -1937,6 +2063,9 @@ type User struct {
 
 	// Name User's name from idp provider
 	Name string `json:"name"`
+
+	// Password User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+	Password *string `json:"password,omitempty"`
 
 	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
 	PendingApproval bool             `json:"pending_approval"`
@@ -2002,6 +2131,48 @@ type WorkloadResponse struct {
 // WorkloadType Identifies the type of workload the job will execute.
 // Currently only `"bundle"` is supported.
 type WorkloadType string
+
+// Zone defines model for Zone.
+type Zone struct {
+	// DistributionGroups Group IDs that defines groups of peers that will resolve this zone
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Zone domain (FQDN)
+	Domain string `json:"domain"`
+
+	// EnableSearchDomain Enable this zone as a search domain
+	EnableSearchDomain bool `json:"enable_search_domain"`
+
+	// Enabled Zone status
+	Enabled bool `json:"enabled"`
+
+	// Id Zone ID
+	Id string `json:"id"`
+
+	// Name Zone name identifier
+	Name string `json:"name"`
+
+	// Records DNS records associated with this zone
+	Records []DNSRecord `json:"records"`
+}
+
+// ZoneRequest defines model for ZoneRequest.
+type ZoneRequest struct {
+	// DistributionGroups Group IDs that defines groups of peers that will resolve this zone
+	DistributionGroups []string `json:"distribution_groups"`
+
+	// Domain Zone domain (FQDN)
+	Domain string `json:"domain"`
+
+	// EnableSearchDomain Enable this zone as a search domain
+	EnableSearchDomain bool `json:"enable_search_domain"`
+
+	// Enabled Zone status
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Name Zone name identifier
+	Name string `json:"name"`
+}
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
@@ -2087,11 +2258,29 @@ type PutApiDnsNameserversNsgroupIdJSONRequestBody = NameserverGroupRequest
 // PutApiDnsSettingsJSONRequestBody defines body for PutApiDnsSettings for application/json ContentType.
 type PutApiDnsSettingsJSONRequestBody = DNSSettings
 
+// PostApiDnsZonesJSONRequestBody defines body for PostApiDnsZones for application/json ContentType.
+type PostApiDnsZonesJSONRequestBody = ZoneRequest
+
+// PutApiDnsZonesZoneIdJSONRequestBody defines body for PutApiDnsZonesZoneId for application/json ContentType.
+type PutApiDnsZonesZoneIdJSONRequestBody = ZoneRequest
+
+// PostApiDnsZonesZoneIdRecordsJSONRequestBody defines body for PostApiDnsZonesZoneIdRecords for application/json ContentType.
+type PostApiDnsZonesZoneIdRecordsJSONRequestBody = DNSRecordRequest
+
+// PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody defines body for PutApiDnsZonesZoneIdRecordsRecordId for application/json ContentType.
+type PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody = DNSRecordRequest
+
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
 type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
+
+// PostApiIdentityProvidersJSONRequestBody defines body for PostApiIdentityProviders for application/json ContentType.
+type PostApiIdentityProvidersJSONRequestBody = IdentityProviderRequest
+
+// PutApiIdentityProvidersIdpIdJSONRequestBody defines body for PutApiIdentityProvidersIdpId for application/json ContentType.
+type PutApiIdentityProvidersIdpIdJSONRequestBody = IdentityProviderRequest
 
 // PostApiIngressPeersJSONRequestBody defines body for PostApiIngressPeers for application/json ContentType.
 type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
@@ -2149,6 +2338,9 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
+
+// PostApiSetupJSONRequestBody defines body for PostApiSetup for application/json ContentType.
+type PostApiSetupJSONRequestBody = SetupRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = CreateSetupKeyRequest

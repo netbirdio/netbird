@@ -23,10 +23,13 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -204,7 +207,25 @@ type Store interface {
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
+
+	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+	SetFieldEncrypt(enc *crypt.FieldEncrypt)
 	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
+
+	CreateZone(ctx context.Context, zone *zones.Zone) error
+	UpdateZone(ctx context.Context, zone *zones.Zone) error
+	DeleteZone(ctx context.Context, accountID, zoneID string) error
+	GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error)
+	GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error)
+	GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error)
+
+	CreateDNSRecord(ctx context.Context, record *records.Record) error
+	UpdateDNSRecord(ctx context.Context, record *records.Record) error
+	DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error
+	GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error)
+	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
+	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
+	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
 	CreatePeerJob(ctx context.Context, job *types.Job) error
 	CompletePeerJob(ctx context.Context, job *types.Job) error
 	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
@@ -347,8 +368,19 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "name", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "email", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
 	}
-} // migratePostAuto migrates the SQLite database to the latest schema
+}
+
+// migratePostAuto migrates the SQLite database to the latest schema
 func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 	migrations := getMigrationsPostAuto(ctx)
 
@@ -377,6 +409,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 					PeerID:    value,
 				}
 			})
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
 	}
 }

@@ -75,6 +75,8 @@ type Client struct {
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
 	connectClient         *internal.ConnectClient
+	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
+	preloadedConfig *profilemanager.Config
 }
 
 // NewClient instantiate a new Client
@@ -92,17 +94,44 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 	}
 }
 
+// SetConfigFromJSON loads config from a JSON string into memory.
+// This is used on tvOS where file writes to App Group containers are blocked.
+// When set, IsLoginRequired() and Run() will use this preloaded config instead of reading from file.
+func (c *Client) SetConfigFromJSON(jsonStr string) error {
+	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
+	if err != nil {
+		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
+		return err
+	}
+	c.preloadedConfig = cfg
+	log.Infof("SetConfigFromJSON: config loaded successfully from JSON")
+	return nil
+}
+
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	exportEnvList(envList)
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
-	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    c.cfgFile,
-		StateFilePath: c.stateFile,
-	})
-	if err != nil {
-		return err
+
+	var cfg *profilemanager.Config
+	var err error
+
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("Run: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("Run: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath:    c.cfgFile,
+			StateFilePath: c.stateFile,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
@@ -120,7 +149,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.Login()
+	err = auth.LoginSync()
 	if err != nil {
 		return err
 	}
@@ -208,13 +237,44 @@ func (c *Client) IsLoginRequired() bool {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath: c.cfgFile,
-	})
+	var cfg *profilemanager.Config
+	var err error
 
-	needsLogin, _ := internal.IsLoginRequired(ctx, cfg)
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("IsLoginRequired: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("IsLoginRequired: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath: c.cfgFile,
+		})
+		if err != nil {
+			log.Errorf("IsLoginRequired: failed to load config: %v", err)
+			// If we can't load config, assume login is required
+			return true
+		}
+	}
+
+	if cfg == nil {
+		log.Errorf("IsLoginRequired: config is nil")
+		return true
+	}
+
+	needsLogin, err := internal.IsLoginRequired(ctx, cfg)
+	if err != nil {
+		log.Errorf("IsLoginRequired: check failed: %v", err)
+		// If the check fails, assume login is required to be safe
+		return true
+	}
+	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
 }
+
+// loginForMobileAuthTimeout is the timeout for requesting auth info from the server
+const loginForMobileAuthTimeout = 30 * time.Second
 
 func (c *Client) LoginForMobile() string {
 	var ctx context.Context
@@ -228,16 +288,26 @@ func (c *Client) LoginForMobile() string {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	cfg, err := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
+	if err != nil {
+		log.Errorf("LoginForMobile: failed to load config: %v", err)
+		return fmt.Sprintf("failed to load config: %v", err)
+	}
 
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {
 		return err.Error()
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	// Use a bounded timeout for the auth info request to prevent indefinite hangs
+	authInfoCtx, authInfoCancel := context.WithTimeout(ctx, loginForMobileAuthTimeout)
+	defer authInfoCancel()
+
+	flowInfo, err := oAuthFlow.RequestAuthInfo(authInfoCtx)
 	if err != nil {
 		return err.Error()
 	}
@@ -249,10 +319,14 @@ func (c *Client) LoginForMobile() string {
 		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 		if err != nil {
+			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
 			return
 		}
 		jwtToken := tokenInfo.GetTokenToUse()
-		_ = internal.Login(ctx, cfg, "", jwtToken)
+		if err := internal.Login(ctx, cfg, "", jwtToken); err != nil {
+			log.Errorf("LoginForMobile: Login failed: %v", err)
+			return
+		}
 		c.loginComplete = true
 	}()
 

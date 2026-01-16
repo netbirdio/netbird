@@ -17,6 +17,7 @@ const (
 	Users       Module = "users"
 	SetupKeys   Module = "setup_keys"
 	Pats        Module = "pats"
+	IdentityProviders Module = "identity_providers"
 )
 
 var All = map[Module]struct{}{
@@ -34,4 +35,5 @@ var All = map[Module]struct{}{
 	Users:       {},
 	SetupKeys:   {},
 	Pats:        {},
+	IdentityProviders: {},
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/idp"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
@@ -22,7 +23,6 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -40,7 +40,7 @@ type Server interface {
 	SetContainer(key string, container any)
 }
 
-// Server holds the HTTP BaseServer instance.
+// BaseServer holds the HTTP server instance.
 // Add any additional fields you need, such as database connections, Config, etc.
 type BaseServer struct {
 	// Config holds the server configuration
@@ -129,6 +129,11 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		if s.Config.IdpManagerConfig != nil && s.Config.IdpManagerConfig.ManagerType != "" {
 			idpManager = s.Config.IdpManagerConfig.ManagerType
 		}
+
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpManager = metrics.EmbeddedType
+		}
+
 		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
 		go metricsWorker.Run(srvCtx)
 	}
@@ -144,7 +149,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
+	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -215,6 +220,10 @@ func (s *BaseServer) Stop() error {
 	if s.update != nil {
 		s.update.StopWatch()
 	}
+	// Stop embedded IdP if configured
+	if embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager); ok {
+		_ = embeddedIdP.Stop(ctx)
+	}
 
 	select {
 	case <-s.Errors():
@@ -246,11 +255,7 @@ func (s *BaseServer) SetContainer(key string, container any) {
 	log.Tracef("container with key %s set successfully", key)
 }
 
-func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config) error {
-	return util.DirectWriteJson(ctx, path, config)
-}
-
-func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
 	wsProxy := wsproxyserver.New(gRPCHandler, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

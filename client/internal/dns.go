@@ -76,7 +76,7 @@ func collectPTRRecords(config *nbdns.Config, prefix netip.Prefix) []nbdns.Simple
 	var records []nbdns.SimpleRecord
 
 	for _, zone := range config.CustomZones {
-		if zone.SkipPTRProcess {
+		if zone.NonAuthoritative {
 			continue
 		}
 		for _, record := range zone.Records {

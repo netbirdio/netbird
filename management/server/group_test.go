@@ -379,7 +379,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
@@ -893,6 +893,7 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 			peer := &peer2.Peer{
 				ID:        strconv.Itoa(i),
 				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
 				DNSLabel:  "peer" + strconv.Itoa(i),
 				IP:        uint32ToIP(uint32(i)),
 			}

@@ -183,7 +183,19 @@ const (
 
 	AccountAutoUpdateVersionUpdated Activity = 92
 
-	JobCreatedByUser           Activity = 93
+	IdentityProviderCreated Activity = 93
+	IdentityProviderUpdated Activity = 94
+	IdentityProviderDeleted Activity = 95
+
+	DNSZoneCreated Activity = 96
+	DNSZoneUpdated Activity = 97
+	DNSZoneDeleted Activity = 98
+
+	DNSRecordCreated Activity = 99
+	DNSRecordUpdated Activity = 100
+	DNSRecordDeleted Activity = 101
+
+	JobCreatedByUser           Activity = 102
 
 	AccountDeleted Activity = 99999
 )
@@ -297,6 +309,18 @@ var activityMap = map[Activity]Code{
 	UserCreated:  {"User created", "user.create"},
 
 	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
+
+	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
+	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
+	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
+
+	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
+	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},
+	DNSZoneDeleted: {"DNS zone deleted", "dns.zone.delete"},
+
+	DNSRecordCreated: {"DNS zone record created", "dns.zone.record.create"},
+	DNSRecordUpdated: {"DNS zone record updated", "dns.zone.record.update"},
+	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
 
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 }

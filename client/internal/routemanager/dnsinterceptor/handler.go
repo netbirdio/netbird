@@ -17,12 +17,13 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
+	iface "github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -37,11 +38,6 @@ type internalDNATer interface {
 	AddInternalDNATMapping(netip.Addr, netip.Addr) error
 }
 
-type wgInterface interface {
-	Name() string
-	Address() wgaddr.Address
-}
-
 type DnsInterceptor struct {
 	mu                   sync.RWMutex
 	route                *route.Route
@@ -51,7 +47,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedDomains   domainMap
-	wgInterface          wgInterface
+	wgInterface          iface.WGIface
 	peerStore            *peerstore.Store
 	firewall             firewall.Manager
 	fakeIPManager        *fakeip.Manager
@@ -219,14 +215,14 @@ func (d *DnsInterceptor) RemoveAllowedIPs() error {
 
 // ServeDNS implements the dns.Handler interface
 func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	requestID := nbdns.GenerateRequestID()
-	logger := log.WithField("request_id", requestID)
+	logger := log.WithFields(log.Fields{
+		"request_id": resutil.GetRequestID(w),
+		"dns_id":     fmt.Sprintf("%04x", r.Id),
+	})
 
 	if len(r.Question) == 0 {
 		return
 	}
-	logger.Tracef("received DNS request for domain=%s type=%v class=%v",
-		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 
 	// pass if non A/AAAA query
 	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
@@ -249,12 +245,6 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
-	if err != nil {
-		d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", err))
-		return
-	}
-
 	if r.Extra == nil {
 		r.MsgHdr.AuthenticatedData = true
 	}
@@ -263,32 +253,15 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
 
-	startTime := time.Now()
-	reply, _, err := nbdns.ExchangeWithFallback(ctx, client, r, upstream)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			elapsed := time.Since(startTime)
-			peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
-			logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
-				elapsed.Truncate(time.Millisecond), dnsTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
-		} else {
-			logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
-		}
-		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
-			logger.Errorf("failed writing DNS response: %v", err)
-		}
+	reply := d.queryUpstreamDNS(ctx, w, r, upstream, upstreamIP, peerKey, logger)
+	if reply == nil {
 		return
 	}
 
-	var answer []dns.RR
-	if reply != nil {
-		answer = reply.Answer
-	}
-
-	logger.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
+	resutil.SetMeta(w, "peer", peerKey)
 
 	reply.Id = r.Id
-	if err := d.writeMsg(w, reply); err != nil {
+	if err := d.writeMsg(w, reply, logger); err != nil {
 		logger.Errorf("failed writing DNS response: %v", err)
 	}
 }
@@ -324,10 +297,14 @@ func (d *DnsInterceptor) getUpstreamIP(peerKey string) (netip.Addr, error) {
 	return peerAllowedIP, nil
 }
 
-func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
+func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) error {
 	if r == nil {
 		return fmt.Errorf("received nil DNS message")
 	}
+
+	// Clear Zero bit from peer responses to prevent external sources from
+	// manipulating our internal fallthrough signaling mechanism
+	r.MsgHdr.Zero = false
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
 		origPattern := ""
@@ -350,14 +327,14 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			case *dns.A:
 				addr, ok := netip.AddrFromSlice(rr.A)
 				if !ok {
-					log.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
+					logger.Tracef("failed to convert A record for domain=%s ip=%v", resolvedDomain, rr.A)
 					continue
 				}
 				ip = addr
 			case *dns.AAAA:
 				addr, ok := netip.AddrFromSlice(rr.AAAA)
 				if !ok {
-					log.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
+					logger.Tracef("failed to convert AAAA record for domain=%s ip=%v", resolvedDomain, rr.AAAA)
 					continue
 				}
 				ip = addr
@@ -370,11 +347,11 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 		}
 
 		if len(newPrefixes) > 0 {
-			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes); err != nil {
-				log.Errorf("failed to update domain prefixes: %v", err)
+			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
+				logger.Errorf("failed to update domain prefixes: %v", err)
 			}
 
-			d.replaceIPsInDNSResponse(r, newPrefixes)
+			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
 		}
 	}
 
@@ -386,22 +363,22 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 }
 
 // logPrefixChanges handles the logging for prefix changes
-func (d *DnsInterceptor) logPrefixChanges(resolvedDomain, originalDomain domain.Domain, toAdd, toRemove []netip.Prefix) {
+func (d *DnsInterceptor) logPrefixChanges(resolvedDomain, originalDomain domain.Domain, toAdd, toRemove []netip.Prefix, logger *log.Entry) {
 	if len(toAdd) > 0 {
-		log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+		logger.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
 			resolvedDomain.SafeString(),
 			originalDomain.SafeString(),
 			toAdd)
 	}
 	if len(toRemove) > 0 && !d.route.KeepRoute {
-		log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
+		logger.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
 			resolvedDomain.SafeString(),
 			originalDomain.SafeString(),
 			toRemove)
 	}
 }
 
-func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix) error {
+func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain domain.Domain, newPrefixes []netip.Prefix, logger *log.Entry) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -418,9 +395,9 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 			realIP := prefix.Addr()
 			if fakeIP, err := d.fakeIPManager.AllocateFakeIP(realIP); err == nil {
 				dnatMappings[fakeIP] = realIP
-				log.Tracef("allocated fake IP %s for real IP %s", fakeIP, realIP)
+				logger.Tracef("allocated fake IP %s for real IP %s", fakeIP, realIP)
 			} else {
-				log.Errorf("Failed to allocate fake IP for %s: %v", realIP, err)
+				logger.Errorf("failed to allocate fake IP for %s: %v", realIP, err)
 			}
 		}
 	}
@@ -432,7 +409,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		}
 	}
 
-	d.addDNATMappings(dnatMappings)
+	d.addDNATMappings(dnatMappings, logger)
 
 	if !d.route.KeepRoute {
 		// Remove old prefixes
@@ -448,7 +425,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 			}
 		}
 
-		d.removeDNATMappings(toRemove)
+		d.removeDNATMappings(toRemove, logger)
 	}
 
 	// Update domain prefixes using resolved domain as key - store real IPs
@@ -463,14 +440,14 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 		// Store real IPs for status (user-facing), not fake IPs
 		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
-		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, toRemove)
+		d.logPrefixChanges(resolvedDomain, originalDomain, toAdd, toRemove, logger)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
 }
 
 // removeDNATMappings removes DNAT mappings from the firewall for real IP prefixes
-func (d *DnsInterceptor) removeDNATMappings(realPrefixes []netip.Prefix) {
+func (d *DnsInterceptor) removeDNATMappings(realPrefixes []netip.Prefix, logger *log.Entry) {
 	if len(realPrefixes) == 0 {
 		return
 	}
@@ -484,9 +461,9 @@ func (d *DnsInterceptor) removeDNATMappings(realPrefixes []netip.Prefix) {
 		realIP := prefix.Addr()
 		if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
 			if err := dnatFirewall.RemoveInternalDNATMapping(fakeIP); err != nil {
-				log.Errorf("Failed to remove DNAT mapping for %s: %v", fakeIP, err)
+				logger.Errorf("failed to remove DNAT mapping for %s: %v", fakeIP, err)
 			} else {
-				log.Debugf("Removed DNAT mapping for: %s -> %s", fakeIP, realIP)
+				logger.Debugf("removed DNAT mapping: %s -> %s", fakeIP, realIP)
 			}
 		}
 	}
@@ -502,7 +479,7 @@ func (d *DnsInterceptor) internalDnatFw() (internalDNATer, bool) {
 }
 
 // addDNATMappings adds DNAT mappings to the firewall
-func (d *DnsInterceptor) addDNATMappings(mappings map[netip.Addr]netip.Addr) {
+func (d *DnsInterceptor) addDNATMappings(mappings map[netip.Addr]netip.Addr, logger *log.Entry) {
 	if len(mappings) == 0 {
 		return
 	}
@@ -514,9 +491,9 @@ func (d *DnsInterceptor) addDNATMappings(mappings map[netip.Addr]netip.Addr) {
 
 	for fakeIP, realIP := range mappings {
 		if err := dnatFirewall.AddInternalDNATMapping(fakeIP, realIP); err != nil {
-			log.Errorf("Failed to add DNAT mapping %s -> %s: %v", fakeIP, realIP, err)
+			logger.Errorf("failed to add DNAT mapping %s -> %s: %v", fakeIP, realIP, err)
 		} else {
-			log.Debugf("Added DNAT mapping: %s -> %s", fakeIP, realIP)
+			logger.Debugf("added DNAT mapping: %s -> %s", fakeIP, realIP)
 		}
 	}
 }
@@ -528,12 +505,12 @@ func (d *DnsInterceptor) cleanupDNATMappings() {
 	}
 
 	for _, prefixes := range d.interceptedDomains {
-		d.removeDNATMappings(prefixes)
+		d.removeDNATMappings(prefixes, log.NewEntry(log.StandardLogger()))
 	}
 }
 
 // replaceIPsInDNSResponse replaces real IPs with fake IPs in the DNS response
-func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []netip.Prefix) {
+func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []netip.Prefix, logger *log.Entry) {
 	if _, ok := d.internalDnatFw(); !ok {
 		return
 	}
@@ -549,7 +526,7 @@ func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []
 
 			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
 				rr.A = fakeIP.AsSlice()
-				log.Tracef("Replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
+				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
 
 		case *dns.AAAA:
@@ -560,7 +537,7 @@ func (d *DnsInterceptor) replaceIPsInDNSResponse(reply *dns.Msg, realPrefixes []
 
 			if fakeIP, exists := d.fakeIPManager.GetFakeIP(realIP); exists {
 				rr.AAAA = fakeIP.AsSlice()
-				log.Tracef("Replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
+				logger.Tracef("replaced real IP %s with fake IP %s in DNS response", realIP, fakeIP)
 			}
 		}
 	}
@@ -584,6 +561,44 @@ func determinePrefixChanges(oldPrefixes, newPrefixes []netip.Prefix) (toAdd, toR
 		}
 	}
 	return
+}
+
+// queryUpstreamDNS queries the upstream DNS server using netstack if available, otherwise uses regular client.
+// Returns the DNS reply on success, or nil on error (error responses are written internally).
+func (d *DnsInterceptor) queryUpstreamDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, upstream string, upstreamIP netip.Addr, peerKey string, logger *log.Entry) *dns.Msg {
+	startTime := time.Now()
+
+	nsNet := d.wgInterface.GetNet()
+	var reply *dns.Msg
+	var err error
+
+	if nsNet != nil {
+		reply, err = nbdns.ExchangeWithNetstack(ctx, nsNet, r, upstream)
+	} else {
+		client, clientErr := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
+		if clientErr != nil {
+			d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", clientErr))
+			return nil
+		}
+		reply, _, err = nbdns.ExchangeWithFallback(ctx, client, r, upstream)
+	}
+
+	if err == nil {
+		return reply
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		elapsed := time.Since(startTime)
+		peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
+		logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
+			elapsed.Truncate(time.Millisecond), dnsTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
+	} else {
+		logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+	}
+	if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
+		logger.Errorf("failed writing DNS response: %v", err)
+	}
+	return nil
 }
 
 func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) string {
