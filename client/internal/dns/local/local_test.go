@@ -47,6 +47,16 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 		RData: "www.netbird.io",
 	}
 
+	wild := "wild.netbird.cloud."
+
+	recordWild := nbdns.SimpleRecord{
+		Name:  "*." + wild,
+		Type:  1,
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "1.2.3.4",
+	}
+
 	testCases := []struct {
 		name                string
 		inputRecord         nbdns.SimpleRecord
@@ -68,6 +78,11 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			inputRecord:         recordA,
 			inputMSG:            new(dns.Msg).SetQuestion("not.found.com", dns.TypeA),
 			responseShouldBeNil: true,
+		},
+		{
+			name:        "Should Resolve A Wild Record",
+			inputRecord: recordWild,
+			inputMSG:    new(dns.Msg).SetQuestion("test."+wild, dns.TypeA),
 		},
 	}
 

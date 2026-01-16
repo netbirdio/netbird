@@ -196,6 +196,11 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	d.mu.RLock()
 	records, found := d.records[question]
 
+	if !found && supportsWildcard(question.Qtype) {
+		wildQuestion := transformToWildcard(question)
+		records, found = d.records[wildQuestion]
+	}
+
 	if !found {
 		d.mu.RUnlock()
 		// alternatively check if we have a cname
@@ -226,6 +231,18 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	}
 
 	return lookupResult{records: recordsCopy, rcode: dns.RcodeSuccess}
+}
+
+func transformToWildcard(question dns.Question) dns.Question {
+	wildQuestion := question
+	s := strings.Split(wildQuestion.Name, ".")
+	s[0] = "*"
+	wildQuestion.Name = strings.Join(s, ".")
+	return wildQuestion
+}
+
+func supportsWildcard(queryType uint16) bool {
+	return queryType != dns.TypeNS && queryType != dns.TypeSOA
 }
 
 // lookupCNAMEChain follows a CNAME chain and returns the CNAME records along with
