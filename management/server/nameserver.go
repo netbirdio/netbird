@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"regexp"
 	"unicode/utf8"
 
 	"github.com/miekg/dns"
@@ -17,8 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
 
 var errInvalidDomainName = errors.New("invalid domain name")
 
@@ -305,13 +302,7 @@ func validateGroups(list []string, groups map[string]*types.Group) error {
 	return nil
 }
 
-var domainMatcher = regexp.MustCompile(domainPattern)
-
 func validateDomain(domain string) error {
-	if !domainMatcher.MatchString(domain) {
-		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
-	}
-
 	_, valid := dns.IsDomainName(domain)
 	if !valid {
 		return errInvalidDomainName

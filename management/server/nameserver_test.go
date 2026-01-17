@@ -926,23 +926,8 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Invalid wildcard domain name",
-			domain:  "*.example",
-			errFunc: require.Error,
-		},
-		{
 			name:    "Invalid domain name with leading dot",
 			domain:  ".com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with dot only",
-			domain:  ".",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
 			errFunc: require.Error,
 		},
 		{
@@ -951,28 +936,11 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:    "Invalid domain name starting with a hyphen",
-			domain:  "-example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name ending with a hyphen",
-			domain:  "example.com-",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with unicode",
-			domain:  "example?,.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with space before top-level domain",
-			domain:  "space .example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with trailing space",
-			domain:  "example.com ",
+			name:    "Invalid domain exceeding 255 characters",
+			domain:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa." +
+				 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa." +
+				 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa." +
+				 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
 			errFunc: require.Error,
 		},
 	}
