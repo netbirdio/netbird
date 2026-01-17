@@ -95,6 +95,27 @@ type File struct {
 	ProcessIsRunning bool
 }
 
+// DiskEncryptionVolume represents encryption status of a volume.
+type DiskEncryptionVolume struct {
+	Path      string
+	Encrypted bool
+}
+
+// DiskEncryptionInfo holds encryption info for all volumes.
+type DiskEncryptionInfo struct {
+	Volumes []DiskEncryptionVolume `gorm:"serializer:json"`
+}
+
+// IsEncrypted returns true if the volume at path is encrypted.
+func (d DiskEncryptionInfo) IsEncrypted(path string) bool {
+	for _, v := range d.Volumes {
+		if v.Path == path {
+			return v.Encrypted
+		}
+	}
+	return false
+}
+
 // Flags defines a set of options to control feature behavior
 type Flags struct {
 	RosenpassEnabled    bool
@@ -127,9 +148,10 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
-	Environment        Environment `gorm:"serializer:json"`
-	Flags              Flags       `gorm:"serializer:json"`
-	Files              []File      `gorm:"serializer:json"`
+	Environment        Environment        `gorm:"serializer:json"`
+	Flags              Flags              `gorm:"serializer:json"`
+	Files              []File             `gorm:"serializer:json"`
+	DiskEncryption     DiskEncryptionInfo `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -156,6 +178,19 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		return file.Path == oFile.Path && file.Exist == oFile.Exist && file.ProcessIsRunning == oFile.ProcessIsRunning
 	})
 	if !equalFiles {
+		return false
+	}
+
+	sort.Slice(p.DiskEncryption.Volumes, func(i, j int) bool {
+		return p.DiskEncryption.Volumes[i].Path < p.DiskEncryption.Volumes[j].Path
+	})
+	sort.Slice(other.DiskEncryption.Volumes, func(i, j int) bool {
+		return other.DiskEncryption.Volumes[i].Path < other.DiskEncryption.Volumes[j].Path
+	})
+	equalDiskEncryption := slices.EqualFunc(p.DiskEncryption.Volumes, other.DiskEncryption.Volumes, func(vol DiskEncryptionVolume, oVol DiskEncryptionVolume) bool {
+		return vol.Path == oVol.Path && vol.Encrypted == oVol.Encrypted
+	})
+	if !equalDiskEncryption {
 		return false
 	}
 

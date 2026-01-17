@@ -370,6 +370,9 @@ type AvailablePorts struct {
 
 // Checks List of objects that perform the actual checks
 type Checks struct {
+	// DiskEncryptionCheck Posture check for disk encryption status
+	DiskEncryptionCheck *DiskEncryptionCheck `json:"disk_encryption_check,omitempty"`
+
 	// GeoLocationCheck Posture check for geo location
 	GeoLocationCheck *GeoLocationCheck `json:"geo_location_check,omitempty"`
 
@@ -474,6 +477,18 @@ type DNSRecordType string
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
 	DisabledManagementGroups []string `json:"disabled_management_groups"`
+}
+
+// DiskEncryptionCheck Posture check for disk encryption status
+type DiskEncryptionCheck struct {
+	// DarwinPath Mount path to check on macOS (e.g., "/")
+	DarwinPath *string `json:"darwin_path,omitempty"`
+
+	// LinuxPath Mount path to check on Linux (e.g., "/", "/home")
+	LinuxPath *string `json:"linux_path,omitempty"`
+
+	// WindowsPath Drive letter to check on Windows (e.g., "C:", "D:")
+	WindowsPath *string `json:"windows_path,omitempty"`
 }
 
 // Event defines model for Event.

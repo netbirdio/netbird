@@ -550,6 +550,14 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	diskEncryptionVolumes := make([]*proto.DiskEncryptionVolume, 0, len(info.DiskEncryption.Volumes))
+	for _, vol := range info.DiskEncryption.Volumes {
+		diskEncryptionVolumes = append(diskEncryptionVolumes, &proto.DiskEncryptionVolume{
+			Path:      vol.Path,
+			Encrypted: vol.Encrypted,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -584,6 +592,9 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			BlockInbound:        info.BlockInbound,
 
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
+		},
+		DiskEncryption: &proto.DiskEncryptionInfo{
+			Volumes: diskEncryptionVolumes,
 		},
 	}
 }

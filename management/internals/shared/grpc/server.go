@@ -470,6 +470,16 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		})
 	}
 
+	diskEncryptionVolumes := make([]nbpeer.DiskEncryptionVolume, 0)
+	if meta.GetDiskEncryption() != nil {
+		for _, vol := range meta.GetDiskEncryption().GetVolumes() {
+			diskEncryptionVolumes = append(diskEncryptionVolumes, nbpeer.DiskEncryptionVolume{
+				Path:      vol.GetPath(),
+				Encrypted: vol.GetEncrypted(),
+			})
+		}
+	}
+
 	return nbpeer.PeerSystemMeta{
 		Hostname:           meta.GetHostname(),
 		GoOS:               meta.GetGoOS(),
@@ -501,6 +511,9 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
 		},
 		Files: files,
+		DiskEncryption: nbpeer.DiskEncryptionInfo{
+			Volumes: diskEncryptionVolumes,
+		},
 	}
 }
 

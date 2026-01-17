@@ -59,6 +59,7 @@ type Info struct {
 	SystemManufacturer string
 	Environment        Environment
 	Files              []File // for posture checks
+	DiskEncryption     DiskEncryptionInfo
 
 	RosenpassEnabled    bool
 	RosenpassPermissive bool

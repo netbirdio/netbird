@@ -154,6 +154,19 @@ message Flags {
   bool disableSSHAuth = 15;
 }
 
+// DiskEncryptionVolume represents encryption status of a single volume.
+message DiskEncryptionVolume {
+  // Mount path (Linux/macOS) or drive letter (Windows)
+  string path = 1;
+  // Whether the volume is encrypted
+  bool encrypted = 2;
+}
+
+// DiskEncryptionInfo holds disk encryption detection results.
+message DiskEncryptionInfo {
+  repeated DiskEncryptionVolume volumes = 1;
+}
+
 // PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
@@ -173,6 +186,7 @@ message PeerSystemMeta {
   Environment environment = 15;
   repeated File files = 16;
   Flags flags = 17;
+  DiskEncryptionInfo diskEncryption = 18;
 }
 
 message LoginResponse {

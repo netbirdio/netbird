@@ -1232,6 +1232,8 @@ components:
           $ref: '#/components/schemas/PeerNetworkRangeCheck'
         process_check:
           $ref: '#/components/schemas/ProcessCheck'
+        disk_encryption_check:
+          $ref: '#/components/schemas/DiskEncryptionCheck'
     NBVersionCheck:
       description: Posture check for the version of NetBird
       type: object
@@ -1346,6 +1348,22 @@ components:
           description: Path to the process executable file in a Windows operating system
           type: string
           example: "C:\ProgramData\NetBird\netbird.exe"
+    DiskEncryptionCheck:
+      description: Posture check for disk encryption status
+      type: object
+      properties:
+        linux_path:
+          description: Mount path to check on Linux (e.g., "/", "/home")
+          type: string
+          example: "/"
+        darwin_path:
+          description: Mount path to check on macOS (e.g., "/")
+          type: string
+          example: "/"
+        windows_path:
+          description: Drive letter to check on Windows (e.g., "C:", "D:")
+          type: string
+          example: "C:"
     Location:
       description: Describe geographical location information
       type: object

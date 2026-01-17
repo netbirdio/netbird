@@ -15,7 +15,7 @@ func UpdateStaticInfoAsync() {
 }
 
 // GetInfo retrieves system information for WASM environment
-func GetInfo(_ context.Context) *Info {
+func GetInfo(ctx context.Context) *Info {
 	info := &Info{
 		GoOS:           runtime.GOOS,
 		Kernel:         runtime.GOARCH,
@@ -25,6 +25,7 @@ func GetInfo(_ context.Context) *Info {
 		Hostname:       "wasm-client",
 		CPUs:           runtime.NumCPU(),
 		NetbirdVersion: version.NetbirdVersion(),
+		DiskEncryption: detectDiskEncryption(ctx),
 	}
 
 	collectBrowserInfo(info)

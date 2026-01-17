@@ -44,6 +44,7 @@ func GetInfo(ctx context.Context) *Info {
 		SystemSerialNumber: serial(),
 		SystemProductName:  productModel(),
 		SystemManufacturer: productManufacturer(),
+		DiskEncryption:     detectDiskEncryption(ctx),
 	}
 
 	return gio

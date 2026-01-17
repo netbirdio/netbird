@@ -55,6 +55,7 @@ func GetInfo(ctx context.Context) *Info {
 		UIVersion:      extractUserAgent(ctx),
 		KernelVersion:  osInfo[1],
 		Environment:    env,
+		DiskEncryption: detectDiskEncryption(ctx),
 	}
 }
 

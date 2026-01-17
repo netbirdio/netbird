@@ -18,6 +18,7 @@ const (
 	GeoLocationCheckName      = "GeoLocationCheck"
 	PeerNetworkRangeCheckName = "PeerNetworkRangeCheck"
 	ProcessCheckName          = "ProcessCheck"
+	DiskEncryptionCheckName   = "DiskEncryptionCheck"
 
 	CheckActionAllow string = "allow"
 	CheckActionDeny  string = "deny"
@@ -58,6 +59,7 @@ type ChecksDefinition struct {
 	GeoLocationCheck      *GeoLocationCheck      `json:",omitempty"`
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:",omitempty"`
 	ProcessCheck          *ProcessCheck          `json:",omitempty"`
+	DiskEncryptionCheck   *DiskEncryptionCheck   `json:",omitempty"`
 }
 
 // Copy returns a copy of a checks definition.
@@ -110,6 +112,13 @@ func (cd ChecksDefinition) Copy() ChecksDefinition {
 		}
 		copy(cdCopy.ProcessCheck.Processes, processCheck.Processes)
 	}
+	if cd.DiskEncryptionCheck != nil {
+		cdCopy.DiskEncryptionCheck = &DiskEncryptionCheck{
+			LinuxPath:   cd.DiskEncryptionCheck.LinuxPath,
+			DarwinPath:  cd.DiskEncryptionCheck.DarwinPath,
+			WindowsPath: cd.DiskEncryptionCheck.WindowsPath,
+		}
+	}
 	return cdCopy
 }
 
@@ -152,6 +161,9 @@ func (pc *Checks) GetChecks() []Check {
 	}
 	if pc.Checks.ProcessCheck != nil {
 		checks = append(checks, pc.Checks.ProcessCheck)
+	}
+	if pc.Checks.DiskEncryptionCheck != nil {
+		checks = append(checks, pc.Checks.DiskEncryptionCheck)
 	}
 	return checks
 }
@@ -208,6 +220,10 @@ func buildPostureCheck(postureChecksID string, name string, description string, 
 		postureChecks.Checks.ProcessCheck = toProcessCheck(processCheck)
 	}
 
+	if diskEncryptionCheck := checks.DiskEncryptionCheck; diskEncryptionCheck != nil {
+		postureChecks.Checks.DiskEncryptionCheck = toDiskEncryptionCheck(diskEncryptionCheck)
+	}
+
 	return &postureChecks, nil
 }
 
@@ -240,6 +256,10 @@ func (pc *Checks) ToAPIResponse() *api.PostureCheck {
 
 	if pc.Checks.ProcessCheck != nil {
 		checks.ProcessCheck = toProcessCheckResponse(pc.Checks.ProcessCheck)
+	}
+
+	if pc.Checks.DiskEncryptionCheck != nil {
+		checks.DiskEncryptionCheck = toDiskEncryptionCheckResponse(pc.Checks.DiskEncryptionCheck)
 	}
 
 	return &api.PostureCheck{
@@ -384,5 +404,27 @@ func toProcessCheck(check *api.ProcessCheck) *ProcessCheck {
 
 	return &ProcessCheck{
 		Processes: processes,
+	}
+}
+
+func toDiskEncryptionCheck(check *api.DiskEncryptionCheck) *DiskEncryptionCheck {
+	d := &DiskEncryptionCheck{}
+	if check.LinuxPath != nil {
+		d.LinuxPath = *check.LinuxPath
+	}
+	if check.DarwinPath != nil {
+		d.DarwinPath = *check.DarwinPath
+	}
+	if check.WindowsPath != nil {
+		d.WindowsPath = *check.WindowsPath
+	}
+	return d
+}
+
+func toDiskEncryptionCheckResponse(check *DiskEncryptionCheck) *api.DiskEncryptionCheck {
+	return &api.DiskEncryptionCheck{
+		LinuxPath:   &check.LinuxPath,
+		DarwinPath:  &check.DarwinPath,
+		WindowsPath: &check.WindowsPath,
 	}
 }
