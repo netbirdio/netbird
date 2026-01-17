@@ -169,6 +169,10 @@ func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
 	defer d.mu.RUnlock()
 
 	_, exists := d.domains[domainName]
+	if !exists {
+		testWild := transformDomainToWildcard(string(domainName))
+		_, exists = d.domains[domain.Domain(testWild)]
+	}
 	return exists
 }
 
@@ -244,10 +248,14 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 
 func transformToWildcard(question dns.Question) dns.Question {
 	wildQuestion := question
-	s := strings.Split(wildQuestion.Name, ".")
-	s[0] = "*"
-	wildQuestion.Name = strings.Join(s, ".")
+	wildQuestion.Name = transformDomainToWildcard(wildQuestion.Name)
 	return wildQuestion
+}
+
+func transformDomainToWildcard(domain string) string {
+	s := strings.Split(domain, ".")
+	s[0] = "*"
+	return strings.Join(s, ".")
 }
 
 func supportsWildcard(queryType uint16) bool {
