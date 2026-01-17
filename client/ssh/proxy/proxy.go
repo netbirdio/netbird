@@ -207,8 +207,6 @@ func (p *SSHProxy) handleProxyExitCode(session ssh.Session, err error) {
 }
 
 func (p *SSHProxy) handleNonInteractiveSession(session ssh.Session, sshClient *cryptossh.Client) {
-	// Create a backend session to mirror the client's session request.
-	// This keeps the connection alive on the server side while port forwarding channels operate.
 	serverSession, err := sshClient.NewSession()
 	if err != nil {
 		_, _ = fmt.Fprintf(p.stderr, "create server session: %v\n", err)
@@ -216,10 +214,28 @@ func (p *SSHProxy) handleNonInteractiveSession(session ssh.Session, sshClient *c
 	}
 	defer func() { _ = serverSession.Close() }()
 
-	<-session.Context().Done()
+	serverSession.Stdin = session
+	serverSession.Stdout = session
+	serverSession.Stderr = session.Stderr()
 
-	if err := session.Exit(0); err != nil {
-		log.Debugf("session exit: %v", err)
+	if err := serverSession.Shell(); err != nil {
+		log.Debugf("start shell: %v", err)
+		return
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- serverSession.Wait()
+	}()
+
+	select {
+	case <-session.Context().Done():
+		return
+	case err := <-done:
+		if err != nil {
+			log.Debugf("shell session: %v", err)
+			p.handleProxyExitCode(session, err)
+		}
 	}
 }
 

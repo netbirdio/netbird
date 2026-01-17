@@ -36,7 +36,7 @@ func init() {
 }
 
 func sftpMain(cmd *cobra.Command, _ []string) error {
-	privilegeDropper := sshserver.NewPrivilegeDropper()
+	privilegeDropper := sshserver.NewPrivilegeDropper(nil)
 
 	var groups []uint32
 	for _, groupInt := range sftpGroupsInt {

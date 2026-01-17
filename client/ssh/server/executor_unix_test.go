@@ -16,7 +16,7 @@ import (
 )
 
 func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
-	pd := NewPrivilegeDropper()
+	pd := NewPrivilegeDropper(nil)
 
 	currentUID := uint32(os.Geteuid())
 	currentGID := uint32(os.Getegid())
@@ -74,7 +74,7 @@ func TestPrivilegeDropper_ValidatePrivileges(t *testing.T) {
 }
 
 func TestPrivilegeDropper_CreateExecutorCommand(t *testing.T) {
-	pd := NewPrivilegeDropper()
+	pd := NewPrivilegeDropper(nil)
 
 	config := ExecutorConfig{
 		UID:        1000,
@@ -108,7 +108,7 @@ func TestPrivilegeDropper_CreateExecutorCommand(t *testing.T) {
 }
 
 func TestPrivilegeDropper_CreateExecutorCommandInteractive(t *testing.T) {
-	pd := NewPrivilegeDropper()
+	pd := NewPrivilegeDropper(nil)
 
 	config := ExecutorConfig{
 		UID:        1000,
@@ -157,7 +157,7 @@ func TestPrivilegeDropper_ActualPrivilegeDrop(t *testing.T) {
 
 	// Test in a child process to avoid affecting the test runner
 	if os.Getenv("TEST_PRIVILEGE_DROP") == "1" {
-		pd := NewPrivilegeDropper()
+		pd := NewPrivilegeDropper(nil)
 
 		// This should succeed
 		err := pd.DropPrivileges(targetUID, targetGID, []uint32{targetGID})
@@ -227,7 +227,7 @@ func findNonRootUser() (*user.User, error) {
 }
 
 func TestPrivilegeDropper_ExecuteWithPrivilegeDrop_Validation(t *testing.T) {
-	pd := NewPrivilegeDropper()
+	pd := NewPrivilegeDropper(nil)
 	currentUID := uint32(os.Geteuid())
 
 	if currentUID == 0 {
