@@ -57,6 +57,14 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 		RData: "1.2.3.4",
 	}
 
+	specificRecord := nbdns.SimpleRecord{
+		Name:  "existing." + wild,
+		Type:  1,
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "5.6.7.8",
+	}
+
 	testCases := []struct {
 		name                string
 		inputRecord         nbdns.SimpleRecord
@@ -84,12 +92,18 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			inputRecord: recordWild,
 			inputMSG:    new(dns.Msg).SetQuestion("test."+wild, dns.TypeA),
 		},
+		{
+			name:        "Should Resolve A more specific Record",
+			inputRecord: specificRecord,
+			inputMSG:    new(dns.Msg).SetQuestion(specificRecord.Name, dns.TypeA),
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := NewResolver()
 			_ = resolver.RegisterRecord(testCase.inputRecord)
+			_ = resolver.RegisterRecord(recordWild)
 			var responseMSG *dns.Msg
 			responseWriter := &test.MockResponseWriter{
 				WriteMsgFunc: func(m *dns.Msg) error {
