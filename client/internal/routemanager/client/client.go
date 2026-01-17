@@ -336,6 +336,12 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 			return nil
 		}
 
+		// Prevent removing routes if management connection is down and NB_KEEP_CONNECTION_ON_MANAGEMENT_DOWN is set
+		if !(w.statusRecorder.GetManagementState().Connected && w.statusRecorder.GetSignalState().Connected) && peer.IsKeepConnectionOnMgmtDown() {
+			log.Warnf("No available routes for network [%v], keep current route %s", w.handler, w.currentChosen.Peer)
+			return nil
+		}
+
 		if err := w.removeAllowedIPs(w.currentChosen, rsn); err != nil {
 			return fmt.Errorf("remove obsolete: %w", err)
 		}
