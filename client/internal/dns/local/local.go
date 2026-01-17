@@ -169,6 +169,10 @@ func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
 	defer d.mu.RUnlock()
 
 	_, exists := d.domains[domainName]
+	if !exists {
+		testWild := transformDomainToWildcard(string(domainName))
+		_, exists = d.domains[domain.Domain(testWild)]
+	}
 	return exists
 }
 
@@ -195,6 +199,12 @@ type lookupResult struct {
 func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) lookupResult {
 	d.mu.RLock()
 	records, found := d.records[question]
+	usingWildcard := false
+	wildQuestion := transformToWildcard(question)
+	if !found && supportsWildcard(question.Qtype) {
+		records, found = d.records[wildQuestion]
+		usingWildcard = found
+	}
 
 	if !found {
 		d.mu.RUnlock()
@@ -216,16 +226,56 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	// if there's more than one record, rotate them (round-robin)
 	if len(recordsCopy) > 1 {
 		d.mu.Lock()
-		records = d.records[question]
+		q := question
+		if usingWildcard {
+			q = wildQuestion
+		}
+		records = d.records[q]
 		if len(records) > 1 {
 			first := records[0]
 			records = append(records[1:], first)
-			d.records[question] = records
+			d.records[q] = records
 		}
 		d.mu.Unlock()
 	}
 
+	if usingWildcard {
+		return responseFromWildRecords(question.Name, wildQuestion.Name, recordsCopy)
+	}
+
 	return lookupResult{records: recordsCopy, rcode: dns.RcodeSuccess}
+}
+
+func transformToWildcard(question dns.Question) dns.Question {
+	wildQuestion := question
+	wildQuestion.Name = transformDomainToWildcard(wildQuestion.Name)
+	return wildQuestion
+}
+
+func transformDomainToWildcard(domain string) string {
+	s := strings.Split(domain, ".")
+	s[0] = "*"
+	return strings.Join(s, ".")
+}
+
+func supportsWildcard(queryType uint16) bool {
+	return queryType != dns.TypeNS && queryType != dns.TypeSOA
+}
+
+func responseFromWildRecords(originalName, wildName string, wildRecords []dns.RR) lookupResult {
+	records := make([]dns.RR, len(wildRecords))
+
+	for i, record := range wildRecords {
+		recordString := strings.Replace(record.String(), wildName, originalName, 1)
+		newRecord, err := dns.NewRR(recordString)
+		if err != nil {
+			log.WithField("recordString", recordString).Warnf("failed to parse wildcard record: %v", err)
+			return lookupResult{rcode: dns.RcodeNameError}
+		}
+		records[i] = newRecord
+	}
+
+	return lookupResult{records: records, rcode: dns.RcodeSuccess}
 }
 
 // lookupCNAMEChain follows a CNAME chain and returns the CNAME records along with

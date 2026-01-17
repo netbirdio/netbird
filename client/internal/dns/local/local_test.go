@@ -47,6 +47,24 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 		RData: "www.netbird.io",
 	}
 
+	wild := "wild.netbird.cloud."
+
+	recordWild := nbdns.SimpleRecord{
+		Name:  "*." + wild,
+		Type:  1,
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "1.2.3.4",
+	}
+
+	specificRecord := nbdns.SimpleRecord{
+		Name:  "existing." + wild,
+		Type:  1,
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "5.6.7.8",
+	}
+
 	testCases := []struct {
 		name                string
 		inputRecord         nbdns.SimpleRecord
@@ -69,12 +87,23 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			inputMSG:            new(dns.Msg).SetQuestion("not.found.com", dns.TypeA),
 			responseShouldBeNil: true,
 		},
+		{
+			name:        "Should Resolve A Wild Record",
+			inputRecord: recordWild,
+			inputMSG:    new(dns.Msg).SetQuestion("test."+wild, dns.TypeA),
+		},
+		{
+			name:        "Should Resolve A more specific Record",
+			inputRecord: specificRecord,
+			inputMSG:    new(dns.Msg).SetQuestion(specificRecord.Name, dns.TypeA),
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := NewResolver()
 			_ = resolver.RegisterRecord(testCase.inputRecord)
+			_ = resolver.RegisterRecord(recordWild)
 			var responseMSG *dns.Msg
 			responseWriter := &test.MockResponseWriter{
 				WriteMsgFunc: func(m *dns.Msg) error {
@@ -93,7 +122,7 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			}
 
 			answerString := responseMSG.Answer[0].String()
-			if !strings.Contains(answerString, testCase.inputRecord.Name) {
+			if !strings.Contains(answerString, testCase.inputMSG.Question[0].Name) {
 				t.Fatalf("answer doesn't contain the same domain name: \nWant: %s\nGot:%s", testCase.name, answerString)
 			}
 			if !strings.Contains(answerString, dns.Type(testCase.inputRecord.Type).String()) {
