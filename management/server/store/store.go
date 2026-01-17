@@ -226,6 +226,13 @@ type Store interface {
 	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
 	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
 	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
+	CreatePeerJob(ctx context.Context, job *types.Job) error
+	CompletePeerJob(ctx context.Context, job *types.Job) error
+	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 }
 
 const (

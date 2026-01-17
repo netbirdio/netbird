@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -202,6 +203,8 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
+	peersManager := peers.NewManager(str, permissionsManager)
+	jobManager := job.NewJobManager(nil, str, peersManager)
 
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
@@ -213,6 +216,7 @@ func startServer(
 		nil,
 		str,
 		networkMapController,
+		jobManager,
 		nil,
 		"",
 		eventStore,
@@ -237,6 +241,7 @@ func startServer(
 		config,
 		accountManager,
 		settingsMockManager,
+		jobManager,
 		secretsManager,
 		nil,
 		nil,

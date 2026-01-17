@@ -13,9 +13,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
@@ -1521,7 +1520,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan); err != nil {
+	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil

@@ -59,7 +59,6 @@ func NewConnectClient(
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 	doInitalAutoUpdate bool,
-
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:                 ctx,
@@ -71,8 +70,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}) error {
-	return c.run(MobileDependency{}, runningChan)
+func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+	return c.run(MobileDependency{}, runningChan, logPath)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -93,7 +92,7 @@ func (c *ConnectClient) RunOnAndroid(
 		DnsReadyListener:      dnsReadyListener,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -111,10 +110,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -284,7 +283,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		relayURLs, token := parseRelayInfo(loginResp)
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -472,7 +471,7 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig, logPath string) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -507,7 +506,10 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
-		MTU: selectMTU(config.MTU, peerConfig.Mtu),
+		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
+		LogPath: logPath,
+
+		ProfileConfig: config,
 	}
 
 	if config.PreSharedKey != "" {
