@@ -15,7 +15,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
 
@@ -26,12 +25,56 @@ const (
 
 var _ OAuthFlow = &DeviceAuthorizationFlow{}
 
+// DeviceAuthProviderConfig has all attributes needed to initiate a device authorization flow
+type DeviceAuthProviderConfig struct {
+	// ClientID An IDP application client id
+	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
+	// Domain An IDP API domain
+	// Deprecated. Use OIDCConfigEndpoint instead
+	Domain string
+	// Audience An Audience for to authorization validation
+	Audience string
+	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
+	TokenEndpoint string
+	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
+	DeviceAuthEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
+	// LoginHint is used to pre-fill the email/username field during authentication
+	LoginHint string
+}
+
+// validateDeviceAuthConfig validates device authorization provider configuration
+func validateDeviceAuthConfig(config *DeviceAuthProviderConfig) error {
+	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+
+	if config.Audience == "" {
+		return fmt.Errorf(errorMsgFormat, "Audience")
+	}
+	if config.ClientID == "" {
+		return fmt.Errorf(errorMsgFormat, "Client ID")
+	}
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Token Endpoint")
+	}
+	if config.DeviceAuthEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Device Auth Endpoint")
+	}
+	if config.Scope == "" {
+		return fmt.Errorf(errorMsgFormat, "Device Auth Scopes")
+	}
+	return nil
+}
+
 // DeviceAuthorizationFlow implements the OAuthFlow interface,
 // for the Device Authorization Flow.
 type DeviceAuthorizationFlow struct {
-	providerConfig internal.DeviceAuthProviderConfig
-
-	HTTPClient HTTPClient
+	providerConfig DeviceAuthProviderConfig
+	HTTPClient     HTTPClient
 }
 
 // RequestDeviceCodePayload used for request device code payload for auth0
@@ -57,7 +100,7 @@ type TokenRequestResponse struct {
 }
 
 // NewDeviceAuthorizationFlow returns device authorization flow client
-func NewDeviceAuthorizationFlow(config internal.DeviceAuthProviderConfig) (*DeviceAuthorizationFlow, error) {
+func NewDeviceAuthorizationFlow(config DeviceAuthProviderConfig) (*DeviceAuthorizationFlow, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -87,6 +130,11 @@ func NewDeviceAuthorizationFlow(config internal.DeviceAuthProviderConfig) (*Devi
 // GetClientID returns the provider client id
 func (d *DeviceAuthorizationFlow) GetClientID(ctx context.Context) string {
 	return d.providerConfig.ClientID
+}
+
+// SetLoginHint sets the login hint for the device authorization flow
+func (d *DeviceAuthorizationFlow) SetLoginHint(hint string) {
+	d.providerConfig.LoginHint = hint
 }
 
 // RequestAuthInfo requests a device code login flow information from Hosted
@@ -199,14 +247,22 @@ func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestR
 }
 
 // WaitToken waits user's login and authorize the app. Once the user's authorize
-// it retrieves the access token from Hosted's endpoint and validates it before returning
+// it retrieves the access token from Hosted's endpoint and validates it before returning.
+// The method creates a timeout context internally based on info.ExpiresIn.
 func (d *DeviceAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenInfo, error) {
+	// Create timeout context based on flow expiration
+	timeout := time.Duration(info.ExpiresIn) * time.Second
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	interval := time.Duration(info.Interval) * time.Second
 	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-ctx.Done():
-			return TokenInfo{}, ctx.Err()
+		case <-waitCtx.Done():
+			return TokenInfo{}, waitCtx.Err()
 		case <-ticker.C:
 
 			tokenResponse, err := d.requestToken(info)

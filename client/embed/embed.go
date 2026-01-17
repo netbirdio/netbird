@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
@@ -176,7 +177,13 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
-	if err := internal.Login(ctx, c.config, c.setupKey, c.jwtToken); err != nil {
+	authClient, err := auth.NewAuth(ctx, c.config.PrivateKey, c.config.ManagementURL, c.config)
+	if err != nil {
+		return fmt.Errorf("create auth client: %w", err)
+	}
+	defer authClient.Close()
+
+	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 

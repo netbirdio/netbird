@@ -9,8 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/client/internal"
 )
 
 func TestParseExcludedPortRanges(t *testing.T) {
@@ -95,7 +93,7 @@ func TestNewPKCEAuthorizationFlow_WithActualExcludedPorts(t *testing.T) {
 
 	availablePort := 65432
 
-	config := internal.PKCEAuthProviderConfig{
+	config := PKCEAuthProviderConfig{
 		ClientID:              "test-client-id",
 		Audience:              "test-audience",
 		TokenEndpoint:         "https://test-token-endpoint.com/token",

@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -87,19 +86,33 @@ func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesk
 
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
 func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
-	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL, config.ClientCertKeyPair)
+	authClient, err := NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
+	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
 
-	pkceFlowInfo.ProviderConfig.LoginHint = hint
+	if hint != "" {
+		pkceFlowInfo.SetLoginHint(hint)
+	}
 
-	return NewPKCEAuthorizationFlow(pkceFlowInfo.ProviderConfig)
+	return pkceFlowInfo, nil
 }
 
 // authenticateWithDeviceCodeFlow initializes the Device Code auth Flow
 func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
-	deviceFlowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+	authClient, err := NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
+	deviceFlowInfo, err := authClient.getDeviceFlow(authClient.client)
 	if err != nil {
 		switch s, ok := gstatus.FromError(err); {
 		case ok && s.Code() == codes.NotFound:
@@ -114,7 +127,9 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 		}
 	}
 
-	deviceFlowInfo.ProviderConfig.LoginHint = hint
+	if hint != "" {
+		deviceFlowInfo.SetLoginHint(hint)
+	}
 
-	return NewDeviceAuthorizationFlow(deviceFlowInfo.ProviderConfig)
+	return deviceFlowInfo, nil
 }
