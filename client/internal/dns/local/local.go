@@ -235,6 +235,10 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 		d.mu.Unlock()
 	}
 
+	if usingWildcard {
+		return responseFromWildRecords(question.Name, wildQuestion.Name, recordsCopy)
+	}
+
 	return lookupResult{records: recordsCopy, rcode: dns.RcodeSuccess}
 }
 
@@ -248,6 +252,22 @@ func transformToWildcard(question dns.Question) dns.Question {
 
 func supportsWildcard(queryType uint16) bool {
 	return queryType != dns.TypeNS && queryType != dns.TypeSOA
+}
+
+func responseFromWildRecords(originalName, wildName string, wildRecords []dns.RR) lookupResult {
+	records := make([]dns.RR, len(wildRecords))
+
+	for i, record := range wildRecords {
+		recordString := strings.Replace(record.String(), wildName, originalName, 1)
+		newRecord, err := dns.NewRR(recordString)
+		if err != nil {
+			log.WithField("recordString", recordString).Warnf("failed to parse wildcard record: %v", err)
+			return lookupResult{rcode: dns.RcodeNameError}
+		}
+		records[i] = newRecord
+	}
+
+	return lookupResult{records: records, rcode: dns.RcodeSuccess}
 }
 
 // lookupCNAMEChain follows a CNAME chain and returns the CNAME records along with

@@ -122,7 +122,7 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 			}
 
 			answerString := responseMSG.Answer[0].String()
-			if !strings.Contains(answerString, testCase.inputRecord.Name) {
+			if !strings.Contains(answerString, testCase.inputMSG.Question[0].Name) {
 				t.Fatalf("answer doesn't contain the same domain name: \nWant: %s\nGot:%s", testCase.name, answerString)
 			}
 			if !strings.Contains(answerString, dns.Type(testCase.inputRecord.Type).String()) {
