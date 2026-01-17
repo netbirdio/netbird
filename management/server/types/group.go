@@ -28,6 +28,7 @@ type Group struct {
 	// Peers list of the group
 	Peers      []string    `gorm:"-"` // Peers and GroupPeers list will be ignored when writing to the DB. Use AddPeerToGroup and RemovePeerFromGroup methods to modify group membership
 	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
+	GroupUsers []GroupUser `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
 	Resources []Resource `gorm:"serializer:json"`
@@ -39,6 +40,20 @@ type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
 	PeerID    string `gorm:"primaryKey"`
+}
+
+type GroupUser struct {
+	AccountID string `gorm:"index"`
+	GroupID   string `gorm:"primaryKey"`
+	UserID    string `gorm:"primaryKey"`
+}
+
+func (g *GroupUser) Copy() *GroupUser {
+	return &GroupUser{
+		AccountID: g.AccountID,
+		GroupID:   g.GroupID,
+		UserID:    g.UserID,
+	}
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -78,11 +93,13 @@ func (g *Group) Copy() *Group {
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
 		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
+		GroupUsers:           make([]GroupUser, len(g.GroupUsers)),
 		Resources:            make([]Resource, len(g.Resources)),
 		IntegrationReference: g.IntegrationReference,
 	}
 	copy(group.Peers, g.Peers)
 	copy(group.GroupPeers, g.GroupPeers)
+	copy(group.GroupUsers, g.GroupUsers)
 	copy(group.Resources, g.Resources)
 	return group
 }

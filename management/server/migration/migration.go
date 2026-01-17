@@ -539,3 +539,103 @@ func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 
 	return nil
 }
+
+// CleanupOrphanedIDs removes non-existent IDs from the JSON array column.
+// T is the type of the model that contains the list.
+// This migration cleans up the lists field by removing IDs that no longer exist in the target table.
+func CleanupOrphanedIDs[T, S any](ctx context.Context, db *gorm.DB, columnName string) error {
+	var sourceModel T
+	var fkModel S
+
+	if !db.Migrator().HasTable(&sourceModel) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", sourceModel)
+		return nil
+	}
+
+	if !db.Migrator().HasTable(&fkModel) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", fkModel)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&sourceModel)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if !db.Migrator().HasColumn(&sourceModel, columnName) {
+		log.WithContext(ctx).Debugf("Column %s does not exist in table %s, no migration needed", columnName, tableName)
+		return nil
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		var rows []map[string]any
+		if err := tx.Table(tableName).Select("id", columnName).Find(&rows).Error; err != nil {
+			return fmt.Errorf("find rows: %w", err)
+		}
+
+		// Get all valid IDs from the fk table
+		var validIDs []string
+		if err := tx.Model(fkModel).Select("id").Pluck("id", &validIDs).Error; err != nil {
+			return fmt.Errorf("fetch valid group IDs: %w", err)
+		}
+
+		validIDMap := make(map[string]bool, len(validIDs))
+		for _, id := range validIDs {
+			validIDMap[id] = true
+		}
+
+		updatedCount := 0
+		for _, row := range rows {
+			jsonValue, ok := row[columnName].(string)
+			if !ok || jsonValue == "" || jsonValue == "null" {
+				continue
+			}
+
+			var list []string
+			if err := json.Unmarshal([]byte(jsonValue), &list); err != nil {
+				log.WithContext(ctx).Warnf("Failed to unmarshal %s for id %v: %v", columnName, row["id"], err)
+				continue
+			}
+
+			if len(list) == 0 {
+				continue
+			}
+
+			// Filter out non-existent IDs
+			cleanedList := make([]string, 0, len(list))
+			for _, groupID := range list {
+				if validIDMap[groupID] {
+					cleanedList = append(cleanedList, groupID)
+				}
+			}
+
+			// Only update if there were orphaned ids removed
+			if len(cleanedList) != len(list) {
+				cleanedJSON, err := json.Marshal(cleanedList)
+				if err != nil {
+					return fmt.Errorf("marshal cleaned %s: %w", columnName, err)
+				}
+
+				if err := tx.Table(tableName).Where("id = ?", row["id"]).Update(columnName, cleanedJSON).Error; err != nil {
+					return fmt.Errorf("update row with id %v: %w", row["id"], err)
+				}
+				updatedCount++
+			}
+		}
+
+		if updatedCount > 0 {
+			log.WithContext(ctx).Infof("Cleaned up orphaned %s in %d rows from table %s", columnName, updatedCount, tableName)
+		} else {
+			log.WithContext(ctx).Debugf("No orphaned %s found in table %s", columnName, tableName)
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Cleanup of orphaned %s from table %s completed", columnName, tableName)
+	return nil
+}

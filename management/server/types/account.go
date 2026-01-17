@@ -89,7 +89,7 @@ type Account struct {
 	Peers                  map[string]*nbpeer.Peer           `gorm:"-"`
 	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
-	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	UsersG                 []*User                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []*Group                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
