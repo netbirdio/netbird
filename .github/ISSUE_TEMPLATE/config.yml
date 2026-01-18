@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: NetBird Documentation
+    url: https://docs.netbird.io
+    about: Official NetBird documentation
+  - name: NetBird Discussions
+    url: https://github.com/netbirdio/netbird/discussions
+    about: Ask questions and discuss NetBird
