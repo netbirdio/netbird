@@ -1,0 +1,97 @@
+name: Auto Label
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  label-issues:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.issue.title.toLowerCase();
+            const labels = ['status:backlog'];
+
+            // Epic/Story/Task detection (Machine Tunnel Plan)
+            if (title.includes('[epic]') || title.startsWith('e-')) {
+              labels.push('type:epic', 'priority:critical');
+            } else if (title.includes('[story]') || title.startsWith('s-')) {
+              labels.push('type:story', 'priority:high');
+            } else if (title.includes('[task]') || title.startsWith('t-')) {
+              labels.push('type:task');
+            }
+
+            // Type detection from title prefix
+            if (title.includes('[bug]') || title.startsWith('bug:') || title.startsWith('fix:')) {
+              labels.push('type:bug', 'priority:high');
+            } else if (title.includes('[feature]') || title.startsWith('feat:')) {
+              labels.push('type:feature');
+            } else if (title.includes('[docs]') || title.startsWith('docs:')) {
+              labels.push('type:docs');
+            } else if (title.includes('[refactor]') || title.startsWith('refactor:')) {
+              labels.push('type:refactor');
+            } else if (title.includes('[ci]') || title.startsWith('ci:')) {
+              labels.push('type:ci');
+            } else if (title.includes('[spike]') || title.startsWith('spike:')) {
+              labels.push('type:spike');
+            }
+
+            // Phase detection
+            if (title.includes('[mvp]') || title.includes('phase:mvp')) {
+              labels.push('phase:mvp');
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: labels
+            });
+
+  label-prs:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title.toLowerCase();
+            const labels = [];
+
+            // Type detection from Conventional Commit prefix
+            if (title.startsWith('feat:') || title.startsWith('feat(')) {
+              labels.push('type:feature');
+            } else if (title.startsWith('fix:') || title.startsWith('fix(')) {
+              labels.push('type:bug');
+            } else if (title.startsWith('docs:') || title.startsWith('docs(')) {
+              labels.push('type:docs');
+            } else if (title.startsWith('refactor:') || title.startsWith('refactor(')) {
+              labels.push('type:refactor');
+            } else if (title.startsWith('ci:') || title.startsWith('ci(')) {
+              labels.push('type:ci');
+            } else if (title.startsWith('deps:') || title.startsWith('chore(deps)')) {
+              labels.push('type:deps');
+            }
+
+            // Dependabot PRs
+            if (context.payload.pull_request.user.login === 'dependabot[bot]') {
+              labels.push('type:deps');
+            }
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+            }
