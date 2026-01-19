@@ -31,6 +31,7 @@ type Manager interface {
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
 	SetAccountManager(accountManager account.Manager)
+	GetPeerID(ctx context.Context, peerKey string) (string, error)
 }
 
 type managerImpl struct {
@@ -166,4 +167,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil
+}
+
+func (m *managerImpl) GetPeerID(ctx context.Context, peerKey string) (string, error) {
+	return m.store.GetPeerIDByKey(ctx, store.LockingStrengthNone, peerKey)
 }

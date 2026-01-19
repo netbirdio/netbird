@@ -38,8 +38,128 @@ tags:
     description: Interact with and view information about identity providers.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
 components:
   schemas:
+    WorkloadType:
+      type: string
+      description: |
+         Identifies the type of workload the job will execute.
+         Currently only `"bundle"` is supported.
+      enum:
+        - bundle
+      example: "bundle"
+    BundleParameters:
+      type: object
+      description: These parameters control what gets included in the bundle and how it is processed.
+      properties:
+        bundle_for:
+          type: boolean
+          description: Whether to generate a bundle for the given timeframe.
+          example: true
+        bundle_for_time:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Time period in minutes for which to generate the bundle.
+          example: 2
+        log_file_count:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of log files to include in the bundle.
+          example: 100
+        anonymize:
+          type: boolean
+          description: Whether sensitive data should be anonymized in the bundle.
+          example: false
+      required:
+        - bundle_for
+        - bundle_for_time
+        - log_file_count
+        - anonymize
+    BundleResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+          example: "upload_key_123"
+          nullable: true
+    BundleWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+      required:
+      - type
+      - parameters
+    BundleWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+        result:
+          $ref: '#/components/schemas/BundleResult'
+      required:
+        - type
+        - parameters
+        - result
+    WorkloadRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadRequest'
+    WorkloadResponse:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadResponse'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadResponse'
+    JobRequest:
+      type: object
+      properties:
+        workload:
+          $ref: '#/components/schemas/WorkloadRequest'
+      required:
+        - workload
+    JobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        triggered_by:
+          type: string
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        failed_reason:
+          type: string
+          nullable: true
+        workload:
+          $ref: '#/components/schemas/WorkloadResponse'
+      required:
+        - id
+        - created_at
+        - status
+        - triggered_by
+        - workload
     Account:
       type: object
       properties:
@@ -2552,6 +2672,110 @@ paths:
         '412':
           description: Setup already completed
           content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs:
+    get:
+      summary: List Jobs
+      description: Retrieve all jobs for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create Job
+      description: Create a new job for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Create job request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs/{jobId}:
+    get:
+      summary: Get Job
+      description: Retrieve details of a specific job
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          description: The unique identifier of a peer
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          description: The unique identifier of a job
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Job object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts:
