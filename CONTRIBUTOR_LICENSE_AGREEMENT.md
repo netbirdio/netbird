@@ -1,7 +1,7 @@
 ##  Contributor License Agreement
 
 This Contributor License Agreement (referred to as the "Agreement") is entered into by the individual 
-submitting this Agreement and NetBird GmbH, c/o Max-Beer-Straße 2-4 Münzstraße 12 10178 Berlin, Germany, 
+submitting this Agreement and NetBird GmbH, Brunnenstraße 196, 10119 Berlin, Germany, 
 referred to as "NetBird" (collectively, the "Parties"). The Agreement outlines the terms and conditions 
 under which NetBird may utilize software contributions provided by the Contributor for inclusion in 
 its software development projects. By submitting this Agreement, the Contributor confirms their acceptance 
