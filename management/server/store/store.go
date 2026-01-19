@@ -23,6 +23,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -209,6 +211,28 @@ type Store interface {
 	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
 	SetFieldEncrypt(enc *crypt.FieldEncrypt)
 	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
+
+	CreateZone(ctx context.Context, zone *zones.Zone) error
+	UpdateZone(ctx context.Context, zone *zones.Zone) error
+	DeleteZone(ctx context.Context, accountID, zoneID string) error
+	GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error)
+	GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error)
+	GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error)
+
+	CreateDNSRecord(ctx context.Context, record *records.Record) error
+	UpdateDNSRecord(ctx context.Context, record *records.Record) error
+	DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error
+	GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error)
+	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
+	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
+	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
+	CreatePeerJob(ctx context.Context, job *types.Job) error
+	CompletePeerJob(ctx context.Context, job *types.Job) error
+	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 }
 
 const (

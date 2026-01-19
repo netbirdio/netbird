@@ -99,7 +99,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		profName = activeProf.Name
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), anonymizeFlag, resp.GetDaemonVersion(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
 	var statusOutputString string
 	switch {
 	case detailFlag:

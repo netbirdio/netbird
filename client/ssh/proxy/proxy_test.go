@@ -132,7 +132,7 @@ func TestSSHProxy_Connect(t *testing.T) {
 		HostKeyPEM: hostKey,
 		JWT: &server.JWTConfig{
 			Issuer:       issuer,
-			Audience:     audience,
+			Audiences:    []string{audience},
 			KeysLocation: jwksURL,
 		},
 	}

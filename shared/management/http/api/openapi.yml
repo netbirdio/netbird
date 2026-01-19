@@ -25,6 +25,8 @@ tags:
     description: Interact with and view information about routes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
+  - name: DNS Zones
+    description: Interact with and view information about custom DNS zones.
   - name: Events
     description: View information about the account and network events.
   - name: Accounts
@@ -36,8 +38,128 @@ tags:
     description: Interact with and view information about identity providers.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
 components:
   schemas:
+    WorkloadType:
+      type: string
+      description: |
+         Identifies the type of workload the job will execute.
+         Currently only `"bundle"` is supported.
+      enum:
+        - bundle
+      example: "bundle"
+    BundleParameters:
+      type: object
+      description: These parameters control what gets included in the bundle and how it is processed.
+      properties:
+        bundle_for:
+          type: boolean
+          description: Whether to generate a bundle for the given timeframe.
+          example: true
+        bundle_for_time:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Time period in minutes for which to generate the bundle.
+          example: 2
+        log_file_count:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of log files to include in the bundle.
+          example: 100
+        anonymize:
+          type: boolean
+          description: Whether sensitive data should be anonymized in the bundle.
+          example: false
+      required:
+        - bundle_for
+        - bundle_for_time
+        - log_file_count
+        - anonymize
+    BundleResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+          example: "upload_key_123"
+          nullable: true
+    BundleWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+      required:
+      - type
+      - parameters
+    BundleWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+        result:
+          $ref: '#/components/schemas/BundleResult'
+      required:
+        - type
+        - parameters
+        - result
+    WorkloadRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadRequest'
+    WorkloadResponse:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadResponse'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadResponse'
+    JobRequest:
+      type: object
+      properties:
+        workload:
+          $ref: '#/components/schemas/WorkloadRequest'
+      required:
+        - workload
+    JobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        triggered_by:
+          type: string
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        failed_reason:
+          type: string
+          nullable: true
+        workload:
+          $ref: '#/components/schemas/WorkloadResponse'
+      required:
+        - id
+        - created_at
+        - status
+        - triggered_by
+        - workload
     Account:
       type: object
       properties:
@@ -1779,6 +1901,100 @@ components:
             example: ch8i4ug6lnn4g9hqv7m0
       required:
         - disabled_management_groups
+    ZoneRequest:
+      type: object
+      properties:
+        name:
+          description: Zone name identifier
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: Office Zone
+        domain:
+          description: Zone domain (FQDN)
+          type: string
+          example: example.com
+        enabled:
+          description: Zone status
+          type: boolean
+          default: true
+        enable_search_domain:
+          description: Enable this zone as a search domain
+          type: boolean
+          example: false
+        distribution_groups:
+          description: Group IDs that defines groups of peers that will resolve this zone
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+      required:
+        - name
+        - domain
+        - enable_search_domain
+        - distribution_groups
+    Zone:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Zone ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+            records:
+              description: DNS records associated with this zone
+              type: array
+              items:
+                $ref: '#/components/schemas/DNSRecord'
+          required:
+            - id
+            - enabled
+            - records
+        - $ref: '#/components/schemas/ZoneRequest'
+    DNSRecordType:
+      type: string
+      description: DNS record type
+      enum:
+        - A
+        - AAAA
+        - CNAME
+      example: A
+    DNSRecordRequest:
+      type: object
+      properties:
+        name:
+          description: FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+          type: string
+          example: www.example.com
+        type:
+          $ref: '#/components/schemas/DNSRecordType'
+        content:
+          description: DNS record content (IP address for A/AAAA, domain for CNAME)
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: 192.168.1.1
+        ttl:
+          description: Time to live in seconds
+          type: integer
+          minimum: 0
+          example: 300
+      required:
+        - name
+        - type
+        - content
+        - ttl
+    DNSRecord:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: DNS record ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+          required:
+            - id
+        - $ref: '#/components/schemas/DNSRecordRequest'
     Event:
       type: object
       properties:
@@ -2456,6 +2672,110 @@ paths:
         '412':
           description: Setup already completed
           content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs:
+    get:
+      summary: List Jobs
+      description: Retrieve all jobs for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create Job
+      description: Create a new job for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Create job request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs/{jobId}:
+    get:
+      summary: Get Job
+      description: Retrieve details of a specific job
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          description: The unique identifier of a peer
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          description: The unique identifier of a job
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Job object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts:
@@ -4731,6 +5051,347 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones:
+    get:
+      summary: List all DNS Zones
+      description: Returns a list of all custom DNS zones
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of DNS Zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Zone
+      description: Creates a new custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}:
+    get:
+      summary: Retrieve a DNS Zone
+      description: Returns information about a specific DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Object of a DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Zone
+      description: Updates a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Zone
+      description: Deletes a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: Zone deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records:
+    get:
+      summary: List all DNS Records
+      description: Returns a list of all DNS records in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Array of DNS Records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DNSRecord'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Record
+      description: Creates a new DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records/{recordId}:
+    get:
+      summary: Retrieve a DNS Record
+      description: Returns information about a specific DNS record
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: A JSON Object of a DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Record
+      description: Updates a DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Record
+      description: Deletes a DNS record from a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: Record deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/events/audit:

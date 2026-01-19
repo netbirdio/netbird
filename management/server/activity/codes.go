@@ -187,6 +187,16 @@ const (
 	IdentityProviderUpdated Activity = 94
 	IdentityProviderDeleted Activity = 95
 
+	DNSZoneCreated Activity = 96
+	DNSZoneUpdated Activity = 97
+	DNSZoneDeleted Activity = 98
+
+	DNSRecordCreated Activity = 99
+	DNSRecordUpdated Activity = 100
+	DNSRecordDeleted Activity = 101
+
+	JobCreatedByUser           Activity = 102
+
 	AccountDeleted Activity = 99999
 )
 
@@ -303,6 +313,16 @@ var activityMap = map[Activity]Code{
 	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
 	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
 	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
+
+	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
+	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},
+	DNSZoneDeleted: {"DNS zone deleted", "dns.zone.delete"},
+
+	DNSRecordCreated: {"DNS zone record created", "dns.zone.record.create"},
+	DNSRecordUpdated: {"DNS zone record updated", "dns.zone.record.update"},
+	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
+
+	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 }
 
 // StringCode returns a string code of the activity
