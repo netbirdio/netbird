@@ -4,6 +4,7 @@ package dex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -274,16 +275,16 @@ func decodeConnectorConfig(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
-// ensureLocalConnector creates a local (password) connector if none exists
+// ensureLocalConnector creates a local (password) connector if it doesn't exist
 func ensureLocalConnector(ctx context.Context, stor storage.Storage) error {
-	connectors, err := stor.ListConnectors(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list connectors: %w", err)
-	}
-
-	// If any connector exists, we're good
-	if len(connectors) > 0 {
+	// Check specifically for the local connector
+	_, err := stor.GetConnector(ctx, "local")
+	if err == nil {
+		// Local connector already exists
 		return nil
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("failed to get local connector: %w", err)
 	}
 
 	// Create a local connector for password authentication
