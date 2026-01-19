@@ -431,21 +431,17 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		hexKey := hex.EncodeToString(p.PublicKey[:])
 		sb.WriteString(fmt.Sprintf("public_key=%s\n", hexKey))
 
+		if p.Remove {
+			sb.WriteString("remove=true\n")
+		}
+
+		if p.UpdateOnly {
+			sb.WriteString("update_only=true\n")
+		}
+
 		if p.PresharedKey != nil {
 			preSharedHexKey := hex.EncodeToString(p.PresharedKey[:])
 			sb.WriteString(fmt.Sprintf("preshared_key=%s\n", preSharedHexKey))
-		}
-
-		if p.Remove {
-			sb.WriteString("remove=true")
-		}
-
-		if p.ReplaceAllowedIPs {
-			sb.WriteString("replace_allowed_ips=true\n")
-		}
-
-		for _, aip := range p.AllowedIPs {
-			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 
 		if p.Endpoint != nil {
@@ -454,6 +450,14 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 
 		if p.PersistentKeepaliveInterval != nil {
 			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", int(p.PersistentKeepaliveInterval.Seconds())))
+		}
+
+		if p.ReplaceAllowedIPs {
+			sb.WriteString("replace_allowed_ips=true\n")
+		}
+
+		for _, aip := range p.AllowedIPs {
+			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 	}
 	return sb.String()
