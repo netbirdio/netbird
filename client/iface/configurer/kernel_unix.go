@@ -47,12 +47,14 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 }
 
 // SetPresharedKey sets the preshared key for a peer.
-// If updateOnly is true, only updates existing peer; if false, creates or updates.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
 func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
-	cfg, err := buildPresharedKeyConfig(peerKey, psk, updateOnly)
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
 	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
 	return c.configure(cfg)
 }
 

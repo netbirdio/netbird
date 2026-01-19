@@ -9,18 +9,14 @@ import (
 
 // buildPresharedKeyConfig creates a wgtypes.Config for setting a preshared key on a peer.
 // This is a shared helper used by both kernel and userspace configurers.
-func buildPresharedKeyConfig(peerKey string, psk wgtypes.Key, updateOnly bool) (wgtypes.Config, error) {
-	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
-	if err != nil {
-		return wgtypes.Config{}, err
-	}
+func buildPresharedKeyConfig(peerKey wgtypes.Key, psk wgtypes.Key, updateOnly bool) wgtypes.Config {
 	return wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{{
-			PublicKey:    peerKeyParsed,
+			PublicKey:    peerKey,
 			PresharedKey: &psk,
 			UpdateOnly:   updateOnly,
 		}},
-	}, nil
+	}
 }
 
 func prefixesToIPNets(prefixes []netip.Prefix) []net.IPNet {
