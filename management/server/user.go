@@ -837,7 +837,20 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 		}
 		return user.ToUserInfo(userData)
 	}
-	return user.ToUserInfo(nil)
+
+	userInfo, err := user.ToUserInfo(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// For embedded IDP users, extract the IdPID (connector ID) from the encoded user ID
+	if IsEmbeddedIdp(am.idpManager) && !user.IsServiceUser {
+		if _, connectorID, decodeErr := dex.DecodeDexUserID(user.Id); decodeErr == nil && connectorID != "" {
+			userInfo.IdPID = connectorID
+		}
+	}
+
+	return userInfo, nil
 }
 
 // validateUserUpdate validates the update operation for a user.

@@ -248,6 +248,71 @@ func TestEmbeddedIdPManager_UserIDFormat_MatchesJWT(t *testing.T) {
 	t.Logf("  Connector:  %s", connectorID)
 }
 
+func TestEmbeddedIdPManager_UpdateUserPassword(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
+		Issuer:  "http://localhost:5556/dex",
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(tmpDir, "dex.db"),
+			},
+		},
+	}
+
+	manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
+
+	// Create a user with a known password
+	email := "password-test@example.com"
+	name := "Password Test User"
+	initialPassword := "InitialPass123!"
+
+	userData, err := manager.CreateUserWithPassword(ctx, email, initialPassword, name)
+	require.NoError(t, err)
+	require.NotNil(t, userData)
+
+	userID := userData.ID
+
+	t.Run("successful password change", func(t *testing.T) {
+		newPassword := "NewSecurePass456!"
+		err := manager.UpdateUserPassword(ctx, userID, userID, initialPassword, newPassword)
+		require.NoError(t, err)
+
+		// Verify the new password works by changing it again
+		anotherPassword := "AnotherPass789!"
+		err = manager.UpdateUserPassword(ctx, userID, userID, newPassword, anotherPassword)
+		require.NoError(t, err)
+	})
+
+	t.Run("wrong old password", func(t *testing.T) {
+		err := manager.UpdateUserPassword(ctx, userID, userID, "wrongpassword", "NewPass123!")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "current password is incorrect")
+	})
+
+	t.Run("cannot change other user password", func(t *testing.T) {
+		otherUserID := "other-user-id"
+		err := manager.UpdateUserPassword(ctx, userID, otherUserID, "oldpass", "newpass")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "users can only change their own password")
+	})
+
+	t.Run("same password rejected", func(t *testing.T) {
+		samePassword := "SamePass123!"
+		err := manager.UpdateUserPassword(ctx, userID, userID, samePassword, samePassword)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "new password must be different")
+	})
+}
+
 func TestEmbeddedIdPManager_GetLocalKeysLocation(t *testing.T) {
 	ctx := context.Background()
 
