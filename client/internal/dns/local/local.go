@@ -120,7 +120,7 @@ func (d *Resolver) determineRcode(question dns.Question, result lookupResult) in
 	}
 
 	// No records found, but domain exists with different record types (NODATA)
-	if d.hasRecordsForDomain(domain.Domain(question.Name)) {
+	if d.hasRecordsForDomain(domain.Domain(question.Name), question.Qtype) {
 		return dns.RcodeSuccess
 	}
 
@@ -164,12 +164,12 @@ func (d *Resolver) continueToNext(logger *log.Entry, w dns.ResponseWriter, r *dn
 }
 
 // hasRecordsForDomain checks if any records exist for the given domain name regardless of type
-func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
+func (d *Resolver) hasRecordsForDomain(domainName domain.Domain, qType uint16) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	_, exists := d.domains[domainName]
-	if !exists {
+	if !exists && supportsWildcard(qType) {
 		testWild := transformDomainToWildcard(string(domainName))
 		_, exists = d.domains[domain.Domain(testWild)]
 	}
@@ -263,11 +263,14 @@ func supportsWildcard(queryType uint16) bool {
 }
 
 func responseFromWildRecords(originalName, wildName string, wildRecords []dns.RR) lookupResult {
-	for i := range wildRecords {
-		wildRecords[i].Header().Name = originalName
+	records := make([]dns.RR, len(wildRecords))
+	for i, record := range wildRecords {
+		copiedRecord := dns.Copy(record)
+		copiedRecord.Header().Name = originalName
+		records[i] = copiedRecord
 	}
 
-	return lookupResult{records: wildRecords, rcode: dns.RcodeSuccess}
+	return lookupResult{records: records, rcode: dns.RcodeSuccess}
 }
 
 // lookupCNAMEChain follows a CNAME chain and returns the CNAME records along with
@@ -345,7 +348,7 @@ func (d *Resolver) resolveCNAMETarget(logger *log.Entry, targetName string, targ
 	}
 
 	// domain exists locally but not this record type (NODATA)
-	if d.hasRecordsForDomain(domain.Domain(targetName)) {
+	if d.hasRecordsForDomain(domain.Domain(targetName), targetType) {
 		return lookupResult{rcode: dns.RcodeSuccess}
 	}
 
