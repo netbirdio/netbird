@@ -31,7 +31,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-const remoteJobsMinVer = "0.60.0"
+const remoteJobsMinVer = "0.64.0"
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
