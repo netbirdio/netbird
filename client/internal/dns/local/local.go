@@ -282,6 +282,13 @@ func (d *Resolver) lookupCNAMEChain(logger *log.Entry, cnameQuestion dns.Questio
 
 	for range maxDepth {
 		cnameRecords := d.getRecords(cnameQuestion)
+		if len(cnameRecords) == 0 && supportsWildcard(targetType) {
+			wildQuestion := transformToWildcard(cnameQuestion)
+			if wildRecords := d.getRecords(wildQuestion); len(wildRecords) > 0 {
+				cnameRecords = responseFromWildRecords(cnameQuestion.Name, wildQuestion.Name, wildRecords).records
+			}
+		}
+
 		if len(cnameRecords) == 0 {
 			break
 		}
