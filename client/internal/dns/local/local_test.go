@@ -2098,6 +2098,480 @@ func TestLocalResolver_WildcardEdgeCases(t *testing.T) {
 	})
 }
 
+// TestLocalResolver_MixedRecordTypes tests scenarios with A, AAAA, and CNAME records combined
+func TestLocalResolver_MixedRecordTypes(t *testing.T) {
+	t.Run("specific A with wildcard CNAME - A query uses specific A", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "*.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "specific.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("specific.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1, "Should return only the specific A record")
+
+		a, ok := resp.Answer[0].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.1", a.A.String(), "Should use specific A, not follow wildcard CNAME")
+	})
+
+	t.Run("specific AAAA with wildcard CNAME - AAAA query uses specific AAAA", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "*.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "specific.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::2"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("specific.example.com.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 1, "Should return only the specific AAAA record")
+
+		aaaa, ok := resp.Answer[0].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String(), "Should use specific AAAA, not follow wildcard CNAME")
+	})
+
+	t.Run("specific A only - AAAA query returns NODATA", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA (success with no AAAA)")
+		assert.Len(t, resp.Answer, 0)
+	})
+
+	t.Run("specific AAAA only - A query returns NODATA", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA (success with no A)")
+		assert.Len(t, resp.Answer, 0)
+	})
+
+	t.Run("CNAME with both A and AAAA target - A query returns CNAME + A", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 2, "Should have CNAME + A")
+
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "target.example.com.", cname.Target)
+
+		a, ok := resp.Answer[1].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.1", a.A.String())
+	})
+
+	t.Run("CNAME with both A and AAAA target - AAAA query returns CNAME + AAAA", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+		require.Len(t, resp.Answer, 2, "Should have CNAME + AAAA")
+
+		cname, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "target.example.com.", cname.Target)
+
+		aaaa, ok := resp.Answer[1].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String())
+	})
+
+	t.Run("CNAME to target with only A - AAAA query returns CNAME only (NODATA)", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeAAAA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA with CNAME")
+		require.Len(t, resp.Answer, 1, "Should have only CNAME")
+
+		_, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+	})
+
+	t.Run("CNAME to target with only AAAA - A query returns CNAME only (NODATA)", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		msg := new(dns.Msg).SetQuestion("alias.example.com.", dns.TypeA)
+		var resp *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp = m; return nil }}, msg)
+
+		require.NotNil(t, resp)
+		assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "Should return NODATA with CNAME")
+		require.Len(t, resp.Answer, 1, "Should have only CNAME")
+
+		_, ok := resp.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+	})
+
+	t.Run("wildcard A + wildcard AAAA + wildcard CNAME - each query type returns correct record", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "*.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "*.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+				{Name: "*.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+			},
+		}})
+
+		// A query should return wildcard A (not CNAME)
+		msgA := new(dns.Msg).SetQuestion("any.example.com.", dns.TypeA)
+		var respA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respA = m; return nil }}, msgA)
+
+		require.NotNil(t, respA)
+		require.Equal(t, dns.RcodeSuccess, respA.Rcode)
+		require.Len(t, respA.Answer, 1)
+		a, ok := respA.Answer[0].(*dns.A)
+		require.True(t, ok, "A query should return A record, not CNAME")
+		assert.Equal(t, "10.0.0.1", a.A.String())
+
+		// AAAA query should return wildcard AAAA (not CNAME)
+		msgAAAA := new(dns.Msg).SetQuestion("any.example.com.", dns.TypeAAAA)
+		var respAAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
+
+		require.NotNil(t, respAAAA)
+		require.Equal(t, dns.RcodeSuccess, respAAAA.Rcode)
+		require.Len(t, respAAAA.Answer, 1)
+		aaaa, ok := respAAAA.Answer[0].(*dns.AAAA)
+		require.True(t, ok, "AAAA query should return AAAA record, not CNAME")
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String())
+
+		// CNAME query should return wildcard CNAME
+		msgCNAME := new(dns.Msg).SetQuestion("any.example.com.", dns.TypeCNAME)
+		var respCNAME *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respCNAME = m; return nil }}, msgCNAME)
+
+		require.NotNil(t, respCNAME)
+		require.Equal(t, dns.RcodeSuccess, respCNAME.Rcode)
+		require.Len(t, respCNAME.Answer, 1)
+		cname, ok := respCNAME.Answer[0].(*dns.CNAME)
+		require.True(t, ok, "CNAME query should return CNAME record")
+		assert.Equal(t, "target.example.com.", cname.Target)
+	})
+
+	t.Run("dual-stack host with both A and AAAA", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
+				{Name: "host.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+				{Name: "host.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::2"},
+			},
+		}})
+
+		// A query
+		msgA := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
+		var respA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respA = m; return nil }}, msgA)
+
+		require.NotNil(t, respA)
+		require.Equal(t, dns.RcodeSuccess, respA.Rcode)
+		require.Len(t, respA.Answer, 2, "Should return both A records")
+		for _, ans := range respA.Answer {
+			_, ok := ans.(*dns.A)
+			require.True(t, ok)
+		}
+
+		// AAAA query
+		msgAAAA := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeAAAA)
+		var respAAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
+
+		require.NotNil(t, respAAAA)
+		require.Equal(t, dns.RcodeSuccess, respAAAA.Rcode)
+		require.Len(t, respAAAA.Answer, 2, "Should return both AAAA records")
+		for _, ans := range respAAAA.Answer {
+			_, ok := ans.(*dns.AAAA)
+			require.True(t, ok)
+		}
+	})
+
+	t.Run("CNAME chain with mixed record types at target", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "alias1.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "alias2.example.com."},
+				{Name: "alias2.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		// A query through chain
+		msgA := new(dns.Msg).SetQuestion("alias1.example.com.", dns.TypeA)
+		var respA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respA = m; return nil }}, msgA)
+
+		require.NotNil(t, respA)
+		require.Equal(t, dns.RcodeSuccess, respA.Rcode)
+		require.Len(t, respA.Answer, 3, "Should have 2 CNAMEs + 1 A")
+
+		// Verify chain order
+		cname1, ok := respA.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "alias2.example.com.", cname1.Target)
+
+		cname2, ok := respA.Answer[1].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "target.example.com.", cname2.Target)
+
+		a, ok := respA.Answer[2].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.1", a.A.String())
+
+		// AAAA query through chain
+		msgAAAA := new(dns.Msg).SetQuestion("alias1.example.com.", dns.TypeAAAA)
+		var respAAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
+
+		require.NotNil(t, respAAAA)
+		require.Equal(t, dns.RcodeSuccess, respAAAA.Rcode)
+		require.Len(t, respAAAA.Answer, 3, "Should have 2 CNAMEs + 1 AAAA")
+
+		aaaa, ok := respAAAA.Answer[2].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String())
+	})
+
+	t.Run("wildcard CNAME with dual-stack target", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "*.example.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.example.com."},
+				{Name: "target.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "target.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		// A query via wildcard CNAME
+		msgA := new(dns.Msg).SetQuestion("any.example.com.", dns.TypeA)
+		var respA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respA = m; return nil }}, msgA)
+
+		require.NotNil(t, respA)
+		require.Equal(t, dns.RcodeSuccess, respA.Rcode)
+		require.Len(t, respA.Answer, 2, "Should have CNAME + A")
+
+		cname, ok := respA.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "any.example.com.", cname.Hdr.Name, "CNAME owner should be rewritten")
+
+		a, ok := respA.Answer[1].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.1", a.A.String())
+
+		// AAAA query via wildcard CNAME
+		msgAAAA := new(dns.Msg).SetQuestion("other.example.com.", dns.TypeAAAA)
+		var respAAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
+
+		require.NotNil(t, respAAAA)
+		require.Equal(t, dns.RcodeSuccess, respAAAA.Rcode)
+		require.Len(t, respAAAA.Answer, 2, "Should have CNAME + AAAA")
+
+		cname2, ok := respAAAA.Answer[0].(*dns.CNAME)
+		require.True(t, ok)
+		assert.Equal(t, "other.example.com.", cname2.Hdr.Name, "CNAME owner should be rewritten")
+
+		aaaa, ok := respAAAA.Answer[1].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String())
+	})
+
+	t.Run("specific A + wildcard AAAA - each query type returns correct record", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{{
+			Domain: "example.com.",
+			Records: []nbdns.SimpleRecord{
+				{Name: "host.example.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
+				{Name: "*.example.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8::1"},
+			},
+		}})
+
+		// A query for host should return specific A
+		msgA := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeA)
+		var respA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respA = m; return nil }}, msgA)
+
+		require.NotNil(t, respA)
+		require.Equal(t, dns.RcodeSuccess, respA.Rcode)
+		require.Len(t, respA.Answer, 1)
+		a, ok := respA.Answer[0].(*dns.A)
+		require.True(t, ok)
+		assert.Equal(t, "10.0.0.1", a.A.String())
+
+		// AAAA query for host should return NODATA (specific A exists, no AAAA for host.example.com)
+		msgAAAA := new(dns.Msg).SetQuestion("host.example.com.", dns.TypeAAAA)
+		var respAAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
+
+		require.NotNil(t, respAAAA)
+		// host.example.com exists (has A), so AAAA query returns NODATA, not wildcard
+		assert.Equal(t, dns.RcodeSuccess, respAAAA.Rcode, "Should return NODATA for existing host without AAAA")
+
+		// AAAA query for other host should return wildcard AAAA
+		msgAAAAOther := new(dns.Msg).SetQuestion("other.example.com.", dns.TypeAAAA)
+		var respAAAAOther *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAAOther = m; return nil }}, msgAAAAOther)
+
+		require.NotNil(t, respAAAAOther)
+		require.Equal(t, dns.RcodeSuccess, respAAAAOther.Rcode)
+		require.Len(t, respAAAAOther.Answer, 1)
+		aaaa, ok := respAAAAOther.Answer[0].(*dns.AAAA)
+		require.True(t, ok)
+		assert.Equal(t, "2001:db8::1", aaaa.AAAA.String())
+		assert.Equal(t, "other.example.com.", aaaa.Hdr.Name, "Owner should be rewritten")
+	})
+
+	t.Run("multiple zones with mixed records", func(t *testing.T) {
+		resolver := NewResolver()
+
+		resolver.Update([]nbdns.CustomZone{
+			{
+				Domain: "zone1.com.",
+				Records: []nbdns.SimpleRecord{
+					{Name: "host.zone1.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.1.0.1"},
+					{Name: "host.zone1.com.", Type: int(dns.TypeAAAA), Class: nbdns.DefaultClass, TTL: 300, RData: "2001:db8:1::1"},
+				},
+			},
+			{
+				Domain: "zone2.com.",
+				Records: []nbdns.SimpleRecord{
+					{Name: "alias.zone2.com.", Type: int(dns.TypeCNAME), Class: nbdns.DefaultClass, TTL: 300, RData: "target.zone2.com."},
+					{Name: "target.zone2.com.", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.2.0.1"},
+				},
+			},
+		})
+
+		// Query zone1 A
+		msg1A := new(dns.Msg).SetQuestion("host.zone1.com.", dns.TypeA)
+		var resp1A *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp1A = m; return nil }}, msg1A)
+
+		require.NotNil(t, resp1A)
+		require.Equal(t, dns.RcodeSuccess, resp1A.Rcode)
+		require.Len(t, resp1A.Answer, 1)
+
+		// Query zone1 AAAA
+		msg1AAAA := new(dns.Msg).SetQuestion("host.zone1.com.", dns.TypeAAAA)
+		var resp1AAAA *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp1AAAA = m; return nil }}, msg1AAAA)
+
+		require.NotNil(t, resp1AAAA)
+		require.Equal(t, dns.RcodeSuccess, resp1AAAA.Rcode)
+		require.Len(t, resp1AAAA.Answer, 1)
+
+		// Query zone2 via CNAME
+		msg2A := new(dns.Msg).SetQuestion("alias.zone2.com.", dns.TypeA)
+		var resp2A *dns.Msg
+		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { resp2A = m; return nil }}, msg2A)
+
+		require.NotNil(t, resp2A)
+		require.Equal(t, dns.RcodeSuccess, resp2A.Rcode)
+		require.Len(t, resp2A.Answer, 2, "Should have CNAME + A")
+	})
+}
+
 // BenchmarkFindZone_BestCase benchmarks zone lookup with immediate match (first label)
 func BenchmarkFindZone_BestCase(b *testing.B) {
 	resolver := NewResolver()
