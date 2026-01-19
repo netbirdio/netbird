@@ -613,6 +613,39 @@ func (p *Provider) ListUsers(ctx context.Context) ([]storage.Password, error) {
 	return p.storage.ListPasswords(ctx)
 }
 
+// UpdateUserPassword updates the password for a user identified by userID.
+// The userID can be either an encoded Dex ID (base64 protobuf) or a raw UUID.
+// It verifies the current password before updating.
+func (p *Provider) UpdateUserPassword(ctx context.Context, userID string, oldPassword, newPassword string) error {
+	// Get the user by ID to find their email
+	user, err := p.GetUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Verify old password
+	if err := bcrypt.CompareHashAndPassword(user.Hash, []byte(oldPassword)); err != nil {
+		return fmt.Errorf("current password is incorrect")
+	}
+
+	// Hash the new password
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// Update the password in storage
+	err = p.storage.UpdatePassword(ctx, user.Email, func(old storage.Password) (storage.Password, error) {
+		old.Hash = newHash
+		return old, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
+}
+
 // ensureLocalConnector creates a local (password) connector if none exists
 func ensureLocalConnector(ctx context.Context, stor storage.Storage) error {
 	connectors, err := stor.ListConnectors(ctx)

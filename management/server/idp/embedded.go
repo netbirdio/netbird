@@ -432,6 +432,33 @@ func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) erro
 	return nil
 }
 
+// UpdateUserPassword updates the password for a user in the embedded IdP.
+// It verifies that the current user is changing their own password and
+// validates the current password before updating to the new password.
+func (m *EmbeddedIdPManager) UpdateUserPassword(ctx context.Context, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	// Verify the user is changing their own password
+	if currentUserID != targetUserID {
+		return fmt.Errorf("users can only change their own password")
+	}
+
+	// Verify new password is different from old password
+	if oldPassword == newPassword {
+		return fmt.Errorf("new password must be different from current password")
+	}
+
+	err := m.provider.UpdateUserPassword(ctx, targetUserID, oldPassword, newPassword)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	log.WithContext(ctx).Debugf("updated password for user %s in embedded IdP", targetUserID)
+
+	return nil
+}
+
 // CreateConnector creates a new identity provider connector in Dex.
 // Returns the created connector config with the redirect URL populated.
 func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) (*dex.ConnectorConfig, error) {

@@ -44,6 +44,20 @@ tags:
 
 components:
   schemas:
+    PasswordChangeRequest:
+      type: object
+      properties:
+        old_password:
+          description: The current password
+          type: string
+          example: "currentPassword123"
+        new_password:
+          description: The new password to set
+          type: string
+          example: "newSecurePassword456"
+      required:
+        - old_password
+        - new_password
     WorkloadType:
       type: string
       description: |
@@ -3203,6 +3217,42 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/password:
+    put:
+      summary: Change user password
+      description: Change the password for a user. Only available when embedded IdP is enabled. Users can only change their own password.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      requestBody:
+        description: Password change request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '200':
+          description: Password changed successfully
+          content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users/current:

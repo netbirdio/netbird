@@ -249,6 +249,37 @@ func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string
 	return am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 }
 
+// UpdateUserPassword updates the password for a user in the embedded IdP.
+// This is only available when the embedded IdP is enabled.
+// Users can only change their own password.
+func (am *DefaultAccountManager) UpdateUserPassword(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "password change is only available with embedded identity provider")
+	}
+
+	if oldPassword == "" {
+		return status.Errorf(status.InvalidArgument, "old password is required")
+	}
+
+	if newPassword == "" {
+		return status.Errorf(status.InvalidArgument, "new password is required")
+	}
+
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
+	}
+
+	err := embeddedIdp.UpdateUserPassword(ctx, currentUserID, targetUserID, oldPassword, newPassword)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "failed to update password: %v", err)
+	}
+
+	am.StoreEvent(ctx, currentUserID, targetUserID, accountID, activity.UserPasswordChanged, nil)
+
+	return nil
+}
+
 func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, accountID string, initiatorUserID string, targetUser *types.User) error {
 	if err := am.Store.DeleteUser(ctx, accountID, targetUser.Id); err != nil {
 		return err
