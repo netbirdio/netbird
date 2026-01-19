@@ -3236,6 +3236,7 @@ paths:
           description: The unique identifier of a user
       requestBody:
         description: Password change request
+        required: true
         content:
           application/json:
             schema:
