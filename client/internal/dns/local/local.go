@@ -120,7 +120,7 @@ func (d *Resolver) determineRcode(question dns.Question, result lookupResult) in
 	}
 
 	// No records found, but domain exists with different record types (NODATA)
-	if d.hasRecordsForDomain(domain.Domain(question.Name)) {
+	if d.hasRecordsForDomain(domain.Domain(question.Name), question.Qtype) {
 		return dns.RcodeSuccess
 	}
 
@@ -164,11 +164,15 @@ func (d *Resolver) continueToNext(logger *log.Entry, w dns.ResponseWriter, r *dn
 }
 
 // hasRecordsForDomain checks if any records exist for the given domain name regardless of type
-func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
+func (d *Resolver) hasRecordsForDomain(domainName domain.Domain, qType uint16) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	_, exists := d.domains[domainName]
+	if !exists && supportsWildcard(qType) {
+		testWild := transformDomainToWildcard(string(domainName))
+		_, exists = d.domains[domain.Domain(testWild)]
+	}
 	return exists
 }
 
@@ -195,6 +199,12 @@ type lookupResult struct {
 func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) lookupResult {
 	d.mu.RLock()
 	records, found := d.records[question]
+	usingWildcard := false
+	wildQuestion := transformToWildcard(question)
+	if !found && supportsWildcard(question.Qtype) {
+		records, found = d.records[wildQuestion]
+		usingWildcard = found
+	}
 
 	if !found {
 		d.mu.RUnlock()
@@ -216,16 +226,51 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	// if there's more than one record, rotate them (round-robin)
 	if len(recordsCopy) > 1 {
 		d.mu.Lock()
-		records = d.records[question]
+		q := question
+		if usingWildcard {
+			q = wildQuestion
+		}
+		records = d.records[q]
 		if len(records) > 1 {
 			first := records[0]
 			records = append(records[1:], first)
-			d.records[question] = records
+			d.records[q] = records
 		}
 		d.mu.Unlock()
 	}
 
+	if usingWildcard {
+		return responseFromWildRecords(question.Name, wildQuestion.Name, recordsCopy)
+	}
+
 	return lookupResult{records: recordsCopy, rcode: dns.RcodeSuccess}
+}
+
+func transformToWildcard(question dns.Question) dns.Question {
+	wildQuestion := question
+	wildQuestion.Name = transformDomainToWildcard(wildQuestion.Name)
+	return wildQuestion
+}
+
+func transformDomainToWildcard(domain string) string {
+	s := strings.Split(domain, ".")
+	s[0] = "*"
+	return strings.Join(s, ".")
+}
+
+func supportsWildcard(queryType uint16) bool {
+	return queryType != dns.TypeNS && queryType != dns.TypeSOA
+}
+
+func responseFromWildRecords(originalName, wildName string, wildRecords []dns.RR) lookupResult {
+	records := make([]dns.RR, len(wildRecords))
+	for i, record := range wildRecords {
+		copiedRecord := dns.Copy(record)
+		copiedRecord.Header().Name = originalName
+		records[i] = copiedRecord
+	}
+
+	return lookupResult{records: records, rcode: dns.RcodeSuccess}
 }
 
 // lookupCNAMEChain follows a CNAME chain and returns the CNAME records along with
@@ -237,6 +282,13 @@ func (d *Resolver) lookupCNAMEChain(logger *log.Entry, cnameQuestion dns.Questio
 
 	for range maxDepth {
 		cnameRecords := d.getRecords(cnameQuestion)
+		if len(cnameRecords) == 0 && supportsWildcard(targetType) {
+			wildQuestion := transformToWildcard(cnameQuestion)
+			if wildRecords := d.getRecords(wildQuestion); len(wildRecords) > 0 {
+				cnameRecords = responseFromWildRecords(cnameQuestion.Name, wildQuestion.Name, wildRecords).records
+			}
+		}
+
 		if len(cnameRecords) == 0 {
 			break
 		}
@@ -303,7 +355,7 @@ func (d *Resolver) resolveCNAMETarget(logger *log.Entry, targetName string, targ
 	}
 
 	// domain exists locally but not this record type (NODATA)
-	if d.hasRecordsForDomain(domain.Domain(targetName)) {
+	if d.hasRecordsForDomain(domain.Domain(targetName), targetType) {
 		return lookupResult{rcode: dns.RcodeSuccess}
 	}
 
