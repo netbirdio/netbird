@@ -92,28 +92,12 @@ func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, erro
 // It merges incoming updates with existing values to prevent data loss on partial updates.
 func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
 	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
-		// Parse existing connector to preserve unset fields
 		oldCfg, err := p.parseStorageConnector(old)
 		if err != nil {
 			return storage.Connector{}, fmt.Errorf("failed to parse existing connector: %w", err)
 		}
 
-		// Merge: preserve existing values for empty fields in the update
-		if cfg.ClientSecret == "" {
-			cfg.ClientSecret = oldCfg.ClientSecret
-		}
-		if cfg.RedirectURI == "" {
-			cfg.RedirectURI = oldCfg.RedirectURI
-		}
-		if cfg.Issuer == "" && cfg.Type == oldCfg.Type {
-			cfg.Issuer = oldCfg.Issuer
-		}
-		if cfg.ClientID == "" {
-			cfg.ClientID = oldCfg.ClientID
-		}
-		if cfg.Name == "" {
-			cfg.Name = oldCfg.Name
-		}
+		mergeConnectorConfig(cfg, oldCfg)
 
 		storageConn, err := p.buildStorageConnector(cfg)
 		if err != nil {
@@ -126,6 +110,25 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 
 	p.logger.Info("connector updated", "id", cfg.ID, "type", cfg.Type)
 	return nil
+}
+
+// mergeConnectorConfig preserves existing values for empty fields in the update.
+func mergeConnectorConfig(cfg, oldCfg *ConnectorConfig) {
+	if cfg.ClientSecret == "" {
+		cfg.ClientSecret = oldCfg.ClientSecret
+	}
+	if cfg.RedirectURI == "" {
+		cfg.RedirectURI = oldCfg.RedirectURI
+	}
+	if cfg.Issuer == "" && cfg.Type == oldCfg.Type {
+		cfg.Issuer = oldCfg.Issuer
+	}
+	if cfg.ClientID == "" {
+		cfg.ClientID = oldCfg.ClientID
+	}
+	if cfg.Name == "" {
+		cfg.Name = oldCfg.Name
+	}
 }
 
 // DeleteConnector removes a connector from Dex storage.
