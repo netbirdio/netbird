@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
@@ -38,9 +40,15 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 }
 
 func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
-	if intf := route.NextHop.Intf; intf != nil && isSoftInterface(intf.Name) {
-		log.Debugf("Network monitor: ignoring default route change for next hop with soft interface %s", route.NextHop)
-		return false
+	if intf := route.NextHop.Intf; intf != nil {
+		if isSoftInterface(intf.Name) {
+			log.Debugf("Network monitor: ignoring default route change for next hop with soft interface %s", route.NextHop)
+			return false
+		}
+		if isSoftInterfaceDescription(intf.Index) {
+			log.Debugf("Network monitor: ignoring default route change for next hop with soft interface description (index %d)", intf.Index)
+			return false
+		}
 	}
 
 	// TODO: for the empty nexthop ip (on-link), determine the family differently
@@ -82,5 +90,29 @@ func handleRouteDeleted(route systemops.RouteUpdate, nexthop systemops.Nexthop) 
 }
 
 func isSoftInterface(name string) bool {
-	return strings.Contains(strings.ToLower(name), "isatap") || strings.Contains(strings.ToLower(name), "teredo")
+	name = strings.ToLower(name)
+	return strings.Contains(name, "isatap") || strings.Contains(name, "teredo") || strings.Contains(name, "pangp") || strings.Contains(name, "globalprotect") || strings.Contains(name, "palo alto")
+}
+
+func isSoftInterfaceDescription(index int) bool {
+	// 15KB is recommended by docs
+	size := uint32(15000)
+	buf := make([]byte, size)
+	flags := uint32(windows.GAA_FLAG_SKIP_UNICAST | windows.GAA_FLAG_SKIP_ANYCAST | windows.GAA_FLAG_SKIP_MULTICAST | windows.GAA_FLAG_SKIP_DNS_SERVER)
+
+	err := windows.GetAdaptersAddresses(windows.AF_UNSPEC, flags, 0, (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])), &size)
+	if err == windows.ERROR_BUFFER_OVERFLOW {
+		buf = make([]byte, size)
+		err = windows.GetAdaptersAddresses(windows.AF_UNSPEC, flags, 0, (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])), &size)
+	}
+	if err != nil {
+		return false
+	}
+
+	for addr := (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])); addr != nil; addr = addr.Next {
+		if int(addr.IfIndex) == index {
+			return isSoftInterface(windows.UTF16PtrToString(addr.Description)) || isSoftInterface(windows.UTF16PtrToString(addr.FriendlyName))
+		}
+	}
+	return false
 }

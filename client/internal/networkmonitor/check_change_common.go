@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -58,6 +59,11 @@ func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Next
 				if route.Interface != nil {
 					intf = route.Interface.Name
 				}
+
+				if isSoftInterface(intf) {
+					continue
+				}
+
 				switch msg.Type {
 				case unix.RTM_ADD:
 					log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
@@ -89,4 +95,9 @@ func parseRouteMessage(buf []byte) (*systemops.Route, error) {
 	}
 
 	return systemops.MsgToRoute(msg)
+}
+
+func isSoftInterface(name string) bool {
+	name = strings.ToLower(name)
+	return strings.Contains(name, "gpd") || strings.Contains(name, "pangp")
 }
