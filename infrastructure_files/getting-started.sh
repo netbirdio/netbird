@@ -242,6 +242,7 @@ initialize_default_values() {
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+  NETBIRD_STUN_PORT=3478
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
@@ -477,7 +478,7 @@ render_management_json() {
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:$NETBIRD_DOMAIN:3478"
+            "URI": "stun:$NETBIRD_DOMAIN:$NETBIRD_STUN_PORT"
         }
     ],
     "Relay": {
@@ -534,7 +535,7 @@ NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
 NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
 NB_ENABLE_STUN=true
 NB_STUN_LOG_LEVEL=info
-NB_STUN_PORTS=3478
+NB_STUN_PORTS=$NETBIRD_STUN_PORT
 EOF
   return 0
 }
@@ -594,7 +595,7 @@ services:
     restart: unless-stopped
     networks: [netbird]
     ports:
-      - '3478:3478/udp'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     env_file:
       - ./relay.env
     logging:
@@ -710,7 +711,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-sig
     restart: unless-stopped
     networks: [$network_name]
     ports:
-      - '3478:3478/udp'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     env_file:
       - ./relay.env
     labels:
@@ -847,7 +848,7 @@ services:
     networks: ${networks}
     ports:
       - '${bind_addr}:${RELAY_HOST_PORT}:80'
-      - '3478:3478/udp'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     env_file:
       - ./relay.env
     logging:
