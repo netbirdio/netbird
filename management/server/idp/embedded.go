@@ -400,7 +400,6 @@ func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, 
 
 // InviteUserByID resends an invitation to a user.
 func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) error {
-	// TODO: implement
 	return fmt.Errorf("not implemented")
 }
 
@@ -441,7 +440,7 @@ func (m *EmbeddedIdPManager) UpdateUserPassword(ctx context.Context, currentUser
 		return fmt.Errorf("users can only change their own password")
 	}
 
-	// Verify new password is different from old password
+	// Verify the new password is different from the old password
 	if oldPassword == newPassword {
 		return fmt.Errorf("new password must be different from current password")
 	}
