@@ -2506,8 +2506,10 @@ func TestLocalResolver_MixedRecordTypes(t *testing.T) {
 		resolver.ServeDNS(&test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { respAAAA = m; return nil }}, msgAAAA)
 
 		require.NotNil(t, respAAAA)
-		// host.example.com exists (has A), so AAAA query returns NODATA, not wildcard
+		// RFC 4592 section 2.2.1: wildcard should NOT match when the name EXISTS in zone.
+		// host.example.com exists (has A record), so AAAA query returns NODATA, not wildcard.
 		assert.Equal(t, dns.RcodeSuccess, respAAAA.Rcode, "Should return NODATA for existing host without AAAA")
+		assert.Len(t, respAAAA.Answer, 0, "RFC 4592: wildcard should not match when name exists")
 
 		// AAAA query for other host should return wildcard AAAA
 		msgAAAAOther := new(dns.Msg).SetQuestion("other.example.com.", dns.TypeAAAA)
