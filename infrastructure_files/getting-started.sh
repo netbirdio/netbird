@@ -244,6 +244,13 @@ initialize_default_values() {
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   NETBIRD_STUN_PORT=3478
 
+  # Docker images
+  CADDY_IMAGE="caddy"
+  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
+  SIGNAL_IMAGE="netbirdio/signal:latest"
+  RELAY_IMAGE="netbirdio/relay:latest"
+  MANAGEMENT_IMAGE="netbirdio/management:latest"
+
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
@@ -545,7 +552,7 @@ render_docker_compose() {
 services:
   # Caddy reverse proxy
   caddy:
-    image: caddy
+    image: $CADDY_IMAGE
     container_name: netbird-caddy
     restart: unless-stopped
     networks: [netbird]
@@ -564,7 +571,7 @@ services:
 
   # UI dashboard
   dashboard:
-    image: netbirdio/dashboard:latest
+    image: $DASHBOARD_IMAGE
     container_name: netbird-dashboard
     restart: unless-stopped
     networks: [netbird]
@@ -578,7 +585,7 @@ services:
 
   # Signal
   signal:
-    image: netbirdio/signal:latest
+    image: $SIGNAL_IMAGE
     container_name: netbird-signal
     restart: unless-stopped
     networks: [netbird]
@@ -590,7 +597,7 @@ services:
 
   # Relay (includes embedded STUN server)
   relay:
-    image: netbirdio/relay:latest
+    image: $RELAY_IMAGE
     container_name: netbird-relay
     restart: unless-stopped
     networks: [netbird]
@@ -606,7 +613,7 @@ services:
 
   # Management (includes embedded IdP)
   management:
-    image: netbirdio/management:latest
+    image: $MANAGEMENT_IMAGE
     container_name: netbird-management
     restart: unless-stopped
     networks: [netbird]
@@ -655,7 +662,7 @@ render_docker_compose_traefik() {
 services:
   # UI dashboard
   dashboard:
-    image: netbirdio/dashboard:latest
+    image: $DASHBOARD_IMAGE
     container_name: netbird-dashboard
     restart: unless-stopped
     networks: [$network_name]
@@ -677,7 +684,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
 
   # Signal
   signal:
-    image: netbirdio/signal:latest
+    image: $SIGNAL_IMAGE
     container_name: netbird-signal
     restart: unless-stopped
     networks: [$network_name]
@@ -706,7 +713,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-sig
 
   # Relay (includes embedded STUN server)
   relay:
-    image: netbirdio/relay:latest
+    image: $RELAY_IMAGE
     container_name: netbird-relay
     restart: unless-stopped
     networks: [$network_name]
@@ -729,7 +736,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-rel
 
   # Management (includes embedded IdP)
   management:
-    image: netbirdio/management:latest
+    image: $MANAGEMENT_IMAGE
     container_name: netbird-management
     restart: unless-stopped
     networks: [$network_name]
@@ -811,7 +818,7 @@ render_docker_compose_exposed_ports() {
 services:
   # UI dashboard
   dashboard:
-    image: netbirdio/dashboard:latest
+    image: $DASHBOARD_IMAGE
     container_name: netbird-dashboard
     restart: unless-stopped
     networks: ${networks}
@@ -827,7 +834,7 @@ services:
 
   # Signal
   signal:
-    image: netbirdio/signal:latest
+    image: $SIGNAL_IMAGE
     container_name: netbird-signal
     restart: unless-stopped
     networks: ${networks}
@@ -842,7 +849,7 @@ services:
 
   # Relay (includes embedded STUN server)
   relay:
-    image: netbirdio/relay:latest
+    image: $RELAY_IMAGE
     container_name: netbird-relay
     restart: unless-stopped
     networks: ${networks}
@@ -859,7 +866,7 @@ services:
 
   # Management (includes embedded IdP)
   management:
-    image: netbirdio/management:latest
+    image: $MANAGEMENT_IMAGE
     container_name: netbird-management
     restart: unless-stopped
     networks: ${networks}
