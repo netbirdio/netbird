@@ -63,6 +63,8 @@ type Controller struct {
 
 	expNewNetworkMap     bool
 	expNewNetworkMapAIDs map[string]struct{}
+
+	compactedNetworkMap bool
 }
 
 type bufferUpdate struct {
@@ -83,6 +85,12 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", network_map.EnvNewNetworkMapBuilder, err)
 		newNetworkMapBuilder = false
+	}
+
+	compactedNetworkMap, err := strconv.ParseBool(os.Getenv(types.EnvNewNetworkMapCompacted))
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", types.EnvNewNetworkMapCompacted, err)
+		compactedNetworkMap = false
 	}
 
 	ids := strings.Split(os.Getenv(network_map.EnvNewNetworkMapAccounts), ",")
@@ -108,6 +116,8 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		holder:               types.NewHolder(),
 		expNewNetworkMap:     newNetworkMapBuilder,
 		expNewNetworkMapAIDs: expIDs,
+
+		compactedNetworkMap: compactedNetworkMap,
 	}
 }
 
@@ -233,6 +243,9 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
 			} else {
 				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+				if c.compactedNetworkMap {
+					account.ShadowCompareNetworkMap(ctx, p.ID, remotePeerNetworkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
+				}
 			}
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
@@ -354,6 +367,9 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
 	} else {
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+		if c.compactedNetworkMap {
+			account.ShadowCompareNetworkMap(ctx, peerId, remotePeerNetworkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
+		}
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -469,7 +485,11 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	} else {
 		resourcePolicies := account.GetResourcePoliciesMap()
 		routers := account.GetResourceRoutersMap()
-		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, account.GetActiveGroupUsers())
+		groupIDToUserIDs := account.GetActiveGroupUsers()
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+		if c.compactedNetworkMap {
+			account.ShadowCompareNetworkMap(ctx, peer.ID, networkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
+		}
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -843,6 +863,9 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		resourcePolicies := account.GetResourcePoliciesMap()
 		routers := account.GetResourceRoutersMap()
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+		if c.compactedNetworkMap {
+			account.ShadowCompareNetworkMap(ctx, peer.ID, networkMap, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, account.GetActiveGroupUsers(), c.accountManagerMetrics)
+		}
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
