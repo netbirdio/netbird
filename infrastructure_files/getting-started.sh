@@ -82,16 +82,6 @@ read_nb_domain() {
   return 0
 }
 
-get_turn_external_ip() {
-  TURN_EXTERNAL_IP_CONFIG="#external-ip="
-  IP=$(curl -s -4 https://jsonip.com | jq -r '.ip')
-  if [[ "x-$IP" != "x-" ]]; then
-    TURN_EXTERNAL_IP_CONFIG="external-ip=$IP"
-  fi
-  echo "$TURN_EXTERNAL_IP_CONFIG"
-  return 0
-}
-
 read_reverse_proxy_type() {
   echo "" > /dev/stderr
   echo "Which reverse proxy will you use?" > /dev/stderr
@@ -249,14 +239,9 @@ initialize_default_values() {
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   NETBIRD_RELAY_PROTO="rel"
-  TURN_USER="self"
-  TURN_PASSWORD=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
-  TURN_MIN_PORT=49152
-  TURN_MAX_PORT=65535
-  TURN_EXTERNAL_IP_CONFIG=$(get_turn_external_ip)
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
@@ -320,7 +305,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dashboard.env turnserver.conf management.json relay.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml Caddyfile dashboard.env management.json relay.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -363,7 +348,6 @@ generate_configuration_files() {
   # Common files for all configurations
   render_dashboard_env > dashboard.env
   render_management_json > management.json
-  render_turn_server_conf > turnserver.conf
   render_relay_env > relay.env
   return 0
 }
@@ -487,27 +471,6 @@ EOF
   return 0
 }
 
-render_turn_server_conf() {
-  cat <<EOF
-listening-port=3478
-$TURN_EXTERNAL_IP_CONFIG
-tls-listening-port=5349
-min-port=$TURN_MIN_PORT
-max-port=$TURN_MAX_PORT
-fingerprint
-lt-cred-mech
-user=$TURN_USER:$TURN_PASSWORD
-realm=wiretrustee.com
-cert=/etc/coturn/certs/cert.pem
-pkey=/etc/coturn/private/privkey.pem
-log-file=stdout
-no-software-attribute
-pidfile="/var/tmp/turnserver.pid"
-no-cli
-EOF
-  return 0
-}
-
 render_management_json() {
   cat <<EOF
 {
@@ -569,6 +532,9 @@ NB_LOG_LEVEL=info
 NB_LISTEN_ADDRESS=:80
 NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
 NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+NB_ENABLE_STUN=true
+NB_STUN_LOG_LEVEL=info
+NB_STUN_PORTS=3478
 EOF
   return 0
 }
@@ -621,12 +587,14 @@ services:
         max-size: "500m"
         max-file: "2"
 
-  # Relay
+  # Relay (includes embedded STUN server)
   relay:
     image: netbirdio/relay:latest
     container_name: netbird-relay
     restart: unless-stopped
     networks: [netbird]
+    ports:
+      - '3478:3478/udp'
     env_file:
       - ./relay.env
     logging:
@@ -653,22 +621,6 @@ services:
       "--dns-domain=netbird.selfhosted",
       "--idp-sign-key-refresh-enabled",
     ]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Coturn, AKA TURN server
-  coturn:
-    image: coturn/coturn
-    container_name: netbird-coturn
-    restart: unless-stopped
-    volumes:
-      - ./turnserver.conf:/etc/turnserver.conf:ro
-    network_mode: host
-    command:
-      - -c /etc/turnserver.conf
     logging:
       driver: "json-file"
       options:
@@ -751,12 +703,14 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-sig
         max-size: "500m"
         max-file: "2"
 
-  # Relay
+  # Relay (includes embedded STUN server)
   relay:
     image: netbirdio/relay:latest
     container_name: netbird-relay
     restart: unless-stopped
     networks: [$network_name]
+    ports:
+      - '3478:3478/udp'
     env_file:
       - ./relay.env
     labels:
@@ -827,24 +781,6 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-oau
         max-size: "500m"
         max-file: "2"
 
-  # Coturn, AKA TURN server
-  coturn:
-    image: coturn/coturn
-    container_name: netbird-coturn
-    restart: unless-stopped
-    volumes:
-      - ./turnserver.conf:/etc/turnserver.conf:ro
-    network_mode: host
-    labels:
-      - traefik.enable=false
-    command:
-      - -c /etc/turnserver.conf
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
 volumes:
   netbird_management:
 
@@ -903,7 +839,7 @@ services:
         max-size: "500m"
         max-file: "2"
 
-  # Relay
+  # Relay (includes embedded STUN server)
   relay:
     image: netbirdio/relay:latest
     container_name: netbird-relay
@@ -911,6 +847,7 @@ services:
     networks: ${networks}
     ports:
       - '${bind_addr}:${RELAY_HOST_PORT}:80'
+      - '3478:3478/udp'
     env_file:
       - ./relay.env
     logging:
@@ -939,22 +876,6 @@ services:
       "--dns-domain=netbird.selfhosted",
       "--idp-sign-key-refresh-enabled",
     ]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Coturn, AKA TURN server
-  coturn:
-    image: coturn/coturn
-    container_name: netbird-coturn
-    restart: unless-stopped
-    volumes:
-      - ./turnserver.conf:/etc/turnserver.conf:ro
-    network_mode: host
-    command:
-      - -c /etc/turnserver.conf
     logging:
       driver: "json-file"
       options:
