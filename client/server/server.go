@@ -66,7 +66,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	clientRunning     bool // protected by mutex
 	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{}
+	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
 	connectClient *internal.ConnectClient
 
@@ -792,9 +792,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+
+	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
+		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
@@ -802,6 +804,20 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.mutex.Unlock()
+
+	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
+	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
+	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	if giveUpChan != nil {
+		select {
+		case <-giveUpChan:
+			log.Debugf("client goroutine finished successfully")
+		case <-time.After(5 * time.Second):
+			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
+		}
+	}
 
 	return &proto.DownResponse{}, nil
 }
