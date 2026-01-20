@@ -75,12 +75,12 @@ if ($null -eq $svc) {
 # =============================================================================
 Write-Host "[2/7] Checking CA Configuration..." -ForegroundColor Yellow
 
-$caInfo = certutil -getreg CA\CommonName 2>&1
-if ($caInfo -match "CommonName.*REG_SZ.*=\s*(.+)") {
+$caInfo = certutil -getreg CA\CommonName 2>&1 | Out-String
+if ($caInfo -match "CommonName\s+REG_SZ\s+=\s+(.+)") {
     $caName = $Matches[1].Trim()
     Write-Check "CA Name" "Pass" $caName
 } else {
-    Write-Check "CA Name" "Fail" "Could not determine CA name"
+    Write-Check "CA Name" "Warn" "Could not parse CA name from registry"
 }
 
 # =============================================================================
@@ -107,15 +107,15 @@ if ($templates -match "NetBirdMachine") {
         }
 
         # Check Name Flag (DNS in SAN)
-        $nameFlag = $template."msPKI-Certificate-Name-Flag"
+        $nameFlag = [int]($template."msPKI-Certificate-Name-Flag"[0])
         if ($nameFlag -band 0x8000000) {
-            Write-Check "Template SAN" "Pass" "DNS name in SAN enabled"
+            Write-Check "Template SAN" "Pass" "DNS name in SAN enabled (flag: 0x$($nameFlag.ToString('X')))"
         } else {
-            Write-Check "Template SAN" "Warn" "DNS name in SAN may not be configured"
+            Write-Check "Template SAN" "Warn" "DNS name in SAN may not be configured (flag: 0x$($nameFlag.ToString('X')))"
         }
 
         # Check Private Key Flag
-        $pkFlag = $template."msPKI-Private-Key-Flag"
+        $pkFlag = [int]($template."msPKI-Private-Key-Flag"[0])
         if ($pkFlag -eq 0) {
             Write-Check "Private Key" "Pass" "Not exportable"
         } else {
@@ -123,11 +123,11 @@ if ($templates -match "NetBirdMachine") {
         }
 
         # Check Enrollment Flag
-        $enrollFlag = $template."msPKI-Enrollment-Flag"
+        $enrollFlag = [int]($template."msPKI-Enrollment-Flag"[0])
         if ($enrollFlag -band 32) {
-            Write-Check "Auto-Enrollment" "Pass" "Enabled on template"
+            Write-Check "Auto-Enrollment" "Pass" "Enabled on template (flag: $enrollFlag)"
         } else {
-            Write-Check "Auto-Enrollment" "Warn" "May not be enabled on template"
+            Write-Check "Auto-Enrollment" "Warn" "May not be enabled on template (flag: $enrollFlag)"
         }
     }
 } else {
@@ -143,12 +143,13 @@ try {
     $gpo = Get-GPO -Name "NetBird-AutoEnrollment" -ErrorAction Stop
     Write-Check "GPO Exists" "Pass" "ID: $($gpo.Id)"
 
-    # Check if linked
-    $links = Get-GPLink -Name "NetBird-AutoEnrollment" -ErrorAction SilentlyContinue
-    if ($links) {
-        Write-Check "GPO Linked" "Pass" "Linked to: $($links.Target)"
+    # Check if linked by searching domain for GPLinks containing this GPO
+    $domainDN = (Get-ADDomain).DistinguishedName
+    $gpoLink = Get-ADObject -Filter { objectClass -eq "domainDNS" } -SearchBase $domainDN -Properties gPLink -ErrorAction SilentlyContinue
+    if ($gpoLink.gPLink -match $gpo.Id) {
+        Write-Check "GPO Linked" "Pass" "Linked to domain root"
     } else {
-        Write-Check "GPO Linked" "Warn" "GPO exists but may not be linked"
+        Write-Check "GPO Linked" "Warn" "GPO exists but may not be linked to domain"
     }
 
     # Check registry values
@@ -168,7 +169,7 @@ try {
 # =============================================================================
 Write-Host "[5/7] Checking RPC Port Range..." -ForegroundColor Yellow
 
-$rpcConfig = netsh int ipv4 show dynamicport tcp
+$rpcConfig = netsh int ipv4 show dynamicport tcp | Out-String
 if ($rpcConfig -match "Start Port\s*:\s*(\d+)") {
     $startPort = [int]$Matches[1]
     if ($startPort -eq 5000) {
@@ -178,6 +179,8 @@ if ($rpcConfig -match "Start Port\s*:\s*(\d+)") {
     } else {
         Write-Check "RPC Range" "Pass" "Start port: $startPort"
     }
+} else {
+    Write-Check "RPC Range" "Warn" "Could not determine RPC port range"
 }
 
 # =============================================================================
