@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -292,19 +293,21 @@ func (calc *NetworkMapCalculator) connResourcesGenerator(ctx context.Context, ta
 					peersExists[peer.ID] = struct{}{}
 				}
 
+				protocol := rule.Protocol
+				if protocol == PolicyRuleProtocolNetbirdSSH {
+					protocol = PolicyRuleProtocolTCP
+				}
+
 				fr := FirewallRule{
 					PolicyID:  rule.ID,
 					PeerIP:    net.IP(peer.IP).String(),
 					Direction: direction,
 					Action:    string(rule.Action),
-					Protocol:  string(rule.Protocol),
+					Protocol:  string(protocol),
 				}
 
-				ruleID := rule.ID + fr.PeerIP + string(rune(direction)) +
-					fr.Protocol + fr.Action
-				for _, port := range rule.Ports {
-					ruleID += port
-				}
+				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
+					fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
 				}

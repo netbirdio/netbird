@@ -41,7 +41,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 		ResourcePoliciesMap: make(map[string][]*Policy),
 		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
 		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
-		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.Policies)),
+		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.PostureChecks)),
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{
@@ -105,11 +105,13 @@ func (a *Account) GetPeerNetworkMapComponents(
 			if addSourcePeers {
 				var peers []string
 				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-					peers = []string{policy.Rules[0].SourceResource.ID}
+					if _, validated := validatedPeersMap[policy.Rules[0].SourceResource.ID]; validated {
+						peers = []string{policy.Rules[0].SourceResource.ID}
+					}
 				} else {
 					peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
 				}
-				for _, pID := range a.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, &components.PostureFailedPeers) {
+				for _, pID := range a.getPostureValidPeersSaveFailed(peers, policy.SourcePostureChecks, validatedPeersMap, &components.PostureFailedPeers) {
 					if _, exists := components.Peers[pID]; !exists {
 						components.Peers[pID] = a.GetPeer(pID)
 					}
@@ -174,6 +176,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	filterGroupPeers(&components.Groups, components.Peers)
+	filterPostureFailedPeers(&components.PostureFailedPeers, components.Policies, components.ResourcePoliciesMap, components.Peers)
 
 	return components
 }
@@ -251,7 +254,9 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers = []string{rule.SourceResource.ID}
+				if _, validated := validatedPeersMap[rule.SourceResource.ID]; validated {
+					sourcePeers = []string{rule.SourceResource.ID}
+				}
 				if rule.SourceResource.ID == peerID {
 					peerInSources = true
 				}
@@ -260,7 +265,9 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				destinationPeers = []string{rule.DestinationResource.ID}
+				if _, validated := validatedPeersMap[rule.DestinationResource.ID]; validated {
+					destinationPeers = []string{rule.DestinationResource.ID}
+				}
 				if rule.DestinationResource.ID == peerID {
 					peerInDestinations = true
 				}
@@ -332,16 +339,16 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 					continue
 				}
 
+				if _, ok := validatedPeersMap[peer.ID]; !ok {
+					continue
+				}
+
 				isValid, pname := a.validatePostureChecksOnPeerGetFailed(ctx, sourcePostureChecksIDs, peer.ID)
 				if !isValid && len(pname) > 0 {
 					if _, ok := (*postureFailedPeers)[pname]; !ok {
 						(*postureFailedPeers)[pname] = make(map[string]struct{})
 					}
 					(*postureFailedPeers)[pname][peer.ID] = struct{}{}
-					continue
-				}
-
-				if _, ok := validatedPeersMap[peer.ID]; !ok {
 					continue
 				}
 
@@ -365,16 +372,16 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 				continue
 			}
 
+			if _, ok := validatedPeersMap[peer.ID]; !ok {
+				continue
+			}
+
 			isValid, pname := a.validatePostureChecksOnPeerGetFailed(ctx, sourcePostureChecksIDs, peer.ID)
 			if !isValid && len(pname) > 0 {
 				if _, ok := (*postureFailedPeers)[pname]; !ok {
 					(*postureFailedPeers)[pname] = make(map[string]struct{})
 				}
 				(*postureFailedPeers)[pname][peer.ID] = struct{}{}
-				continue
-			}
-
-			if _, ok := validatedPeersMap[peer.ID]; !ok {
 				continue
 			}
 
@@ -412,9 +419,12 @@ func (a *Account) validatePostureChecksOnPeerGetFailed(ctx context.Context, sour
 	return true, ""
 }
 
-func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, postureFailedPeers *map[string]map[string]struct{}) []string {
+func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) []string {
 	var dest []string
 	for _, peerID := range inputPeers {
+		if _, validated := validatedPeersMap[peerID]; !validated {
+			continue
+		}
 		valid, pname := a.validatePostureChecksOnPeerGetFailed(context.Background(), postureChecksIDs, peerID)
 		if valid {
 			dest = append(dest, peerID)
@@ -443,6 +453,41 @@ func filterGroupPeers(groups *map[string]*Group, peers map[string]*nbpeer.Peer) 
 			ng := groupInfo.Copy()
 			ng.Peers = filteredPeers
 			(*groups)[groupID] = ng
+		}
+	}
+}
+
+func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}, policies []*Policy, resourcePoliciesMap map[string][]*Policy, peers map[string]*nbpeer.Peer) {
+	if len(*postureFailedPeers) == 0 {
+		return
+	}
+
+	referencedPostureChecks := make(map[string]struct{})
+	for _, policy := range policies {
+		for _, checkID := range policy.SourcePostureChecks {
+			referencedPostureChecks[checkID] = struct{}{}
+		}
+	}
+	for _, resPolicies := range resourcePoliciesMap {
+		for _, policy := range resPolicies {
+			for _, checkID := range policy.SourcePostureChecks {
+				referencedPostureChecks[checkID] = struct{}{}
+			}
+		}
+	}
+
+	for checkID, failedPeers := range *postureFailedPeers {
+		if _, referenced := referencedPostureChecks[checkID]; !referenced {
+			delete(*postureFailedPeers, checkID)
+			continue
+		}
+		for peerID := range failedPeers {
+			if _, exists := peers[peerID]; !exists {
+				delete(failedPeers, peerID)
+			}
+		}
+		if len(failedPeers) == 0 {
+			delete(*postureFailedPeers, checkID)
 		}
 	}
 }
