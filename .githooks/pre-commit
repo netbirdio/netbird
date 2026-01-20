@@ -1,0 +1,31 @@
+#!/bin/bash
+
+echo "Running pre-commit hook..."
+
+# Check for unformatted Go files (only staged files)
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+
+if [ -n "$STAGED_GO_FILES" ]; then
+    UNFORMATTED=$(echo "$STAGED_GO_FILES" | xargs gofmt -l 2>/dev/null)
+    if [ -n "$UNFORMATTED" ]; then
+        echo "ERROR: Unformatted Go files:"
+        echo "$UNFORMATTED"
+        echo ""
+        echo "Run 'gofmt -w <file>' to fix, then 'git add' again"
+        echo "Or run 'gofmt -w .' to fix all"
+        exit 1
+    fi
+fi
+
+# Check for secrets in staged files
+SECRETS_PATTERN='(PRIVATE KEY|password.*=|api[_-]?key|secret[_-]?key|-----BEGIN)'
+if git diff --cached --name-only | xargs grep -l -E "$SECRETS_PATTERN" 2>/dev/null; then
+    echo ""
+    echo "WARNING: Potential secrets detected in staged files!"
+    echo "Please review before committing."
+    echo ""
+    echo "To bypass this check (only if you're sure): git commit --no-verify"
+    exit 1
+fi
+
+echo "Pre-commit checks passed!"

@@ -117,6 +117,17 @@ type HttpServerConfig struct {
 	IdpSignKeyRefreshEnabled bool
 	// Extra audience
 	ExtraAuthAudience string
+
+	// Machine Tunnel Fork - mTLS Configuration
+	// MTLSEnabled enables client certificate authentication for machine peers
+	MTLSEnabled bool
+	// MTLSCACertFile is the CA certificate file for validating client certificates
+	MTLSCACertFile string
+	// MTLSCADir is a directory containing CA certificates (for multi-tenant support)
+	MTLSCADir string
+	// MTLSStrictMode if true, ALL requests require client certificate (no fallback)
+	// if false, only mTLS-required methods need certificates, others fall back to token auth
+	MTLSStrictMode bool
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)

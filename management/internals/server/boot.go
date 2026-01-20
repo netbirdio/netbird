@@ -5,8 +5,12 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"net/http"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -120,11 +124,29 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			realip.WithTrustedProxiesCount(trustedProxiesCount),
 			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 		}
+
+		// Build interceptor chains
+		// Machine Tunnel Fork: Add mTLS interceptors when enabled
+		unaryInterceptors := []grpc.UnaryServerInterceptor{
+			realip.UnaryServerInterceptorOpts(realipOpts...),
+			unaryInterceptor,
+		}
+		streamInterceptors := []grpc.StreamServerInterceptor{
+			realip.StreamServerInterceptorOpts(realipOpts...),
+			streamInterceptor,
+		}
+
+		if s.Config.HttpConfig.MTLSEnabled {
+			log.Info("mTLS authentication enabled for machine peers")
+			unaryInterceptors = append(unaryInterceptors, MTLSUnaryInterceptor(s.Config.HttpConfig.MTLSStrictMode))
+			streamInterceptors = append(streamInterceptors, MTLSStreamInterceptor(s.Config.HttpConfig.MTLSStrictMode))
+		}
+
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
 			grpc.KeepaliveParams(kasp),
-			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
+			grpc.ChainUnaryInterceptor(unaryInterceptors...),
+			grpc.ChainStreamInterceptor(streamInterceptors...),
 		}
 
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
@@ -135,9 +157,25 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 		} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
-			tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
-			if err != nil {
-				log.Fatalf("cannot load TLS credentials: %v", err)
+			var tlsConfig *tls.Config
+			var err error
+
+			// Machine Tunnel Fork: Use mTLS config when enabled
+			if s.Config.HttpConfig.MTLSEnabled {
+				tlsConfig, err = loadMTLSConfig(
+					s.Config.HttpConfig.CertFile,
+					s.Config.HttpConfig.CertKey,
+					s.Config.HttpConfig.MTLSCACertFile,
+					s.Config.HttpConfig.MTLSCADir,
+				)
+				if err != nil {
+					log.Fatalf("cannot load mTLS credentials: %v", err)
+				}
+			} else {
+				tlsConfig, err = loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
+				if err != nil {
+					log.Fatalf("cannot load TLS credentials: %v", err)
+				}
 			}
 			transportCredentials := credentials.NewTLS(tlsConfig)
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
@@ -171,6 +209,94 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 	}
 
 	return config, nil
+}
+
+// loadMTLSConfig creates a TLS config with client certificate verification enabled.
+// Machine Tunnel Fork: This enables mTLS for machine peer authentication.
+func loadMTLSConfig(certFile, certKey, caCertFile, caDir string) (*tls.Config, error) {
+	// Load server's certificate and private key
+	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load CA certificate pool for client verification
+	caCertPool, err := loadCACertPool(caCertFile, caDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use VerifyClientCertIfGiven instead of RequireAndVerifyClientCert
+	// This allows:
+	// - Clients WITH certificates: verified against CA pool
+	// - Clients WITHOUT certificates: TLS handshake succeeds, interceptor handles auth
+	// This enables fallback to Setup-Key auth for bootstrap
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.VerifyClientCertIfGiven,
+		ClientCAs:    caCertPool,
+		NextProtos: []string{
+			"h2", "http/1.1", // enable HTTP/2
+		},
+	}
+
+	return config, nil
+}
+
+// loadCACertPool loads CA certificates from a file and/or directory.
+// This supports multi-tenant scenarios where different customers have different CAs.
+func loadCACertPool(caCertFile, caDir string) (*x509.CertPool, error) {
+	caCertPool := x509.NewCertPool()
+	certsLoaded := 0
+
+	// Load single CA cert file if specified
+	if caCertFile != "" {
+		caCert, err := os.ReadFile(caCertFile)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert file: %w", err)
+		}
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate from %s", caCertFile)
+		}
+		certsLoaded++
+		log.Infof("Loaded mTLS CA certificate from %s", caCertFile)
+	}
+
+	// Load all .crt and .pem files from CA directory
+	if caDir != "" {
+		entries, err := os.ReadDir(caDir)
+		if err != nil {
+			return nil, fmt.Errorf("read CA directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			ext := filepath.Ext(entry.Name())
+			if ext != ".crt" && ext != ".pem" {
+				continue
+			}
+
+			certPath := filepath.Join(caDir, entry.Name())
+			caCert, err := os.ReadFile(certPath)
+			if err != nil {
+				log.Warnf("Failed to read CA cert %s: %v", certPath, err)
+				continue
+			}
+			if caCertPool.AppendCertsFromPEM(caCert) {
+				certsLoaded++
+				log.Infof("Loaded mTLS CA certificate from %s", certPath)
+			}
+		}
+	}
+
+	if certsLoaded == 0 {
+		return nil, fmt.Errorf("no CA certificates loaded (caCertFile=%s, caDir=%s)", caCertFile, caDir)
+	}
+
+	log.Infof("mTLS CA pool loaded with %d certificate(s)", certsLoaded)
+	return caCertPool, nil
 }
 
 func unaryInterceptor(

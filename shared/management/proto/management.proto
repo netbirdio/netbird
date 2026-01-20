@@ -48,6 +48,30 @@ service ManagementService {
 
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
+
+  // ==========================================
+  // Machine Tunnel Fork - mTLS-authenticated RPCs
+  // These methods require client certificate authentication (AD CS machine certs).
+  // Unlike standard RPCs, these do NOT use EncryptedMessage because
+  // authentication is handled at the TLS layer via mTLS.
+  // ==========================================
+
+  // RegisterMachinePeer registers a machine peer using mTLS certificate authentication.
+  // The machine identity is extracted from the client certificate SAN DNSName.
+  // Requires: Valid machine certificate with SAN DNSName = "{hostname}.{domain}"
+  rpc RegisterMachinePeer(MachineRegisterRequest) returns (MachineRegisterResponse) {}
+
+  // SyncMachinePeer enables machine peer synchronization via mTLS.
+  // Similar to Sync but for machine tunnel context with certificate auth.
+  rpc SyncMachinePeer(MachineSyncRequest) returns (stream MachineSyncResponse) {}
+
+  // GetMachineRoutes retrieves routes configured for this machine peer.
+  // Used to get DC-specific routes for pre-login tunnel.
+  rpc GetMachineRoutes(MachineRoutesRequest) returns (MachineRoutesResponse) {}
+
+  // ReportMachineStatus reports machine tunnel health and status.
+  // Used for monitoring and troubleshooting machine tunnels.
+  rpc ReportMachineStatus(MachineStatusRequest) returns (MachineStatusResponse) {}
 }
 
 message EncryptedMessage {
@@ -597,4 +621,138 @@ message ForwardingRule {
 
   // Translated port information, where the traffic should be forwarded to
   PortInfo translatedPort = 4;
+}
+
+// ==========================================
+// Machine Tunnel Fork - Message Definitions
+// ==========================================
+
+// MachineIdentity contains identity information extracted from the machine certificate.
+// This is populated by the server from the mTLS client certificate, not sent by client.
+message MachineIdentity {
+  // dns_name is the full SAN DNSName from the certificate (e.g., "win10-pc.corp.local")
+  string dns_name = 1;
+
+  // hostname is extracted from dns_name (e.g., "win10-pc")
+  string hostname = 2;
+
+  // domain is extracted from dns_name (e.g., "corp.local")
+  string domain = 3;
+
+  // issuer_fingerprint is SHA256 of the issuing CA certificate (from VerifiedChains)
+  string issuer_fingerprint = 4;
+
+  // serial_number of the client certificate
+  string serial_number = 5;
+
+  // template_oid if present in certificate extensions (AD CS template)
+  string template_oid = 6;
+}
+
+// MachineRegisterRequest is sent when a machine peer registers with mTLS.
+message MachineRegisterRequest {
+  // meta contains machine metadata (OS, version, etc.)
+  PeerSystemMeta meta = 1;
+
+  // wg_pub_key is the WireGuard public key for this machine tunnel
+  bytes wg_pub_key = 2;
+
+  // requested_ip is an optional requested VPN IP (may be ignored by server)
+  string requested_ip = 3;
+}
+
+// MachineRegisterResponse contains the configuration for the registered machine peer.
+message MachineRegisterResponse {
+  // peer_config is the local peer configuration
+  PeerConfig peer_config = 1;
+
+  // netbird_config contains STUN/TURN/Relay configuration
+  NetbirdConfig netbird_config = 2;
+
+  // machine_identity is the identity extracted from the certificate (for client verification)
+  MachineIdentity machine_identity = 3;
+
+  // allowed_dc_routes are the DC routes this machine is allowed to access
+  repeated Route allowed_dc_routes = 4;
+
+  // dns_config for DC DNS resolution
+  DNSConfig dns_config = 5;
+}
+
+// MachineSyncRequest is sent to initiate machine peer synchronization.
+message MachineSyncRequest {
+  // meta contains current machine metadata
+  PeerSystemMeta meta = 1;
+}
+
+// MachineSyncResponse contains updates for the machine peer.
+message MachineSyncResponse {
+  // network_map contains the current network state
+  NetworkMap network_map = 1;
+
+  // update_type indicates what changed
+  MachineUpdateType update_type = 2;
+
+  // serial is the network state serial number
+  uint64 serial = 3;
+}
+
+// MachineUpdateType indicates what triggered the sync update.
+enum MachineUpdateType {
+  MACHINE_UPDATE_FULL = 0;       // Full sync (initial or reconnect)
+  MACHINE_UPDATE_ROUTES = 1;     // Route changes
+  MACHINE_UPDATE_DNS = 2;        // DNS config changes
+  MACHINE_UPDATE_PEERS = 3;      // Peer changes (router-peers)
+  MACHINE_UPDATE_FIREWALL = 4;   // Firewall rule changes
+}
+
+// MachineRoutesRequest requests routes for the machine peer.
+message MachineRoutesRequest {
+  // include_offline if true, includes routes via offline router-peers
+  bool include_offline = 1;
+}
+
+// MachineRoutesResponse contains routes accessible by this machine peer.
+message MachineRoutesResponse {
+  // routes are the currently active routes
+  repeated Route routes = 1;
+
+  // dc_networks are the Domain Controller network CIDRs
+  repeated string dc_networks = 2;
+
+  // router_peers are the peers that route DC traffic
+  repeated RemotePeerConfig router_peers = 3;
+}
+
+// MachineStatusRequest reports machine tunnel status.
+message MachineStatusRequest {
+  // tunnel_up indicates if the WireGuard tunnel is established
+  bool tunnel_up = 1;
+
+  // connected_router_peer is the currently connected router-peer (if any)
+  string connected_router_peer = 2;
+
+  // last_handshake is the timestamp of last WireGuard handshake
+  google.protobuf.Timestamp last_handshake = 3;
+
+  // dc_reachable indicates if DC connectivity test succeeded
+  bool dc_reachable = 4;
+
+  // errors contains any error messages
+  repeated string errors = 5;
+
+  // uptime_seconds is how long the tunnel has been up
+  int64 uptime_seconds = 6;
+}
+
+// MachineStatusResponse acknowledges the status report.
+message MachineStatusResponse {
+  // ack indicates the status was received
+  bool ack = 1;
+
+  // server_time is the current server time (for clock sync verification)
+  google.protobuf.Timestamp server_time = 2;
+
+  // config_serial is the current config serial (client can compare)
+  uint64 config_serial = 3;
 }

@@ -27,8 +27,52 @@ client/client.exe
 client/.distfiles/
 infrastructure_files/setup.env
 infrastructure_files/setup-*.env
-.vscode
+# VSCode - ignore personal settings, keep shared configs
+.vscode/settings.json
+.vscode/*.code-workspace
 .DS_Store
 vendor/
 /netbird
 client/netbird-electron/
+
+# ==========================================
+# Machine Tunnel Fork - Additional Ignores
+# ==========================================
+
+# Secrets - NIEMALS committen!
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+!ca.crt
+secrets/
+credentials/
+credentials.json
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+*.prof
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+__debug_bin*
+
+# OS-specific
+Thumbs.db
+*~
+*.swp
+
+# Editor/IDE (additional)
+*.sublime-*
+.history/
+
+# Local development
+.env.local
+.env.*.local
+docker-compose.override.yml
