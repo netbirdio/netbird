@@ -79,10 +79,10 @@ func (a *Account) ShadowCompareNetworkMap(
 
 		if diff.HasDifferences() {
 			log.WithContext(ctx).Warnf(
-				"shadow comparison MISMATCH for peer %s: %s",
-				peerID, diff.String(),
-			)
+				"shadow comparison MISMATCH for account %s and peer %s: %s", a.Id, peerID, diff.String())
 			saveMismatchedMaps(ctx, a.Id, peerID, legacyNetworkMap, componentsNetworkMap, diff)
+		} else {
+			log.WithContext(ctx).Tracef("shadow comparison MATCH for account %s and peer %s", a.Id, peerID)
 		}
 	}()
 }
