@@ -89,13 +89,36 @@ func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, erro
 }
 
 // UpdateConnector updates an existing connector in Dex storage.
+// It merges incoming updates with existing values to prevent data loss on partial updates.
 func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
-	storageConn, err := p.buildStorageConnector(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to build connector: %w", err)
-	}
-
 	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
+		// Parse existing connector to preserve unset fields
+		oldCfg, err := p.parseStorageConnector(old)
+		if err != nil {
+			return storage.Connector{}, fmt.Errorf("failed to parse existing connector: %w", err)
+		}
+
+		// Merge: preserve existing values for empty fields in the update
+		if cfg.ClientSecret == "" {
+			cfg.ClientSecret = oldCfg.ClientSecret
+		}
+		if cfg.RedirectURI == "" {
+			cfg.RedirectURI = oldCfg.RedirectURI
+		}
+		if cfg.Issuer == "" && cfg.Type == oldCfg.Type {
+			cfg.Issuer = oldCfg.Issuer
+		}
+		if cfg.ClientID == "" {
+			cfg.ClientID = oldCfg.ClientID
+		}
+		if cfg.Name == "" {
+			cfg.Name = oldCfg.Name
+		}
+
+		storageConn, err := p.buildStorageConnector(cfg)
+		if err != nil {
+			return storage.Connector{}, fmt.Errorf("failed to build connector: %w", err)
+		}
 		return storageConn, nil
 	}); err != nil {
 		return fmt.Errorf("failed to update connector: %w", err)
