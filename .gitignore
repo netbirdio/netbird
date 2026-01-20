@@ -76,3 +76,6 @@ Thumbs.db
 .env.local
 .env.*.local
 docker-compose.override.yml
+
+# Security Audits - NICHT ins Public Repo!
+docs/AUDIT-*.md
