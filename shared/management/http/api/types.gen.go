@@ -1201,6 +1201,15 @@ type OSVersionCheck struct {
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
 }
 
+// PasswordChangeRequest defines model for PasswordChangeRequest.
+type PasswordChangeRequest struct {
+	// NewPassword The new password to set
+	NewPassword string `json:"new_password"`
+
+	// OldPassword The current password
+	OldPassword string `json:"old_password"`
+}
+
 // Peer defines model for Peer.
 type Peer struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
@@ -2353,6 +2362,9 @@ type PostApiUsersJSONRequestBody = UserCreateRequest
 
 // PutApiUsersUserIdJSONRequestBody defines body for PutApiUsersUserId for application/json ContentType.
 type PutApiUsersUserIdJSONRequestBody = UserRequest
+
+// PutApiUsersUserIdPasswordJSONRequestBody defines body for PutApiUsersUserIdPassword for application/json ContentType.
+type PutApiUsersUserIdPasswordJSONRequestBody = PasswordChangeRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest

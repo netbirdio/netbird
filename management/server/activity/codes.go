@@ -195,7 +195,9 @@ const (
 	DNSRecordUpdated Activity = 100
 	DNSRecordDeleted Activity = 101
 
-	JobCreatedByUser           Activity = 102
+	JobCreatedByUser Activity = 102
+
+	UserPasswordChanged Activity = 103
 
 	AccountDeleted Activity = 99999
 )
@@ -323,6 +325,8 @@ var activityMap = map[Activity]Code{
 	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
 
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
+
+	UserPasswordChanged: {"User password changed", "user.password.change"},
 }
 
 // StringCode returns a string code of the activity
