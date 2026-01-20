@@ -88,8 +88,9 @@ type Conn struct {
 	relayManager   *relayClient.Manager
 	srWatcher      *guard.SRWatcher
 
-	onConnected    func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
-	onDisconnected func(remotePeer string)
+	onConnected                               func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
+	onDisconnected                            func(remotePeer string)
+	rosenpassInitializedPresharedKeyValidator func(peerKey string) bool
 
 	statusRelay         *worker.AtomicWorkerStatus
 	statusICE           *worker.AtomicWorkerStatus
@@ -287,6 +288,13 @@ func (conn *Conn) SetOnConnected(handler func(remoteWireGuardKey string, remoteR
 // SetOnDisconnected sets a handler function to be triggered by Conn when a connection to a remote disconnected
 func (conn *Conn) SetOnDisconnected(handler func(remotePeer string)) {
 	conn.onDisconnected = handler
+}
+
+// SetRosenpassInitializedPresharedKeyValidator sets a function to check if Rosenpass has taken over
+// PSK management for a peer. When this returns true, presharedKey() returns nil
+// to prevent UpdatePeer from overwriting the Rosenpass-managed PSK.
+func (conn *Conn) SetRosenpassInitializedPresharedKeyValidator(handler func(peerKey string) bool) {
+	conn.rosenpassInitializedPresharedKeyValidator = handler
 }
 
 func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
@@ -759,10 +767,24 @@ func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
 		return conn.config.WgConfig.PreSharedKey
 	}
 
+	// If Rosenpass has already set a PSK for this peer, return nil to prevent
+	// UpdatePeer from overwriting the Rosenpass-managed key.
+	if conn.rosenpassInitializedPresharedKeyValidator != nil && conn.rosenpassInitializedPresharedKeyValidator(conn.config.Key) {
+		return nil
+	}
+
+	// Use NetBird PSK as the seed for Rosenpass. This same PSK is passed to
+	// Rosenpass as PeerConfig.PresharedKey, ensuring the derived post-quantum
+	// key is cryptographically bound to the original secret.
+	if conn.config.WgConfig.PreSharedKey != nil {
+		return conn.config.WgConfig.PreSharedKey
+	}
+
+	// Fallback to deterministic key if no NetBird PSK is configured
 	determKey, err := conn.rosenpassDetermKey()
 	if err != nil {
 		conn.Log.Errorf("failed to generate Rosenpass initial key: %v", err)
-		return conn.config.WgConfig.PreSharedKey
+		return nil
 	}
 
 	return determKey

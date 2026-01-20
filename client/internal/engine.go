@@ -505,6 +505,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
+	// Set the WireGuard interface for rosenpass after interface is up
+	if e.rpManager != nil {
+		e.rpManager.SetInterface(e.wgInterface)
+	}
+
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
@@ -1512,6 +1517,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	if e.rpManager != nil {
 		peerConn.SetOnConnected(e.rpManager.OnConnected)
 		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+		peerConn.SetRosenpassInitializedPresharedKeyValidator(e.rpManager.IsPresharedKeyInitialized)
 	}
 
 	return peerConn, nil

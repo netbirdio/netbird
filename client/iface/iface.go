@@ -297,6 +297,19 @@ func (w *WGIface) FullStats() (*configurer.Stats, error) {
 	return w.configurer.FullStats()
 }
 
+// SetPresharedKey sets or updates the preshared key for a peer.
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	return w.configurer.SetPresharedKey(peerKey, psk, updateOnly)
+}
+
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
 	timeout := time.NewTimer(maxWaitTime)

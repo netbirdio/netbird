@@ -214,6 +214,10 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	return nil
 }
 
+func (m *MockWGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
