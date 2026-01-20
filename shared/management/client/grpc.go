@@ -185,10 +185,10 @@ func (c *GrpcClient) handleJobStream(
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
 		if err != nil {
-			c.notifyDisconnected(err)
 			if s, ok := gstatus.FromError(err); ok {
 				switch s.Code() {
 				case codes.PermissionDenied:
+					c.notifyDisconnected(err)
 					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 				case codes.Canceled:
 					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
@@ -198,11 +198,13 @@ func (c *GrpcClient) handleJobStream(
 						"Please update the management service to use this feature.")
 					return nil
 				default:
+					c.notifyDisconnected(err)
 					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 					return err
 				}
 			} else {
 				// non-gRPC error
+				c.notifyDisconnected(err)
 				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 				return err
 			}
