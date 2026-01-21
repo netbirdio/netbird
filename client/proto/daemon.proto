@@ -303,6 +303,8 @@ message GetConfigResponse {
   bool disableSSHAuth = 25;
 
   int32 sshJWTCacheTTL = 26;
+
+  bool disable_firewall = 27;
 }
 
 // PeerState contains the latest state of a peer

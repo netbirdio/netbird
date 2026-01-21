@@ -1265,6 +1265,7 @@ type GetConfigResponse struct {
 	EnableSSHRemotePortForwarding bool   `protobuf:"varint,23,opt,name=enableSSHRemotePortForwarding,proto3" json:"enableSSHRemotePortForwarding,omitempty"`
 	DisableSSHAuth                bool   `protobuf:"varint,25,opt,name=disableSSHAuth,proto3" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                int32  `protobuf:"varint,26,opt,name=sshJWTCacheTTL,proto3" json:"sshJWTCacheTTL,omitempty"`
+	DisableFirewall               bool   `protobuf:"varint,27,opt,name=disable_firewall,json=disableFirewall,proto3" json:"disable_firewall,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -1479,6 +1480,13 @@ func (x *GetConfigResponse) GetSshJWTCacheTTL() int32 {
 		return x.SshJWTCacheTTL
 	}
 	return 0
+}
+
+func (x *GetConfigResponse) GetDisableFirewall() bool {
+	if x != nil {
+		return x.DisableFirewall
+	}
+	return false
 }
 
 // PeerState contains the latest state of a peer
@@ -5625,7 +5633,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xdb\b\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\x86\t\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -5656,7 +5664,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1cenableSSHLocalPortForwarding\x18\x16 \x01(\bR\x1cenableSSHLocalPortForwarding\x12D\n" +
 	"\x1denableSSHRemotePortForwarding\x18\x17 \x01(\bR\x1denableSSHRemotePortForwarding\x12&\n" +
 	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\x12&\n" +
-	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\"\xfe\x05\n" +
+	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12)\n" +
+	"\x10disable_firewall\x18\x1b \x01(\bR\x0fdisableFirewall\"\xfe\x05\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
