@@ -194,7 +194,12 @@ func (lc *LogtoCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTT
 		return jwtToken, fmt.Errorf("error while reading response body, expires_in: %d and access_token: %s", jwtToken.ExpiresIn, jwtToken.AccessToken)
 	}
 
-	data, err := base64.RawURLEncoding.DecodeString(strings.Split(jwtToken.AccessToken, ".")[1])
+	parts := strings.Split(jwtToken.AccessToken, ".")
+	if len(parts) < 2 {
+		return jwtToken, fmt.Errorf("invalid access token format")
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return jwtToken, err
 	}
