@@ -30,11 +30,9 @@ type WorkerRelay struct {
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
-
-	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager, stateDump *stateDump) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
 		peerCtx:      ctx,
 		log:          log,
@@ -42,7 +40,6 @@ func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnC
 		config:       config,
 		conn:         conn,
 		relayManager: relayManager,
-		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key, stateDump),
 	}
 	return r
 }
@@ -93,14 +90,6 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-func (w *WorkerRelay) EnableWgWatcher(ctx context.Context) {
-	w.wgWatcher.EnableWgWatcher(ctx, w.onWGDisconnected)
-}
-
-func (w *WorkerRelay) DisableWgWatcher() {
-	w.wgWatcher.DisableWgWatcher()
-}
-
 func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
 	return w.relayManager.RelayInstanceAddress()
 }
@@ -125,14 +114,6 @@ func (w *WorkerRelay) CloseConn() {
 	}
 }
 
-func (w *WorkerRelay) onWGDisconnected() {
-	w.relayLock.Lock()
-	_ = w.relayedConn.Close()
-	w.relayLock.Unlock()
-
-	w.conn.onRelayDisconnected()
-}
-
 func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 	if !w.relayManager.HasRelayAddress() {
 		return false
@@ -148,6 +129,5 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {
-	w.wgWatcher.DisableWgWatcher()
 	go w.conn.onRelayDisconnected()
 }
