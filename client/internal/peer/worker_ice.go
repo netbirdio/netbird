@@ -403,11 +403,11 @@ func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
 			if !lok || !rok {
 				continue
 			}
-			w.log.WithField("iceSessionID", sessionID).
-				Debugf("successful ICE path: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
-					local.NetworkType(), local.Type(), local.Address(),
-					remote.NetworkType(), remote.Type(), remote.Address(),
-					stat.CurrentRoundTripTime*1000)
+			w.log.Debugf("successful ICE path %s: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
+				sessionID,
+				local.NetworkType(), local.Type(), local.Address(),
+				remote.NetworkType(), remote.Type(), remote.Address(),
+				stat.CurrentRoundTripTime*1000)
 		}
 	}
 }
