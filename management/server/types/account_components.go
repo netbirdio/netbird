@@ -105,9 +105,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 			if addSourcePeers {
 				var peers []string
 				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-					if _, validated := validatedPeersMap[policy.Rules[0].SourceResource.ID]; validated {
-						peers = []string{policy.Rules[0].SourceResource.ID}
-					}
+					peers = []string{policy.Rules[0].SourceResource.ID}
 				} else {
 					peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
 				}
@@ -164,8 +162,10 @@ func (a *Account) GetPeerNetworkMapComponents(
 		components.RoutersMap[resource.NetworkID] = networkRoutingPeers
 		for peerIDKey := range networkRoutingPeers {
 			if _, exists := components.Peers[peerIDKey]; !exists {
-				if p := a.Peers[peerIDKey]; p != nil {
-					components.Peers[peerIDKey] = p
+				if _, validated := validatedPeersMap[peerIDKey]; validated {
+					if p := a.Peers[peerIDKey]; p != nil {
+						components.Peers[peerIDKey] = p
+					}
 				}
 			}
 		}
@@ -254,9 +254,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				if _, validated := validatedPeersMap[rule.SourceResource.ID]; validated {
-					sourcePeers = []string{rule.SourceResource.ID}
-				}
+				sourcePeers = []string{rule.SourceResource.ID}
 				if rule.SourceResource.ID == peerID {
 					peerInSources = true
 				}
@@ -265,9 +263,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				if _, validated := validatedPeersMap[rule.DestinationResource.ID]; validated {
-					destinationPeers = []string{rule.DestinationResource.ID}
-				}
+				destinationPeers = []string{rule.DestinationResource.ID}
 				if rule.DestinationResource.ID == peerID {
 					peerInDestinations = true
 				}
