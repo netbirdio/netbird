@@ -11,6 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -31,6 +32,7 @@ const (
 
 	storeEngineEnv     = "NB_ACTIVITY_EVENT_STORE_ENGINE"
 	postgresDsnEnv     = "NB_ACTIVITY_EVENT_POSTGRES_DSN"
+	mysqlDsnEnv        = "NB_ACTIVITY_EVENT_MYSQL_DSN"
 	sqlMaxOpenConnsEnv = "NB_SQL_MAX_OPEN_CONNS"
 )
 
@@ -255,6 +257,12 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 			return nil, fmt.Errorf("%s environment variable not set", postgresDsnEnv)
 		}
 		dialector = postgres.Open(dsn)
+	case types.MysqlStoreEngine:
+		dsn, ok := os.LookupEnv(mysqlDsnEnv)
+		if !ok {
+			return nil, fmt.Errorf("%s environment variable not set", mysqlDsnEnv)
+		}
+		dialector = mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local")
 	default:
 		return nil, fmt.Errorf("unsupported store engine: %s", storeEngine)
 	}
