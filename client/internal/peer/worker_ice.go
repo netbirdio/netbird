@@ -382,6 +382,7 @@ func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, 
 }
 
 func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
+	sessionID := w.SessionID()
 	stats := agent.GetCandidatePairsStats()
 	localCandidates, _ := agent.GetLocalCandidates()
 	remoteCandidates, _ := agent.GetRemoteCandidates()
@@ -402,7 +403,7 @@ func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
 			if !lok || !rok {
 				continue
 			}
-			w.log.WithField("iceSessionID", w.sessionID).
+			w.log.WithField("iceSessionID", sessionID).
 				Debugf("successful ICE path: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
 					local.NetworkType(), local.Type(), local.Address(),
 					remote.NetworkType(), remote.Type(), remote.Address(),

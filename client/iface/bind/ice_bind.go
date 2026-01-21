@@ -104,6 +104,12 @@ func (s *ICEBind) Close() error {
 
 	close(s.closedChan)
 
+	s.muUDPMux.Lock()
+	s.ipv4Conn = nil
+	s.ipv6Conn = nil
+	s.udpMux = nil
+	s.muUDPMux.Unlock()
+
 	return s.StdNetBind.Close()
 }
 
