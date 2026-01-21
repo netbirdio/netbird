@@ -20,7 +20,7 @@ func BenchmarkWriteTo_DirectUDPConn(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		conn.WriteTo(payload, ipv4Addr)
+		_, _ = conn.WriteTo(payload, ipv4Addr)
 	}
 }
 
@@ -35,7 +35,7 @@ func BenchmarkWriteTo_DualStack_IPv4Only(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ds.WriteTo(payload, ipv4Addr)
+		_, _ = ds.WriteTo(payload, ipv4Addr)
 	}
 }
 
@@ -50,7 +50,7 @@ func BenchmarkWriteTo_DualStack_IPv6Only(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ds.WriteTo(payload, ipv6Addr)
+		_, _ = ds.WriteTo(payload, ipv6Addr)
 	}
 }
 
@@ -71,7 +71,7 @@ func BenchmarkWriteTo_DualStack_Both_IPv4Traffic(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ds.WriteTo(payload, ipv4Addr)
+		_, _ = ds.WriteTo(payload, ipv4Addr)
 	}
 }
 
@@ -92,7 +92,7 @@ func BenchmarkWriteTo_DualStack_Both_IPv6Traffic(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ds.WriteTo(payload, ipv6Addr)
+		_, _ = ds.WriteTo(payload, ipv6Addr)
 	}
 }
 
@@ -114,6 +114,6 @@ func BenchmarkWriteTo_DualStack_Both_MixedTraffic(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ds.WriteTo(payload, addrs[i&1])
+		_, _ = ds.WriteTo(payload, addrs[i&1])
 	}
 }

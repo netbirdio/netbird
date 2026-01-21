@@ -186,7 +186,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 			if rxOffload {
 				readAt := len(*msgs) - (wgConn.IdealBatchSize / wgConn.UdpSegmentMaxDatagrams)
 				//nolint:staticcheck
-				numMsgs, err = pc.ReadBatch((*msgs)[readAt:], 0)
+				_, err = pc.ReadBatch((*msgs)[readAt:], 0)
 				if err != nil {
 					return 0, err
 				}

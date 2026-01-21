@@ -129,14 +129,14 @@ func TestICEBind_SendsToIPv4AndIPv6PeersSimultaneously(t *testing.T) {
 
 	// verify IPv4 peer got its packet from the IPv4 socket
 	buf := make([]byte, 100)
-	ipv4Peer.SetReadDeadline(time.Now().Add(time.Second))
+	_ = ipv4Peer.SetReadDeadline(time.Now().Add(time.Second))
 	n, addr, err := ipv4Peer.ReadFrom(buf)
 	require.NoError(t, err)
 	assert.Equal(t, "to-ipv4", string(buf[:n]))
 	assert.Equal(t, ipv4Local.LocalAddr().(*net.UDPAddr).Port, addr.(*net.UDPAddr).Port)
 
 	// verify IPv6 peer got its packet from the IPv6 socket
-	ipv6Peer.SetReadDeadline(time.Now().Add(time.Second))
+	_ = ipv6Peer.SetReadDeadline(time.Now().Add(time.Second))
 	n, addr, err = ipv6Peer.ReadFrom(buf)
 	require.NoError(t, err)
 	assert.Equal(t, "to-ipv6", string(buf[:n]))
@@ -203,7 +203,7 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 		defer wg.Done()
 		<-startGate
 		for i := 0; i < packetsPerFamily; i++ {
-			dualStack.WriteTo([]byte(fmt.Sprintf("v4-%04d", i)), ipv4Peer.LocalAddr())
+			_, _ = dualStack.WriteTo([]byte(fmt.Sprintf("v4-%04d", i)), ipv4Peer.LocalAddr())
 		}
 	}()
 
@@ -212,15 +212,15 @@ func TestICEBind_HandlesConcurrentMixedTraffic(t *testing.T) {
 		defer wg.Done()
 		<-startGate
 		for i := 0; i < packetsPerFamily; i++ {
-			dualStack.WriteTo([]byte(fmt.Sprintf("v6-%04d", i)), ipv6Peer.LocalAddr())
+			_, _ = dualStack.WriteTo([]byte(fmt.Sprintf("v6-%04d", i)), ipv6Peer.LocalAddr())
 		}
 	}()
 
 	close(startGate)
 
 	time.AfterFunc(5*time.Second, func() {
-		ipv4Peer.SetReadDeadline(time.Now())
-		ipv6Peer.SetReadDeadline(time.Now())
+		_ = ipv4Peer.SetReadDeadline(time.Now())
+		_ = ipv6Peer.SetReadDeadline(time.Now())
 	})
 
 	wg.Wait()

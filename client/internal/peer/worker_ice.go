@@ -387,12 +387,43 @@ func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, 
 	}
 }
 
+func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
+	stats := agent.GetCandidatePairsStats()
+	localCandidates, _ := agent.GetLocalCandidates()
+	remoteCandidates, _ := agent.GetRemoteCandidates()
+
+	localMap := make(map[string]ice.Candidate)
+	for _, c := range localCandidates {
+		localMap[c.ID()] = c
+	}
+	remoteMap := make(map[string]ice.Candidate)
+	for _, c := range remoteCandidates {
+		remoteMap[c.ID()] = c
+	}
+
+	for _, stat := range stats {
+		if stat.State == ice.CandidatePairStateSucceeded {
+			local, lok := localMap[stat.LocalCandidateID]
+			remote, rok := remoteMap[stat.RemoteCandidateID]
+			if !lok || !rok {
+				continue
+			}
+			w.log.WithField("iceSessionID", w.sessionID).
+				Debugf("successful ICE path: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
+					local.NetworkType(), local.Type(), local.Address(),
+					remote.NetworkType(), remote.Type(), remote.Address(),
+					stat.CurrentRoundTripTime*1000)
+		}
+	}
+}
+
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
 	return func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
 		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
+			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
