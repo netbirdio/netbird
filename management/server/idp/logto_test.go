@@ -333,7 +333,7 @@ func TestLogtoAuthenticate(t *testing.T) {
 				clientConfig: config,
 				httpClient:   &jwtReqClient,
 				helper:       testCase.helper,
-							}
+			}
 
 			jwtToken, err := creds.Authenticate(context.Background())
 
