@@ -18,8 +18,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProxyServiceClient interface {
-	// Bidirectional stream for proxy-management communication
-	Stream(ctx context.Context, opts ...grpc.CallOption) (ProxyService_StreamClient, error)
+	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error)
+	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -30,43 +30,53 @@ func NewProxyServiceClient(cc grpc.ClientConnInterface) ProxyServiceClient {
 	return &proxyServiceClient{cc}
 }
 
-func (c *proxyServiceClient) Stream(ctx context.Context, opts ...grpc.CallOption) (ProxyService_StreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ProxyService_ServiceDesc.Streams[0], "/management.ProxyService/Stream", opts...)
+func (c *proxyServiceClient) GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ProxyService_ServiceDesc.Streams[0], "/management.ProxyService/GetMappingUpdate", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &proxyServiceStreamClient{stream}
+	x := &proxyServiceGetMappingUpdateClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
 	return x, nil
 }
 
-type ProxyService_StreamClient interface {
-	Send(*ProxyMessage) error
-	Recv() (*ManagementMessage, error)
+type ProxyService_GetMappingUpdateClient interface {
+	Recv() (*GetMappingUpdateResponse, error)
 	grpc.ClientStream
 }
 
-type proxyServiceStreamClient struct {
+type proxyServiceGetMappingUpdateClient struct {
 	grpc.ClientStream
 }
 
-func (x *proxyServiceStreamClient) Send(m *ProxyMessage) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *proxyServiceStreamClient) Recv() (*ManagementMessage, error) {
-	m := new(ManagementMessage)
+func (x *proxyServiceGetMappingUpdateClient) Recv() (*GetMappingUpdateResponse, error) {
+	m := new(GetMappingUpdateResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
+func (c *proxyServiceClient) SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error) {
+	out := new(SendAccessLogResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/SendAccessLog", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
 type ProxyServiceServer interface {
-	// Bidirectional stream for proxy-management communication
-	Stream(ProxyService_StreamServer) error
+	GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error
+	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -74,8 +84,11 @@ type ProxyServiceServer interface {
 type UnimplementedProxyServiceServer struct {
 }
 
-func (UnimplementedProxyServiceServer) Stream(ProxyService_StreamServer) error {
-	return status.Errorf(codes.Unimplemented, "method Stream not implemented")
+func (UnimplementedProxyServiceServer) GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error {
+	return status.Errorf(codes.Unimplemented, "method GetMappingUpdate not implemented")
+}
+func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendAccessLog not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -90,30 +103,43 @@ func RegisterProxyServiceServer(s grpc.ServiceRegistrar, srv ProxyServiceServer)
 	s.RegisterService(&ProxyService_ServiceDesc, srv)
 }
 
-func _ProxyService_Stream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ProxyServiceServer).Stream(&proxyServiceStreamServer{stream})
+func _ProxyService_GetMappingUpdate_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetMappingUpdateRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ProxyServiceServer).GetMappingUpdate(m, &proxyServiceGetMappingUpdateServer{stream})
 }
 
-type ProxyService_StreamServer interface {
-	Send(*ManagementMessage) error
-	Recv() (*ProxyMessage, error)
+type ProxyService_GetMappingUpdateServer interface {
+	Send(*GetMappingUpdateResponse) error
 	grpc.ServerStream
 }
 
-type proxyServiceStreamServer struct {
+type proxyServiceGetMappingUpdateServer struct {
 	grpc.ServerStream
 }
 
-func (x *proxyServiceStreamServer) Send(m *ManagementMessage) error {
+func (x *proxyServiceGetMappingUpdateServer) Send(m *GetMappingUpdateResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *proxyServiceStreamServer) Recv() (*ProxyMessage, error) {
-	m := new(ProxyMessage)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+func _ProxyService_SendAccessLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendAccessLogRequest)
+	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return m, nil
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).SendAccessLog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/SendAccessLog",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).SendAccessLog(ctx, req.(*SendAccessLogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
@@ -122,13 +148,17 @@ func (x *proxyServiceStreamServer) Recv() (*ProxyMessage, error) {
 var ProxyService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "management.ProxyService",
 	HandlerType: (*ProxyServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SendAccessLog",
+			Handler:    _ProxyService_SendAccessLog_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Stream",
-			Handler:       _ProxyService_Stream_Handler,
+			StreamName:    "GetMappingUpdate",
+			Handler:       _ProxyService_GetMappingUpdate_Handler,
 			ServerStreams: true,
-			ClientStreams: true,
 		},
 	},
 	Metadata: "proxy_service.proto",

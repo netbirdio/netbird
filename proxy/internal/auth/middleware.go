@@ -1,298 +1,198 @@
 package auth
 
 import (
-	"fmt"
+	"crypto/rand"
+	_ "embed"
+	"encoding/base64"
+	"html/template"
 	"net/http"
-	"strings"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/proxy/internal/auth/oidc"
+	"sync"
+	"time"
 )
 
-// Middleware wraps an HTTP handler with authentication middleware
+//go:embed auth.gohtml
+var authTemplate string
+
+type Method string
+
+var (
+	MethodBasicAuth Method = "basic"
+	MethodPIN       Method = "pin"
+	MethodBearer    Method = "bearer"
+)
+
+func (m Method) String() string {
+	return string(m)
+}
+
+const (
+	sessionCookieName = "nb_session"
+	sessionExpiration = 24 * time.Hour
+)
+
+type session struct {
+	UserID    string
+	Method    Method
+	CreatedAt time.Time
+}
+
+type Scheme interface {
+	Type() Method
+	// Authenticate should check the passed request and determine whether
+	// it represents an authenticated user request. If it does not, then
+	// an empty string should indicate an unauthenticated request which
+	// will be rejected; optionally, it can also return any data that should
+	// be included in a UI template when prompting the user to authenticate.
+	// If the request is authenticated, then a user id should be returned
+	// along with a boolean indicating whether a redirect is needed to clean
+	// up authentication artifacts from the URLs query.
+	Authenticate(*http.Request) (userid string, needsRedirect bool, promptData any)
+	// Middleware is applied within the outer auth middleware, but they will
+	// be applied after authentication if no scheme has authenticated a
+	// request.
+	// If no scheme Middleware blocks the request processing, then the auth
+	// middleware will then present the user with the auth UI.
+	Middleware(http.Handler) http.Handler
+}
+
 type Middleware struct {
-	next           http.Handler
-	config         *Config
-	routeID        string
-	rejectResponse func(w http.ResponseWriter, r *http.Request)
-	oidcHandler    *oidc.Handler // OIDC handler for OAuth flow (contains config and JWT validator)
+	domainsMux  sync.RWMutex
+	domains     map[string][]Scheme
+	sessionsMux sync.RWMutex
+	sessions    map[string]*session
 }
 
-// authResult holds the result of an authentication attempt
-type authResult struct {
-	authenticated bool
-	method        string
-	userID        string
+func NewMiddleware() *Middleware {
+	mw := &Middleware{
+		domains:  make(map[string][]Scheme),
+		sessions: make(map[string]*session),
+	}
+	// TODO: goroutine is leaked here.
+	go mw.cleanupSessions()
+	return mw
 }
 
-// ServeHTTP implements the http.Handler interface
-func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if m.config.IsEmpty() {
-		m.allowWithoutAuth(w, r)
-		return
-	}
+// Protect applies authentication middleware to the passed handler.
+// For each incoming request it will be checked against the middleware's
+// internal list of protected domains.
+// If the Host domain in the inbound request is not present, then it will
+// simply be passed through.
+// However, if the Host domain is present, then the specified authentication
+// schemes for that domain will be applied to the request.
+// In the event that no authentication schemes are defined for the domain,
+// then the request will also be simply passed through.
+func (mw *Middleware) Protect(next http.Handler) http.Handler {
+	tmpl := template.Must(template.New("auth").Parse(authTemplate))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mw.domainsMux.RLock()
+		schemes, exists := mw.domains[r.Host]
+		mw.domainsMux.RUnlock()
 
-	result := m.authenticate(w, r)
-	if result == nil {
-		// Authentication triggered a redirect (e.g., OIDC flow)
-		return
-	}
+		// Domains that are not configured here or have no authentication schemes applied should simply pass through.
+		if !exists || len(schemes) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
 
-	if !result.authenticated {
-		m.rejectRequest(w, r)
-		return
-	}
+		// Check for an existing session to avoid users having to authenticate for every request.
+		// TODO: This does not work if you are load balancing across multiple proxy servers.
+		if cookie, err := r.Cookie(sessionCookieName); err == nil {
+			mw.sessionsMux.RLock()
+			sess, ok := mw.sessions[cookie.Value]
+			mw.sessionsMux.RUnlock()
+			if ok {
+				ctx := withAuthMethod(r.Context(), sess.Method)
+				ctx = withAuthUser(ctx, sess.UserID)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
 
-	m.continueWithAuth(w, r, result)
+		// Try to authenticate with each scheme.
+		methods := make(map[Method]any)
+		for _, s := range schemes {
+			userid, needsRedirect, promptData := s.Authenticate(r)
+			if userid != "" {
+				mw.createSession(w, r, userid, s.Type())
+				if needsRedirect {
+					// Clean the path and redirect to the naked URL.
+					// This is intended to prevent leaking potentially
+					// sensitive query parameters for some authentication
+					// methods such as OIDC.
+					http.Redirect(w, r, r.URL.Path, http.StatusFound)
+					return
+				}
+				ctx := withAuthMethod(r.Context(), s.Type())
+				ctx = withAuthUser(ctx, userid)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			methods[s.Type()] = promptData
+		}
+
+		// The handler is passed through the scheme middlewares,
+		// if none of them intercept the request, then this handler will
+		// be called and present the user with the authentication page.
+		handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := tmpl.Execute(w, methods); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+			}
+		}))
+
+		// No authentication succeeded. Apply the scheme handlers.
+		for _, s := range schemes {
+			handler = s.Middleware(handler)
+		}
+
+		// Run the unauthenticated request against the scheme handlers and the final UI handler.
+		handler.ServeHTTP(w, r)
+	})
 }
 
-// allowWithoutAuth allows requests when no authentication is configured
-func (m *Middleware) allowWithoutAuth(w http.ResponseWriter, r *http.Request) {
-	log.WithFields(log.Fields{
-		"route_id":    m.routeID,
-		"auth_method": "none",
-		"path":        r.URL.Path,
-	}).Debug("No authentication configured, allowing request")
-	r.Header.Set("X-Auth-Method", "none")
-	m.next.ServeHTTP(w, r)
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme) {
+	mw.domainsMux.Lock()
+	defer mw.domainsMux.Unlock()
+	mw.domains[domain] = schemes
 }
 
-// authenticate attempts to authenticate the request using configured methods
-// Returns nil if a redirect occurred (e.g., OIDC flow initiated)
-func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *authResult {
-	if result := m.tryBasicAuth(r); result.authenticated {
-		return result
-	}
-
-	if result := m.tryPINAuth(r); result.authenticated {
-		return result
-	}
-
-	return m.tryBearerAuth(w, r)
+func (mw *Middleware) RemoveDomain(domain string) {
+	mw.domainsMux.Lock()
+	defer mw.domainsMux.Unlock()
+	delete(mw.domains, domain)
 }
 
-// tryBasicAuth attempts Basic authentication
-func (m *Middleware) tryBasicAuth(r *http.Request) *authResult {
-	if m.config.BasicAuth == nil {
-		return &authResult{}
-	}
+func (mw *Middleware) createSession(w http.ResponseWriter, r *http.Request, userID string, method Method) {
+	// Generate a random sessionID
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	sessionID := base64.URLEncoding.EncodeToString(b)
 
-	if !m.config.BasicAuth.Validate(r) {
-		return &authResult{}
+	mw.sessionsMux.Lock()
+	mw.sessions[sessionID] = &session{
+		UserID:    userID,
+		Method:    method,
+		CreatedAt: time.Now(),
 	}
+	mw.sessionsMux.Unlock()
 
-	result := &authResult{
-		authenticated: true,
-		method:        "basic",
-	}
-
-	if username, _, ok := r.BasicAuth(); ok {
-		result.userID = username
-	}
-
-	return result
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    sessionID,
+		HttpOnly: true,                 // This cookie is only for proxy access, so no scripts should touch it.
+		Secure:   true,                 // The proxy only accepts TLS traffic regardless of the service proxied behind.
+		SameSite: http.SameSiteLaxMode, // TODO: might this actually be strict mode?
+	})
 }
 
-// tryPINAuth attempts PIN authentication
-func (m *Middleware) tryPINAuth(r *http.Request) *authResult {
-	if m.config.PIN == nil {
-		return &authResult{}
-	}
-
-	if !m.config.PIN.Validate(r) {
-		return &authResult{}
-	}
-
-	return &authResult{
-		authenticated: true,
-		method:        "pin",
-		userID:        "pin_user",
-	}
-}
-
-// tryBearerAuth attempts Bearer token authentication with JWT validation
-// Returns nil if OIDC redirect occurred
-func (m *Middleware) tryBearerAuth(w http.ResponseWriter, r *http.Request) *authResult {
-	if m.config.Bearer == nil || m.oidcHandler == nil {
-		return &authResult{}
-	}
-
-	cookieName := m.oidcHandler.SessionCookieName()
-
-	if m.handleAuthTokenParameter(w, r, cookieName) {
-		return nil
-	}
-
-	if result := m.trySessionCookie(r, cookieName); result.authenticated {
-		return result
-	}
-
-	if result := m.tryAuthorizationHeader(r); result.authenticated {
-		return result
-	}
-
-	m.oidcHandler.RedirectToProvider(w, r, m.routeID)
-	return nil
-}
-
-// handleAuthTokenParameter processes the _auth_token query parameter from OIDC callback
-// Returns true if a redirect occurred
-func (m *Middleware) handleAuthTokenParameter(w http.ResponseWriter, r *http.Request, cookieName string) bool {
-	authToken := r.URL.Query().Get("_auth_token")
-	if authToken == "" {
-		return false
-	}
-
-	log.WithFields(log.Fields{
-		"route_id": m.routeID,
-		"host":     r.Host,
-	}).Info("Found auth token in query parameter, setting cookie and redirecting")
-
-	if !m.oidcHandler.ValidateJWT(authToken) {
-		log.WithFields(log.Fields{
-			"route_id": m.routeID,
-		}).Warn("Invalid token in query parameter")
-		return false
-	}
-
-	cookie := &http.Cookie{
-		Name:     cookieName,
-		Value:    authToken,
-		Path:     "/",
-		MaxAge:   3600, // 1 hour
-		HttpOnly: true,
-		Secure:   false, // Set to false for HTTP testing, true for HTTPS in production
-		SameSite: http.SameSiteLaxMode,
-	}
-	http.SetCookie(w, cookie)
-
-	// Redirect to same URL without the token parameter
-	redirectURL := m.buildCleanRedirectURL(r)
-
-	log.WithFields(log.Fields{
-		"route_id":     m.routeID,
-		"redirect_url": redirectURL,
-	}).Debug("Redirecting to clean URL after setting cookie")
-
-	http.Redirect(w, r, redirectURL, http.StatusFound)
-	return true
-}
-
-// buildCleanRedirectURL builds a redirect URL without the _auth_token parameter
-func (m *Middleware) buildCleanRedirectURL(r *http.Request) string {
-	cleanURL := *r.URL
-	q := cleanURL.Query()
-	q.Del("_auth_token")
-	cleanURL.RawQuery = q.Encode()
-
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-
-	return fmt.Sprintf("%s://%s%s", scheme, r.Host, cleanURL.String())
-}
-
-// trySessionCookie attempts authentication using a session cookie
-func (m *Middleware) trySessionCookie(r *http.Request, cookieName string) *authResult {
-	log.WithFields(log.Fields{
-		"route_id":    m.routeID,
-		"cookie_name": cookieName,
-		"host":        r.Host,
-		"path":        r.URL.Path,
-	}).Debug("Checking for session cookie")
-
-	cookie, err := r.Cookie(cookieName)
-	if err != nil || cookie.Value == "" {
-		log.WithFields(log.Fields{
-			"route_id": m.routeID,
-			"error":    err,
-		}).Debug("No session cookie found")
-		return &authResult{}
-	}
-
-	log.WithFields(log.Fields{
-		"route_id":    m.routeID,
-		"cookie_name": cookieName,
-	}).Debug("Session cookie found, validating JWT")
-
-	if !m.oidcHandler.ValidateJWT(cookie.Value) {
-		log.WithFields(log.Fields{
-			"route_id": m.routeID,
-		}).Debug("JWT validation failed for session cookie")
-		return &authResult{}
-	}
-
-	return &authResult{
-		authenticated: true,
-		method:        "bearer_session",
-		userID:        m.oidcHandler.ExtractUserID(cookie.Value),
-	}
-}
-
-// tryAuthorizationHeader attempts authentication using the Authorization header
-func (m *Middleware) tryAuthorizationHeader(r *http.Request) *authResult {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-		return &authResult{}
-	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	if !m.oidcHandler.ValidateJWT(token) {
-		return &authResult{}
-	}
-
-	return &authResult{
-		authenticated: true,
-		method:        "bearer",
-		userID:        m.oidcHandler.ExtractUserID(token),
-	}
-}
-
-// rejectRequest rejects an unauthenticated request
-func (m *Middleware) rejectRequest(w http.ResponseWriter, r *http.Request) {
-	log.WithFields(log.Fields{
-		"route_id": m.routeID,
-		"path":     r.URL.Path,
-	}).Warn("Authentication failed")
-
-	if m.rejectResponse != nil {
-		m.rejectResponse(w, r)
-	} else {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="Restricted"`)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-	}
-}
-
-// continueWithAuth continues the request with authenticated user info
-func (m *Middleware) continueWithAuth(w http.ResponseWriter, r *http.Request, result *authResult) {
-	log.WithFields(log.Fields{
-		"route_id":    m.routeID,
-		"auth_method": result.method,
-		"user_id":     result.userID,
-		"path":        r.URL.Path,
-	}).Debug("Authentication successful")
-
-	// TODO: Find other means of auth logging than headers
-	r.Header.Set("X-Auth-Method", result.method)
-	r.Header.Set("X-Auth-User-ID", result.userID)
-
-	// Continue to next handler
-	m.next.ServeHTTP(w, r)
-}
-
-// Wrap wraps an HTTP handler with authentication middleware
-func Wrap(next http.Handler, authConfig *Config, routeID string, rejectResponse func(w http.ResponseWriter, r *http.Request), oidcHandler *oidc.Handler) http.Handler {
-	if authConfig == nil {
-		authConfig = &Config{}
-	}
-
-	return &Middleware{
-		next:           next,
-		config:         authConfig,
-		routeID:        routeID,
-		rejectResponse: rejectResponse,
-		oidcHandler:    oidcHandler,
+func (mw *Middleware) cleanupSessions() {
+	for range time.Tick(time.Minute) {
+		cutoff := time.Now().Add(-sessionExpiration)
+		mw.sessionsMux.Lock()
+		for id, sess := range mw.sessions {
+			if sess.CreatedAt.Before(cutoff) {
+				delete(mw.sessions, id)
+			}
+		}
+		mw.sessionsMux.Unlock()
 	}
 }

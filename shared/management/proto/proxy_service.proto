@@ -9,27 +9,81 @@ import "google/protobuf/timestamp.proto";
 // ProxyService - Management is the SERVER, Proxy is the CLIENT
 // Proxy initiates connection to management
 service ProxyService {
-  // Bidirectional stream for proxy-management communication
-  rpc Stream(stream ProxyMessage) returns (stream ManagementMessage);
+  rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
+
+  rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
 }
 
-// Messages FROM Proxy TO Management
-message ProxyMessage {
-  oneof payload {
-    ProxyHello hello = 1;           // First message on connect
-    ProxyRequestData request_data = 2; // Real-time access logs
-  }
-}
-
-// Proxy identification on connect
-message ProxyHello {
+// GetMappingUpdateRequest is sent to initialise a mapping stream.
+message GetMappingUpdateRequest {
   string proxy_id = 1;
   string version = 2;
   google.protobuf.Timestamp started_at = 3;
 }
 
-// Access log from proxy to management
-message ProxyRequestData {
+// GetMappingUpdateResponse contains zero or more ProxyMappings.
+// No mappings may be sent to test the liveness of the Proxy.
+// Mappings that are sent should be interpreted by the Proxy appropriately.
+message GetMappingUpdateResponse {
+  repeated ProxyMapping mapping = 1;
+}
+
+enum ProxyMappingUpdateType {
+  UPDATE_TYPE_CREATED = 0;
+  UPDATE_TYPE_MODIFIED = 1;
+  UPDATE_TYPE_REMOVED = 2;
+}
+
+message PathMapping {
+  string path = 1;
+  string target = 2;
+}
+
+message Authentication {
+  HTTPBasic basic = 1;
+  Pin pin = 2;
+  OIDC oidc = 3;
+}
+
+message HTTPBasic {
+  bool enabled = 1;
+  string username = 2;
+  string password = 3;
+}
+
+message Pin {
+  bool enabled = 1;
+  string pin = 2;
+}
+
+message OIDC {
+  bool enabled = 1;
+  string oidc_provider_url = 2;
+  string oidc_client_id = 3;
+  string oidc_client_secret = 4;
+  string oidc_redirect_url = 5;
+  repeated string oidc_scopes = 6;
+  string session_cookie_name = 7;
+}
+
+message ProxyMapping {
+  ProxyMappingUpdateType type = 1;
+  string id = 2;
+  string domain = 3;
+  repeated PathMapping path = 4;
+  string setup_key = 5;
+  Authentication auth = 6;
+}
+
+// SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
+message SendAccessLogRequest {
+  AccessLog log = 1;
+}
+
+// SendAccessLogResponse is intentionally empty to allow for future expansion.
+message SendAccessLogResponse {}
+
+message AccessLog {
   google.protobuf.Timestamp timestamp = 1;
   string service_id = 2;
   string host = 3;
@@ -41,62 +95,4 @@ message ProxyRequestData {
   string auth_mechanism = 9;
   string user_id = 10;
   bool auth_success = 11;
-}
-
-// Messages FROM Management TO Proxy
-message ManagementMessage {
-  oneof payload {
-    ServicesSnapshot snapshot = 1;   // Full snapshot on initial connect
-    ServiceUpdate update = 2;         // Incremental service update
-  }
-}
-
-// Full snapshot of all services for this proxy
-message ServicesSnapshot {
-  repeated ExposedServiceConfig services = 1;
-  google.protobuf.Timestamp timestamp = 2;
-}
-
-// Incremental service update
-message ServiceUpdate {
-  enum UpdateType {
-    CREATED = 0;
-    UPDATED = 1;
-    REMOVED = 2;
-  }
-  UpdateType type = 1;
-  ExposedServiceConfig service = 2;  // Set for CREATED and UPDATED
-  string service_id = 3;              // Service ID (always set)
-}
-
-// Exposed service configuration
-message ExposedServiceConfig {
-  string id = 1;
-  string domain = 2;
-  map<string, string> path_mappings = 3;  // path -> target
-  string setup_key = 4;
-  AuthConfig auth = 5;
-}
-
-// Authentication configuration
-message AuthConfig {
-  oneof auth_type {
-    BasicAuthConfig basic_auth = 1;
-    PinAuthConfig pin_auth = 2;
-    BearerAuthConfig bearer_auth = 3;
-  }
-}
-
-message BasicAuthConfig {
-  string username = 1;
-  string password = 2;
-}
-
-message PinAuthConfig {
-  string pin = 1;
-  string header = 2;
-}
-
-message BearerAuthConfig {
-  bool enabled = 1;
 }
