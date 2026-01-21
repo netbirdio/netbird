@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -286,8 +287,8 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 		RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
-		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
+		LocalIceCandidateEndpoint:  net.JoinHostPort(pair.Local.Address(), strconv.Itoa(pair.Local.Port())),
+		RemoteIceCandidateEndpoint: net.JoinHostPort(pair.Remote.Address(), strconv.Itoa(pair.Remote.Port())),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
