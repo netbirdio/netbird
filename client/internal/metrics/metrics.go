@@ -41,7 +41,7 @@ func NewClientMetrics(deploymentType DeploymentType, enabled bool) *ClientMetric
 	if !enabled {
 		impl = &noopMetrics{}
 	} else {
-		impl = newOtelMetrics(deploymentType)
+		impl = newVictoriaMetrics(deploymentType)
 	}
 	return &ClientMetrics{impl: impl}
 }

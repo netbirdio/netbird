@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1033,7 +1034,7 @@ func (b *NetworkMapBuilder) updateAccountLocked(account *Account) *Account {
 }
 
 func (b *NetworkMapBuilder) GetPeerNetworkMap(
-	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone,
+	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone, accountZones []*zones.Zone,
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -1057,7 +1058,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
 
-	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, sshView, peersCustomZone, validatedPeers)
+	nm := b.assembleNetworkMap(ctx, account, peer, aclView, routesView, dnsConfig, sshView, peersCustomZone, accountZones, validatedPeers)
 
 	if metrics != nil {
 		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
@@ -1074,8 +1075,8 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 }
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
-	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
-	dnsConfig *nbdns.Config, sshView *PeerSSHView, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
+	ctx context.Context, account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
+	dnsConfig *nbdns.Config, sshView *PeerSSHView, peersCustomZone nbdns.CustomZone, accountZones []*zones.Zone, validatedPeers map[string]struct{},
 ) *NetworkMap {
 
 	var peersToConnect []*nbpeer.Peer
@@ -1125,13 +1126,26 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	}
 
 	finalDNSConfig := *dnsConfig
-	if finalDNSConfig.ServiceEnable && customZone.Domain != "" {
+	if finalDNSConfig.ServiceEnable {
 		var zones []nbdns.CustomZone
-		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
-		zones = append(zones, nbdns.CustomZone{
-			Domain:  customZone.Domain,
-			Records: records,
-		})
+
+		peerGroupsSlice := b.cache.peerToGroups[peer.ID]
+		peerGroups := make(LookupMap, len(peerGroupsSlice))
+		for _, groupID := range peerGroupsSlice {
+			peerGroups[groupID] = struct{}{}
+		}
+
+		if peersCustomZone.Domain != "" {
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnect, expiredPeers)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
+		}
+
+		filteredAccountZones := filterPeerAppliedZones(ctx, accountZones, peerGroups)
+		zones = append(zones, filteredAccountZones...)
+
 		finalDNSConfig.CustomZones = zones
 	}
 

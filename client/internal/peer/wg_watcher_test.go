@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,15 +29,17 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}), nil)
+	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	onDisconnected := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, func() {
+	go watcher.EnableWgWatcher(ctx,, func() {
 		mlog.Infof("onDisconnectedFn")
 		onDisconnected <- struct{}{}
+	}, func(elapsed float64) {
+		mlog.Infof("onHandshakeSuccess: %.3fs", elapsed)
 	})
 
 	// wait for initial reading
@@ -48,7 +51,6 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("timeout")
 	}
-	watcher.DisableWgWatcher()
 }
 
 func TestWGWatcher_ReEnable(t *testing.T) {
@@ -57,20 +59,27 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 
 	mlog := log.WithField("peer", "tet")
 	mocWgIface := &MocWgIface{}
-	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}), nil)
+	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.EnableWgWatcher(ctx, func() {}, func(elapsed float64) {})
+	}()
+	cancel()
+
+	wg.Wait()
+
+	// Re-enable with a new context
+	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
 	onDisconnected := make(chan struct{}, 1)
-
-	go watcher.EnableWgWatcher(ctx, func() {})
-	time.Sleep(1 * time.Second)
-	watcher.DisableWgWatcher()
-
-	go watcher.EnableWgWatcher(ctx, func() {
+	go watcher.EnableWgWatcher(ctx,, func() {
 		onDisconnected <- struct{}{}
-	})
+	}, func(elapsed float64) {})
 
 	time.Sleep(2 * time.Second)
 	mocWgIface.disconnect()
@@ -80,5 +89,4 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("timeout")
 	}
-	watcher.DisableWgWatcher()
 }

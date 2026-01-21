@@ -30,71 +30,57 @@ type WGWatcher struct {
 	peerKey       string
 	stateDump     *stateDump
 
-	ctx         context.Context
-	ctxCancel   context.CancelFunc
-	ctxLock     sync.Mutex
-	enabledTime time.Time
-
-	onFirstHandshakeFn func()
+	enabled   bool
+	muEnabled sync.RWMutex
 }
 
-func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump, onFirstHandshakeFn func()) *WGWatcher {
+func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
 	return &WGWatcher{
-		log:                log,
-		wgIfaceStater:      wgIfaceStater,
-		peerKey:            peerKey,
-		stateDump:          stateDump,
-		onFirstHandshakeFn: onFirstHandshakeFn,
+		log:           log,
+		wgIfaceStater: wgIfaceStater,
+		peerKey:       peerKey,
+		stateDump:     stateDump,
 	}
 }
 
 // EnableWgWatcher starts the WireGuard watcher. If it is already enabled, it will return immediately and do nothing.
-func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn func()) {
-	w.log.Debugf("enable WireGuard watcher")
-	w.ctxLock.Lock()
-	w.enabledTime = time.Now()
-
-	if w.ctx != nil && w.ctx.Err() == nil {
-		w.log.Errorf("WireGuard watcher already enabled")
-		w.ctxLock.Unlock()
+// The watcher runs until ctx is cancelled. Caller is responsible for context lifecycle management.
+func (w *WGWatcher) EnableWgWatcher(ctx context.Context, enabledTime time.Time, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time)) {
+	w.muEnabled.Lock()
+	if w.enabled {
+		w.muEnabled.Unlock()
 		return
 	}
 
-	ctx, ctxCancel := context.WithCancel(parentCtx)
-	w.ctx = ctx
-	w.ctxCancel = ctxCancel
-	w.ctxLock.Unlock()
+	w.log.Debugf("enable WireGuard watcher")
+	w.enabled = true
+	w.muEnabled.Unlock()
 
 	initialHandshake, err := w.wgState()
 	if err != nil {
 		w.log.Warnf("failed to read initial wg stats: %v", err)
 	}
 
-	w.periodicHandshakeCheck(ctx, ctxCancel, onDisconnectedFn, initialHandshake)
+	w.periodicHandshakeCheck(ctx, onDisconnectedFn, onHandshakeSuccessFn, enabledTime, initialHandshake)
+
+	w.muEnabled.Lock()
+	w.enabled = false
+	w.muEnabled.Unlock()
 }
 
-// DisableWgWatcher stops the WireGuard watcher and wait for the watcher to exit
-func (w *WGWatcher) DisableWgWatcher() {
-	w.ctxLock.Lock()
-	defer w.ctxLock.Unlock()
-
-	if w.ctxCancel == nil {
-		return
-	}
-
-	w.log.Debugf("disable WireGuard watcher")
-
-	w.ctxCancel()
-	w.ctxCancel = nil
+// IsEnabled returns true if the WireGuard watcher is currently enabled
+func (w *WGWatcher) IsEnabled() bool {
+	w.muEnabled.RLock()
+	defer w.muEnabled.RUnlock()
+	return w.enabled
 }
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
-func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel context.CancelFunc, onDisconnectedFn func(), initialHandshake time.Time) {
+func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), onHandshakeSuccessFn func(when time.Time), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
 
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
-	defer ctxCancel()
 
 	lastHandshake := initialHandshake
 
@@ -103,17 +89,13 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
-				if onDisconnectedFn != nil {
-					onDisconnectedFn()
-				}
+				onDisconnectedFn()
 				return
 			}
 			if lastHandshake.IsZero() {
-				elapsed := w.calcElapsed(handshake)
-				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
-				if w.onFirstHandshakeFn != nil {
-					w.onFirstHandshakeFn()
-				}
+				elapsed := calcElapsed(enabledTime, *handshake)
+				w.log.Infof("--- first wg handshake detected within: %.2fsec, (%s - %s)", elapsed, enabledTime, handshake)
+				onHandshakeSuccessFn(*handshake)
 			}
 
 			lastHandshake = *handshake
@@ -175,8 +157,8 @@ func (w *WGWatcher) wgState() (time.Time, error) {
 
 // calcElapsed calculates elapsed time since watcher was enabled.
 // The watcher started after the wg configuration happens, because of this need to normalise the negative value
-func (w *WGWatcher) calcElapsed(handshake *time.Time) float64 {
-	elapsed := handshake.Sub(w.enabledTime).Seconds()
+func calcElapsed(enabledTime, handshake time.Time) float64 {
+	elapsed := handshake.Sub(enabledTime).Seconds()
 	if elapsed < 0 {
 		elapsed = 0
 	}

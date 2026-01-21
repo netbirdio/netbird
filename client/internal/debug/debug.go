@@ -28,8 +28,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -51,7 +53,6 @@ resolved_domains.txt: Anonymized resolved domain IP addresses from the status re
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
-metrics.txt: Client metrics in Prometheus format including connection statistics, reliability metrics, and performance indicators.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
@@ -229,11 +230,10 @@ type BundleGenerator struct {
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
-	logFile        string
+	logPath        string
 	clientMetrics  MetricsExporter
 
 	anonymize         bool
-	clientStatus      string
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -242,7 +242,6 @@ type BundleGenerator struct {
 
 type BundleConfig struct {
 	Anonymize         bool
-	ClientStatus      string
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -251,7 +250,7 @@ type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
-	LogFile        string
+	LogPath        string
 	ClientMetrics  MetricsExporter
 }
 
@@ -268,11 +267,10 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
-		logFile:        deps.LogFile,
+		logPath:        deps.LogPath,
 		clientMetrics:  deps.ClientMetrics,
 
 		anonymize:         cfg.Anonymize,
-		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -318,13 +316,6 @@ func (g *BundleGenerator) createArchive() error {
 		return fmt.Errorf("add status: %w", err)
 	}
 
-	if g.statusRecorder != nil {
-		status := g.statusRecorder.GetFullStatus()
-		seedFromStatus(g.anonymizer, &status)
-	} else {
-		log.Debugf("no status recorder available for seeding")
-	}
-
 	if err := g.addConfig(); err != nil {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
@@ -365,7 +356,7 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
+	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {
@@ -414,11 +405,26 @@ func (g *BundleGenerator) addReadme() error {
 }
 
 func (g *BundleGenerator) addStatus() error {
-	if status := g.clientStatus; status != "" {
-		statusReader := strings.NewReader(status)
+	if g.statusRecorder != nil {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
+		fullStatus := g.statusRecorder.GetFullStatus()
+		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		statusOutput := overview.FullDetailSummary()
+
+		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
+		seedFromStatus(g.anonymizer, &fullStatus)
+	} else {
+		log.Debugf("no status recorder available for seeding")
 	}
 	return nil
 }
@@ -668,25 +674,6 @@ func (g *BundleGenerator) addStateFile() error {
 	return nil
 }
 
-func (g *BundleGenerator) addMetrics() error {
-	if g.clientMetrics == nil {
-		log.Debugf("skipping metrics in debug bundle: no metrics collector")
-		return nil
-	}
-
-	var buf bytes.Buffer
-	if err := g.clientMetrics.Export(&buf); err != nil {
-		return fmt.Errorf("export metrics: %w", err)
-	}
-
-	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
-		return fmt.Errorf("add metrics file to zip: %w", err)
-	}
-
-	log.Debugf("added metrics to debug bundle")
-	return nil
-}
-
 func (g *BundleGenerator) addUpdateLogs() error {
 	inst := installer.New()
 	logFiles := inst.LogFiles()
@@ -741,15 +728,34 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 	return nil
 }
 
+func (g *BundleGenerator) addMetrics() error {
+	if g.clientMetrics == nil {
+		log.Debugf("skipping metrics in debug bundle: no metrics collector")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := g.clientMetrics.Export(&buf); err != nil {
+		return fmt.Errorf("export metrics: %w", err)
+	}
+
+	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
+		return fmt.Errorf("add metrics file to zip: %w", err)
+	}
+
+	log.Debugf("added metrics to debug bundle")
+	return nil
+}
+
 func (g *BundleGenerator) addLogfile() error {
-	if g.logFile == "" {
+	if g.logPath == "" {
 		log.Debugf("skipping empty log file in debug bundle")
 		return nil
 	}
 
-	logDir := filepath.Dir(g.logFile)
+	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 

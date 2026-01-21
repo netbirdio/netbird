@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/VictoriaMetrics/metrics"
+	log "github.com/sirupsen/logrus"
 )
 
 // victoriaMetrics is the VictoriaMetrics implementation of ClientMetrics
@@ -82,6 +83,11 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	m.set.GetOrCreateHistogram(
 		m.getMetricName("netbird_peer_connection_total_creation_to_handshake", connTypeStr, attemptType),
 	).Update(totalDuration)
+
+	log.Infof("--- Peer connection metrics [%s, %s, %s]: creation→semaphore: %.3fs, semaphore→signaling: %.3fs, signaling→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
+		m.deploymentType.String(), connTypeStr, attemptType,
+		creationToSemaphore, semaphoreToSignaling, signalingToConnection, connectionToHandshake,
+		totalDuration)
 }
 
 // getMetricName constructs a metric name with labels

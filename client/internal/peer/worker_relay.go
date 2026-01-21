@@ -32,7 +32,7 @@ type WorkerRelay struct {
 	relaySupportedOnRemotePeer atomic.Bool
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager, stateDump *stateDump) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
 	r := &WorkerRelay{
 		peerCtx:      ctx,
 		log:          log,

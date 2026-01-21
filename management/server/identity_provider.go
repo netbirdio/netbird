@@ -2,7 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/dexidp/dex/storage"
 	"github.com/rs/xid"
@@ -16,6 +22,69 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+// oidcProviderJSON represents the OpenID Connect discovery document
+type oidcProviderJSON struct {
+	Issuer string `json:"issuer"`
+}
+
+// validateOIDCIssuer validates the OIDC issuer by fetching the OpenID configuration
+// and verifying that the returned issuer matches the configured one.
+func validateOIDCIssuer(ctx context.Context, issuer string) error {
+	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("%w: unable to read response body: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: %s: %s", types.ErrIdentityProviderIssuerUnreachable, resp.Status, body)
+	}
+
+	var p oidcProviderJSON
+	if err := json.Unmarshal(body, &p); err != nil {
+		return fmt.Errorf("%w: failed to decode provider discovery object: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+	}
+
+	if p.Issuer != issuer {
+		return fmt.Errorf("%w: expected %q got %q", types.ErrIdentityProviderIssuerMismatch, issuer, p.Issuer)
+	}
+
+	return nil
+}
+
+// validateIdentityProviderConfig validates the identity provider configuration including
+// basic validation and OIDC issuer verification.
+func validateIdentityProviderConfig(ctx context.Context, idpConfig *types.IdentityProvider) error {
+	if err := idpConfig.Validate(); err != nil {
+		return status.Errorf(status.InvalidArgument, "%s", err.Error())
+	}
+
+	// Validate the issuer by calling the OIDC discovery endpoint
+	if idpConfig.Issuer != "" {
+		if err := validateOIDCIssuer(ctx, idpConfig.Issuer); err != nil {
+			return status.Errorf(status.InvalidArgument, "%s", err.Error())
+		}
+	}
+
+	return nil
+}
 
 // GetIdentityProviders returns all identity providers for an account
 func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error) {
@@ -82,8 +151,8 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
@@ -119,8 +188,8 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := idpConfig.Validate(); err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
