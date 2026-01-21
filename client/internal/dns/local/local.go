@@ -201,9 +201,13 @@ func (d *Resolver) lookupRecords(logger *log.Entry, question dns.Question) looku
 	records, found := d.records[question]
 	usingWildcard := false
 	wildQuestion := transformToWildcard(question)
+	// RFC 4592 section 2.2.1: wildcard only matches if the name does NOT exist in the zone.
+	// If the domain exists with any record type, return NODATA instead of wildcard match.
 	if !found && supportsWildcard(question.Qtype) {
-		records, found = d.records[wildQuestion]
-		usingWildcard = found
+		if _, domainExists := d.domains[domain.Domain(question.Name)]; !domainExists {
+			records, found = d.records[wildQuestion]
+			usingWildcard = found
+		}
 	}
 
 	if !found {
