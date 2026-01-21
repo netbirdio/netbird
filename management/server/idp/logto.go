@@ -95,7 +95,7 @@ func NewLogtoManager(config LogtoClientConfig, appMetrics telemetry.AppMetrics) 
 	}
 
 	if config.ClientSecret == "" {
-		return nil, fmt.Errorf("logto IdP configuration is incomplete, ClientSecret is missing")
+		return nil, fmt.Errorf("logto IdP configuration is incomplete, clientSecret is missing")
 	}
 
 	if config.TokenEndpoint == "" {
