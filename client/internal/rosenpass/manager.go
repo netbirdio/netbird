@@ -146,7 +146,7 @@ func getLogLevel() slog.Level {
 	case "error":
 		return slog.LevelError
 	default:
-		log.Warnf("unknown log level: %s. Using default %s", level, defaultLog)
+		log.Warnf("unknown log level: %s. Using default %s", level, defaultLog.String())
 		return defaultLog
 	}
 }
