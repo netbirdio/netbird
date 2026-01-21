@@ -26,7 +26,17 @@ import (
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
-const ConnectTimeout = 10 * time.Second
+const (
+	ConnectTimeout = 10 * time.Second
+
+	RegistrationRetryTimeout  = 180 * time.Second
+	RegistrationRetryInterval = 5 * time.Second
+	RegistrationRetryMaxDelay = 30 * time.Second
+
+	LoginRetryTimeout  = 45 * time.Second
+	LoginRetryInterval = 3 * time.Second
+	LoginRetryMaxDelay = 15 * time.Second
+)
 
 const (
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
@@ -479,6 +489,38 @@ func (c *GrpcClient) IsHealthy() bool {
 	return true
 }
 
+// newRegistrationBackoff creates a backoff strategy for peer registration operations
+func newRegistrationBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     RegistrationRetryInterval,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         RegistrationRetryMaxDelay,
+		MaxElapsedTime:      RegistrationRetryTimeout,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+}
+
+// newLoginBackoff creates a backoff strategy for peer login operations
+func newLoginBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     LoginRetryInterval,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         LoginRetryMaxDelay,
+		MaxElapsedTime:      LoginRetryTimeout,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+}
+
+// isRegistrationRequest determines if a login request is actually a registration.
+// Returns true if either the setup key or the JWT token is present in the request.
+func isRegistrationRequest(req *proto.LoginRequest) bool {
+	return req.SetupKey != "" || req.JwtToken != ""
+}
+
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
 		return nil, errors.New(errMsgNoMgmtConnection)
@@ -491,6 +533,8 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	}
 
 	var resp *proto.EncryptedMessage
+	isRegistration := isRegistrationRequest(req)
+
 	operation := func() error {
 		mgmCtx, cancel := context.WithTimeout(context.Background(), ConnectTimeout)
 		defer cancel()
@@ -501,9 +545,24 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 			Body:     loginReq,
 		})
 		if err != nil {
-			// retry only on context canceled
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.Canceled {
-				return err
+			if s, ok := gstatus.FromError(err); ok {
+				if s.Code() == codes.Canceled {
+					log.Debugf("login canceled")
+					return backoff.Permanent(err)
+				}
+				if s.Code() == codes.DeadlineExceeded {
+					// For registration, deadline exceeded should not retry as it may cause
+					// duplicate device creation. The client timeout is short (10s) but server
+					// processing (DB writes, group calculations, IdP validation) can take longer.
+					// Retrying would send parallel requests that each create a new device.
+					if isRegistration {
+						log.Debugf("registration timeout - not retrying to avoid duplicates")
+						return backoff.Permanent(err)
+					}
+					// For regular login, we can safely retry since it's idempotent
+					log.Debugf("login timeout, retrying...")
+					return err
+				}
 			}
 			return backoff.Permanent(err)
 		}
@@ -511,7 +570,14 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		return nil
 	}
 
-	err = backoff.Retry(operation, nbgrpc.Backoff(c.ctx))
+	var backoffStrategy backoff.BackOff
+	if isRegistration {
+		backoffStrategy = newRegistrationBackoff(c.ctx)
+	} else {
+		backoffStrategy = newLoginBackoff(c.ctx)
+	}
+
+	err = backoff.Retry(operation, backoffStrategy)
 	if err != nil {
 		log.Errorf("failed to login to Management Service: %v", err)
 		return nil, err
