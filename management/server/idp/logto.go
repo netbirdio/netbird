@@ -85,7 +85,7 @@ func NewLogtoManager(config LogtoClientConfig, appMetrics telemetry.AppMetrics) 
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
 	helper := JsonParser{}
