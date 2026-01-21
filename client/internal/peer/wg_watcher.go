@@ -30,9 +30,8 @@ type WGWatcher struct {
 	peerKey       string
 	stateDump     *stateDump
 
-	enabledTime time.Time
-	enabled     bool
-	muEnabled   sync.RWMutex
+	enabled   bool
+	muEnabled sync.RWMutex
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -54,7 +53,7 @@ func (w *WGWatcher) EnableWgWatcher(ctx context.Context, onDisconnectedFn func()
 	}
 
 	w.log.Debugf("enable WireGuard watcher")
-	w.enabledTime = time.Now()
+	enabledTime := time.Now()
 	w.enabled = true
 	w.muEnabled.Unlock()
 
@@ -63,7 +62,7 @@ func (w *WGWatcher) EnableWgWatcher(ctx context.Context, onDisconnectedFn func()
 		w.log.Warnf("failed to read initial wg stats: %v", err)
 	}
 
-	w.periodicHandshakeCheck(ctx, onDisconnectedFn, initialHandshake)
+	w.periodicHandshakeCheck(ctx, onDisconnectedFn, enabledTime, initialHandshake)
 
 	w.muEnabled.Lock()
 	w.enabled = false
@@ -78,7 +77,7 @@ func (w *WGWatcher) IsEnabled() bool {
 }
 
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
-func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), initialHandshake time.Time) {
+func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
 
 	timer := time.NewTimer(wgHandshakeOvertime)
@@ -95,7 +94,7 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 				return
 			}
 			if lastHandshake.IsZero() {
-				elapsed := w.calcElapsed(handshake)
+				elapsed := calcElapsed(enabledTime, *handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
 			}
 
@@ -158,8 +157,8 @@ func (w *WGWatcher) wgState() (time.Time, error) {
 
 // calcElapsed calculates elapsed time since watcher was enabled.
 // The watcher started after the wg configuration happens, because of this need to normalise the negative value
-func (w *WGWatcher) calcElapsed(handshake *time.Time) float64 {
-	elapsed := handshake.Sub(w.enabledTime).Seconds()
+func calcElapsed(enabledTime, handshake time.Time) float64 {
+	elapsed := handshake.Sub(enabledTime).Seconds()
 	if elapsed < 0 {
 		elapsed = 0
 	}
