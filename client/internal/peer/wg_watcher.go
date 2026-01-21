@@ -125,19 +125,19 @@ func (w *WGWatcher) handshakeCheck(lastHandshake time.Time) (*time.Time, bool) {
 
 	// the current know handshake did not change
 	if handshake.Equal(lastHandshake) {
-		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out: %v", handshake)
 		return nil, false
 	}
 
 	// in case if the machine is suspended, the handshake time will be in the past
 	if handshake.Add(checkPeriod).Before(time.Now()) {
-		w.log.Warnf("WireGuard handshake timed out, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake timed out: %v", handshake)
 		return nil, false
 	}
 
 	// error handling for handshake time in the future
 	if handshake.After(time.Now()) {
-		w.log.Warnf("WireGuard handshake is in the future, closing relay connection: %v", handshake)
+		w.log.Warnf("WireGuard handshake is in the future: %v", handshake)
 		return nil, false
 	}
 
