@@ -41,6 +41,8 @@ type NetworkMapComponents struct {
 	GroupIDToUserIDs   map[string][]string
 	AllowedUserIDs     map[string]struct{}
 	PostureFailedPeers map[string]map[string]struct{}
+
+	RouterPeers map[string]*nbpeer.Peer
 }
 
 type AccountSettingsInfo struct {
@@ -52,6 +54,10 @@ type AccountSettingsInfo struct {
 
 func (c *NetworkMapComponents) GetPeerInfo(peerID string) *nbpeer.Peer {
 	return c.Peers[peerID]
+}
+
+func (c *NetworkMapComponents) GetRouterPeerInfo(peerID string) *nbpeer.Peer {
+	return c.RouterPeers[peerID]
 }
 
 func (c *NetworkMapComponents) GetGroupInfo(groupID string) *Group {
@@ -479,6 +485,9 @@ func (calc *NetworkMapCalculator) getRoutesToSync(ctx context.Context, peerID st
 
 func (calc *NetworkMapCalculator) getRoutingPeerRoutes(ctx context.Context, peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
 	peerInfo := calc.components.GetPeerInfo(peerID)
+	if peerInfo == nil {
+		peerInfo = calc.components.GetRouterPeerInfo(peerID)
+	}
 	if peerInfo == nil {
 		return enabledRoutes, disabledRoutes
 	}
@@ -960,6 +969,9 @@ func (calc *NetworkMapCalculator) addNetworksRoutingPeers(
 
 	for p := range missingPeers {
 		peerInfo := calc.components.GetPeerInfo(p)
+		if peerInfo == nil {
+			peerInfo = calc.components.GetRouterPeerInfo(p)
+		}
 		if peerInfo != nil {
 			peersToConnect = append(peersToConnect, peerInfo)
 		}

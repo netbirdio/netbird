@@ -42,6 +42,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
 		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
 		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.PostureChecks)),
+		RouterPeers:         make(map[string]*nbpeer.Peer),
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{
@@ -161,9 +162,12 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 		components.RoutersMap[resource.NetworkID] = networkRoutingPeers
 		for peerIDKey := range networkRoutingPeers {
-			if _, exists := components.Peers[peerIDKey]; !exists {
-				if _, validated := validatedPeersMap[peerIDKey]; validated {
-					if p := a.Peers[peerIDKey]; p != nil {
+			if p := a.Peers[peerIDKey]; p != nil {
+				if _, exists := components.RouterPeers[peerIDKey]; !exists {
+					components.RouterPeers[peerIDKey] = p
+				}
+				if _, exists := components.Peers[peerIDKey]; !exists {
+					if _, validated := validatedPeersMap[peerIDKey]; validated {
 						components.Peers[peerIDKey] = p
 					}
 				}
