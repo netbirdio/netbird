@@ -253,6 +253,8 @@ func (s *ICEBind) createOrUpdateMux() {
 		return
 	}
 
+	// Don't close the old mux - it doesn't own the underlying connections.
+	// The sockets are managed by WireGuard's StdNetBind, not by us.
 	s.udpMux = udpmux.NewUniversalUDPMuxDefault(
 		udpmux.UniversalUDPMuxParams{
 			UDPConn:   muxConn,
@@ -276,8 +278,12 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 			return true, err
 		}
 
-		if s.udpMux != nil {
-			if muxErr := s.udpMux.HandleSTUNMessage(msg, addr); muxErr != nil {
+		s.muUDPMux.Lock()
+		mux := s.udpMux
+		s.muUDPMux.Unlock()
+
+		if mux != nil {
+			if muxErr := mux.HandleSTUNMessage(msg, addr); muxErr != nil {
 				log.Warnf("failed to handle STUN packet: %v", muxErr)
 			}
 		}

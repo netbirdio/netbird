@@ -329,13 +329,7 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	// wait local endpoint configuration
 	time.Sleep(time.Second)
-	addrString := pair.Remote.Address()
-	parsed, err := netip.ParseAddr(addrString)
-	if (err == nil) && (parsed.Is6()) {
-		addrString = fmt.Sprintf("[%s]", addrString)
-		//IPv6 Literals need to be wrapped in brackets for Resolve*Addr()
-	}
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", addrString, remoteWgPort))
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(pair.Remote.Address(), strconv.Itoa(remoteWgPort)))
 	if err != nil {
 		w.log.Warnf("got an error while resolving the udp address, err: %s", err)
 		return
