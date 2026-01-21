@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 var (
@@ -38,6 +39,7 @@ type Client struct {
 	setupKey   string
 	jwtToken   string
 	connect    *internal.ConnectClient
+	recorder   *peer.Status
 }
 
 // Options configures a new Client.
@@ -161,11 +163,17 @@ func New(opts Options) (*Client, error) {
 func (c *Client) Start(startCtx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.cancel != nil {
+	if c.connect != nil {
 		return ErrClientAlreadyStarted
 	}
 
-	ctx := internal.CtxInitState(context.Background())
+	ctx, cancel := context.WithCancel(internal.CtxInitState(context.Background()))
+	defer func() {
+		if c.connect == nil {
+			cancel()
+		}
+	}()
+
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
 	if err := internal.Login(ctx, c.config, c.setupKey, c.jwtToken); err != nil {
@@ -173,14 +181,16 @@ func (c *Client) Start(startCtx context.Context) error {
 	}
 
 	recorder := peer.NewRecorder(c.config.ManagementURL.String())
+	c.recorder = recorder
 	client := internal.NewConnectClient(ctx, c.config, recorder, false)
+	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
 	run := make(chan struct{})
 	clientErr := make(chan error, 1)
 	go func() {
-		if err := client.Run(run); err != nil {
+		if err := client.Run(run, ""); err != nil {
 			clientErr <- err
 		}
 	}()
@@ -197,6 +207,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	}
 
 	c.connect = client
+	c.cancel = cancel
 
 	return nil
 }
@@ -211,17 +222,23 @@ func (c *Client) Stop(ctx context.Context) error {
 		return ErrClientNotStarted
 	}
 
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
+
 	done := make(chan error, 1)
+	connect := c.connect
 	go func() {
-		done <- c.connect.Stop()
+		done <- connect.Stop()
 	}()
 
 	select {
 	case <-ctx.Done():
-		c.cancel = nil
+		c.connect = nil
 		return ctx.Err()
 	case err := <-done:
-		c.cancel = nil
+		c.connect = nil
 		if err != nil {
 			return fmt.Errorf("stop: %w", err)
 		}
@@ -313,6 +330,62 @@ func (c *Client) NewHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: transport,
 	}
+}
+
+// Status returns the current status of the client.
+func (c *Client) Status() (peer.FullStatus, error) {
+	c.mu.Lock()
+	recorder := c.recorder
+	connect := c.connect
+	c.mu.Unlock()
+
+	if recorder == nil {
+		return peer.FullStatus{}, errors.New("client not started")
+	}
+
+	if connect != nil {
+		engine := connect.Engine()
+		if engine != nil {
+			_ = engine.RunHealthProbes(false)
+		}
+	}
+
+	return recorder.GetFullStatus(), nil
+}
+
+// GetLatestSyncResponse returns the latest sync response from the management server.
+func (c *Client) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	syncResp, err := engine.GetLatestSyncResponse()
+	if err != nil {
+		return nil, fmt.Errorf("get sync response: %w", err)
+	}
+
+	return syncResp, nil
+}
+
+// SetLogLevel sets the logging level for the client and its components.
+func (c *Client) SetLogLevel(levelStr string) error {
+	level, err := logrus.ParseLevel(levelStr)
+	if err != nil {
+		return fmt.Errorf("parse log level: %w", err)
+	}
+
+	logrus.SetLevel(level)
+
+	c.mu.Lock()
+	connect := c.connect
+	c.mu.Unlock()
+
+	if connect != nil {
+		connect.SetLogLevel(level)
+	}
+
+	return nil
 }
 
 // VerifySSHHostKey verifies an SSH host key against stored peer keys.

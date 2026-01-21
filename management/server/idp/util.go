@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 )
 
 var (
@@ -68,4 +70,25 @@ func baseURL(rawURL string) string {
 	}
 
 	return parsedURL.Scheme + "://" + parsedURL.Host
+}
+
+const (
+	// Provides the env variable name for use with idpTimeout function
+	idpTimeoutEnv = "NB_IDP_TIMEOUT"
+	// Sets the defaultTimeout to 10s.
+	defaultTimeout  = 10 * time.Second
+)
+
+// idpTimeout returns a timeout value for the IDP
+func idpTimeout() time.Duration {
+	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
+	if !ok || timeoutStr == "" {
+		return defaultTimeout
+	}
+
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		return defaultTimeout
+	}
+	return timeout
 }
