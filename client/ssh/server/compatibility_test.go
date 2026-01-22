@@ -563,7 +563,7 @@ func TestSSHPtyModes(t *testing.T) {
 	t.Run("exit_code_preserved_with_pty", func(t *testing.T) {
 		// Verify exit codes work with -tt
 		// Use bash -c to ensure proper exit code handling
-		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host), "bash -c 'exit 43'")
+		args := append(slices.Clone(baseArgs), "-tt", fmt.Sprintf("%s@%s", username, host), "bash -c 'exit 43'")
 		cmd := exec.Command("ssh", args...)
 
 		err := cmd.Run()
@@ -584,7 +584,7 @@ func TestSSHPtyModes(t *testing.T) {
 	t.Run("stderr_works_no_pty", func(t *testing.T) {
 		// Verify stderr is separate from stdout without PTY
 		// Pass the entire command as a single string for proper shell interpretation
-		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host),
+		args := append(slices.Clone(baseArgs), "-T", fmt.Sprintf("%s@%s", username, host),
 			"sh -c 'echo stdout_msg; echo stderr_msg >&2'")
 		cmd := exec.Command("ssh", args...)
 
@@ -605,7 +605,7 @@ func TestSSHPtyModes(t *testing.T) {
 
 	t.Run("stderr_merged_with_pty", func(t *testing.T) {
 		// With PTY, stderr is merged into stdout
-		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host),
+		args := append(slices.Clone(baseArgs), "-tt", fmt.Sprintf("%s@%s", username, host),
 			"sh -c 'echo stdout_msg; echo stderr_msg >&2'")
 		cmd := exec.Command("ssh", args...)
 
