@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -76,6 +77,9 @@ type Server struct {
 	lastProbe           time.Time
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
+
+	cpuProfileBuf *bytes.Buffer
+	cpuProfiling  bool
 
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
