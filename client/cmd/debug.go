@@ -241,8 +241,9 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if cpuProfilingStarted {
 		if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
 			cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+		} else {
+			cpuProfilingStarted = false
 		}
-		cpuProfilingStarted = false
 	}
 
 	cmd.Println("Creating debug bundle...")

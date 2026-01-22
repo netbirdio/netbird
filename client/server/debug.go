@@ -27,7 +27,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	}
 
 	var cpuProfileData []byte
-	if s.cpuProfileBuf != nil {
+	if s.cpuProfileBuf != nil && !s.cpuProfiling {
 		cpuProfileData = s.cpuProfileBuf.Bytes()
 		defer func() {
 			s.cpuProfileBuf = nil
