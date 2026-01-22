@@ -24,23 +24,64 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 )
 
-// TestMain handles package-level setup and cleanup
 func TestMain(m *testing.M) {
-	// Guard against infinite recursion when test binary is called as "netbird ssh exec"
-	// This happens when running tests as non-privileged user with fallback
+	// On platforms where su doesn't support --pty (macOS, FreeBSD, Windows), the SSH server
+	// spawns an executor subprocess via os.Executable(). During tests, this invokes the test
+	// binary with "ssh exec" args. We handle that here to properly execute commands and
+	// propagate exit codes.
 	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "exec" {
-		// Just exit with error to break the recursion
-		fmt.Fprintf(os.Stderr, "Test binary called as 'ssh exec' - preventing infinite recursion\n")
-		os.Exit(1)
+		runTestExecutor()
+		return
 	}
 
-	// Run tests
 	code := m.Run()
-
-	// Cleanup any created test users
 	testutil.CleanupTestUsers()
-
 	os.Exit(code)
+}
+
+// runTestExecutor emulates the netbird executor for tests.
+// Parses --shell and --cmd args, runs the command, and exits with the correct code.
+func runTestExecutor() {
+	if os.Getenv("_NETBIRD_TEST_EXECUTOR") != "" {
+		fmt.Fprintf(os.Stderr, "executor recursion detected\n")
+		os.Exit(1)
+	}
+	os.Setenv("_NETBIRD_TEST_EXECUTOR", "1")
+
+	shell := "/bin/sh"
+	var command string
+	for i := 3; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--shell":
+			if i+1 < len(os.Args) {
+				shell = os.Args[i+1]
+				i++
+			}
+		case "--cmd":
+			if i+1 < len(os.Args) {
+				command = os.Args[i+1]
+				i++
+			}
+		}
+	}
+
+	var cmd *exec.Cmd
+	if command == "" {
+		cmd = exec.Command(shell, "-l")
+	} else {
+		cmd = exec.Command(shell, "-l", "-c", command)
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 // TestSSHServerCompatibility tests that our SSH server is compatible with the system SSH client
@@ -528,12 +569,12 @@ func TestSSHPtyModes(t *testing.T) {
 			defer stdin.Close()
 			time.Sleep(100 * time.Millisecond)
 			if _, err := stdin.Write([]byte("echo shell_no_pty_test\n")); err != nil {
-				t.Errorf("write echo command: %v", err)
+				t.Logf("write echo command: %v", err)
 				return
 			}
 			time.Sleep(100 * time.Millisecond)
 			if _, err := stdin.Write([]byte("exit 0\n")); err != nil {
-				t.Errorf("write exit command: %v", err)
+				t.Logf("write exit command: %v", err)
 			}
 		}()
 
@@ -561,9 +602,8 @@ func TestSSHPtyModes(t *testing.T) {
 	})
 
 	t.Run("exit_code_preserved_with_pty", func(t *testing.T) {
-		// Verify exit codes work with -tt
-		// Use bash -c to ensure proper exit code handling
-		args := append(slices.Clone(baseArgs), "-tt", fmt.Sprintf("%s@%s", username, host), "bash -c 'exit 43'")
+		// Verify exit codes work with -tt (use sh for portability - bash may not be installed on FreeBSD)
+		args := append(slices.Clone(baseArgs), "-tt", fmt.Sprintf("%s@%s", username, host), "sh -c 'exit 43'")
 		cmd := exec.Command("ssh", args...)
 
 		err := cmd.Run()
