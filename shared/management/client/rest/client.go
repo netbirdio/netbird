@@ -59,8 +59,12 @@ type Client struct {
 	Routes *RoutesAPI
 
 	// DNS NetBird DNS APIs
-	// see more: https://docs.netbird.io/api/resources/routes
+	// see more: https://docs.netbird.io/api/resources/dns
 	DNS *DNSAPI
+
+	// DNSZones NetBird DNS Zones APIs
+	// see more: https://docs.netbird.io/api/resources/dns-zones
+	DNSZones *DNSZonesAPI
 
 	// GeoLocation NetBird Geo Location APIs
 	// see more: https://docs.netbird.io/api/resources/geo-locations
@@ -113,6 +117,7 @@ func (c *Client) initialize() {
 	c.Networks = &NetworksAPI{c}
 	c.Routes = &RoutesAPI{c}
 	c.DNS = &DNSAPI{c}
+	c.DNSZones = &DNSZonesAPI{c}
 	c.GeoLocation = &GeoLocationAPI{c}
 	c.Events = &EventsAPI{c}
 }
