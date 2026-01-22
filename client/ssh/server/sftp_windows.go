@@ -31,7 +31,7 @@ func (s *Server) createSftpCommand(targetUser *user.User, sess ssh.Session) (*ex
 		"--windows-domain", domain,
 	}
 
-	pd := NewPrivilegeDropper(nil)
+	pd := NewPrivilegeDropper()
 	token, err := pd.createToken(username, domain)
 	if err != nil {
 		return nil, 0, fmt.Errorf("create token: %w", err)
