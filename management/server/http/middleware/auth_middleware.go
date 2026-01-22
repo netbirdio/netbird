@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -31,6 +32,7 @@ type AuthMiddleware struct {
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *APIRateLimiter
+	patUsageTracker     *PATUsageTracker
 }
 
 // NewAuthMiddleware instance constructor
@@ -40,10 +42,20 @@ func NewAuthMiddleware(
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiterConfig *RateLimiterConfig,
+	meter metric.Meter,
 ) *AuthMiddleware {
 	var rateLimiter *APIRateLimiter
 	if rateLimiterConfig != nil {
 		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
+	var patUsageTracker *PATUsageTracker
+	if meter != nil {
+		var err error
+		patUsageTracker, err = NewPATUsageTracker(context.Background(), meter)
+		if err != nil {
+			log.Errorf("Failed to create PAT usage tracker: %s", err)
+		}
 	}
 
 	return &AuthMiddleware{
@@ -52,6 +64,7 @@ func NewAuthMiddleware(
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
+		patUsageTracker:     patUsageTracker,
 	}
 }
 
@@ -121,6 +134,9 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		userAuth.IsChild = ok
 	}
 
+	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
+	// Available as userAuth.Email
+
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 	accountId, _, err := m.ensureAccount(ctx, userAuth)
 	if err != nil {
@@ -128,7 +144,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if userAuth.AccountId != accountId {
-		log.WithContext(ctx).Debugf("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		log.WithContext(ctx).Tracef("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
 		userAuth.AccountId = accountId
 	}
 
@@ -158,7 +174,11 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return r, fmt.Errorf("error extracting token: %w", err)
 	}
 
-	if m.rateLimiter != nil {
+	if m.patUsageTracker != nil {
+		m.patUsageTracker.IncrementUsage(token)
+	}
+
+	if m.rateLimiter != nil && !isTerraformRequest(r) {
 		if !m.rateLimiter.Allow(token) {
 			return r, status.Errorf(status.TooManyRequests, "too many requests")
 		}
@@ -192,6 +212,11 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	return nbcontext.SetUserAuthInRequest(r, userAuth), nil
+}
+
+func isTerraformRequest(r *http.Request) bool {
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	return strings.Contains(ua, "terraform")
 }
 
 // getTokenFromJWTRequest is a "TokenExtractor" that takes auth header parts and extracts

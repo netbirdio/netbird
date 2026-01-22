@@ -48,6 +48,9 @@ service ManagementService {
 
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
+
+  // Executes a job on a target peer (e.g., debug bundle)
+  rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -58,6 +61,42 @@ message EncryptedMessage {
   bytes body = 2;
   // Version of the Netbird Management Service protocol
   int32 version = 3;
+}
+
+message JobRequest {
+  bytes ID = 1;
+
+  oneof workload_parameters {
+    BundleParameters bundle = 10;
+    //OtherParameters other = 11;
+  }
+}
+
+enum JobStatus {
+  unknown_status = 0; //placeholder
+  succeeded = 1;
+  failed = 2;
+}
+
+message JobResponse{
+  bytes ID = 1;
+  JobStatus status=2;
+  bytes Reason=3;
+  oneof workload_results {
+    BundleResult bundle = 10;
+    //OtherResult other = 11;
+  }
+}
+
+message BundleParameters {
+  bool   bundle_for       = 1;
+  int64  bundle_for_time  = 2;
+  int32  log_file_count   = 3;
+  bool   anonymize        = 4;
+}
+
+message BundleResult {
+  string upload_key = 1;
 }
 
 message SyncRequest {
@@ -246,12 +285,16 @@ message FlowConfig {
   bool dnsCollection = 8;
 }
 
-// JWTConfig represents JWT authentication configuration
+// JWTConfig represents JWT authentication configuration for validating tokens.
 message JWTConfig {
   string issuer = 1;
+  // Deprecated: audience is kept for backwards compatibility only. Use audiences instead in the client code but populate this field.
   string audience = 2;
   string keysLocation = 3;
   int64 maxTokenAge = 4;
+  // audiences contains the list of valid audiences for JWT validation.
+  // Tokens matching any audience in this list are considered valid.
+  repeated string audiences = 5;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
@@ -280,6 +323,18 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // Auto-update config
+  AutoUpdateSettings autoUpdate = 8;
+}
+
+message AutoUpdateSettings {
+  string version = 1;
+  /*
+    alwaysUpdate = true → Updates happen automatically in the background
+    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+   */
+  bool alwaysUpdate = 2;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -320,6 +375,24 @@ message NetworkMap {
   bool routesFirewallRulesIsEmpty = 11;
 
   repeated ForwardingRule forwardingRules = 12;
+
+  // SSHAuth represents SSH authorization configuration
+  SSHAuth sshAuth = 13;
+}
+
+message SSHAuth {
+  // UserIDClaim is the JWT claim to be used to get the users ID
+  string UserIDClaim = 1;
+
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via SSH
+  repeated bytes AuthorizedUsers = 2;
+
+  // MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
+  map<string, MachineUserIndexes> machine_users = 3;
+}
+
+message MachineUserIndexes {
+  repeated uint32 indexes = 1;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -434,7 +507,9 @@ message CustomZone {
   string Domain = 1;
   repeated SimpleRecord Records = 2;
   bool SearchDomainDisabled = 3;
-  bool SkipPTRProcess = 4;
+  // NonAuthoritative indicates this is a user-created zone (not the built-in peer DNS zone).
+  // Non-authoritative zones will fallthrough to lower-priority handlers on NXDOMAIN and skip PTR processing.
+  bool NonAuthoritative = 4;
 }
 
 // SimpleRecord represents a dns.SimpleRecord

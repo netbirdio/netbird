@@ -33,6 +33,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/approve", userHandler.approveUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/reject", userHandler.rejectUser).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users/{userId}/password", userHandler.changePassword).Methods("PUT", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router)
 }
 
@@ -326,6 +327,16 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 
 	isCurrent := user.ID == currenUserID
 
+	var password *string
+	if user.Password != "" {
+		password = &user.Password
+	}
+
+	var idpID *string
+	if user.IdPID != "" {
+		idpID = &user.IdPID
+	}
+
 	return &api.User{
 		Id:              user.ID,
 		Name:            user.Name,
@@ -339,6 +350,8 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		LastLogin:       &user.LastLogin,
 		Issued:          &user.Issued,
 		PendingApproval: user.PendingApproval,
+		Password:        password,
+		IdpId:           idpID,
 	}
 }
 
@@ -391,6 +404,49 @@ func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = h.accountManager.RejectUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+// passwordChangeRequest represents the request body for password change
+type passwordChangeRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// changePassword is a PUT request to change user's password.
+// Only available when embedded IDP is enabled.
+// Users can only change their own password.
+func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteErrorResponse("invalid user ID", http.StatusBadRequest, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	var req passwordChangeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	err = h.accountManager.UpdateUserPassword(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

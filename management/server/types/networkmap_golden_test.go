@@ -25,15 +25,12 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// update flag is used to update the golden file.
-// example: go test ./... -v -update
-// var update = flag.Bool("update", false, "update golden files")
-
 const (
 	numPeers          = 100
 	devGroupID        = "group-dev"
 	opsGroupID        = "group-ops"
 	allGroupID        = "group-all"
+	sshUsersGroupID   = "group-ssh-users"
 	routeID           = route.ID("route-main")
 	routeHA1ID        = route.ID("route-ha-1")
 	routeHA2ID        = route.ID("route-ha-2")
@@ -41,6 +38,7 @@ const (
 	policyIDAll       = "policy-all"
 	policyIDPosture   = "policy-posture"
 	policyIDDrop      = "policy-drop"
+	policyIDSSH       = "policy-ssh"
 	postureCheckID    = "posture-check-ver"
 	networkResourceID = "res-database"
 	networkID         = "net-database"
@@ -51,6 +49,9 @@ const (
 	offlinePeerID     = "peer-99" // This peer will be completely offline.
 	routingPeerID     = "peer-95" // This peer is used for routing, it has a route to the network.
 	testAccountID     = "account-golden-test"
+	userAdminID       = "user-admin"
+	userDevID         = "user-dev"
+	userOpsID         = "user-ops"
 )
 
 func TestGetPeerNetworkMap_Golden(t *testing.T) {
@@ -69,61 +70,34 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
-
-	normalizeAndSortNetworkMap(networkMap)
-
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
-
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden.json")
-
-	t.Log("Update golden file...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
-
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "resulted network map from OLD method does not match golden file")
-}
-
-func TestGetPeerNetworkMap_Golden_New(t *testing.T) {
-	account := createTestAccountWithEntities()
-
-	ctx := context.Background()
-	validatedPeersMap := make(map[string]struct{})
-	for i := range numPeers {
-		peerID := fmt.Sprintf("peer-%d", i)
-
-		if peerID == offlinePeerID {
-			continue
-		}
-		validatedPeersMap[peerID] = struct{}{}
-	}
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(legacyNetworkMap)
+	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
-	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+	normalizeAndSortNetworkMap(newNetworkMap)
+	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
+	if string(legacyJSON) != string(newJSON) {
+		legacyFilePath := filepath.Join("testdata", "networkmap_golden.json")
+		newFilePath := filepath.Join("testdata", "networkmap_golden_new.json")
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
+		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		require.NoError(t, err)
 
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new.json")
+		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved legacy network map to %s", legacyFilePath)
 
-	t.Log("Update golden file...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
+		err = os.WriteFile(newFilePath, newJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved new network map to %s", newFilePath)
 
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "resulted network map from NEW builder does not match golden file")
+		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps from legacy and new builder do not match")
+	}
 }
 
 func BenchmarkGetPeerNetworkMap(b *testing.B) {
@@ -141,7 +115,7 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 	b.Run("old builder", func(b *testing.B) {
 		for range b.N {
 			for _, peerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -150,7 +124,7 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 		for range b.N {
 			builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 			for _, peerID := range peerIDs {
-				_ = builder.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, validatedPeersMap, nil)
+				_ = builder.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
 			}
 		}
 	})
@@ -168,6 +142,8 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 		}
 		validatedPeersMap[peerID] = struct{}{}
 	}
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newPeerID := "peer-new-101"
 	newPeerIP := net.IP{100, 64, 1, 1}
@@ -201,92 +177,36 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(legacyNetworkMap)
+	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
-
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
-
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_new_peer.json")
-
-	t.Log("Update golden file with new peer...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
-
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from OLD method with new peer does not match golden file")
-}
-
-func TestGetPeerNetworkMap_Golden_New_WithOnPeerAdded(t *testing.T) {
-	account := createTestAccountWithEntities()
-
-	ctx := context.Background()
-	validatedPeersMap := make(map[string]struct{})
-	for i := range numPeers {
-		peerID := fmt.Sprintf("peer-%d", i)
-		if peerID == offlinePeerID {
-			continue
-		}
-		validatedPeersMap[peerID] = struct{}{}
-	}
-
-	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
-
-	newPeerID := "peer-new-101"
-	newPeerIP := net.IP{100, 64, 1, 1}
-	newPeer := &nbpeer.Peer{
-		ID:        newPeerID,
-		IP:        newPeerIP,
-		Key:       fmt.Sprintf("key-%s", newPeerID),
-		DNSLabel:  "peernew101",
-		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
-		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
-		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
-	}
-
-	account.Peers[newPeerID] = newPeer
-
-	if devGroup, exists := account.Groups[devGroupID]; exists {
-		devGroup.Peers = append(devGroup.Peers, newPeerID)
-	}
-
-	if allGroup, exists := account.Groups[allGroupID]; exists {
-		allGroup.Peers = append(allGroup.Peers, newPeerID)
-	}
-
-	validatedPeersMap[newPeerID] = struct{}{}
-
-	if account.Network != nil {
-		account.Network.Serial++
-	}
-
-	err := builder.OnPeerAddedIncremental(newPeerID)
+	err = builder.OnPeerAddedIncremental(account, newPeerID)
 	require.NoError(t, err, "error adding peer to cache")
 
-	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+	normalizeAndSortNetworkMap(newNetworkMap)
+	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
+	if string(legacyJSON) != string(newJSON) {
+		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_new_peer.json")
+		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded.json")
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
+		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		require.NoError(t, err)
 
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded.json")
-	t.Log("Update golden file with OnPeerAdded...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
+		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved legacy network map to %s", legacyFilePath)
 
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
+		err = os.WriteFile(newFilePath, newJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved new network map to %s", newFilePath)
 
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerAdded does not match golden file")
+		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with new peer from legacy and new builder do not match")
+	}
 }
 
 func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
@@ -320,7 +240,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -328,9 +248,9 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newPeerID)
+			_ = builder.OnPeerAddedIncremental(account, newPeerID)
 			for _, testingPeerID := range peerIDs {
-				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
 			}
 		}
 	})
@@ -348,6 +268,8 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 		}
 		validatedPeersMap[peerID] = struct{}{}
 	}
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newRouterID := "peer-new-router-102"
 	newRouterIP := net.IP{100, 64, 1, 2}
@@ -395,106 +317,36 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(legacyNetworkMap)
+	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
-
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
-
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_new_router.json")
-
-	t.Log("Update golden file with new router...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
-
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from OLD method with new router does not match golden file")
-}
-
-func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter(t *testing.T) {
-	account := createTestAccountWithEntities()
-
-	ctx := context.Background()
-	validatedPeersMap := make(map[string]struct{})
-	for i := range numPeers {
-		peerID := fmt.Sprintf("peer-%d", i)
-		if peerID == offlinePeerID {
-			continue
-		}
-		validatedPeersMap[peerID] = struct{}{}
-	}
-
-	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
-
-	newRouterID := "peer-new-router-102"
-	newRouterIP := net.IP{100, 64, 1, 2}
-	newRouter := &nbpeer.Peer{
-		ID:        newRouterID,
-		IP:        newRouterIP,
-		Key:       fmt.Sprintf("key-%s", newRouterID),
-		DNSLabel:  "newrouter102",
-		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
-		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
-		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
-	}
-
-	account.Peers[newRouterID] = newRouter
-
-	if opsGroup, exists := account.Groups[opsGroupID]; exists {
-		opsGroup.Peers = append(opsGroup.Peers, newRouterID)
-	}
-	if allGroup, exists := account.Groups[allGroupID]; exists {
-		allGroup.Peers = append(allGroup.Peers, newRouterID)
-	}
-
-	newRoute := &route.Route{
-		ID:                  route.ID("route-new-router"),
-		Network:             netip.MustParsePrefix("172.16.0.0/24"),
-		Peer:                newRouter.Key,
-		PeerID:              newRouterID,
-		Description:         "Route from new router",
-		Enabled:             true,
-		PeerGroups:          []string{opsGroupID},
-		Groups:              []string{devGroupID, opsGroupID},
-		AccessControlGroups: []string{devGroupID},
-		AccountID:           account.Id,
-	}
-	account.Routes[newRoute.ID] = newRoute
-
-	validatedPeersMap[newRouterID] = struct{}{}
-
-	if account.Network != nil {
-		account.Network.Serial++
-	}
-
-	err := builder.OnPeerAddedIncremental(newRouterID)
+	err = builder.OnPeerAddedIncremental(account, newRouterID)
 	require.NoError(t, err, "error adding router to cache")
 
-	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+	normalizeAndSortNetworkMap(newNetworkMap)
+	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
+	if string(legacyJSON) != string(newJSON) {
+		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_new_router.json")
+		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
+		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		require.NoError(t, err)
 
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
+		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved legacy network map to %s", legacyFilePath)
 
-	t.Log("Update golden file with OnPeerAdded router...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
+		err = os.WriteFile(newFilePath, newJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved new network map to %s", newFilePath)
 
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerAdded router does not match golden file")
+		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with new router from legacy and new builder do not match")
+	}
 }
 
 func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
@@ -550,7 +402,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -558,9 +410,9 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerAddedIncremental(newRouterID)
+			_ = builder.OnPeerAddedIncremental(account, newRouterID)
 			for _, testingPeerID := range peerIDs {
-				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
 			}
 		}
 	})
@@ -579,7 +431,9 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	deletedPeerID := "peer-25" // peer from devs group
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	deletedPeerID := "peer-25"
 
 	delete(account.Peers, deletedPeerID)
 
@@ -604,85 +458,36 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(legacyNetworkMap)
+	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
-
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
-
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_peer.json")
-
-	t.Log("Update golden file with deleted peer...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
-
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from OLD method with deleted peer does not match golden file")
-}
-
-func TestGetPeerNetworkMap_Golden_New_WithOnPeerDeleted(t *testing.T) {
-	account := createTestAccountWithEntities()
-
-	ctx := context.Background()
-	validatedPeersMap := make(map[string]struct{})
-	for i := range numPeers {
-		peerID := fmt.Sprintf("peer-%d", i)
-		if peerID == offlinePeerID {
-			continue
-		}
-		validatedPeersMap[peerID] = struct{}{}
-	}
-
-	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
-
-	deletedPeerID := "peer-25" // devs group peer
-
-	delete(account.Peers, deletedPeerID)
-
-	if devGroup, exists := account.Groups[devGroupID]; exists {
-		devGroup.Peers = slices.DeleteFunc(devGroup.Peers, func(id string) bool {
-			return id == deletedPeerID
-		})
-	}
-
-	if allGroup, exists := account.Groups[allGroupID]; exists {
-		allGroup.Peers = slices.DeleteFunc(allGroup.Peers, func(id string) bool {
-			return id == deletedPeerID
-		})
-	}
-
-	delete(validatedPeersMap, deletedPeerID)
-
-	if account.Network != nil {
-		account.Network.Serial++
-	}
-
-	err := builder.OnPeerDeleted(deletedPeerID)
+	err = builder.OnPeerDeleted(account, deletedPeerID)
 	require.NoError(t, err, "error deleting peer from cache")
 
-	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+	normalizeAndSortNetworkMap(newNetworkMap)
+	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
+	if string(legacyJSON) != string(newJSON) {
+		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_peer.json")
+		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeerdeleted.json")
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
+		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		require.NoError(t, err)
 
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeerdeleted.json")
-	t.Log("Update golden file with OnPeerDeleted...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
+		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved legacy network map to %s", legacyFilePath)
 
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
+		err = os.WriteFile(newFilePath, newJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved new network map to %s", newFilePath)
 
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerDeleted does not match golden file")
+		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with deleted peer from legacy and new builder do not match")
+	}
 }
 
 func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
@@ -698,7 +503,9 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	deletedRouterID := "peer-75" // router peer
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	deletedRouterID := "peer-75"
 
 	var affectedRoute *route.Route
 	for _, r := range account.Routes {
@@ -730,93 +537,36 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	networkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, resourcePolicies, routers, nil)
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(legacyNetworkMap)
+	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling legacy network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
-
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err, "error marshaling network map to JSON")
-
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_router_peer.json")
-
-	t.Log("Update golden file with deleted peer...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
-
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err, "error reading golden file")
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from OLD method with deleted peer does not match golden file")
-}
-
-func TestGetPeerNetworkMap_Golden_New_WithDeletedRouterPeer(t *testing.T) {
-	account := createTestAccountWithEntities()
-
-	ctx := context.Background()
-	validatedPeersMap := make(map[string]struct{})
-	for i := range numPeers {
-		peerID := fmt.Sprintf("peer-%d", i)
-		if peerID == offlinePeerID {
-			continue
-		}
-		validatedPeersMap[peerID] = struct{}{}
-	}
-
-	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
-
-	deletedRouterID := "peer-75" // router peer
-
-	var affectedRoute *route.Route
-	for _, r := range account.Routes {
-		if r.PeerID == deletedRouterID {
-			affectedRoute = r
-			break
-		}
-	}
-	require.NotNil(t, affectedRoute, "Router peer should have a route")
-
-	for _, group := range account.Groups {
-		group.Peers = slices.DeleteFunc(group.Peers, func(id string) bool {
-			return id == deletedRouterID
-		})
-	}
-	for routeID, r := range account.Routes {
-		if r.Peer == account.Peers[deletedRouterID].Key || r.PeerID == deletedRouterID {
-			delete(account.Routes, routeID)
-		}
-	}
-	delete(account.Peers, deletedRouterID)
-	delete(validatedPeersMap, deletedRouterID)
-
-	if account.Network != nil {
-		account.Network.Serial++
-	}
-
-	err := builder.OnPeerDeleted(deletedRouterID)
+	err = builder.OnPeerDeleted(account, deletedRouterID)
 	require.NoError(t, err, "error deleting routing peer from cache")
 
-	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+	normalizeAndSortNetworkMap(newNetworkMap)
+	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	normalizeAndSortNetworkMap(networkMap)
+	if string(legacyJSON) != string(newJSON) {
+		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_router_peer.json")
+		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_deleted_router.json")
 
-	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
-	require.NoError(t, err)
+		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		require.NoError(t, err)
 
-	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_deleted_router.json")
+		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved legacy network map to %s", legacyFilePath)
 
-	t.Log("Update golden file with deleted router...")
-	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
-	require.NoError(t, err)
-	err = os.WriteFile(goldenFilePath, jsonData, 0644)
-	require.NoError(t, err)
+		err = os.WriteFile(newFilePath, newJSON, 0644)
+		require.NoError(t, err)
+		t.Logf("Saved new network map to %s", newFilePath)
 
-	expectedJSON, err := os.ReadFile(goldenFilePath)
-	require.NoError(t, err)
-
-	require.JSONEq(t, string(expectedJSON), string(jsonData),
-		"network map after deleting router does not match golden file")
+		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with deleted router from legacy and new builder do not match")
+	}
 }
 
 func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
@@ -847,7 +597,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.Run("old builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -855,9 +605,9 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = builder.OnPeerDeleted(deletedPeerID)
+			_ = builder.OnPeerDeleted(account, deletedPeerID)
 			for _, testingPeerID := range peerIDs {
-				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil)
+				_ = builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
 			}
 		}
 	})
@@ -924,6 +674,54 @@ func normalizeAndSortNetworkMap(networkMap *types.NetworkMap) {
 	}
 }
 
+type networkMapJSON struct {
+	Peers               []*nbpeer.Peer             `json:"Peers"`
+	Network             *types.Network             `json:"Network"`
+	Routes              []*route.Route             `json:"Routes"`
+	DNSConfig           dns.Config                 `json:"DNSConfig"`
+	OfflinePeers        []*nbpeer.Peer             `json:"OfflinePeers"`
+	FirewallRules       []*types.FirewallRule      `json:"FirewallRules"`
+	RoutesFirewallRules []*types.RouteFirewallRule `json:"RoutesFirewallRules"`
+	ForwardingRules     []*types.ForwardingRule    `json:"ForwardingRules"`
+	AuthorizedUsers     map[string][]string        `json:"AuthorizedUsers,omitempty"`
+	EnableSSH           bool                       `json:"EnableSSH"`
+}
+
+func toNetworkMapJSON(nm *types.NetworkMap) *networkMapJSON {
+	result := &networkMapJSON{
+		Peers:               nm.Peers,
+		Network:             nm.Network,
+		Routes:              nm.Routes,
+		DNSConfig:           nm.DNSConfig,
+		OfflinePeers:        nm.OfflinePeers,
+		FirewallRules:       nm.FirewallRules,
+		RoutesFirewallRules: nm.RoutesFirewallRules,
+		ForwardingRules:     nm.ForwardingRules,
+		EnableSSH:           nm.EnableSSH,
+	}
+
+	if len(nm.AuthorizedUsers) > 0 {
+		result.AuthorizedUsers = make(map[string][]string)
+		localUsers := make([]string, 0, len(nm.AuthorizedUsers))
+		for localUser := range nm.AuthorizedUsers {
+			localUsers = append(localUsers, localUser)
+		}
+		sort.Strings(localUsers)
+
+		for _, localUser := range localUsers {
+			userIDs := nm.AuthorizedUsers[localUser]
+			sortedUserIDs := make([]string, 0, len(userIDs))
+			for userID := range userIDs {
+				sortedUserIDs = append(sortedUserIDs, userID)
+			}
+			sort.Strings(sortedUserIDs)
+			result.AuthorizedUsers[localUser] = sortedUserIDs
+		}
+	}
+
+	return result
+}
+
 func createTestAccountWithEntities() *types.Account {
 	peers := make(map[string]*nbpeer.Peer)
 	devGroupPeers, opsGroupPeers, allGroupPeers := []string{}, []string{}, []string{}
@@ -959,9 +757,10 @@ func createTestAccountWithEntities() *types.Account {
 	}
 
 	groups := map[string]*types.Group{
-		allGroupID: {ID: allGroupID, Name: "All", Peers: allGroupPeers},
-		devGroupID: {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
-		opsGroupID: {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
+		allGroupID:      {ID: allGroupID, Name: "All", Peers: allGroupPeers},
+		devGroupID:      {ID: devGroupID, Name: "Developers", Peers: devGroupPeers},
+		opsGroupID:      {ID: opsGroupID, Name: "Operations", Peers: opsGroupPeers},
+		sshUsersGroupID: {ID: sshUsersGroupID, Name: "SSH Users", Peers: []string{}},
 	}
 
 	policies := []*types.Policy{
@@ -999,6 +798,15 @@ func createTestAccountWithEntities() *types.Account {
 				Sources: []string{opsGroupID}, DestinationResource: types.Resource{ID: networkResourceID},
 			}},
 		},
+		{
+			ID: policyIDSSH, Name: "SSH Access Policy", Enabled: true,
+			Rules: []*types.PolicyRule{{
+				ID: policyIDSSH, Name: "Allow SSH to Ops", Enabled: true, Action: types.PolicyTrafficActionAccept,
+				Protocol: types.PolicyRuleProtocolNetbirdSSH, Bidirectional: false,
+				Sources: []string{devGroupID}, Destinations: []string{opsGroupID},
+				AuthorizedGroups: map[string][]string{sshUsersGroupID: {"root", "admin"}},
+			}},
+		},
 	}
 
 	routes := map[route.ID]*route.Route{
@@ -1031,8 +839,15 @@ func createTestAccountWithEntities() *types.Account {
 		},
 	}
 
+	users := map[string]*types.User{
+		userAdminID: {Id: userAdminID, Role: types.UserRoleAdmin, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{allGroupID}},
+		userDevID:   {Id: userDevID, Role: types.UserRoleUser, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{sshUsersGroupID, devGroupID}},
+		userOpsID:   {Id: userOpsID, Role: types.UserRoleUser, IsServiceUser: false, AccountID: testAccountID, AutoGroups: []string{sshUsersGroupID, opsGroupID}},
+	}
+
 	account := &types.Account{
 		Id: testAccountID, Peers: peers, Groups: groups, Policies: policies, Routes: routes,
+		Users: users,
 		Network: &types.Network{
 			Identifier: "net-golden-test", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(16, 32)}, Serial: 1,
 		},
@@ -1066,4 +881,86 @@ func createTestAccountWithEntities() *types.Account {
 	}
 
 	return account
+}
+
+func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter_Batched(t *testing.T) {
+	account := createTestAccountWithEntities()
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{})
+	for i := range numPeers {
+		peerID := fmt.Sprintf("peer-%d", i)
+		if peerID == offlinePeerID {
+			continue
+		}
+		validatedPeersMap[peerID] = struct{}{}
+	}
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	newRouterID := "peer-new-router-102"
+	newRouterIP := net.IP{100, 64, 1, 2}
+	newRouter := &nbpeer.Peer{
+		ID:        newRouterID,
+		IP:        newRouterIP,
+		Key:       fmt.Sprintf("key-%s", newRouterID),
+		DNSLabel:  "newrouter102",
+		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
+		UserID:    "user-admin",
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
+	}
+
+	account.Peers[newRouterID] = newRouter
+
+	if opsGroup, exists := account.Groups[opsGroupID]; exists {
+		opsGroup.Peers = append(opsGroup.Peers, newRouterID)
+	}
+	if allGroup, exists := account.Groups[allGroupID]; exists {
+		allGroup.Peers = append(allGroup.Peers, newRouterID)
+	}
+
+	newRoute := &route.Route{
+		ID:                  route.ID("route-new-router"),
+		Network:             netip.MustParsePrefix("172.16.0.0/24"),
+		Peer:                newRouter.Key,
+		PeerID:              newRouterID,
+		Description:         "Route from new router",
+		Enabled:             true,
+		PeerGroups:          []string{opsGroupID},
+		Groups:              []string{devGroupID, opsGroupID},
+		AccessControlGroups: []string{devGroupID},
+		AccountID:           account.Id,
+	}
+	account.Routes[newRoute.ID] = newRoute
+
+	validatedPeersMap[newRouterID] = struct{}{}
+
+	if account.Network != nil {
+		account.Network.Serial++
+	}
+
+	builder.EnqueuePeersForIncrementalAdd(account, newRouterID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
+
+	normalizeAndSortNetworkMap(networkMap)
+
+	jsonData, err := json.MarshalIndent(networkMap, "", "  ")
+	require.NoError(t, err, "error marshaling network map to JSON")
+
+	goldenFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
+
+	t.Log("Update golden file with OnPeerAdded router...")
+	err = os.MkdirAll(filepath.Dir(goldenFilePath), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(goldenFilePath, jsonData, 0644)
+	require.NoError(t, err)
+
+	expectedJSON, err := os.ReadFile(goldenFilePath)
+	require.NoError(t, err, "error reading golden file")
+
+	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerAdded router does not match golden file")
 }

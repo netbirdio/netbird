@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -1105,6 +1107,193 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 	}
 }
 
+func Test_GetActiveGroupUsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  *Account
+		expected map[string][]string
+	}{
+		{
+			name: "all users are active",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1", "user2"},
+				"group3": {"user2"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "some users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2", "group3"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1", "group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user3"},
+				"group2": {"user1"},
+				"group3": {"user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+		{
+			name: "all users are blocked",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    true,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group2"},
+						Blocked:    true,
+					},
+				},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "user with no auto groups",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user2"},
+				"":       {"user1", "user2"},
+			},
+		},
+		{
+			name: "empty account",
+			account: &Account{
+				Users: map[string]*User{},
+			},
+			expected: map[string][]string{},
+		},
+		{
+			name: "multiple users in same group",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group1"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1", "user2", "user3"},
+				"":       {"user1", "user2", "user3"},
+			},
+		},
+		{
+			name: "user in multiple groups with blocked users",
+			account: &Account{
+				Users: map[string]*User{
+					"user1": {
+						Id:         "user1",
+						AutoGroups: []string{"group1", "group2", "group3"},
+						Blocked:    false,
+					},
+					"user2": {
+						Id:         "user2",
+						AutoGroups: []string{"group1", "group2"},
+						Blocked:    true,
+					},
+					"user3": {
+						Id:         "user3",
+						AutoGroups: []string{"group3"},
+						Blocked:    false,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"group1": {"user1"},
+				"group2": {"user1"},
+				"group3": {"user1", "user3"},
+				"":       {"user1", "user3"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.account.GetActiveGroupUsers()
+
+			// Check that the number of groups matches
+			assert.Equal(t, len(tt.expected), len(result), "number of groups should match")
+
+			// Check each group's users
+			for groupID, expectedUsers := range tt.expected {
+				actualUsers, exists := result[groupID]
+				assert.True(t, exists, "group %s should exist in result", groupID)
+				assert.ElementsMatch(t, expectedUsers, actualUsers, "users in group %s should match", groupID)
+			}
+
+			// Ensure no extra groups in result
+			for groupID := range result {
+				_, exists := tt.expected[groupID]
+				assert.True(t, exists, "unexpected group %s in result", groupID)
+			}
+		})
+	}
+}
+
 func Test_FilterZoneRecordsForPeers(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -1235,6 +1424,518 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 			result := filterZoneRecordsForPeers(tt.peer, tt.customZone, tt.peersToConnect, tt.expiredPeers)
 			assert.Equal(t, len(tt.expectedRecords), len(result))
 			assert.ElementsMatch(t, tt.expectedRecords, result)
+		})
+	}
+}
+
+func Test_filterPeerAppliedZones(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		accountZones []*zones.Zone
+		peerGroups   LookupMap
+		expected     []nbdns.CustomZone
+	}{
+		{
+			name:         "empty peer groups returns empty custom zones",
+			accountZones: []*zones.Zone{},
+			peerGroups:   LookupMap{},
+			expected:     []nbdns.CustomZone{},
+		},
+		{
+			name: "peer has access to zone with A record",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "example.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.example.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "example.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.example.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "peer has access to zone with search domain enabled",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "internal.local",
+					Enabled:            true,
+					EnableSearchDomain: true,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "api.internal.local",
+							Type:    records.RecordTypeA,
+							Content: "10.0.0.1",
+							TTL:     600,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "internal.local.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "api.internal.local.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   600,
+							RData: "10.0.0.1",
+						},
+					},
+					SearchDomainDisabled: false,
+				},
+			},
+		},
+		{
+			name: "peer has no access to zone",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "private.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group2"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "secret.private.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected:   []nbdns.CustomZone{},
+		},
+		{
+			name: "disabled zone is filtered out",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "disabled.com",
+					Enabled:            false,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.disabled.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected:   []nbdns.CustomZone{},
+		},
+		{
+			name: "zone with no records is filtered out",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "empty.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records:            []*records.Record{},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected:   []nbdns.CustomZone{},
+		},
+		{
+			name: "peer has access via multiple groups",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "multi.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1", "group2", "group3"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.multi.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group2": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "multi.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.multi.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "multiple zones with mixed access",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "allowed.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.allowed.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+				{
+					ID:                 "zone2",
+					Domain:             "denied.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group2"},
+					Records: []*records.Record{
+						{
+							ID:      "record2",
+							Name:    "www.denied.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.2",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "allowed.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.allowed.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "zone with multiple record types",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "mixed.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.mixed.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+						{
+							ID:      "record2",
+							Name:    "ipv6.mixed.com",
+							Type:    records.RecordTypeAAAA,
+							Content: "2001:db8::1",
+							TTL:     600,
+						},
+						{
+							ID:      "record3",
+							Name:    "alias.mixed.com",
+							Type:    records.RecordTypeCNAME,
+							Content: "www.mixed.com",
+							TTL:     900,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "mixed.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.mixed.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+						{
+							Name:  "ipv6.mixed.com.",
+							Type:  int(dns.TypeAAAA),
+							Class: nbdns.DefaultClass,
+							TTL:   600,
+							RData: "2001:db8::1",
+						},
+						{
+							Name:  "alias.mixed.com.",
+							Type:  int(dns.TypeCNAME),
+							Class: nbdns.DefaultClass,
+							TTL:   900,
+							RData: "www.mixed.com.",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "multiple zones both accessible",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "first.com",
+					Enabled:            true,
+					EnableSearchDomain: true,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.first.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+				{
+					ID:                 "zone2",
+					Domain:             "second.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record2",
+							Name:    "www.second.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.2",
+							TTL:     600,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "first.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.first.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+					},
+					SearchDomainDisabled: false,
+				},
+				{
+					Domain: "second.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.second.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   600,
+							RData: "192.168.1.2",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "zone with multiple records of same type",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "multi-a.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.multi-a.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+						{
+							ID:      "record2",
+							Name:    "www.multi-a.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.2",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "multi-a.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.multi-a.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+						{
+							Name:  "www.multi-a.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.2",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+		{
+			name: "peer in multiple groups accessing different zones",
+			accountZones: []*zones.Zone{
+				{
+					ID:                 "zone1",
+					Domain:             "zone1.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group1"},
+					Records: []*records.Record{
+						{
+							ID:      "record1",
+							Name:    "www.zone1.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.1",
+							TTL:     300,
+						},
+					},
+				},
+				{
+					ID:                 "zone2",
+					Domain:             "zone2.com",
+					Enabled:            true,
+					EnableSearchDomain: false,
+					DistributionGroups: []string{"group2"},
+					Records: []*records.Record{
+						{
+							ID:      "record2",
+							Name:    "www.zone2.com",
+							Type:    records.RecordTypeA,
+							Content: "192.168.1.2",
+							TTL:     300,
+						},
+					},
+				},
+			},
+			peerGroups: LookupMap{"group1": struct{}{}, "group2": struct{}{}},
+			expected: []nbdns.CustomZone{
+				{
+					Domain: "zone1.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.zone1.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.1",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+				{
+					Domain: "zone2.com.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "www.zone2.com.",
+							Type:  int(dns.TypeA),
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "192.168.1.2",
+						},
+					},
+					SearchDomainDisabled: true,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterPeerAppliedZones(ctx, tt.accountZones, tt.peerGroups)
+			require.Equal(t, len(tt.expected), len(result), "number of custom zones should match")
+
+			for i, expectedZone := range tt.expected {
+				assert.Equal(t, expectedZone.Domain, result[i].Domain, "domain should match")
+				assert.Equal(t, expectedZone.SearchDomainDisabled, result[i].SearchDomainDisabled, "search domain disabled flag should match")
+				assert.Equal(t, len(expectedZone.Records), len(result[i].Records), "number of records should match")
+
+				for j, expectedRecord := range expectedZone.Records {
+					assert.Equal(t, expectedRecord.Name, result[i].Records[j].Name, "record name should match")
+					assert.Equal(t, expectedRecord.Type, result[i].Records[j].Type, "record type should match")
+					assert.Equal(t, expectedRecord.Class, result[i].Records[j].Class, "record class should match")
+					assert.Equal(t, expectedRecord.TTL, result[i].Records[j].TTL, "record TTL should match")
+					assert.Equal(t, expectedRecord.RData, result[i].Records[j].RData, "record RData should match")
+				}
+			}
 		})
 	}
 }

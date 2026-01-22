@@ -27,8 +27,11 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -57,6 +60,7 @@ heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
 cpu.prof: CPU profiling information.
+stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
 
 
 Anonymization Process
@@ -109,6 +113,9 @@ For example, to view the heap profile:
 go tool pprof -http=:8088 heap.prof
 
 This will open a web browser tab with the profiling information.
+
+Stack Trace
+The stack_trace.txt file contains a complete snapshot of all goroutine stack traces at the time the debug bundle was created.
 
 Routes
 The routes.txt file contains detailed routing table information in a tabular format:
@@ -219,11 +226,10 @@ type BundleGenerator struct {
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
-	logFile        string
+	logPath        string
 	cpuProfile     []byte
 
 	anonymize         bool
-	clientStatus      string
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -232,7 +238,6 @@ type BundleGenerator struct {
 
 type BundleConfig struct {
 	Anonymize         bool
-	ClientStatus      string
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -241,7 +246,7 @@ type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
-	LogFile        string
+	LogPath        string
 	CPUProfile     []byte
 }
 
@@ -258,11 +263,10 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
-		logFile:        deps.LogFile,
+		logPath:        deps.LogPath,
 		cpuProfile:     deps.CPUProfile,
 
 		anonymize:         cfg.Anonymize,
-		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -308,13 +312,6 @@ func (g *BundleGenerator) createArchive() error {
 		return fmt.Errorf("add status: %w", err)
 	}
 
-	if g.statusRecorder != nil {
-		status := g.statusRecorder.GetFullStatus()
-		seedFromStatus(g.anonymizer, &status)
-	} else {
-		log.Debugf("no status recorder available for seeding")
-	}
-
 	if err := g.addConfig(); err != nil {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
@@ -335,6 +332,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
 	}
 
+	if err := g.addStackTrace(); err != nil {
+		log.Errorf("failed to add stack trace to debug bundle: %v", err)
+	}
+
 	if err := g.addSyncResponse(); err != nil {
 		return fmt.Errorf("add sync response: %w", err)
 	}
@@ -351,7 +352,7 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
+	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {
@@ -360,6 +361,10 @@ func (g *BundleGenerator) createArchive() error {
 		}
 	} else if err := g.trySystemdLogFallback(); err != nil {
 		log.Errorf("failed to add systemd logs: %v", err)
+	}
+
+	if err := g.addUpdateLogs(); err != nil {
+		log.Errorf("failed to add updater logs: %v", err)
 	}
 
 	return nil
@@ -396,11 +401,26 @@ func (g *BundleGenerator) addReadme() error {
 }
 
 func (g *BundleGenerator) addStatus() error {
-	if status := g.clientStatus; status != "" {
-		statusReader := strings.NewReader(status)
+	if g.statusRecorder != nil {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
+		fullStatus := g.statusRecorder.GetFullStatus()
+		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		statusOutput := overview.FullDetailSummary()
+
+		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
+		seedFromStatus(g.anonymizer, &fullStatus)
+	} else {
+		log.Debugf("no status recorder available for seeding")
 	}
 	return nil
 }
@@ -543,6 +563,18 @@ func (g *BundleGenerator) addCPUProfile() error {
 	return nil
 }
 
+func (g *BundleGenerator) addStackTrace() error {
+	buf := make([]byte, 5242880) // 5 MB buffer
+	n := runtime.Stack(buf, true)
+
+	stackTrace := bytes.NewReader(buf[:n])
+	if err := g.addFileToZip(stackTrace, "stack_trace.txt"); err != nil {
+		return fmt.Errorf("add stack trace file to zip: %w", err)
+	}
+
+	return nil
+}
+
 func (g *BundleGenerator) addInterfaces() error {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -651,6 +683,29 @@ func (g *BundleGenerator) addStateFile() error {
 	return nil
 }
 
+func (g *BundleGenerator) addUpdateLogs() error {
+	inst := installer.New()
+	logFiles := inst.LogFiles()
+	if len(logFiles) == 0 {
+		return nil
+	}
+
+	log.Infof("adding updater logs")
+	for _, logFile := range logFiles {
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			log.Warnf("failed to read update log file %s: %v", logFile, err)
+			continue
+		}
+
+		baseName := filepath.Base(logFile)
+		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
+			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
+		}
+	}
+	return nil
+}
+
 func (g *BundleGenerator) addCorruptedStateFiles() error {
 	sm := profilemanager.NewServiceManager("")
 	pattern := sm.GetStatePath()
@@ -683,14 +738,14 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 }
 
 func (g *BundleGenerator) addLogfile() error {
-	if g.logFile == "" {
+	if g.logPath == "" {
 		log.Debugf("skipping empty log file in debug bundle")
 		return nil
 	}
 
-	logDir := filepath.Dir(g.logFile)
+	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 

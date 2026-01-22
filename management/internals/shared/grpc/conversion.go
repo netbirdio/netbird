@@ -6,7 +6,11 @@ import (
 	"net/url"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/client/ssh/auth"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -15,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
@@ -83,15 +88,15 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 
 	sshConfig := &proto.SSHConfig{
-		SshEnabled: peer.SSHEnabled,
+		SshEnabled: peer.SSHEnabled || enableSSH,
 	}
 
-	if peer.SSHEnabled {
+	if sshConfig.SshEnabled {
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
@@ -101,16 +106,20 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		AutoUpdate: &proto.AutoUpdateSettings{
+			Version: settings.AutoUpdateVersion,
+		},
 	}
 }
 
 func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		NetworkMap: &proto.NetworkMap{
-			Serial:    networkMap.Network.CurrentSerial(),
-			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
+			Serial:     networkMap.Network.CurrentSerial(),
+			Routes:     toProtocolRoutes(networkMap.Routes),
+			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -146,7 +155,43 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.ForwardingRules = forwardingRules
 	}
 
+	if networkMap.AuthorizedUsers != nil {
+		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
+		userIDClaim := auth.DefaultUserIDClaim
+		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+			userIDClaim = httpConfig.AuthUserIDClaim
+		}
+		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+	}
+
 	return response
+}
+
+func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {
+	userIDToIndex := make(map[string]uint32)
+	var hashedUsers [][]byte
+	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
+
+	for machineUser, users := range authorizedUsers {
+		indexes := make([]uint32, 0, len(users))
+		for userID := range users {
+			idx, exists := userIDToIndex[userID]
+			if !exists {
+				hash, err := sshauth.HashUserID(userID)
+				if err != nil {
+					log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
+					continue
+				}
+				idx = uint32(len(hashedUsers))
+				userIDToIndex[userID] = idx
+				hashedUsers = append(hashedUsers, hash[:])
+			}
+			indexes = append(indexes, idx)
+		}
+		machineUsers[machineUser] = &proto.MachineUserIndexes{Indexes: indexes}
+	}
+
+	return hashedUsers, machineUsers
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
@@ -329,8 +374,10 @@ func shouldUsePortRange(rule *proto.FirewallRule) bool {
 // Helper function to convert nbdns.CustomZone to proto.CustomZone
 func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
 	protoZone := &proto.CustomZone{
-		Domain:  zone.Domain,
-		Records: make([]*proto.SimpleRecord, 0, len(zone.Records)),
+		Domain:               zone.Domain,
+		Records:              make([]*proto.SimpleRecord, 0, len(zone.Records)),
+		SearchDomainDisabled: zone.SearchDomainDisabled,
+		NonAuthoritative:     zone.NonAuthoritative,
 	}
 	for _, record := range zone.Records {
 		protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
@@ -383,9 +430,20 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
 	}
 
+	audience := config.AuthAudience
+	if config.CLIAuthAudience != "" {
+		audience = config.CLIAuthAudience
+	}
+
+	audiences := []string{config.AuthAudience}
+	if config.CLIAuthAudience != "" && config.CLIAuthAudience != config.AuthAudience {
+		audiences = append(audiences, config.CLIAuthAudience)
+	}
+
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     config.AuthAudience,
+		Audience:     audience,
+		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}
 }

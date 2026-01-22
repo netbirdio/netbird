@@ -34,6 +34,7 @@ type Manager struct {
 	server       *rp.Server
 	lock         sync.Mutex
 	port         int
+	wgIface      PresharedKeySetter
 }
 
 // NewManager creates a new Rosenpass manager
@@ -109,7 +110,13 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey, m.ifaceName)
+
+	m.lock.Lock()
+	m.rpWgHandler = NewNetbirdHandler()
+	if m.wgIface != nil {
+		m.rpWgHandler.SetInterface(m.wgIface)
+	}
+	m.lock.Unlock()
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
@@ -172,6 +179,20 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// SetInterface sets the WireGuard interface for the rosenpass handler.
+// This can be called before or after Run() - the interface will be stored
+// and passed to the handler when it's created or updated immediately if
+// already running.
+func (m *Manager) SetInterface(iface PresharedKeySetter) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.wgIface = iface
+	if m.rpWgHandler != nil {
+		m.rpWgHandler.SetInterface(iface)
+	}
+}
+
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
 func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
 	m.lock.Lock()
@@ -190,6 +211,20 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
+}
+
+// IsPresharedKeyInitialized returns true if Rosenpass has completed a handshake
+// and set a PSK for the given WireGuard peer.
+func (m *Manager) IsPresharedKeyInitialized(wireGuardPubKey string) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	peerID, ok := m.rpPeerIDs[wireGuardPubKey]
+	if !ok || peerID == nil {
+		return false
+	}
+
+	return m.rpWgHandler.IsPeerInitialized(*peerID)
 }
 
 func findRandomAvailableUDPPort() (int, error) {

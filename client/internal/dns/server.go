@@ -80,6 +80,7 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
+	currentConfigHash  uint64
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 
@@ -207,6 +208,7 @@ func newDefaultServer(
 		hostsDNSHolder:    newHostsDNSHolder(),
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
+		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -483,7 +485,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		}
 	}
 
-	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -496,8 +498,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 
-	// register local records
-	s.localResolver.Update(localRecords)
+	s.localResolver.Update(localZones)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
@@ -586,8 +587,29 @@ func (s *DefaultServer) applyHostConfig() {
 
 	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
+	hash, err := hashstructure.Hash(config, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Warnf("unable to hash the host dns configuration, will apply config anyway: %s", err)
+		// Fall through to apply config anyway (fail-safe approach)
+	} else if s.currentConfigHash == hash {
+		log.Debugf("not applying host config as there are no changes")
+		return
+	}
+
+	log.Debugf("applying host config as there are changes")
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
+		return
+	}
+
+	// Only update hash if it was computed successfully and config was applied
+	if err == nil {
+		s.currentConfigHash = hash
 	}
 
 	s.registerFallback(config)
@@ -609,9 +631,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,
@@ -636,9 +656,9 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
 	var muxUpdates []handlerWrapper
-	var localRecords []nbdns.SimpleRecord
+	var zones []nbdns.CustomZone
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -652,17 +672,20 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityLocal,
 		})
 
+		// zone records contain the fqdn, so we can just flatten them
+		var localRecords []nbdns.SimpleRecord
 		for _, record := range customZone.Records {
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-			// zone records contain the fqdn, so we can just flatten them
 			localRecords = append(localRecords, record)
 		}
+		customZone.Records = localRecords
+		zones = append(zones, customZone)
 	}
 
-	return muxUpdates, localRecords, nil
+	return muxUpdates, zones, nil
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
@@ -718,9 +741,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		log.Debugf("creating handler for domain=%s with priority=%d", domainGroup.domain, priority)
 		handler, err := newUpstreamResolver(
 			s.ctx,
-			s.wgInterface.Name(),
-			s.wgInterface.Address().IP,
-			s.wgInterface.Address().Network,
+			s.wgInterface,
 			s.statusRecorder,
 			s.hostsDNSHolder,
 			domainGroup.domain,
@@ -901,9 +922,7 @@ func (s *DefaultServer) addHostRootZone() {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,

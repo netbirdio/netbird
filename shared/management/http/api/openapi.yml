@@ -25,6 +25,8 @@ tags:
     description: Interact with and view information about routes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
+  - name: DNS Zones
+    description: Interact with and view information about custom DNS zones.
   - name: Events
     description: View information about the account and network events.
   - name: Accounts
@@ -32,8 +34,146 @@ tags:
   - name: Ingress Ports
     description: Interact with and view information about the ingress peers and ports.
     x-cloud-only: true
+  - name: Identity Providers
+    description: Interact with and view information about identity providers.
+  - name: Instance
+    description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
 components:
   schemas:
+    PasswordChangeRequest:
+      type: object
+      properties:
+        old_password:
+          description: The current password
+          type: string
+          example: "currentPassword123"
+        new_password:
+          description: The new password to set
+          type: string
+          example: "newSecurePassword456"
+      required:
+        - old_password
+        - new_password
+    WorkloadType:
+      type: string
+      description: |
+         Identifies the type of workload the job will execute.
+         Currently only `"bundle"` is supported.
+      enum:
+        - bundle
+      example: "bundle"
+    BundleParameters:
+      type: object
+      description: These parameters control what gets included in the bundle and how it is processed.
+      properties:
+        bundle_for:
+          type: boolean
+          description: Whether to generate a bundle for the given timeframe.
+          example: true
+        bundle_for_time:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Time period in minutes for which to generate the bundle.
+          example: 2
+        log_file_count:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of log files to include in the bundle.
+          example: 100
+        anonymize:
+          type: boolean
+          description: Whether sensitive data should be anonymized in the bundle.
+          example: false
+      required:
+        - bundle_for
+        - bundle_for_time
+        - log_file_count
+        - anonymize
+    BundleResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+          example: "upload_key_123"
+          nullable: true
+    BundleWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+      required:
+      - type
+      - parameters
+    BundleWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+        result:
+          $ref: '#/components/schemas/BundleResult'
+      required:
+        - type
+        - parameters
+        - result
+    WorkloadRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadRequest'
+    WorkloadResponse:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadResponse'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadResponse'
+    JobRequest:
+      type: object
+      properties:
+        workload:
+          $ref: '#/components/schemas/WorkloadRequest'
+      required:
+        - workload
+    JobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        triggered_by:
+          type: string
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        failed_reason:
+          type: string
+          nullable: true
+        workload:
+          $ref: '#/components/schemas/WorkloadResponse'
+      required:
+        - id
+        - created_at
+        - status
+        - triggered_by
+        - workload
     Account:
       type: object
       properties:
@@ -145,6 +285,15 @@ components:
           description: Enables or disables experimental lazy connection
           type: boolean
           example: true
+        auto_update_version:
+          description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
+          type: string
+          example: "0.51.2"
+        embedded_idp_enabled:
+          description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+          type: boolean
+          readOnly: true
+          example: false
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -202,6 +351,10 @@ components:
           description: User's email address
           type: string
           example: demo@netbird.io
+        password:
+          description: User's password. Only present when user is created (create user endpoint is called) and only when IdP supports user creation with password.
+          type: string
+          example: super_secure_password
         name:
           description: User's name from idp provider
           type: string
@@ -248,6 +401,10 @@ components:
           description: How user was issued by API or Integration
           type: string
           example: api
+        idp_id:
+          description: Identity provider ID (connector ID) that the user authenticated with. Only populated for users with Dex-encoded user IDs.
+          type: string
+          example: okta-abc123
         permissions:
           $ref: '#/components/schemas/UserPermissions'
       required:
@@ -484,6 +641,8 @@ components:
               description: Indicates whether the peer is ephemeral or not
               type: boolean
               example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
           required:
             - city_name
             - connected
@@ -510,6 +669,49 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
     PeerTemporaryAccessRequest:
       type: object
       properties:
@@ -932,7 +1134,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp"]
+          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -945,6 +1147,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
+        authorized_groups:
+          description: Map of user group ids to a list of local users
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              example: "group1"
       required:
         - name
         - enabled
@@ -1705,6 +1915,100 @@ components:
             example: ch8i4ug6lnn4g9hqv7m0
       required:
         - disabled_management_groups
+    ZoneRequest:
+      type: object
+      properties:
+        name:
+          description: Zone name identifier
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: Office Zone
+        domain:
+          description: Zone domain (FQDN)
+          type: string
+          example: example.com
+        enabled:
+          description: Zone status
+          type: boolean
+          default: true
+        enable_search_domain:
+          description: Enable this zone as a search domain
+          type: boolean
+          example: false
+        distribution_groups:
+          description: Group IDs that defines groups of peers that will resolve this zone
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+      required:
+        - name
+        - domain
+        - enable_search_domain
+        - distribution_groups
+    Zone:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Zone ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+            records:
+              description: DNS records associated with this zone
+              type: array
+              items:
+                $ref: '#/components/schemas/DNSRecord'
+          required:
+            - id
+            - enabled
+            - records
+        - $ref: '#/components/schemas/ZoneRequest'
+    DNSRecordType:
+      type: string
+      description: DNS record type
+      enum:
+        - A
+        - AAAA
+        - CNAME
+      example: A
+    DNSRecordRequest:
+      type: object
+      properties:
+        name:
+          description: FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+          type: string
+          example: www.example.com
+        type:
+          $ref: '#/components/schemas/DNSRecordType'
+        content:
+          description: DNS record content (IP address for A/AAAA, domain for CNAME)
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: 192.168.1.1
+        ttl:
+          description: Time to live in seconds
+          type: integer
+          minimum: 0
+          example: 300
+      required:
+        - name
+        - type
+        - content
+        - ttl
+    DNSRecord:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: DNS record ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+          required:
+            - id
+        - $ref: '#/components/schemas/DNSRecordRequest'
     Event:
       type: object
       properties:
@@ -1724,18 +2028,51 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
-                  "user.role.update", "user.block", "user.unblock", "user.peer.login",
-                  "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
-                  "setupkey.group.delete", "setupkey.group.add",
-                  "rule.add", "rule.delete", "rule.update",
-                  "policy.add", "policy.delete", "policy.update",
-                  "group.add", "group.update", "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
-                  "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
-                  "route.add", "route.delete", "route.update",
-                  "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable", "peer.login.expire",
-                  "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
+          enum: [
+            "peer.user.add", "peer.setupkey.add", "user.join", "user.invite", "account.create", "account.delete",
+            "user.peer.delete", "rule.add", "rule.update", "rule.delete",
+            "policy.add", "policy.update", "policy.delete",
+            "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse", "setupkey.delete",
+            "group.add", "group.update", "group.delete",
+            "peer.group.add", "peer.group.delete",
+            "user.group.add", "user.group.delete", "user.role.update",
+            "setupkey.group.add", "setupkey.group.delete",
+            "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
+            "route.add", "route.delete", "route.update",
+            "peer.ssh.enable", "peer.ssh.disable", "peer.rename",
+            "peer.login.expiration.enable", "peer.login.expiration.disable",
+            "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
+            "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.enable", "account.setting.peer.login.expiration.disable",
+            "personal.access.token.create", "personal.access.token.delete",
+            "service.user.create", "service.user.delete",
+            "user.block", "user.unblock", "user.delete",
+            "user.peer.login", "peer.login.expire",
+            "dashboard.login",
+            "integration.create", "integration.update", "integration.delete",
+            "account.setting.peer.approval.enable", "account.setting.peer.approval.disable",
+            "peer.approve", "peer.approval.revoke",
+            "transferred.owner.role",
+            "posture.check.create", "posture.check.update", "posture.check.delete",
+            "peer.inactivity.expiration.enable", "peer.inactivity.expiration.disable",
+            "account.peer.inactivity.expiration.enable", "account.peer.inactivity.expiration.disable", "account.peer.inactivity.expiration.update",
+            "account.setting.group.propagation.enable", "account.setting.group.propagation.disable",
+            "account.setting.routing.peer.dns.resolution.enable", "account.setting.routing.peer.dns.resolution.disable",
+            "network.create", "network.update", "network.delete",
+            "network.resource.create", "network.resource.update", "network.resource.delete",
+            "network.router.create", "network.router.update", "network.router.delete",
+            "resource.group.add", "resource.group.delete",
+            "account.dns.domain.update",
+            "account.setting.lazy.connection.enable", "account.setting.lazy.connection.disable",
+            "account.network.range.update",
+            "peer.ip.update",
+            "user.approve", "user.reject", "user.create",
+            "account.settings.auto.version.update",
+            "identityprovider.create", "identityprovider.update", "identityprovider.delete",
+            "dns.zone.create", "dns.zone.update", "dns.zone.delete",
+            "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete",
+            "peer.job.create",
+            "user.password.change"
+          ]
           example: route.add
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -2193,6 +2530,118 @@ components:
         - page_size
         - total_records
         - total_pages
+    IdentityProviderType:
+      type: string
+      description: Type of identity provider
+      enum:
+        - oidc
+        - zitadel
+        - entra
+        - google
+        - okta
+        - pocketid
+        - microsoft
+      example: oidc
+    IdentityProvider:
+      type: object
+      properties:
+        id:
+          description: Identity provider ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7l0
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+    IdentityProviderRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/IdentityProviderType'
+        name:
+          description: Human-readable name for the identity provider
+          type: string
+          example: My OIDC Provider
+        issuer:
+          description: OIDC issuer URL
+          type: string
+          example: https://accounts.google.com
+        client_id:
+          description: OAuth2 client ID
+          type: string
+          example: 123456789.apps.googleusercontent.com
+        client_secret:
+          description: OAuth2 client secret
+          type: string
+          example: secret123
+      required:
+        - type
+        - name
+        - issuer
+        - client_id
+        - client_secret
+    InstanceStatus:
+      type: object
+      description: Instance status information
+      properties:
+        setup_required:
+          description: Indicates whether the instance requires initial setup
+          type: boolean
+          example: true
+      required:
+        - setup_required
+    SetupRequest:
+      type: object
+      description: Request to set up the initial admin user
+      properties:
+        email:
+          description: Email address for the admin user
+          type: string
+          example: admin@example.com
+        password:
+          description: Password for the admin user (minimum 8 characters)
+          type: string
+          format: password
+          minLength: 8
+          example: securepassword123
+        name:
+          description: Display name for the admin user (defaults to email if not provided)
+          type: string
+          example: Admin User
+      required:
+        - email
+        - password
+        - name
+    SetupResponse:
+      type: object
+      description: Response after successful instance setup
+      properties:
+        user_id:
+          description: The ID of the created user
+          type: string
+          example: abc123def456
+        email:
+          description: Email address of the created user
+          type: string
+          example: admin@example.com
+      required:
+        - user_id
+        - email
   responses:
     not_found:
       description: Resource not found
@@ -2230,6 +2679,152 @@ security:
   - BearerAuth: [ ]
   - TokenAuth: [ ]
 paths:
+  /api/instance:
+    get:
+      summary: Get Instance Status
+      description: Returns the instance status including whether initial setup is required. This endpoint does not require authentication.
+      tags: [ Instance ]
+      security: [ ]
+      responses:
+        '200':
+          description: Instance status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceStatus'
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/setup:
+    post:
+      summary: Setup Instance
+      description: Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+      tags: [ Instance ]
+      security: [ ]
+      requestBody:
+        description: Initial admin user details
+        required: true
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '200':
+          description: Setup completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '412':
+          description: Setup already completed
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs:
+    get:
+      summary: List Jobs
+      description: Retrieve all jobs for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create Job
+      description: Create a new job for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Create job request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs/{jobId}:
+    get:
+      summary: Get Job
+      description: Retrieve details of a specific job
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          description: The unique identifier of a peer
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          description: The unique identifier of a job
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Job object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/accounts:
     get:
       summary: List all Accounts
@@ -2655,6 +3250,43 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/password:
+    put:
+      summary: Change user password
+      description: Change the password for a user. Only available when embedded IdP is enabled. Users can only change their own password.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      requestBody:
+        description: Password change request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '200':
+          description: Password changed successfully
+          content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users/current:
@@ -3362,6 +3994,14 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: name
+          required: false
+          schema:
+            type: string
+          description: Filter groups by name (exact match)
+          example: "devs"
       responses:
         '200':
           description: A JSON Array of Groups
@@ -3375,6 +4015,8 @@ paths:
           "$ref": "#/components/responses/bad_request"
         '401':
           "$ref": "#/components/responses/requires_authentication"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '403':
           "$ref": "#/components/responses/forbidden"
         '500':
@@ -4495,6 +5137,347 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/dns/zones:
+    get:
+      summary: List all DNS Zones
+      description: Returns a list of all custom DNS zones
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of DNS Zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Zone
+      description: Creates a new custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}:
+    get:
+      summary: Retrieve a DNS Zone
+      description: Returns information about a specific DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Object of a DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Zone
+      description: Updates a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Zone
+      description: Deletes a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: Zone deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records:
+    get:
+      summary: List all DNS Records
+      description: Returns a list of all DNS records in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Array of DNS Records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DNSRecord'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Record
+      description: Creates a new DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records/{recordId}:
+    get:
+      summary: Retrieve a DNS Record
+      description: Returns information about a specific DNS record
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: A JSON Object of a DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Record
+      description: Updates a DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Record
+      description: Deletes a DNS record from a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: Record deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/events/audit:
     get:
       summary: List all Audit Events
@@ -4802,6 +5785,150 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/City'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers:
+    get:
+      summary: List all Identity Providers
+      description: Returns a list of all identity providers configured for the account
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON array of identity providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Identity Provider
+      description: Creates a new identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Identity provider configuration
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/identity-providers/{idpId}:
+    get:
+      summary: Retrieve an Identity Provider
+      description: Get information about a specific identity provider
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Identity Provider
+      description: Update an existing identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      requestBody:
+        description: Identity provider update
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/IdentityProviderRequest'
+      responses:
+        '200':
+          description: An Identity Provider object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Identity Provider
+      description: Delete an identity provider configuration
+      tags: [ Identity Providers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: idpId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an identity provider
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

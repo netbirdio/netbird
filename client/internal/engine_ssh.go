@@ -11,15 +11,18 @@ import (
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 type sshServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
+	UpdateSSHAuth(config *sshauth.Config)
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -69,9 +72,16 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	}
 
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
+		audiences := protoJWT.GetAudiences()
+		if len(audiences) == 0 && protoJWT.GetAudience() != "" {
+			audiences = []string{protoJWT.GetAudience()}
+		}
+
+		log.Debugf("starting SSH server with JWT authentication: audiences=%v", audiences)
+
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
-			Audience:     protoJWT.GetAudience(),
+			Audiences:    audiences,
 			KeysLocation: protoJWT.GetKeysLocation(),
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
@@ -352,4 +362,39 @@ func (e *Engine) GetSSHServerStatus() (enabled bool, sessions []sshserver.Sessio
 	}
 
 	return sshServer.GetStatus()
+}
+
+// updateSSHServerAuth updates SSH fine-grained access control configuration on a running SSH server
+func (e *Engine) updateSSHServerAuth(sshAuth *mgmProto.SSHAuth) {
+	if sshAuth == nil {
+		return
+	}
+
+	if e.sshServer == nil {
+		return
+	}
+
+	protoUsers := sshAuth.GetAuthorizedUsers()
+	authorizedUsers := make([]sshuserhash.UserIDHash, len(protoUsers))
+	for i, hash := range protoUsers {
+		if len(hash) != 16 {
+			log.Warnf("invalid hash length %d, expected 16 - skipping SSH server auth update", len(hash))
+			return
+		}
+		authorizedUsers[i] = sshuserhash.UserIDHash(hash)
+	}
+
+	machineUsers := make(map[string][]uint32)
+	for osUser, indexes := range sshAuth.GetMachineUsers() {
+		machineUsers[osUser] = indexes.GetIndexes()
+	}
+
+	// Update SSH server with new authorization configuration
+	authConfig := &sshauth.Config{
+		UserIDClaim:     sshAuth.GetUserIDClaim(),
+		AuthorizedUsers: authorizedUsers,
+		MachineUsers:    machineUsers,
+	}
+
+	e.sshServer.UpdateSSHAuth(authConfig)
 }

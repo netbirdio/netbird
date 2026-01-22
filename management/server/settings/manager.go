@@ -5,9 +5,6 @@ package settings
 import (
 	"context"
 	"fmt"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
@@ -48,11 +45,6 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 }
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("GetSettings took %s", time.Since(start))
-	}()
-
 	if userID != activity.SystemInitiator {
 		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 		if err != nil {

@@ -13,7 +13,6 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -25,7 +24,7 @@ import (
 type ExternalCacheManager nbcache.UserDataCache
 
 type Manager interface {
-	GetOrCreateAccountByUser(ctx context.Context, userId, domain string) (*types.Account, error)
+	GetOrCreateAccountByUser(ctx context.Context, userAuth auth.UserAuth) (*types.Account, error)
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
@@ -33,6 +32,7 @@ type Manager interface {
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
+	UpdateUserPassword(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
 	RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
@@ -45,7 +45,7 @@ type Manager interface {
 	GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error)
 	GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
-	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
+	GetAccountIDByUserID(ctx context.Context, userAuth auth.UserAuth) (string, error)
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
@@ -124,5 +124,13 @@ type Manager interface {
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
-	SetEphemeralManager(em ephemeral.Manager)
+	GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error)
+	GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
+	GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error)
+	CreateIdentityProvider(ctx context.Context, accountID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
+	UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
+	DeleteIdentityProvider(ctx context.Context, accountID, idpID, userID string) error
+	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 }

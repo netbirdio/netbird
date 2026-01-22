@@ -48,6 +48,29 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
+	// Check if filtering by name
+	groupName := r.URL.Query().Get("name")
+	if groupName != "" {
+		// Get single group by name
+		group, err := h.accountManager.GetGroupByName(r.Context(), groupName, accountID)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		// Return as array with single element to maintain API consistency
+		groupsResponse := []*api.Group{toGroupResponse(accountPeers, group)}
+		util.WriteJSONObject(r.Context(), w, groupsResponse)
+		return
+	}
+
+	// Get all groups
 	groups, err := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)

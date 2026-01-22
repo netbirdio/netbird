@@ -5,6 +5,7 @@ type Module string
 const (
 	Networks    Module = "networks"
 	Peers       Module = "peers"
+	RemoteJobs  Module = "remote_jobs"
 	Groups      Module = "groups"
 	Settings    Module = "settings"
 	Accounts    Module = "accounts"
@@ -16,11 +17,13 @@ const (
 	Users       Module = "users"
 	SetupKeys   Module = "setup_keys"
 	Pats        Module = "pats"
+	IdentityProviders Module = "identity_providers"
 )
 
 var All = map[Module]struct{}{
 	Networks:    {},
 	Peers:       {},
+	RemoteJobs:  {},
 	Groups:      {},
 	Settings:    {},
 	Accounts:    {},
@@ -32,4 +35,5 @@ var All = map[Module]struct{}{
 	Users:       {},
 	SetupKeys:   {},
 	Pats:        {},
+	IdentityProviders: {},
 }

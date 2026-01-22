@@ -12,6 +12,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -111,6 +112,26 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler)
+	})
+}
+
+// Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
+// Blocking request. The result will be sent via msgHandler callback function
+func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+		return c.handleJobStream(ctx, serverPubKey, msgHandler)
+	})
+}
+
+// withMgmtStream runs a streaming operation against the ManagementService
+// It takes care of retries, connection readiness, and fetching server public key.
+func (c *GrpcClient) withMgmtStream(
+	ctx context.Context,
+	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
+) error {
+	backOff := defaultBackoff(ctx)
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -128,10 +149,10 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		return handler(ctx, *serverPubKey)
 	}
 
-	err := backoff.Retry(operation, defaultBackoff(ctx))
+	err := backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
@@ -139,12 +160,153 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 	return err
 }
 
-func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
-	msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) handleJobStream(
+	ctx context.Context,
+	serverPubKey wgtypes.Key,
+	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.realClient.Job(ctx)
+	if err != nil {
+		log.Errorf("failed to open job stream: %v", err)
+		return err
+	}
+
+	// Handshake with the server
+	if err := c.sendHandshake(ctx, stream, serverPubKey); err != nil {
+		return err
+	}
+
+	log.Debug("job stream handshake sent successfully")
+
+	// Main loop: receive, process, respond
+	for {
+		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
+		if err != nil {
+			if s, ok := gstatus.FromError(err); ok {
+				switch s.Code() {
+				case codes.PermissionDenied:
+					c.notifyDisconnected(err)
+					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+				case codes.Canceled:
+					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+					return err
+				case codes.Unimplemented:
+					log.Warn("Job feature is not supported by the current management server version. " +
+						"Please update the management service to use this feature.")
+					return nil
+				default:
+					c.notifyDisconnected(err)
+					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+					return err
+				}
+			} else {
+				// non-gRPC error
+				c.notifyDisconnected(err)
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
+			}
+		}
+
+		if jobReq == nil || len(jobReq.ID) == 0 {
+			log.Debug("received unknown or empty job request, skipping")
+			continue
+		}
+
+		log.Infof("received a new job from the management server (ID: %s)", jobReq.ID)
+		jobResp := c.processJobRequest(ctx, jobReq, msgHandler)
+		if err := c.sendJobResponse(ctx, stream, serverPubKey, jobResp); err != nil {
+			return err
+		}
+	}
+}
+
+// sendHandshake sends the initial handshake message
+func (c *GrpcClient) sendHandshake(ctx context.Context, stream proto.ManagementService_JobClient, serverPubKey wgtypes.Key) error {
+	handshakeReq := &proto.JobRequest{
+		ID: []byte(uuid.New().String()),
+	}
+	encHello, err := encryption.EncryptMessage(serverPubKey, c.key, handshakeReq)
+	if err != nil {
+		log.Errorf("failed to encrypt handshake message: %v", err)
+		return err
+	}
+	return stream.Send(&proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encHello,
+	})
+}
+
+// receiveJobRequest waits for and decrypts a job request
+func (c *GrpcClient) receiveJobRequest(
+	ctx context.Context,
+	stream proto.ManagementService_JobClient,
+	serverPubKey wgtypes.Key,
+) (*proto.JobRequest, error) {
+	encryptedMsg, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	jobReq := &proto.JobRequest{}
+	if err := encryption.DecryptMessage(serverPubKey, c.key, encryptedMsg.Body, jobReq); err != nil {
+		log.Warnf("failed to decrypt job request: %v", err)
+		return nil, err
+	}
+
+	return jobReq, nil
+}
+
+// processJobRequest executes the handler and ensures a valid response
+func (c *GrpcClient) processJobRequest(
+	ctx context.Context,
+	jobReq *proto.JobRequest,
+	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+) *proto.JobResponse {
+	jobResp := msgHandler(jobReq)
+	if jobResp == nil {
+		jobResp = &proto.JobResponse{
+			ID:     jobReq.ID,
+			Status: proto.JobStatus_failed,
+			Reason: []byte("handler returned nil response"),
+		}
+		log.Warnf("job handler returned nil for job %s", string(jobReq.ID))
+	}
+	return jobResp
+}
+
+// sendJobResponse encrypts and sends a job response
+func (c *GrpcClient) sendJobResponse(
+	ctx context.Context,
+	stream proto.ManagementService_JobClient,
+	serverPubKey wgtypes.Key,
+	resp *proto.JobResponse,
+) error {
+	encResp, err := encryption.EncryptMessage(serverPubKey, c.key, resp)
+	if err != nil {
+		log.Errorf("failed to encrypt job response for job %s: %v", string(resp.ID), err)
+		return err
+	}
+
+	if err := stream.Send(&proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encResp,
+	}); err != nil {
+		log.Errorf("failed to send job response for job %s: %v", string(resp.ID), err)
+		return err
+	}
+
+	log.Infof("job response sent for job %s (status: %s)", string(resp.ID), resp.Status.String())
+	return nil
+}
+
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+	ctx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -157,17 +319,22 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	c.notifyConnected()
 
 	// blocking until error
-	err = c.receiveEvents(stream, serverPubKey, msgHandler)
+	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
-		s, _ := gstatus.FromError(err)
-		switch s.Code() {
-		case codes.PermissionDenied:
-			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-		case codes.Canceled:
-			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-			return nil
-		default:
+		if s, ok := gstatus.FromError(err); ok {
+			switch s.Code() {
+			case codes.PermissionDenied:
+				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return nil
+			default:
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
+			}
+		} else {
+			// non-gRPC error
 			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -186,7 +353,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -219,7 +386,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
 
 	myPrivateKey := c.key
@@ -238,7 +405,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 	return sync, nil
 }
 
-func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {

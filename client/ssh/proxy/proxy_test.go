@@ -27,9 +27,11 @@ import (
 
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 func TestMain(m *testing.M) {
@@ -130,12 +132,27 @@ func TestSSHProxy_Connect(t *testing.T) {
 		HostKeyPEM: hostKey,
 		JWT: &server.JWTConfig{
 			Issuer:       issuer,
-			Audience:     audience,
+			Audiences:    []string{audience},
 			KeysLocation: jwksURL,
 		},
 	}
 	sshServer := server.New(serverConfig)
 	sshServer.SetAllowRootLogin(true)
+
+	// Configure SSH authorization for the test user
+	testUsername := testutil.GetTestUsername(t)
+	testJWTUser := "test-username"
+	testUserHash, err := sshuserhash.HashUserID(testJWTUser)
+	require.NoError(t, err)
+
+	authConfig := &sshauth.Config{
+		UserIDClaim:     sshauth.DefaultUserIDClaim,
+		AuthorizedUsers: []sshuserhash.UserIDHash{testUserHash},
+		MachineUsers: map[string][]uint32{
+			testUsername: {0}, // Index 0 in AuthorizedUsers
+		},
+	}
+	sshServer.UpdateSSHAuth(authConfig)
 
 	sshServerAddr := server.StartTestServer(t, sshServer)
 	defer func() { _ = sshServer.Stop() }()
@@ -150,10 +167,10 @@ func TestSSHProxy_Connect(t *testing.T) {
 
 	mockDaemon.setHostKey(host, hostPubKey)
 
-	validToken := generateValidJWT(t, privateKey, issuer, audience)
+	validToken := generateValidJWT(t, privateKey, issuer, audience, testJWTUser)
 	mockDaemon.setJWTToken(validToken)
 
-	proxyInstance, err := New(mockDaemon.addr, host, port, nil, nil)
+	proxyInstance, err := New(mockDaemon.addr, host, port, io.Discard, nil)
 	require.NoError(t, err)
 
 	clientConn, proxyConn := net.Pipe()
@@ -347,12 +364,12 @@ func generateTestJWKS(t *testing.T) (*rsa.PrivateKey, []byte) {
 	return privateKey, jwksJSON
 }
 
-func generateValidJWT(t *testing.T, privateKey *rsa.PrivateKey, issuer, audience string) string {
+func generateValidJWT(t *testing.T, privateKey *rsa.PrivateKey, issuer, audience string, user string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"iss": issuer,
 		"aud": audience,
-		"sub": "test-user",
+		"sub": user,
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
 	}

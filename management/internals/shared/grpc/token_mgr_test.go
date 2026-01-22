@@ -46,12 +46,13 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	groupsManager := groups.NewManagerMock()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager, groupsManager)
+	require.NoError(t, err)
 
 	turnCredentials, err := tested.GenerateTurnToken()
 	require.NoError(t, err)
@@ -98,12 +99,13 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
 	groupsManager := groups.NewManagerMock()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager, groupsManager)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -201,12 +203,13 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	groupsManager := groups.NewManagerMock()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
+	tested, err := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
 	}, rc, settingsMockManager, groupsManager)
+	require.NoError(t, err)
 
 	tested.SetupRefresh(context.Background(), "someAccountID", peer)
 	if _, ok := tested.turnCancelMap[peer]; !ok {

@@ -18,6 +18,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/route"
 )
@@ -189,29 +190,22 @@ func (f *DNSForwarder) Close(ctx context.Context) error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns.Msg {
+func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, query *dns.Msg) *dns.Msg {
 	if len(query.Question) == 0 {
 		return nil
 	}
 	question := query.Question[0]
-	log.Tracef("received DNS request for DNS forwarder: domain=%v type=%v class=%v",
-		question.Name, question.Qtype, question.Qclass)
+	logger.Tracef("received DNS request for DNS forwarder: domain=%s type=%s class=%s",
+		question.Name, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass])
 
 	domain := strings.ToLower(question.Name)
 
 	resp := query.SetReply(query)
-	var network string
-	switch question.Qtype {
-	case dns.TypeA:
-		network = "ip4"
-	case dns.TypeAAAA:
-		network = "ip6"
-	default:
-		// TODO: Handle other types
-
+	network := resutil.NetworkForQtype(question.Qtype)
+	if network == "" {
 		resp.Rcode = dns.RcodeNotImplemented
 		if err := w.WriteMsg(resp); err != nil {
-			log.Errorf("failed to write DNS response: %v", err)
+			logger.Errorf("failed to write DNS response: %v", err)
 		}
 		return nil
 	}
@@ -221,28 +215,35 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 	if mostSpecificResId == "" {
 		resp.Rcode = dns.RcodeRefused
 		if err := w.WriteMsg(resp); err != nil {
-			log.Errorf("failed to write DNS response: %v", err)
+			logger.Errorf("failed to write DNS response: %v", err)
 		}
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
 	defer cancel()
-	ips, err := f.resolver.LookupNetIP(ctx, network, domain)
-	if err != nil {
-		f.handleDNSError(ctx, w, question, resp, domain, err)
+
+	result := resutil.LookupIP(ctx, f.resolver, network, domain, question.Qtype)
+	if result.Err != nil {
+		f.handleDNSError(ctx, logger, w, question, resp, domain, result)
 		return nil
 	}
 
-	f.updateInternalState(ips, mostSpecificResId, matchingEntries)
-	f.addIPsToResponse(resp, domain, ips)
-	f.cache.set(domain, question.Qtype, ips)
+	f.updateInternalState(result.IPs, mostSpecificResId, matchingEntries)
+	resp.Answer = append(resp.Answer, resutil.IPsToRRs(domain, result.IPs, f.ttl)...)
+	f.cache.set(domain, question.Qtype, result.IPs)
 
 	return resp
 }
 
 func (f *DNSForwarder) handleDNSQueryUDP(w dns.ResponseWriter, query *dns.Msg) {
-	resp := f.handleDNSQuery(w, query)
+	startTime := time.Now()
+	logger := log.WithFields(log.Fields{
+		"request_id": resutil.GenerateRequestID(),
+		"dns_id":     fmt.Sprintf("%04x", query.Id),
+	})
+
+	resp := f.handleDNSQuery(logger, w, query)
 	if resp == nil {
 		return
 	}
@@ -260,19 +261,33 @@ func (f *DNSForwarder) handleDNSQueryUDP(w dns.ResponseWriter, query *dns.Msg) {
 	}
 
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed to write DNS response: %v", err)
+		logger.Errorf("failed to write DNS response: %v", err)
+		return
 	}
+
+	logger.Tracef("response: domain=%s rcode=%s answers=%s took=%s",
+		query.Question[0].Name, dns.RcodeToString[resp.Rcode], resutil.FormatAnswers(resp.Answer), time.Since(startTime))
 }
 
 func (f *DNSForwarder) handleDNSQueryTCP(w dns.ResponseWriter, query *dns.Msg) {
-	resp := f.handleDNSQuery(w, query)
+	startTime := time.Now()
+	logger := log.WithFields(log.Fields{
+		"request_id": resutil.GenerateRequestID(),
+		"dns_id":     fmt.Sprintf("%04x", query.Id),
+	})
+
+	resp := f.handleDNSQuery(logger, w, query)
 	if resp == nil {
 		return
 	}
 
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed to write DNS response: %v", err)
+		logger.Errorf("failed to write DNS response: %v", err)
+		return
 	}
+
+	logger.Tracef("response: domain=%s rcode=%s answers=%s took=%s",
+		query.Question[0].Name, dns.RcodeToString[resp.Rcode], resutil.FormatAnswers(resp.Answer), time.Since(startTime))
 }
 
 func (f *DNSForwarder) updateInternalState(ips []netip.Addr, mostSpecificResId route.ResID, matchingEntries []*ForwarderEntry) {
@@ -310,140 +325,64 @@ func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixe
 	}
 }
 
-// setResponseCodeForNotFound determines and sets the appropriate response code when IsNotFound is true
-// It distinguishes between NXDOMAIN (domain doesn't exist) and NODATA (domain exists but no records of requested type)
-//
-// LIMITATION: This function only checks A and AAAA record types to determine domain existence.
-// If a domain has only other record types (MX, TXT, CNAME, etc.) but no A/AAAA records,
-// it may incorrectly return NXDOMAIN instead of NODATA. This is acceptable since the forwarder
-// only handles A/AAAA queries and returns NOTIMP for other types.
-func (f *DNSForwarder) setResponseCodeForNotFound(ctx context.Context, resp *dns.Msg, domain string, originalQtype uint16) {
-	// Try querying for a different record type to see if the domain exists
-	// If the original query was for AAAA, try A. If it was for A, try AAAA.
-	// This helps distinguish between NXDOMAIN and NODATA.
-	var alternativeNetwork string
-	switch originalQtype {
-	case dns.TypeAAAA:
-		alternativeNetwork = "ip4"
-	case dns.TypeA:
-		alternativeNetwork = "ip6"
-	default:
-		resp.Rcode = dns.RcodeNameError
-		return
-	}
-
-	if _, err := f.resolver.LookupNetIP(ctx, alternativeNetwork, domain); err != nil {
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-			// Alternative query also returned not found - domain truly doesn't exist
-			resp.Rcode = dns.RcodeNameError
-			return
-		}
-		// Some other error (timeout, server failure, etc.) - can't determine, assume domain exists
-		resp.Rcode = dns.RcodeSuccess
-		return
-	}
-
-	// Alternative query succeeded - domain exists but has no records of this type
-	resp.Rcode = dns.RcodeSuccess
-}
-
 // handleDNSError processes DNS lookup errors and sends an appropriate error response.
 func (f *DNSForwarder) handleDNSError(
 	ctx context.Context,
+	logger *log.Entry,
 	w dns.ResponseWriter,
 	question dns.Question,
 	resp *dns.Msg,
 	domain string,
-	err error,
+	result resutil.LookupResult,
 ) {
-	// Default to SERVFAIL; override below when appropriate.
-	resp.Rcode = dns.RcodeServerFailure
-
 	qType := question.Qtype
 	qTypeName := dns.TypeToString[qType]
 
-	// Prefer typed DNS errors; fall back to generic logging otherwise.
-	var dnsErr *net.DNSError
-	if !errors.As(err, &dnsErr) {
-		log.Warnf(errResolveFailed, domain, err)
-		if writeErr := w.WriteMsg(resp); writeErr != nil {
-			log.Errorf("failed to write failure DNS response: %v", writeErr)
-		}
-		return
-	}
+	resp.Rcode = result.Rcode
 
-	// NotFound: set NXDOMAIN / appropriate code via helper.
-	if dnsErr.IsNotFound {
-		f.setResponseCodeForNotFound(ctx, resp, domain, qType)
-		if writeErr := w.WriteMsg(resp); writeErr != nil {
-			log.Errorf("failed to write failure DNS response: %v", writeErr)
-		}
+	// NotFound: cache negative result and respond
+	if result.Rcode == dns.RcodeNameError || result.Rcode == dns.RcodeSuccess {
 		f.cache.set(domain, question.Qtype, nil)
+		if writeErr := w.WriteMsg(resp); writeErr != nil {
+			logger.Errorf("failed to write failure DNS response: %v", writeErr)
+		}
 		return
 	}
 
 	// Upstream failed but we might have a cached answer—serve it if present.
 	if ips, ok := f.cache.get(domain, qType); ok {
 		if len(ips) > 0 {
-			log.Debugf("serving cached DNS response after upstream failure: domain=%s type=%s", domain, qTypeName)
-			f.addIPsToResponse(resp, domain, ips)
+			logger.Debugf("serving cached DNS response after upstream failure: domain=%s type=%s", domain, qTypeName)
+			resp.Answer = append(resp.Answer, resutil.IPsToRRs(domain, ips, f.ttl)...)
 			resp.Rcode = dns.RcodeSuccess
 			if writeErr := w.WriteMsg(resp); writeErr != nil {
-				log.Errorf("failed to write cached DNS response: %v", writeErr)
+				logger.Errorf("failed to write cached DNS response: %v", writeErr)
 			}
-		} else { // send NXDOMAIN / appropriate code if cache is empty
-			f.setResponseCodeForNotFound(ctx, resp, domain, qType)
-			if writeErr := w.WriteMsg(resp); writeErr != nil {
-				log.Errorf("failed to write failure DNS response: %v", writeErr)
-			}
+			return
 		}
-		return
+
+		// Cached negative result - re-verify NXDOMAIN vs NODATA
+		verifyResult := resutil.LookupIP(ctx, f.resolver, resutil.NetworkForQtype(qType), domain, qType)
+		if verifyResult.Rcode == dns.RcodeNameError || verifyResult.Rcode == dns.RcodeSuccess {
+			resp.Rcode = verifyResult.Rcode
+			if writeErr := w.WriteMsg(resp); writeErr != nil {
+				logger.Errorf("failed to write failure DNS response: %v", writeErr)
+			}
+			return
+		}
 	}
 
-	// No cache. Log with or without the server field for more context.
-	if dnsErr.Server != "" {
-		log.Warnf("failed to resolve: type=%s domain=%s server=%s: %v", qTypeName, domain, dnsErr.Server, err)
+	// No cache or verification failed. Log with or without the server field for more context.
+	var dnsErr *net.DNSError
+	if errors.As(result.Err, &dnsErr) && dnsErr.Server != "" {
+		logger.Warnf("failed to resolve: type=%s domain=%s server=%s: %v", qTypeName, domain, dnsErr.Server, result.Err)
 	} else {
-		log.Warnf(errResolveFailed, domain, err)
+		logger.Warnf(errResolveFailed, domain, result.Err)
 	}
 
 	// Write final failure response.
 	if writeErr := w.WriteMsg(resp); writeErr != nil {
-		log.Errorf("failed to write failure DNS response: %v", writeErr)
-	}
-}
-
-// addIPsToResponse adds IP addresses to the DNS response as appropriate A or AAAA records
-func (f *DNSForwarder) addIPsToResponse(resp *dns.Msg, domain string, ips []netip.Addr) {
-	for _, ip := range ips {
-		var respRecord dns.RR
-		if ip.Is6() {
-			log.Tracef("resolved domain=%s to IPv6=%s", domain, ip)
-			rr := dns.AAAA{
-				AAAA: ip.AsSlice(),
-				Hdr: dns.RR_Header{
-					Name:   domain,
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
-					Ttl:    f.ttl,
-				},
-			}
-			respRecord = &rr
-		} else {
-			log.Tracef("resolved domain=%s to IPv4=%s", domain, ip)
-			rr := dns.A{
-				A: ip.AsSlice(),
-				Hdr: dns.RR_Header{
-					Name:   domain,
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
-					Ttl:    f.ttl,
-				},
-			}
-			respRecord = &rr
-		}
-		resp.Answer = append(resp.Answer, respRecord)
+		logger.Errorf("failed to write failure DNS response: %v", writeErr)
 	}
 }
 
