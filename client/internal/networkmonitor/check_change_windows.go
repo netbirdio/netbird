@@ -45,7 +45,7 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 }
 
 func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop, checker *softInterfaceChecker) bool {
-	if intf := route.NextHop.Intf; intf != nil && checker != nil {
+	if intf := route.NextHop.Intf; intf != nil {
 		if checker.IsSoft(intf.Name, intf.Index) {
 			log.Debugf(
 				"Network monitor: ignoring default route change for soft interface %s (index %d)",
@@ -152,6 +152,10 @@ func (s *softInterfaceChecker) IsSoft(intfName string, intfIndex int) bool {
 	// Perform lookup against pre-built map
 	if isSoftInterface(intfName) {
 		return true
+	}
+
+	if s == nil {
+		return false
 	}
 
 	return s.softByIndex[intfIndex]
