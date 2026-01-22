@@ -704,7 +704,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
 		}
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
 		})
 	}
 
@@ -718,7 +718,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
 		}
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
 		})
 	}
 
@@ -1282,7 +1282,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 		addPeerRemovedEvent()
 	}
 
-	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt}
+	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt, "issued": targetUser.Issued}
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
 	return updateAccountPeers, nil
