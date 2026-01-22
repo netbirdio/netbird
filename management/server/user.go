@@ -704,7 +704,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
 		}
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
 		})
 	}
 
@@ -718,7 +718,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
 		}
 		eventsToStore = append(eventsToStore, func() {
-			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
+			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
 		})
 	}
 
