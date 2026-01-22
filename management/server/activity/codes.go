@@ -199,6 +199,10 @@ const (
 
 	UserPasswordChanged Activity = 103
 
+	UserInviteLinkCreated     Activity = 104
+	UserInviteLinkAccepted    Activity = 105
+	UserInviteLinkRegenerated Activity = 106
+
 	AccountDeleted Activity = 99999
 )
 
@@ -327,6 +331,10 @@ var activityMap = map[Activity]Code{
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 
 	UserPasswordChanged: {"User password changed", "user.password.change"},
+
+	UserInviteLinkCreated:     {"User invite link created", "user.invite.link.create"},
+	UserInviteLinkAccepted:    {"User invite link accepted", "user.invite.link.accept"},
+	UserInviteLinkRegenerated: {"User invite link regenerated", "user.invite.link.regenerate"},
 }
 
 // StringCode returns a string code of the activity

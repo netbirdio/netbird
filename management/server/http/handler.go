@@ -68,6 +68,13 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if err := bypass.AddBypassPath("/api/setup"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
+	// Public invite endpoints (tokens start with nbi_)
+	if err := bypass.AddBypassPath("/api/users/invites/nbi_*"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	if err := bypass.AddBypassPath("/api/users/invites/*/accept"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
 
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {
@@ -132,6 +139,8 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	accounts.AddEndpoints(accountManager, settingsManager, embeddedIdpEnabled, router)
 	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
+	users.AddInvitesEndpoints(accountManager, router)
+	users.AddPublicInvitesEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)

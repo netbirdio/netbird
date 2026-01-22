@@ -126,7 +126,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInvite{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -813,6 +813,89 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 	}
 
 	return &user, nil
+}
+
+// SaveUserInvite saves a user invite to the database
+func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite) error {
+	inviteCopy := invite.Copy()
+	if err := inviteCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt invite: %w", err)
+	}
+
+	result := s.db.Save(inviteCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save user invite to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save user invite to store")
+	}
+	return nil
+}
+
+// GetUserInviteByID retrieves a user invite by its ID
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInvite
+	result := tx.Take(&invite, idQueryCondition, inviteID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// GetUserInviteByEmail retrieves a user invite by account ID and email
+func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInvite, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	// Encrypt email for lookup since it's stored encrypted
+	searchEmail := email
+	if s.fieldEncrypt != nil {
+		var err error
+		searchEmail, err = s.fieldEncrypt.Encrypt(email)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt email for search: %w", err)
+		}
+	}
+
+	var invite types.UserInvite
+	result := tx.Take(&invite, "account_id = ? AND email = ?", accountID, searchEmail)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found for email")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite by email from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite by email from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// DeleteUserInvite deletes a user invite by its ID
+func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
+	result := s.db.Delete(&types.UserInvite{}, idQueryCondition, inviteID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete user invite from store")
+	}
+	return nil
 }
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {

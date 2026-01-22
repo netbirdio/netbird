@@ -92,6 +92,11 @@ type Store interface {
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
+	SaveUserInvite(ctx context.Context, invite *types.UserInvite) error
+	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error)
+	GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInvite, error)
+	DeleteUserInvite(ctx context.Context, inviteID string) error
+
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
 	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
