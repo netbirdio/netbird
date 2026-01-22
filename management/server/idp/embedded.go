@@ -20,7 +20,7 @@ const (
 	staticClientCLI        = "netbird-cli"
 	defaultCLIRedirectURL1 = "http://localhost:53000/"
 	defaultCLIRedirectURL2 = "http://localhost:54000/"
-	defaultScopes          = "openid profile email offline_access"
+	defaultScopes          = "openid profile email"
 	defaultUserIDClaim     = "sub"
 )
 
@@ -400,7 +400,6 @@ func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, 
 
 // InviteUserByID resends an invitation to a user.
 func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) error {
-	// TODO: implement
 	return fmt.Errorf("not implemented")
 }
 
@@ -432,6 +431,33 @@ func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) erro
 	return nil
 }
 
+// UpdateUserPassword updates the password for a user in the embedded IdP.
+// It verifies that the current user is changing their own password and
+// validates the current password before updating to the new password.
+func (m *EmbeddedIdPManager) UpdateUserPassword(ctx context.Context, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	// Verify the user is changing their own password
+	if currentUserID != targetUserID {
+		return fmt.Errorf("users can only change their own password")
+	}
+
+	// Verify the new password is different from the old password
+	if oldPassword == newPassword {
+		return fmt.Errorf("new password must be different from current password")
+	}
+
+	err := m.provider.UpdateUserPassword(ctx, targetUserID, oldPassword, newPassword)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	log.WithContext(ctx).Debugf("updated password for user %s in embedded IdP", targetUserID)
+
+	return nil
+}
+
 // CreateConnector creates a new identity provider connector in Dex.
 // Returns the created connector config with the redirect URL populated.
 func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) (*dex.ConnectorConfig, error) {
@@ -449,15 +475,8 @@ func (m *EmbeddedIdPManager) ListConnectors(ctx context.Context) ([]*dex.Connect
 }
 
 // UpdateConnector updates an existing identity provider connector.
+// Field preservation for partial updates is handled by Provider.UpdateConnector.
 func (m *EmbeddedIdPManager) UpdateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
-	// Preserve existing secret if not provided in update
-	if cfg.ClientSecret == "" {
-		existing, err := m.provider.GetConnector(ctx, cfg.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get existing connector: %w", err)
-		}
-		cfg.ClientSecret = existing.ClientSecret
-	}
 	return m.provider.UpdateConnector(ctx, cfg)
 }
 

@@ -2,13 +2,17 @@ package dns
 
 import (
 	"context"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
@@ -58,7 +62,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver, _ := newUpstreamResolver(ctx, "", netip.Addr{}, netip.Prefix{}, nil, nil, ".")
+			resolver, _ := newUpstreamResolver(ctx, &mockNetstackProvider{}, nil, nil, ".")
 			// Convert test servers to netip.AddrPort
 			var servers []netip.AddrPort
 			for _, server := range testCase.InputServers {
@@ -110,6 +114,19 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockNetstackProvider struct{}
+
+func (m *mockNetstackProvider) Name() string                      { return "mock" }
+func (m *mockNetstackProvider) Address() wgaddr.Address           { return wgaddr.Address{} }
+func (m *mockNetstackProvider) ToInterface() *net.Interface       { return nil }
+func (m *mockNetstackProvider) IsUserspaceBind() bool             { return false }
+func (m *mockNetstackProvider) GetFilter() device.PacketFilter    { return nil }
+func (m *mockNetstackProvider) GetDevice() *device.FilteredDevice { return nil }
+func (m *mockNetstackProvider) GetNet() *netstack.Net             { return nil }
+func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
+	return "", nil
 }
 
 type mockUpstreamResolver struct {

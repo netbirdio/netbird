@@ -99,17 +99,17 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		profName = activeProf.Name
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), anonymizeFlag, resp.GetDaemonVersion(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
 	var statusOutputString string
 	switch {
 	case detailFlag:
-		statusOutputString = nbstatus.ParseToFullDetailSummary(outputInformationHolder)
+		statusOutputString = outputInformationHolder.FullDetailSummary()
 	case jsonFlag:
-		statusOutputString, err = nbstatus.ParseToJSON(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.JSON()
 	case yamlFlag:
-		statusOutputString, err = nbstatus.ParseToYAML(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.YAML()
 	default:
-		statusOutputString = nbstatus.ParseGeneralSummary(outputInformationHolder, false, false, false, false)
+		statusOutputString = outputInformationHolder.GeneralSummary(false, false, false, false)
 	}
 
 	if err != nil {

@@ -32,6 +32,7 @@ type Manager interface {
 	CreateUser(ctx context.Context, accountID, initiatorUserID string, key *types.UserInfo) (*types.UserInfo, error)
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
+	UpdateUserPassword(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
 	RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
@@ -129,4 +130,7 @@ type Manager interface {
 	CreateIdentityProvider(ctx context.Context, accountID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
 	UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
 	DeleteIdentityProvider(ctx context.Context, accountID, idpID, userID string) error
+	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 }

@@ -13,15 +13,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.org/x/exp/maps"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -70,7 +66,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	clientRunning     bool // protected by mutex
 	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{}
+	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
 	connectClient *internal.ConnectClient
 
@@ -796,9 +792,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+
+	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
+		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
@@ -806,6 +804,20 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.mutex.Unlock()
+
+	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
+	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
+	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	if giveUpChan != nil {
+		select {
+		case <-giveUpChan:
+			log.Debugf("client goroutine finished successfully")
+		case <-time.After(5 * time.Second):
+			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
+		}
+	}
 
 	return &proto.DownResponse{}, nil
 }
@@ -1067,11 +1079,9 @@ func (s *Server) Status(
 	if msg.GetFullPeerStatus {
 		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
-		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
-
 		pbFullStatus.SshServerState = s.getSSHServerState()
-
 		statusResponse.FullStatus = pbFullStatus
 	}
 
@@ -1526,7 +1536,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan); err != nil {
+	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil
@@ -1598,94 +1608,6 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
 	}
 	return defaultDuration
-}
-
-func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
-	pbFullStatus := proto.FullStatus{
-		ManagementState: &proto.ManagementState{},
-		SignalState:     &proto.SignalState{},
-		LocalPeerState:  &proto.LocalPeerState{},
-		Peers:           []*proto.PeerState{},
-	}
-
-	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
-	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
-	if err := fullStatus.ManagementState.Error; err != nil {
-		pbFullStatus.ManagementState.Error = err.Error()
-	}
-
-	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
-	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
-	if err := fullStatus.SignalState.Error; err != nil {
-		pbFullStatus.SignalState.Error = err.Error()
-	}
-
-	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
-	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
-	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
-	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
-	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
-	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
-	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
-	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
-
-	for _, peerState := range fullStatus.Peers {
-		pbPeerState := &proto.PeerState{
-			IP:                         peerState.IP,
-			PubKey:                     peerState.PubKey,
-			ConnStatus:                 peerState.ConnStatus.String(),
-			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                    peerState.Relayed,
-			LocalIceCandidateType:      peerState.LocalIceCandidateType,
-			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
-			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
-			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
-			RelayAddress:               peerState.RelayServerAddress,
-			Fqdn:                       peerState.FQDN,
-			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
-			BytesRx:                    peerState.BytesRx,
-			BytesTx:                    peerState.BytesTx,
-			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Networks:                   maps.Keys(peerState.GetRoutes()),
-			Latency:                    durationpb.New(peerState.Latency),
-			SshHostKey:                 peerState.SSHHostKey,
-		}
-		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
-	}
-
-	for _, relayState := range fullStatus.Relays {
-		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI,
-			Available: relayState.Err == nil,
-		}
-		if err := relayState.Err; err != nil {
-			pbRelayState.Error = err.Error()
-		}
-		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
-	}
-
-	for _, dnsState := range fullStatus.NSGroupStates {
-		var err string
-		if dnsState.Error != nil {
-			err = dnsState.Error.Error()
-		}
-
-		var servers []string
-		for _, server := range dnsState.Servers {
-			servers = append(servers, server.String())
-		}
-
-		pbDnsState := &proto.NSGroupState{
-			Servers: servers,
-			Domains: dnsState.Domains,
-			Enabled: dnsState.Enabled,
-			Error:   err,
-		}
-		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
-	}
-
-	return &pbFullStatus
 }
 
 // sendTerminalNotification sends a terminal notification message

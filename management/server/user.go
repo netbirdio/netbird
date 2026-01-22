@@ -249,6 +249,37 @@ func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string
 	return am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 }
 
+// UpdateUserPassword updates the password for a user in the embedded IdP.
+// This is only available when the embedded IdP is enabled.
+// Users can only change their own password.
+func (am *DefaultAccountManager) UpdateUserPassword(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "password change is only available with embedded identity provider")
+	}
+
+	if oldPassword == "" {
+		return status.Errorf(status.InvalidArgument, "old password is required")
+	}
+
+	if newPassword == "" {
+		return status.Errorf(status.InvalidArgument, "new password is required")
+	}
+
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
+	}
+
+	err := embeddedIdp.UpdateUserPassword(ctx, currentUserID, targetUserID, oldPassword, newPassword)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "failed to update password: %v", err)
+	}
+
+	am.StoreEvent(ctx, currentUserID, targetUserID, accountID, activity.UserPasswordChanged, nil)
+
+	return nil
+}
+
 func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, accountID string, initiatorUserID string, targetUser *types.User) error {
 	if err := am.Store.DeleteUser(ctx, accountID, targetUser.Id); err != nil {
 		return err
@@ -806,7 +837,20 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 		}
 		return user.ToUserInfo(userData)
 	}
-	return user.ToUserInfo(nil)
+
+	userInfo, err := user.ToUserInfo(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// For embedded IDP users, extract the IdPID (connector ID) from the encoded user ID
+	if IsEmbeddedIdp(am.idpManager) && !user.IsServiceUser {
+		if _, connectorID, decodeErr := dex.DecodeDexUserID(user.Id); decodeErr == nil && connectorID != "" {
+			userInfo.IdPID = connectorID
+		}
+	}
+
+	return userInfo, nil
 }
 
 // validateUserUpdate validates the update operation for a user.
@@ -911,10 +955,12 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	accountUsers := []*types.User{}
 	switch {
 	case allowed:
+		start := time.Now()
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
+		log.WithContext(ctx).Tracef("Got %d users from account %s after %s", len(accountUsers), accountID, time.Since(start))
 	case user != nil && user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
 	default:
@@ -933,23 +979,40 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		users := make(map[string]userLoggedInOnce, len(accountUsers))
 		usersFromIntegration := make([]*idp.UserData, 0)
+		filtered := make(map[string]*idp.UserData, len(accountUsers))
+		log.WithContext(ctx).Tracef("Querying users from IDP for account %s", accountID)
+		start := time.Now()
+
+		integrationKeys := make(map[string]struct{})
 		for _, user := range accountUsers {
 			if user.Issued == types.UserIssuedIntegration {
-				key := user.IntegrationReference.CacheKey(accountID, user.Id)
-				info, err := am.externalCacheManager.Get(am.ctx, key)
-				if err != nil {
-					log.WithContext(ctx).Infof("Get ExternalCache for key: %s, error: %s", key, err)
-					users[user.Id] = true
-					continue
-				}
-				usersFromIntegration = append(usersFromIntegration, info)
+				integrationKeys[user.IntegrationReference.CacheKey(accountID)] = struct{}{}
 				continue
 			}
 			if !user.IsServiceUser {
 				users[user.Id] = userLoggedInOnce(!user.GetLastLogin().IsZero())
 			}
 		}
+
+		for key := range integrationKeys {
+			usersData, err := am.externalCacheManager.GetUsers(am.ctx, key)
+			if err != nil {
+				log.WithContext(ctx).Debugf("GetUsers from ExternalCache for key: %s, error: %s", key, err)
+				continue
+			}
+			for _, ud := range usersData {
+				filtered[ud.ID] = ud
+			}
+		}
+
+		for _, ud := range filtered {
+			usersFromIntegration = append(usersFromIntegration, ud)
+		}
+
+		log.WithContext(ctx).Tracef("Got user info from external cache after %s", time.Since(start))
+		start = time.Now()
 		queriedUsers, err = am.lookupCache(ctx, users, accountID)
+		log.WithContext(ctx).Tracef("Got user info from cache for %d users after %s", len(queriedUsers), time.Since(start))
 		if err != nil {
 			return nil, err
 		}
