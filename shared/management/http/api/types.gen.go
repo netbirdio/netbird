@@ -2166,6 +2166,93 @@ type UserCreateRequest struct {
 	Role string `json:"role"`
 }
 
+// UserInviteAcceptRequest Request to accept an invite and set password
+type UserInviteAcceptRequest struct {
+	// Password The password the user wants to set
+	Password string `json:"password"`
+}
+
+// UserInviteAcceptResponse Response after accepting an invite
+type UserInviteAcceptResponse struct {
+	// Success Whether the invite was accepted successfully
+	Success bool `json:"success"`
+}
+
+// UserInviteCreateRequest Request to create a user invite link
+type UserInviteCreateRequest struct {
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
+	// Email User's email address
+	Email string `json:"email"`
+
+	// ExpiresIn Invite expiration time in seconds (default 72 hours)
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// Name User's full name
+	Name string `json:"name"`
+
+	// Role User's NetBird account role
+	Role string `json:"role"`
+}
+
+// UserInviteCreateResponse Response after creating a user invite
+type UserInviteCreateResponse struct {
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
+	// Email User's email address
+	Email string `json:"email"`
+
+	// Id Invite ID
+	Id string `json:"id"`
+
+	// InviteExpiresAt Invite expiration time
+	InviteExpiresAt time.Time `json:"invite_expires_at"`
+
+	// InviteLink The invite token to be shared with the user
+	InviteLink string `json:"invite_link"`
+
+	// Name User's full name
+	Name string `json:"name"`
+
+	// Role User's NetBird account role
+	Role string `json:"role"`
+
+	// Status User status
+	Status string `json:"status"`
+}
+
+// UserInviteInfo Public information about an invite
+type UserInviteInfo struct {
+	// Email User's email address
+	Email string `json:"email"`
+
+	// ExpiresAt Invite expiration time
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Name User's full name
+	Name string `json:"name"`
+
+	// Valid Whether the invite is still valid (not expired)
+	Valid bool `json:"valid"`
+}
+
+// UserInviteRegenerateRequest Request to regenerate an invite link
+type UserInviteRegenerateRequest struct {
+	// ExpiresIn Invite expiration time in seconds (default 72 hours)
+	ExpiresIn *int `json:"expires_in,omitempty"`
+}
+
+// UserInviteRegenerateResponse Response after regenerating an invite
+type UserInviteRegenerateResponse struct {
+	// InviteExpiresAt New invite expiration time
+	InviteExpiresAt time.Time `json:"invite_expires_at"`
+
+	// InviteLink The new invite token
+	InviteLink string `json:"invite_link"`
+}
+
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
 	// IsRestricted Indicates whether this User's Peers view is restricted
@@ -2417,6 +2504,15 @@ type PutApiSetupKeysKeyIdJSONRequestBody = SetupKeyRequest
 
 // PostApiUsersJSONRequestBody defines body for PostApiUsers for application/json ContentType.
 type PostApiUsersJSONRequestBody = UserCreateRequest
+
+// PostApiUsersInvitesJSONRequestBody defines body for PostApiUsersInvites for application/json ContentType.
+type PostApiUsersInvitesJSONRequestBody = UserInviteCreateRequest
+
+// PostApiUsersInvitesEmailJSONRequestBody defines body for PostApiUsersInvitesEmail for application/json ContentType.
+type PostApiUsersInvitesEmailJSONRequestBody = UserInviteRegenerateRequest
+
+// PostApiUsersInvitesTokenAcceptJSONRequestBody defines body for PostApiUsersInvitesTokenAccept for application/json ContentType.
+type PostApiUsersInvitesTokenAcceptJSONRequestBody = UserInviteAcceptRequest
 
 // PutApiUsersUserIdJSONRequestBody defines body for PutApiUsersUserId for application/json ContentType.
 type PutApiUsersUserIdJSONRequestBody = UserRequest

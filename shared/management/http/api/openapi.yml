@@ -488,6 +488,155 @@ components:
         - role
         - auto_groups
         - is_service_user
+    UserInviteCreateRequest:
+      type: object
+      description: Request to create a user invite link
+      properties:
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        role:
+          description: User's NetBird account role
+          type: string
+          example: user
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        expires_in:
+          description: Invite expiration time in seconds (default 72 hours)
+          type: integer
+          example: 259200
+      required:
+        - email
+        - name
+        - role
+        - auto_groups
+    UserInviteCreateResponse:
+      type: object
+      description: Response after creating a user invite
+      properties:
+        id:
+          description: Invite ID
+          type: string
+          example: d5p7eedra0h0lt6f59hg
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        role:
+          description: User's NetBird account role
+          type: string
+          example: user
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        status:
+          description: User status
+          type: string
+          example: invited
+        invite_link:
+          description: The invite token to be shared with the user
+          type: string
+          example: nbi_d5p7eedra0h0lt6f59hg-RPWyaKMfu2yCIvO3NzxIYUCl5Rw1Ld4W
+        invite_expires_at:
+          description: Invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-25T10:00:00Z"
+      required:
+        - id
+        - email
+        - name
+        - role
+        - auto_groups
+        - status
+        - invite_link
+        - invite_expires_at
+    UserInviteInfo:
+      type: object
+      description: Public information about an invite
+      properties:
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        expires_at:
+          description: Invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-25T10:00:00Z"
+        valid:
+          description: Whether the invite is still valid (not expired)
+          type: boolean
+          example: true
+      required:
+        - email
+        - name
+        - expires_at
+        - valid
+    UserInviteAcceptRequest:
+      type: object
+      description: Request to accept an invite and set password
+      properties:
+        password:
+          description: The password the user wants to set
+          type: string
+          example: SecurePass123!
+      required:
+        - password
+    UserInviteAcceptResponse:
+      type: object
+      description: Response after accepting an invite
+      properties:
+        success:
+          description: Whether the invite was accepted successfully
+          type: boolean
+          example: true
+      required:
+        - success
+    UserInviteRegenerateRequest:
+      type: object
+      description: Request to regenerate an invite link
+      properties:
+        expires_in:
+          description: Invite expiration time in seconds (default 72 hours)
+          type: integer
+          example: 259200
+    UserInviteRegenerateResponse:
+      type: object
+      description: Response after regenerating an invite
+      properties:
+        invite_link:
+          description: The new invite token
+          type: string
+          example: nbi_d5p7eedra0h0lt6f59hg-RPWyaKMfu2yCIvO3NzxIYUCl5Rw1Ld4W
+        invite_expires_at:
+          description: New invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-28T10:00:00Z"
+      required:
+        - invite_link
+        - invite_expires_at
     PeerMinimum:
       type: object
       properties:
@@ -3310,6 +3459,146 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites:
+    post:
+      summary: Create a user invite
+      description: Creates an invite link for a new user. Only available when embedded IdP is enabled. The user is not created until they accept the invite.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: User invite information
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteCreateRequest'
+      responses:
+        '200':
+          description: Invite created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteCreateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          description: User or invite already exists
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{email}:
+    post:
+      summary: Regenerate a user invite
+      description: Regenerates an invite link for an existing invite. Invalidates the previous token.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: email
+          required: true
+          schema:
+            type: string
+          description: The email address of the invited user
+      requestBody:
+        description: Regenerate options
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteRegenerateRequest'
+      responses:
+        '200':
+          description: Invite regenerated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteRegenerateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          description: Invite not found
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{token}:
+    get:
+      summary: Get invite information
+      description: Retrieves public information about an invite. This endpoint is unauthenticated and protected by the token itself.
+      tags: [ Users ]
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+          description: The invite token
+      responses:
+        '200':
+          description: Invite information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteInfo'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '404':
+          description: Invite not found or invalid token
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{token}/accept:
+    post:
+      summary: Accept an invite
+      description: Accepts an invite and creates the user with the provided password. This endpoint is unauthenticated and protected by the token itself.
+      tags: [ Users ]
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+          description: The invite token
+      requestBody:
+        description: Password to set for the new user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteAcceptRequest'
+      responses:
+        '200':
+          description: Invite accepted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteAcceptResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '404':
+          description: Invite not found or invalid token
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled or invite expired
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/peers:

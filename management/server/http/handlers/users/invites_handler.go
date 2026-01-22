@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -36,51 +37,6 @@ func AddPublicInvitesEndpoints(accountManager account.Manager, router *mux.Route
 	router.HandleFunc("/users/invites/{token}/accept", h.acceptInvite).Methods("POST", "OPTIONS")
 }
 
-// createInviteRequest represents the request body for creating an invite
-type createInviteRequest struct {
-	Email      string   `json:"email"`
-	Name       string   `json:"name"`
-	Role       string   `json:"role"`
-	AutoGroups []string `json:"auto_groups"`
-	ExpiresIn  int      `json:"expires_in,omitempty"` // seconds, optional
-}
-
-// createInviteResponse represents the response for creating an invite
-type createInviteResponse struct {
-	ID              string   `json:"id"`
-	Email           string   `json:"email"`
-	Name            string   `json:"name"`
-	Role            string   `json:"role"`
-	AutoGroups      []string `json:"auto_groups"`
-	Status          string   `json:"status"`
-	InviteLink      string   `json:"invite_link"`
-	InviteExpiresAt string   `json:"invite_expires_at"`
-}
-
-// inviteInfoResponse represents the response for getting invite info
-type inviteInfoResponse struct {
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	ExpiresAt string `json:"expires_at"`
-	Valid     bool   `json:"valid"`
-}
-
-// acceptInviteRequest represents the request body for accepting an invite
-type acceptInviteRequest struct {
-	Password string `json:"password"`
-}
-
-// regenerateInviteRequest represents the request body for regenerating an invite
-type regenerateInviteRequest struct {
-	ExpiresIn int `json:"expires_in,omitempty"` // seconds, optional
-}
-
-// regenerateInviteResponse represents the response for regenerating an invite
-type regenerateInviteResponse struct {
-	InviteLink      string `json:"invite_link"`
-	InviteExpiresAt string `json:"invite_expires_at"`
-}
-
 // createInvite handles POST /api/users/invites
 func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -94,24 +50,9 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req createInviteRequest
+	var req api.UserInviteCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.Email == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "email is required"), w)
-		return
-	}
-
-	if req.Name == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "name is required"), w)
-		return
-	}
-
-	if types.StrRoleToUserRole(req.Role) == types.UserRoleUnknown {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid role"), w)
 		return
 	}
 
@@ -122,7 +63,12 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 		AutoGroups: req.AutoGroups,
 	}
 
-	result, err := h.accountManager.CreateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, invite, req.ExpiresIn)
+	expiresIn := 0
+	if req.ExpiresIn != nil {
+		expiresIn = *req.ExpiresIn
+	}
+
+	result, err := h.accountManager.CreateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, invite, expiresIn)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -133,15 +79,16 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 		autoGroups = []string{}
 	}
 
-	util.WriteJSONObject(r.Context(), w, &createInviteResponse{
-		ID:              result.UserInfo.ID,
+	expiresAt := result.InviteExpiresAt.UTC()
+	util.WriteJSONObject(r.Context(), w, &api.UserInviteCreateResponse{
+		Id:              result.UserInfo.ID,
 		Email:           result.UserInfo.Email,
 		Name:            result.UserInfo.Name,
 		Role:            result.UserInfo.Role,
 		AutoGroups:      autoGroups,
 		Status:          result.UserInfo.Status,
 		InviteLink:      result.InviteLink,
-		InviteExpiresAt: result.InviteExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		InviteExpiresAt: expiresAt,
 	})
 }
 
@@ -165,10 +112,11 @@ func (h *invitesHandler) getInviteInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, &inviteInfoResponse{
+	expiresAt := info.ExpiresAt.UTC()
+	util.WriteJSONObject(r.Context(), w, &api.UserInviteInfo{
 		Email:     info.Email,
 		Name:      info.Name,
-		ExpiresAt: info.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ExpiresAt: expiresAt,
 		Valid:     info.Valid,
 	})
 }
@@ -187,7 +135,7 @@ func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req acceptInviteRequest
+	var req api.UserInviteAcceptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -204,9 +152,7 @@ func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, struct {
-		Success bool `json:"success"`
-	}{Success: true})
+	util.WriteJSONObject(r.Context(), w, &api.UserInviteAcceptResponse{Success: true})
 }
 
 // regenerateInvite handles POST /api/users/invites/{email}
@@ -229,20 +175,26 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req regenerateInviteRequest
+	var req api.UserInviteRegenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Allow empty body - expiresIn is optional
-		req = regenerateInviteRequest{}
+		req = api.UserInviteRegenerateRequest{}
 	}
 
-	result, err := h.accountManager.RegenerateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, email, req.ExpiresIn)
+	expiresIn := 0
+	if req.ExpiresIn != nil {
+		expiresIn = *req.ExpiresIn
+	}
+
+	result, err := h.accountManager.RegenerateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, email, expiresIn)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, &regenerateInviteResponse{
+	expiresAt := result.InviteExpiresAt.UTC()
+	util.WriteJSONObject(r.Context(), w, &api.UserInviteRegenerateResponse{
 		InviteLink:      result.InviteLink,
-		InviteExpiresAt: result.InviteExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		InviteExpiresAt: expiresAt,
 	})
 }
