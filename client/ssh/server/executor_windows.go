@@ -43,8 +43,22 @@ type PrivilegeDropper struct {
 	logger *log.Entry
 }
 
-func NewPrivilegeDropper(logger *log.Entry) *PrivilegeDropper {
-	return &PrivilegeDropper{logger: logger}
+// PrivilegeDropperOption is a functional option for configuring PrivilegeDropper
+type PrivilegeDropperOption func(*PrivilegeDropper)
+
+func NewPrivilegeDropper(opts ...PrivilegeDropperOption) *PrivilegeDropper {
+	pd := &PrivilegeDropper{}
+	for _, opt := range opts {
+		opt(pd)
+	}
+	return pd
+}
+
+// WithLogger sets the logger for the PrivilegeDropper
+func WithLogger(logger *log.Entry) PrivilegeDropperOption {
+	return func(pd *PrivilegeDropper) {
+		pd.logger = logger
+	}
 }
 
 // log returns the logger, falling back to standard logger if none set

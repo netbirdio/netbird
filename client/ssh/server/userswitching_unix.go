@@ -192,7 +192,7 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse user credentials: %w", err)
 	}
-	privilegeDropper := NewPrivilegeDropper(logger)
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	config := ExecutorConfig{
 		UID:        uid,
 		GID:        gid,
