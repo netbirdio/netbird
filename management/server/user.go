@@ -1623,6 +1623,10 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 		return nil
 	})
 	if err != nil {
+		// Best-effort rollback: delete the IdP user to avoid orphaned records
+		if deleteErr := embeddedIdp.DeleteUser(ctx, idpUser.ID); deleteErr != nil {
+			log.WithContext(ctx).WithError(deleteErr).Errorf("failed to rollback IdP user %s after transaction failure", idpUser.ID)
+		}
 		return err
 	}
 
