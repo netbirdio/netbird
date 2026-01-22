@@ -60,7 +60,7 @@ func (s *Server) getUserEnvironmentWithToken(logger *log.Entry, userToken window
 
 // getUserToken creates a user token for the specified user.
 func (s *Server) getUserToken(logger *log.Entry, username, domain string) (windows.Handle, error) {
-	privilegeDropper := NewPrivilegeDropper(logger)
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	token, err := privilegeDropper.createToken(username, domain)
 	if err != nil {
 		return 0, fmt.Errorf("generate S4U user token: %w", err)
@@ -301,7 +301,7 @@ func executePtyCommandWithUserToken(logger *log.Entry, session ssh.Session, req 
 	logger.Tracef("executing Windows ConPty command with user switching: shell=%s, command=%s, user=%s\\%s, size=%dx%d",
 		req.Shell, req.Command, req.Domain, req.Username, req.Width, req.Height)
 
-	privilegeDropper := NewPrivilegeDropper(logger)
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	userToken, err := privilegeDropper.createToken(req.Username, req.Domain)
 	if err != nil {
 		return fmt.Errorf("create user token: %w", err)

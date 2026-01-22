@@ -120,7 +120,7 @@ func (s *Server) createUserSwitchCommand(logger *log.Entry, session ssh.Session,
 		Command:    command,
 	}
 
-	dropper := NewPrivilegeDropper(logger)
+	dropper := NewPrivilegeDropper(WithLogger(logger))
 	cmd, token, err := dropper.CreateWindowsExecutorCommand(session.Context(), config)
 	if err != nil {
 		return nil, nil, err

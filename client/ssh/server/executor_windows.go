@@ -205,7 +205,7 @@ func newLsaString(s string) lsaString {
 func generateS4UUserToken(logger *log.Entry, username, domain string) (windows.Handle, error) {
 	userCpn := buildUserCpn(username, domain)
 
-	pd := NewPrivilegeDropper(logger)
+	pd := NewPrivilegeDropper(WithLogger(logger))
 	isDomainUser := !pd.isLocalUser(domain)
 
 	lsaHandle, err := initializeLsaConnection()

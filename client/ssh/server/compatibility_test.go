@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -462,7 +463,7 @@ func TestSSHPtyModes(t *testing.T) {
 
 	t.Run("command_default_no_pty", func(t *testing.T) {
 		// ssh host command - no PTY allocation (tests don't have TTY)
-		args := append(baseArgs, fmt.Sprintf("%s@%s", username, host), "echo", "no_pty_default")
+		args := append(slices.Clone(baseArgs), fmt.Sprintf("%s@%s", username, host), "echo", "no_pty_default")
 		cmd := exec.Command("ssh", args...)
 
 		output, err := cmd.CombinedOutput()
@@ -475,7 +476,7 @@ func TestSSHPtyModes(t *testing.T) {
 
 	t.Run("command_explicit_no_pty", func(t *testing.T) {
 		// ssh -T host command - explicit no PTY
-		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host), "echo", "explicit_no_pty")
+		args := append(slices.Clone(baseArgs), "-T", fmt.Sprintf("%s@%s", username, host), "echo", "explicit_no_pty")
 		cmd := exec.Command("ssh", args...)
 
 		output, err := cmd.CombinedOutput()
@@ -489,7 +490,7 @@ func TestSSHPtyModes(t *testing.T) {
 	t.Run("command_force_pty", func(t *testing.T) {
 		// ssh -t host command - force PTY allocation
 		// Use -tt to really force PTY even without TTY on our end
-		args := append(baseArgs, "-tt", fmt.Sprintf("%s@%s", username, host), "echo", "force_pty")
+		args := append(slices.Clone(baseArgs), "-tt", fmt.Sprintf("%s@%s", username, host), "echo", "force_pty")
 		cmd := exec.Command("ssh", args...)
 
 		output, err := cmd.CombinedOutput()
@@ -507,7 +508,7 @@ func TestSSHPtyModes(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host))
+		args := append(slices.Clone(baseArgs), "-T", fmt.Sprintf("%s@%s", username, host))
 		cmd := exec.CommandContext(ctx, "ssh", args...)
 
 		stdin, err := cmd.StdinPipe()
@@ -526,9 +527,14 @@ func TestSSHPtyModes(t *testing.T) {
 		go func() {
 			defer stdin.Close()
 			time.Sleep(100 * time.Millisecond)
-			stdin.Write([]byte("echo shell_no_pty_test\n"))
+			if _, err := stdin.Write([]byte("echo shell_no_pty_test\n")); err != nil {
+				t.Errorf("write echo command: %v", err)
+				return
+			}
 			time.Sleep(100 * time.Millisecond)
-			stdin.Write([]byte("exit 0\n"))
+			if _, err := stdin.Write([]byte("exit 0\n")); err != nil {
+				t.Errorf("write exit command: %v", err)
+			}
 		}()
 
 		output, _ := io.ReadAll(stdout)
@@ -543,7 +549,7 @@ func TestSSHPtyModes(t *testing.T) {
 
 	t.Run("exit_code_preserved_no_pty", func(t *testing.T) {
 		// Verify exit codes work with -T
-		args := append(baseArgs, "-T", fmt.Sprintf("%s@%s", username, host), "exit", "42")
+		args := append(slices.Clone(baseArgs), "-T", fmt.Sprintf("%s@%s", username, host), "exit", "42")
 		cmd := exec.Command("ssh", args...)
 
 		err := cmd.Run()

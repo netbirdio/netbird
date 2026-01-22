@@ -55,4 +55,3 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, e
 	}
 	return false
 }
-
