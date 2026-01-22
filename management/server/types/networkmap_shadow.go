@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -87,15 +86,16 @@ func (a *Account) ShadowCompareNetworkMap(
 	}()
 }
 
-func measureSizes(networkMap *NetworkMap, components *NetworkMapComponents) (legacyBytes, componentsBytes int) {
+func measureSizes(networkMap *NetworkMap, components *NetworkMapComponents) (legacyBytes, compactBytes int) {
 	if networkMap != nil {
 		if data, err := json.Marshal(networkMap); err == nil {
 			legacyBytes = len(data)
 		}
 	}
 	if components != nil {
-		if data, err := json.Marshal(components); err == nil {
-			componentsBytes = len(data)
+		compact := components.ToCompact()
+		if data, err := json.Marshal(compact); err == nil {
+			compactBytes = len(data)
 		}
 	}
 	return
@@ -220,16 +220,18 @@ func compareNetworkMapCounts(legacy, components *NetworkMap) NetworkMapDiff {
 func saveMismatchedMaps(ctx context.Context, accountID, peerID string, legacy, components *NetworkMap, diff NetworkMapDiff) {
 	outputDir := filepath.Join(shadowOutputDir, accountID, peerID)
 
+	if entries, err := os.ReadDir(outputDir); err == nil && len(entries) > 0 {
+		return
+	}
+
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		log.WithContext(ctx).Errorf("failed to create shadow output dir: %v", err)
 		return
 	}
 
-	timestamp := time.Now().Format("20060102-150405")
-
-	legacyPath := filepath.Join(outputDir, timestamp+"_legacy.json")
-	componentsPath := filepath.Join(outputDir, timestamp+"_components.json")
-	diffPath := filepath.Join(outputDir, timestamp+"_diff.json")
+	legacyPath := filepath.Join(outputDir, "legacy.json")
+	componentsPath := filepath.Join(outputDir, "components.json")
+	diffPath := filepath.Join(outputDir, "diff.json")
 
 	if legacyJSON, err := json.MarshalIndent(legacy, "", "  "); err == nil {
 		if err := os.WriteFile(legacyPath, legacyJSON, 0644); err != nil {
