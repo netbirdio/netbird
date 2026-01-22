@@ -491,6 +491,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
+	var forwardingRulesString string
+	if o.NumberOfForwardingRules > 0 {
+		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
+	}
+
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	goarm := ""
@@ -514,7 +519,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
-			"Forwarding rules: %d\n"+
+			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		o.DaemonVersion,
@@ -531,7 +536,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
-		o.NumberOfForwardingRules,
+		forwardingRulesString,
 		peersCountString,
 	)
 	return summary

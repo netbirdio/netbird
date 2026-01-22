@@ -567,7 +567,6 @@ Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -592,7 +591,6 @@ Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 
