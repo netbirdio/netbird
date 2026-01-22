@@ -586,7 +586,7 @@ func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceTo
 	return cmd, primaryToken, nil
 }
 
-// createSuCommand creates a command using su -l for privilege switching (Windows stub)
+// createSuCommand creates a command using su - for privilege switching (Windows stub).
 func (s *Server) createSuCommand(*log.Entry, ssh.Session, *user.User, bool) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("su command not available on Windows")
 }

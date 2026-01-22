@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -230,20 +231,21 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 	var execCmd *exec.Cmd
 	if config.Command == "" {
-		execCmd = exec.CommandContext(ctx, config.Shell, "-l")
+		execCmd = exec.CommandContext(ctx, config.Shell)
 	} else {
-		execCmd = exec.CommandContext(ctx, config.Shell, "-l", "-c", config.Command)
+		execCmd = exec.CommandContext(ctx, config.Shell, "-c", config.Command)
 	}
+	execCmd.Args[0] = "-" + filepath.Base(config.Shell)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
 
 	if config.Command == "" {
-		log.Tracef("executing login shell: %s -l", execCmd.Path)
+		log.Tracef("executing login shell: %s", execCmd.Path)
 	} else {
 		cmdParts := strings.Fields(config.Command)
 		safeCmd := safeLogCommand(cmdParts)
-		log.Tracef("executing %s -l -c %s", execCmd.Path, safeCmd)
+		log.Tracef("executing %s -c %s", execCmd.Path, safeCmd)
 	}
 	if err := execCmd.Run(); err != nil {
 		var exitError *exec.ExitError

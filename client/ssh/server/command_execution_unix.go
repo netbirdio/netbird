@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -99,7 +100,7 @@ func (s *Server) detectUtilLinuxLogin(ctx context.Context) bool {
 	return isUtilLinux
 }
 
-// createSuCommand creates a command using su -l for privilege switching
+// createSuCommand creates a command using su - for privilege switching.
 func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
 	if err := validateUsername(localUser.Username); err != nil {
 		return nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
@@ -110,7 +111,7 @@ func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUs
 		return nil, fmt.Errorf("su command not available: %w", err)
 	}
 
-	args := []string{"-l"}
+	args := []string{"-"}
 	if hasPty && s.suSupportsPty {
 		args = append(args, "--pty")
 	}
@@ -128,12 +129,19 @@ func (s *Server) createSuCommand(logger *log.Entry, session ssh.Session, localUs
 	return cmd, nil
 }
 
-// getShellCommandArgs returns the shell command and arguments for executing a command string
+// getShellCommandArgs returns the shell command and arguments for executing a command string.
 func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
 	if cmdString == "" {
-		return []string{shell, "-l"}
+		return []string{shell}
 	}
-	return []string{shell, "-l", "-c", cmdString}
+	return []string{shell, "-c", cmdString}
+}
+
+// createShellCommand creates an exec.Cmd configured as a login shell by setting argv[0] to "-shellname".
+func (s *Server) createShellCommand(ctx context.Context, shell string, args []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, shell, args[1:]...)
+	cmd.Args[0] = "-" + filepath.Base(shell)
+	return cmd
 }
 
 // prepareCommandEnv prepares environment variables for command execution on Unix

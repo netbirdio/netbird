@@ -233,7 +233,7 @@ func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.Use
 	shell := getUserShell(localUser.Uid)
 	args := s.getShellCommandArgs(shell, session.RawCommand())
 
-	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+	cmd := s.createShellCommand(session.Context(), shell, args)
 	cmd.Dir = localUser.HomeDir
 	cmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
 
