@@ -117,16 +117,29 @@ func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Lock()
 	p.paused = false
 
-	p.wgCurrentUsed = addrToEndpoint(endpoint)
+	ep, err := addrToEndpoint(endpoint)
+	if err != nil {
+		log.Errorf("failed to convert endpoint address: %v", err)
+	} else {
+		p.wgCurrentUsed = ep
+	}
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()
 }
 
-func addrToEndpoint(addr *net.UDPAddr) *bind.Endpoint {
-	ip, _ := netip.AddrFromSlice(addr.IP.To4())
-	addrPort := netip.AddrPortFrom(ip, uint16(addr.Port))
-	return &bind.Endpoint{AddrPort: addrPort}
+func addrToEndpoint(addr *net.UDPAddr) (*bind.Endpoint, error) {
+	if addr == nil {
+		return nil, errors.New("nil address")
+	}
+
+	ip, ok := netip.AddrFromSlice(addr.IP)
+	if !ok {
+		return nil, fmt.Errorf("convert %s to netip.Addr", addr)
+	}
+
+	addrPort := netip.AddrPortFrom(ip.Unmap(), uint16(addr.Port))
+	return &bind.Endpoint{AddrPort: addrPort}, nil
 }
 
 func (p *ProxyBind) CloseConn() error {
