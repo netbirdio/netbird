@@ -1282,7 +1282,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 		addPeerRemovedEvent()
 	}
 
-	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt}
+	meta := map[string]any{"name": targetUserInfo.Name, "email": targetUserInfo.Email, "created_at": targetUser.CreatedAt, "issued": targetUser.Issued}
 	am.StoreEvent(ctx, initiatorUserID, targetUser.Id, accountID, activity.UserDeleted, meta)
 
 	return updateAccountPeers, nil
