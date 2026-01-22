@@ -3544,6 +3544,7 @@ paths:
       summary: Get invite information
       description: Retrieves public information about an invite. This endpoint is unauthenticated and protected by the token itself.
       tags: [ Users ]
+      security: []
       parameters:
         - in: path
           name: token
@@ -3570,6 +3571,7 @@ paths:
       summary: Accept an invite
       description: Accepts an invite and creates the user with the provided password. This endpoint is unauthenticated and protected by the token itself.
       tags: [ Users ]
+      security: []
       parameters:
         - in: path
           name: token
