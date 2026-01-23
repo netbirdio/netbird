@@ -390,7 +390,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
 		s.mExitNode.Remove()
-		s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+		s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	}
 
 	var showDeselectAll bool
