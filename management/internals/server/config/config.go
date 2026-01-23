@@ -136,6 +136,11 @@ type HttpServerConfig struct {
 	// Example: {"account-uuid-1": ["corp.local", "test.local"]}
 	// If not set, domains are derived from MTLSDomainAccountMapping
 	MTLSAccountAllowedDomains map[string][]string
+	// MTLSAccountAllowedIssuers maps account IDs to their allowed CA issuer fingerprints (SHA256)
+	// Example: {"account-uuid-1": ["abc123...", "def456..."]}
+	// CRITICAL: If set, only certificates issued by these CAs are accepted for the account
+	// If empty for an account, issuer validation is SKIPPED (NOT RECOMMENDED for production!)
+	MTLSAccountAllowedIssuers map[string][]string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)

@@ -51,6 +51,10 @@ type MTLSConfig struct {
 	DomainAccountMapping map[string]string
 	// AccountAllowedDomains maps account IDs to their allowed domains
 	AccountAllowedDomains map[string][]string
+	// AccountAllowedIssuers maps account IDs to their allowed CA issuer fingerprints (SHA256)
+	// CRITICAL: If set for an account, only certificates from these CAs are accepted
+	// If empty for an account, issuer validation is SKIPPED (warned, NOT RECOMMENDED for production!)
+	AccountAllowedIssuers map[string][]string
 }
 
 // globalMTLSConfig is the server-wide mTLS configuration.
@@ -131,6 +135,46 @@ func validateDomainForAccount(domain, accountID string) (string, error) {
 
 	return "", fmt.Errorf("domain %q not in allowed list for account %s: %v",
 		domain, accountID, allowedDomains)
+}
+
+// ValidateIssuerCA validates that the certificate issuer is authorized for the given account.
+// CRITICAL: This is a security boundary for multi-tenant isolation!
+// Uses SHA256 fingerprint comparison (NOT string matching on DN which can be spoofed!)
+//
+// Returns nil if issuer is valid, error otherwise.
+// Per Security Review: Empty allowlist = DENY (not any-CA!) for production safety.
+func ValidateIssuerCA(accountID, issuerFingerprint string) error {
+	if globalMTLSConfig == nil {
+		return fmt.Errorf("mTLS config not initialized - cannot validate issuer")
+	}
+
+	// Get allowed issuers for this account
+	allowedIssuers := globalMTLSConfig.AccountAllowedIssuers[accountID]
+
+	// Security: Empty allowlist = DENY (fail-safe for production)
+	// Per Security Review: Explicit configuration required, no "any CA" fallback
+	if len(allowedIssuers) == 0 {
+		log.Warnf("SECURITY: Account %s has no MTLSAccountAllowedIssuers configured - rejecting certificate (explicit config required)", accountID)
+		return fmt.Errorf("no allowed CA issuers configured for account %s - explicit MTLSAccountAllowedIssuers configuration required", accountID)
+	}
+
+	// Normalize fingerprint for comparison (lowercase hex)
+	normalizedFP := strings.ToLower(issuerFingerprint)
+
+	// Check against allowed issuers
+	for _, allowed := range allowedIssuers {
+		if strings.ToLower(allowed) == normalizedFP {
+			log.Debugf("Issuer CA validated for account %s (FP: %s...)", accountID, normalizedFP[:16])
+			return nil
+		}
+	}
+
+	// Log truncated fingerprint for security (don't expose full FP in logs)
+	fpPreview := normalizedFP
+	if len(fpPreview) > 16 {
+		fpPreview = fpPreview[:16] + "..."
+	}
+	return fmt.Errorf("certificate issuer CA (FP: %s) not in allowed list for account %s", fpPreview, accountID)
 }
 
 // checkMultiAccountSpan detects if a certificate's SANs span multiple accounts.
