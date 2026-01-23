@@ -150,8 +150,26 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string) (bool, error) {
 	oldStatus := peer.Status.Copy()
 	newStatus := oldStatus
-	newStatus.LastSeen = time.Now().UTC()
+	now := time.Now().UTC()
+	newStatus.LastSeen = now
 	newStatus.Connected = connected
+
+	if oldStatus.Connected == connected {
+		log.WithContext(ctx).Warnf("peer %s status race: already connected=%t (lastSeen=%s, now=%s, ephemeral=%t)",
+			peer.ID,
+			connected,
+			oldStatus.LastSeen.Format(time.RFC3339Nano),
+			now.Format(time.RFC3339Nano),
+			peer.Ephemeral)
+	}
+
+	if !connected && oldStatus.Connected && peer.Ephemeral {
+		log.WithContext(ctx).Tracef("ephemeral peer %s disconnecting (lastSeen=%s, now=%s)",
+			peer.ID,
+			oldStatus.LastSeen.Format(time.RFC3339Nano),
+			now.Format(time.RFC3339Nano))
+	}
+
 	// whenever peer got connected that means that it logged in successfully
 	if newStatus.Connected {
 		newStatus.LoginExpired = false
