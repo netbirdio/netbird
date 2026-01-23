@@ -1830,7 +1830,7 @@ func (e *Engine) getRosenpassAddr() string {
 	return ""
 }
 
-// RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
+// RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services
 // and updates the status recorder with the latest states.
 func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
@@ -1844,23 +1844,8 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	stuns := slices.Clone(e.STUNs)
 	turns := slices.Clone(e.TURNs)
 
-	if e.wgInterface != nil {
-		stats, err := e.wgInterface.GetStats()
-		if err != nil {
-			log.Warnf("failed to get wireguard stats: %v", err)
-			e.syncMsgMux.Unlock()
-			return false
-		}
-		for _, key := range e.peerStore.PeersPubKey() {
-			// wgStats could be zero value, in which case we just reset the stats
-			wgStats, ok := stats[key]
-			if !ok {
-				continue
-			}
-			if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-				log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-			}
-		}
+	if err := e.statusRecorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
 	}
 
 	e.syncMsgMux.Unlock()

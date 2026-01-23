@@ -411,9 +411,7 @@ func (g *BundleGenerator) addStatus() error {
 			profName = activeProf.Name
 		}
 
-		// Refresh status before capturing - either full health probes or just WireGuard stats
 		if g.refreshStatus != nil {
-			// Full refresh including health probes (STUN/TURN, signal, management)
 			g.refreshStatus()
 		}
 
