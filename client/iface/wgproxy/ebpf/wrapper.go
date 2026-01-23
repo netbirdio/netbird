@@ -91,12 +91,14 @@ func (p *ProxyWrapper) Pause() {
 }
 
 func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
+	if endpoint == nil || endpoint.IP == nil {
+		log.Errorf("failed to start package redirection, endpoint is nil")
+		return
+	}
 	p.pausedCond.L.Lock()
 	p.paused = false
 
-	if endpoint != nil && endpoint.IP != nil {
-		p.wgEndpointCurrentUsedAddr = endpoint
-	}
+	p.wgEndpointCurrentUsedAddr = endpoint
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()
