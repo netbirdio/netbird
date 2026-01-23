@@ -552,7 +552,7 @@ components:
         invite_link:
           description: The invite token to be shared with the user
           type: string
-          example: nbi_d5p7eedra0h0lt6f59hg-RPWyaKMfu2yCIvO3NzxIYUCl5Rw1Ld4W
+          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
         invite_expires_at:
           description: Invite expiration time
           type: string
@@ -567,6 +567,55 @@ components:
         - status
         - invite_link
         - invite_expires_at
+    UserInviteListItem:
+      type: object
+      description: An invite in the list
+      properties:
+        id:
+          description: Invite ID
+          type: string
+          example: d5p7eedra0h0lt6f59hg
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        role:
+          description: User's NetBird account role
+          type: string
+          example: user
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        expires_at:
+          description: Invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-25T10:00:00Z"
+        created_at:
+          description: Invite creation time
+          type: string
+          format: date-time
+          example: "2024-01-22T10:00:00Z"
+        expired:
+          description: Whether the invite has expired
+          type: boolean
+          example: false
+      required:
+        - id
+        - email
+        - name
+        - role
+        - auto_groups
+        - expires_at
+        - created_at
+        - expired
     UserInviteInfo:
       type: object
       description: Public information about an invite
@@ -588,11 +637,16 @@ components:
           description: Whether the invite is still valid (not expired)
           type: boolean
           example: true
+        invited_by:
+          description: Name of the user who sent the invite
+          type: string
+          example: Admin User
       required:
         - email
         - name
         - expires_at
         - valid
+        - invited_by
     UserInviteAcceptRequest:
       type: object
       description: Request to accept an invite and set password
@@ -628,7 +682,7 @@ components:
         invite_link:
           description: The new invite token
           type: string
-          example: nbi_d5p7eedra0h0lt6f59hg-RPWyaKMfu2yCIvO3NzxIYUCl5Rw1Ld4W
+          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
         invite_expires_at:
           description: New invite expiration time
           type: string
@@ -3462,6 +3516,31 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users/invites:
+    get:
+      summary: List user invites
+      description: Lists all pending invites for the account. Only available when embedded IdP is enabled.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of invites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserInviteListItem'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
     post:
       summary: Create a user invite
       description: Creates an invite link for a new user. Only available when embedded IdP is enabled. The user is not created until they accept the invite.

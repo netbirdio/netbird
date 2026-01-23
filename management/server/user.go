@@ -1498,23 +1498,23 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 
 	// Generate invite token
 	inviteID := types.NewInviteID()
-	token, tokenHash, err := types.GenerateInviteToken(inviteID)
+	hashedToken, plainToken, err := types.GenerateInviteToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invite token: %w", err)
 	}
 
 	// Create the invite record (no user created yet)
 	userInvite := &types.UserInvite{
-		ID:         inviteID,
-		AccountID:  accountID,
-		Email:      invite.Email,
-		Name:       invite.Name,
-		Role:       invite.Role,
-		AutoGroups: invite.AutoGroups,
-		TokenHash:  tokenHash,
-		ExpiresAt:  expiresAt,
-		CreatedAt:  time.Now().UTC(),
-		CreatedBy:  initiatorUserID,
+		ID:          inviteID,
+		AccountID:   accountID,
+		Email:       invite.Email,
+		Name:        invite.Name,
+		Role:        invite.Role,
+		AutoGroups:  invite.AutoGroups,
+		HashedToken: hashedToken,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now().UTC(),
+		CreatedBy:   initiatorUserID,
 	}
 
 	if err := am.Store.SaveUserInvite(ctx, userInvite); err != nil {
@@ -1533,25 +1533,30 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},
-		InviteLink:      token,
+		InviteLink:      plainToken,
 		InviteExpiresAt: expiresAt,
 	}, nil
 }
 
 // GetUserInviteInfo retrieves invite information from a token (public endpoint).
 func (am *DefaultAccountManager) GetUserInviteInfo(ctx context.Context, token string) (*types.UserInviteInfo, error) {
-	parsed, err := types.ParseInviteToken(token)
-	if err != nil {
-		return nil, status.Errorf(status.InvalidArgument, "invalid invite token format")
+	if err := types.ValidateInviteToken(token); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid invite token: %v", err)
 	}
 
-	invite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthNone, parsed.InviteID)
+	hashedToken := types.HashInviteToken(token)
+	invite, err := am.Store.GetUserInviteByHashedToken(ctx, store.LockingStrengthNone, hashedToken)
 	if err != nil {
 		return nil, err
 	}
 
-	if !types.VerifyInviteTokenHash(token, invite.TokenHash) {
-		return nil, status.Errorf(status.InvalidArgument, "invalid invite token")
+	// Get the inviter's name
+	invitedBy := ""
+	if invite.CreatedBy != "" {
+		inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, invite.CreatedBy)
+		if err == nil && inviter != nil {
+			invitedBy = inviter.Name
+		}
 	}
 
 	return &types.UserInviteInfo{
@@ -1559,7 +1564,25 @@ func (am *DefaultAccountManager) GetUserInviteInfo(ctx context.Context, token st
 		Name:      invite.Name,
 		ExpiresAt: invite.ExpiresAt,
 		Valid:     !invite.IsExpired(),
+		InvitedBy: invitedBy,
 	}, nil
+}
+
+// ListUserInvites returns all invites for an account.
+func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error) {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return am.Store.GetAccountUserInvites(ctx, store.LockingStrengthNone, accountID)
 }
 
 // AcceptUserInvite accepts an invite and creates the user in both IdP and NetBird DB.
@@ -1572,18 +1595,14 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 		return status.Errorf(status.InvalidArgument, "password is required")
 	}
 
-	parsed, err := types.ParseInviteToken(token)
-	if err != nil {
-		return status.Errorf(status.InvalidArgument, "invalid invite token format")
+	if err := types.ValidateInviteToken(token); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid invite token: %v", err)
 	}
 
-	invite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, parsed.InviteID)
+	hashedToken := types.HashInviteToken(token)
+	invite, err := am.Store.GetUserInviteByHashedToken(ctx, store.LockingStrengthUpdate, hashedToken)
 	if err != nil {
 		return err
-	}
-
-	if !types.VerifyInviteTokenHash(token, invite.TokenHash) {
-		return status.Errorf(status.InvalidArgument, "invalid invite token")
 	}
 
 	if invite.IsExpired() {
@@ -1663,23 +1682,23 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 
 	// Generate new invite token
 	inviteID := types.NewInviteID()
-	token, tokenHash, err := types.GenerateInviteToken(inviteID)
+	hashedToken, plainToken, err := types.GenerateInviteToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invite token: %w", err)
 	}
 
 	// Create new invite record
 	newInvite := &types.UserInvite{
-		ID:         inviteID,
-		AccountID:  accountID,
-		Email:      existingInvite.Email,
-		Name:       existingInvite.Name,
-		Role:       existingInvite.Role,
-		AutoGroups: existingInvite.AutoGroups,
-		TokenHash:  tokenHash,
-		ExpiresAt:  expiresAt,
-		CreatedAt:  time.Now().UTC(),
-		CreatedBy:  initiatorUserID,
+		ID:          inviteID,
+		AccountID:   accountID,
+		Email:       existingInvite.Email,
+		Name:        existingInvite.Name,
+		Role:        existingInvite.Role,
+		AutoGroups:  existingInvite.AutoGroups,
+		HashedToken: hashedToken,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now().UTC(),
+		CreatedBy:   initiatorUserID,
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1707,7 +1726,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},
-		InviteLink:      token,
+		InviteLink:      plainToken,
 		InviteExpiresAt: expiresAt,
 	}, nil
 }

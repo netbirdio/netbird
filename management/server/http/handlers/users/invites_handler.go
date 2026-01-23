@@ -24,6 +24,7 @@ func AddInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	h := &invitesHandler{accountManager: accountManager}
 
 	// Authenticated endpoints (require admin)
+	router.HandleFunc("/users/invites", h.listInvites).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/invites", h.createInvite).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/invites/{email}", h.regenerateInvite).Methods("POST", "OPTIONS")
 }
@@ -35,6 +36,46 @@ func AddPublicInvitesEndpoints(accountManager account.Manager, router *mux.Route
 	// Public endpoints (no auth required, protected by token)
 	router.HandleFunc("/users/invites/{token}", h.getInviteInfo).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/invites/{token}/accept", h.acceptInvite).Methods("POST", "OPTIONS")
+}
+
+// listInvites handles GET /api/users/invites
+func (h *invitesHandler) listInvites(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	invites, err := h.accountManager.ListUserInvites(r.Context(), userAuth.AccountId, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resp := make([]api.UserInviteListItem, 0, len(invites))
+	for _, invite := range invites {
+		autoGroups := invite.AutoGroups
+		if autoGroups == nil {
+			autoGroups = []string{}
+		}
+		resp = append(resp, api.UserInviteListItem{
+			Id:         invite.ID,
+			Email:      invite.Email,
+			Name:       invite.Name,
+			Role:       invite.Role,
+			AutoGroups: autoGroups,
+			ExpiresAt:  invite.ExpiresAt.UTC(),
+			CreatedAt:  invite.CreatedAt.UTC(),
+			Expired:    invite.IsExpired(),
+		})
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
 }
 
 // createInvite handles POST /api/users/invites
@@ -118,6 +159,7 @@ func (h *invitesHandler) getInviteInfo(w http.ResponseWriter, r *http.Request) {
 		Name:      info.Name,
 		ExpiresAt: expiresAt,
 		Valid:     info.Valid,
+		InvitedBy: info.InvitedBy,
 	})
 }
 
@@ -138,11 +180,6 @@ func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req api.UserInviteAcceptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.Password == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "password is required"), w)
 		return
 	}
 

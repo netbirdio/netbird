@@ -1,16 +1,16 @@
 package types
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
+	b64 "encoding/base64"
 	"fmt"
-	"strings"
+	"hash/crc32"
 	"time"
 
+	b "github.com/hashicorp/go-secure-stdlib/base62"
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/base62"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -18,23 +18,27 @@ const (
 	// InviteTokenPrefix is the prefix for invite tokens
 	InviteTokenPrefix = "nbi_"
 	// InviteTokenSecretLength is the length of the random secret part
-	InviteTokenSecretLength = 32
+	InviteTokenSecretLength = 30
+	// InviteTokenChecksumLength is the length of the encoded checksum
+	InviteTokenChecksumLength = 6
+	// InviteTokenLength is the total length of the token (4 + 30 + 6 = 40)
+	InviteTokenLength = 40
 	// DefaultInviteExpirationSeconds is the default expiration time for invites (72 hours)
 	DefaultInviteExpirationSeconds = 259200
 )
 
 // UserInvite represents an invitation for a user to set up their account
 type UserInvite struct {
-	ID         string    `gorm:"primaryKey"`
-	AccountID  string    `gorm:"index;not null"`
-	Email      string    `gorm:"index;not null"`
-	Name       string    `gorm:"not null"`
-	Role       string    `gorm:"not null"`
-	AutoGroups []string  `gorm:"serializer:json"`
-	TokenHash  string    `gorm:"not null"` // SHA-256 hash of the token
-	ExpiresAt  time.Time `gorm:"not null"`
-	CreatedAt  time.Time `gorm:"not null"`
-	CreatedBy  string    `gorm:"not null"`
+	ID          string    `gorm:"primaryKey"`
+	AccountID   string    `gorm:"index;not null"`
+	Email       string    `gorm:"index;not null"`
+	Name        string    `gorm:"not null"`
+	Role        string    `gorm:"not null"`
+	AutoGroups  []string  `gorm:"serializer:json"`
+	HashedToken string    `gorm:"index;not null"` // SHA-256 hash of the token (base64 encoded)
+	ExpiresAt   time.Time `gorm:"not null"`
+	CreatedAt   time.Time `gorm:"not null"`
+	CreatedBy   string    `gorm:"not null"`
 }
 
 // TableName returns the table name for GORM
@@ -42,68 +46,57 @@ func (UserInvite) TableName() string {
 	return "user_invites"
 }
 
-// InviteToken represents a parsed invite token
-type InviteToken struct {
-	InviteID string
-	Secret   string
-}
-
-// GenerateInviteToken creates a new invite token with the format: nbi_{inviteID}-{secret}
-func GenerateInviteToken(inviteID string) (token string, hash string, err error) {
-	secret, err := generateRandomString(InviteTokenSecretLength)
+// GenerateInviteToken creates a new invite token with the format: nbi_<secret><checksum>
+// Returns the hashed token (for storage) and the plain token (to give to the user)
+func GenerateInviteToken() (hashedToken string, plainToken string, err error) {
+	secret, err := b.Random(InviteTokenSecretLength)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate random secret: %w", err)
 	}
 
-	token = fmt.Sprintf("%s%s-%s", InviteTokenPrefix, inviteID, secret)
-	hash = HashInviteToken(token)
+	checksum := crc32.ChecksumIEEE([]byte(secret))
+	encodedChecksum := base62.Encode(checksum)
+	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
 
-	return token, hash, nil
+	plainToken = InviteTokenPrefix + secret + paddedChecksum
+	hash := sha256.Sum256([]byte(plainToken))
+	hashedToken = b64.StdEncoding.EncodeToString(hash[:])
+
+	return hashedToken, plainToken, nil
 }
 
-// HashInviteToken creates a SHA-256 hash of the token
+// HashInviteToken creates a SHA-256 hash of the token (base64 encoded)
 func HashInviteToken(token string) string {
-	h := sha256.New()
-	h.Write([]byte(token))
-	return hex.EncodeToString(h.Sum(nil))
+	hash := sha256.Sum256([]byte(token))
+	return b64.StdEncoding.EncodeToString(hash[:])
 }
 
-// ParseInviteToken parses a token string and returns its components
-func ParseInviteToken(token string) (*InviteToken, error) {
-	if !strings.HasPrefix(token, InviteTokenPrefix) {
-		return nil, fmt.Errorf("invalid token format: missing prefix")
+// ValidateInviteToken validates the token format and checksum.
+// Returns an error if the token is invalid.
+func ValidateInviteToken(token string) error {
+	if len(token) != InviteTokenLength {
+		return fmt.Errorf("invalid token length")
 	}
 
-	// Remove prefix
-	rest := strings.TrimPrefix(token, InviteTokenPrefix)
-
-	// Split by '-' to get inviteID and secret
-	parts := strings.SplitN(rest, "-", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid token format: missing separator")
+	prefix := token[:len(InviteTokenPrefix)]
+	if prefix != InviteTokenPrefix {
+		return fmt.Errorf("invalid token prefix")
 	}
 
-	inviteID := parts[0]
-	secret := parts[1]
+	secret := token[len(InviteTokenPrefix) : len(InviteTokenPrefix)+InviteTokenSecretLength]
+	encodedChecksum := token[len(InviteTokenPrefix)+InviteTokenSecretLength:]
 
-	if inviteID == "" {
-		return nil, fmt.Errorf("invalid token format: empty invite ID")
-	}
-	if secret == "" {
-		return nil, fmt.Errorf("invalid token format: empty secret")
+	verificationChecksum, err := base62.Decode(encodedChecksum)
+	if err != nil {
+		return fmt.Errorf("checksum decoding failed: %w", err)
 	}
 
-	return &InviteToken{
-		InviteID: inviteID,
-		Secret:   secret,
-	}, nil
-}
+	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
+	if secretChecksum != verificationChecksum {
+		return fmt.Errorf("checksum does not match")
+	}
 
-// VerifyInviteTokenHash verifies that the provided token matches the stored hash
-// using constant-time comparison to prevent timing attacks
-func VerifyInviteTokenHash(token, storedHash string) bool {
-	computedHash := HashInviteToken(token)
-	return subtle.ConstantTimeCompare([]byte(computedHash), []byte(storedHash)) == 1
+	return nil
 }
 
 // IsExpired checks if the invite has expired
@@ -124,6 +117,7 @@ type UserInviteInfo struct {
 	Name      string    `json:"name"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Valid     bool      `json:"valid"`
+	InvitedBy string    `json:"invited_by"`
 }
 
 // NewInviteID generates a new invite ID using xid
@@ -185,28 +179,15 @@ func (i *UserInvite) Copy() *UserInvite {
 	copy(autoGroups, i.AutoGroups)
 
 	return &UserInvite{
-		ID:         i.ID,
-		AccountID:  i.AccountID,
-		Email:      i.Email,
-		Name:       i.Name,
-		Role:       i.Role,
-		AutoGroups: autoGroups,
-		TokenHash:  i.TokenHash,
-		ExpiresAt:  i.ExpiresAt,
-		CreatedAt:  i.CreatedAt,
-		CreatedBy:  i.CreatedBy,
+		ID:          i.ID,
+		AccountID:   i.AccountID,
+		Email:       i.Email,
+		Name:        i.Name,
+		Role:        i.Role,
+		AutoGroups:  autoGroups,
+		HashedToken: i.HashedToken,
+		ExpiresAt:   i.ExpiresAt,
+		CreatedAt:   i.CreatedAt,
+		CreatedBy:   i.CreatedBy,
 	}
-}
-
-// generateRandomString generates a cryptographically secure random string
-func generateRandomString(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
-	}
-	return string(b), nil
 }

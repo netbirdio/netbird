@@ -2231,11 +2231,41 @@ type UserInviteInfo struct {
 	// ExpiresAt Invite expiration time
 	ExpiresAt time.Time `json:"expires_at"`
 
+	// InvitedBy Name of the user who sent the invite
+	InvitedBy string `json:"invited_by"`
+
 	// Name User's full name
 	Name string `json:"name"`
 
 	// Valid Whether the invite is still valid (not expired)
 	Valid bool `json:"valid"`
+}
+
+// UserInviteListItem An invite in the list
+type UserInviteListItem struct {
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
+	// CreatedAt Invite creation time
+	CreatedAt time.Time `json:"created_at"`
+
+	// Email User's email address
+	Email string `json:"email"`
+
+	// Expired Whether the invite has expired
+	Expired bool `json:"expired"`
+
+	// ExpiresAt Invite expiration time
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id Invite ID
+	Id string `json:"id"`
+
+	// Name User's full name
+	Name string `json:"name"`
+
+	// Role User's NetBird account role
+	Role string `json:"role"`
 }
 
 // UserInviteRegenerateRequest Request to regenerate an invite link

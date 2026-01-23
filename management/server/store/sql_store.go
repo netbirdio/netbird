@@ -830,15 +830,15 @@ func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite)
 	return nil
 }
 
-// GetUserInviteByID retrieves a user invite by its ID
-func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error) {
+// GetUserInviteByHashedToken retrieves a user invite by its hashed token
+func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInvite, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var invite types.UserInvite
-	result := tx.Take(&invite, idQueryCondition, inviteID)
+	result := tx.Take(&invite, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "user invite not found")
@@ -854,38 +854,55 @@ func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingSt
 	return &invite, nil
 }
 
-// GetUserInviteByEmail retrieves a user invite by account ID and email
+// GetUserInviteByEmail retrieves a user invite by account ID and email.
+// Since email is encrypted with random IVs, we fetch all invites for the account
+// and compare emails in memory after decryption.
 func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInvite, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	// Encrypt email for lookup since it's stored encrypted
-	searchEmail := email
-	if s.fieldEncrypt != nil {
-		var err error
-		searchEmail, err = s.fieldEncrypt.Encrypt(email)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt email for search: %w", err)
-		}
-	}
-
-	var invite types.UserInvite
-	result := tx.Take(&invite, "account_id = ? AND email = ?", accountID, searchEmail)
+	var invites []*types.UserInvite
+	result := tx.Find(&invites, "account_id = ?", accountID)
 	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "user invite not found for email")
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
 		}
-		log.WithContext(ctx).Errorf("failed to get user invite by email from store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get user invite by email from store")
+		if strings.EqualFold(invite.Email, email) {
+			return invite, nil
+		}
 	}
 
-	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-		return nil, fmt.Errorf("decrypt invite: %w", err)
+	return nil, status.Errorf(status.NotFound, "user invite not found for email")
+}
+
+// GetAccountUserInvites retrieves all user invites for an account
+func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInvite, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	return &invite, nil
+	var invites []*types.UserInvite
+	result := tx.Find(&invites, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
+		}
+	}
+
+	return invites, nil
 }
 
 // DeleteUserInvite deletes a user invite by its ID
