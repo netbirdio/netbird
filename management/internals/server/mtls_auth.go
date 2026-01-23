@@ -16,35 +16,22 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/management/internals/shared/mtls"
 )
 
-// MTLSIdentityKey is the context key for mTLS identity
-type mtlsIdentityKeyType struct{}
+// MTLSIdentity is an alias for the shared mtls.Identity type
+// Kept for backwards compatibility within this package
+type MTLSIdentity = mtls.Identity
 
-var MTLSIdentityKey = mtlsIdentityKeyType{}
+// MTLSIdentityKey is an alias for the shared mtls.IdentityKey
+// Kept for backwards compatibility
+var MTLSIdentityKey = mtls.IdentityKey
 
-// MTLSIdentity represents the extracted identity from a client certificate
-type MTLSIdentity struct {
-	// DNSName is the primary identity from SAN DNSName (e.g., "hostname.domain.local")
-	DNSName string
-	// Hostname extracted from DNSName (e.g., "hostname")
-	Hostname string
-	// Domain extracted from DNSName (e.g., "domain.local")
-	Domain string
-	// MatchedDomain is the AllowedDomain that matched (for audit logging)
-	MatchedDomain string
-	// AccountID is the account UUID from domain mapping (CRITICAL for Multi-Tenant isolation!)
-	AccountID string
-	// IssuerFingerprint is SHA256 of the issuer certificate
-	IssuerFingerprint string
-	// SerialNumber of the client certificate
-	SerialNumber string
-	// TemplateOID if present in certificate extensions (v2 extension)
-	TemplateOID string
-	// TemplateName if present in certificate extensions (v1 extension, BMPString decoded)
-	TemplateName string
-	// PeerType determined from template: "machine", "user", or "unknown"
-	PeerType string
+// GetMTLSIdentity retrieves the mTLS identity from context.
+// This is an alias for mtls.GetIdentity for backwards compatibility.
+func GetMTLSIdentity(ctx context.Context) *MTLSIdentity {
+	return mtls.GetIdentity(ctx)
 }
 
 // mTLSRequiredMethods defines which gRPC methods REQUIRE client certificate authentication.
@@ -491,16 +478,6 @@ func decodeOID(data []byte) string {
 		result += fmt.Sprintf("%d", c)
 	}
 	return result
-}
-
-// GetMTLSIdentity retrieves the mTLS identity from context.
-// Returns nil if no mTLS identity is present (e.g., token auth was used).
-func GetMTLSIdentity(ctx context.Context) *MTLSIdentity {
-	identity, ok := ctx.Value(MTLSIdentityKey).(*MTLSIdentity)
-	if !ok {
-		return nil
-	}
-	return identity
 }
 
 // extractTemplateNameV1 extracts the certificate template NAME from v1 extension.
