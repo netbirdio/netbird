@@ -141,7 +141,7 @@ type MockAccountManager struct {
 	GetPeerJobByIDFunc         func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 	CreateUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error)
 	AcceptUserInviteFunc       func(ctx context.Context, token, password string) error
-	RegenerateUserInviteFunc   func(ctx context.Context, accountID, initiatorUserID, email string, expiresIn int) (*types.UserInviteResponse, error)
+	RegenerateUserInviteFunc   func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error)
 	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 }
@@ -732,9 +732,9 @@ func (am *MockAccountManager) AcceptUserInvite(ctx context.Context, token, passw
 	return status.Errorf(codes.Unimplemented, "method AcceptUserInvite is not implemented")
 }
 
-func (am *MockAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, email string, expiresIn int) (*types.UserInviteResponse, error) {
+func (am *MockAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
 	if am.RegenerateUserInviteFunc != nil {
-		return am.RegenerateUserInviteFunc(ctx, accountID, initiatorUserID, email, expiresIn)
+		return am.RegenerateUserInviteFunc(ctx, accountID, initiatorUserID, inviteID, expiresIn)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method RegenerateUserInvite is not implemented")
 }

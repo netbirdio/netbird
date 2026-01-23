@@ -830,6 +830,30 @@ func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite)
 	return nil
 }
 
+// GetUserInviteByID retrieves a user invite by its ID
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInvite
+	result := tx.Take(&invite, idQueryCondition, inviteID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
 // GetUserInviteByHashedToken retrieves a user invite by its hashed token
 func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInvite, error) {
 	tx := s.db

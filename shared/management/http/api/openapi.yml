@@ -3576,21 +3576,21 @@ paths:
           content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/users/invites/{email}:
+  /api/users/invites/{inviteId}/regenerate:
     post:
       summary: Regenerate a user invite
-      description: Regenerates an invite link for an existing invite. Invalidates the previous token.
+      description: Regenerates an invite link for an existing invite. Invalidates the previous token and creates a new one.
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: email
+          name: inviteId
           required: true
           schema:
             type: string
-          description: The email address of the invited user
+          description: The ID of the invite to regenerate
       requestBody:
         description: Regenerate options
         content:

@@ -1655,7 +1655,7 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 }
 
 // RegenerateUserInvite creates a new invite token for an existing invite, invalidating the previous one.
-func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, email string, expiresIn int) (*types.UserInviteResponse, error) {
+func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
 	if !IsEmbeddedIdp(am.idpManager) {
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
@@ -1669,9 +1669,14 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	}
 
 	// Get existing invite
-	existingInvite, err := am.Store.GetUserInviteByEmail(ctx, store.LockingStrengthUpdate, accountID, email)
+	existingInvite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, inviteID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Verify the invite belongs to this account
+	if existingInvite.AccountID != accountID {
+		return nil, status.Errorf(status.NotFound, "invite not found")
 	}
 
 	// Calculate expiration time
@@ -1681,7 +1686,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
 
 	// Generate new invite token
-	inviteID := types.NewInviteID()
+	newInviteID := types.NewInviteID()
 	hashedToken, plainToken, err := types.GenerateInviteToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invite token: %w", err)
@@ -1689,7 +1694,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 
 	// Create new invite record
 	newInvite := &types.UserInvite{
-		ID:          inviteID,
+		ID:          newInviteID,
 		AccountID:   accountID,
 		Email:       existingInvite.Email,
 		Name:        existingInvite.Name,
@@ -1714,11 +1719,11 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 		return nil, err
 	}
 
-	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": email})
+	am.StoreEvent(ctx, initiatorUserID, newInvite.ID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": existingInvite.Email})
 
 	return &types.UserInviteResponse{
 		UserInfo: &types.UserInfo{
-			ID:         inviteID,
+			ID:         newInviteID,
 			Email:      existingInvite.Email,
 			Name:       existingInvite.Name,
 			Role:       existingInvite.Role,

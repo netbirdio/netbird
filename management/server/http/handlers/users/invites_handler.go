@@ -26,7 +26,7 @@ func AddInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	// Authenticated endpoints (require admin)
 	router.HandleFunc("/users/invites", h.listInvites).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/invites", h.createInvite).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/invites/{email}", h.regenerateInvite).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/invites/{inviteId}/regenerate", h.regenerateInvite).Methods("POST", "OPTIONS")
 }
 
 // AddPublicInvitesEndpoints registers public (unauthenticated) invite endpoints
@@ -192,7 +192,7 @@ func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, &api.UserInviteAcceptResponse{Success: true})
 }
 
-// regenerateInvite handles POST /api/users/invites/{email}
+// regenerateInvite handles POST /api/users/invites/{inviteId}/regenerate
 func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
@@ -206,9 +206,9 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 	}
 
 	vars := mux.Vars(r)
-	email := vars["email"]
-	if email == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "email is required"), w)
+	inviteID := vars["inviteId"]
+	if inviteID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invite ID is required"), w)
 		return
 	}
 
@@ -223,7 +223,7 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 		expiresIn = *req.ExpiresIn
 	}
 
-	result, err := h.accountManager.RegenerateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, email, expiresIn)
+	result, err := h.accountManager.RegenerateUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, inviteID, expiresIn)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

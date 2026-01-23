@@ -2538,8 +2538,8 @@ type PostApiUsersJSONRequestBody = UserCreateRequest
 // PostApiUsersInvitesJSONRequestBody defines body for PostApiUsersInvites for application/json ContentType.
 type PostApiUsersInvitesJSONRequestBody = UserInviteCreateRequest
 
-// PostApiUsersInvitesEmailJSONRequestBody defines body for PostApiUsersInvitesEmail for application/json ContentType.
-type PostApiUsersInvitesEmailJSONRequestBody = UserInviteRegenerateRequest
+// PostApiUsersInvitesInviteIdRegenerateJSONRequestBody defines body for PostApiUsersInvitesInviteIdRegenerate for application/json ContentType.
+type PostApiUsersInvitesInviteIdRegenerateJSONRequestBody = UserInviteRegenerateRequest
 
 // PostApiUsersInvitesTokenAcceptJSONRequestBody defines body for PostApiUsersInvitesTokenAccept for application/json ContentType.
 type PostApiUsersInvitesTokenAcceptJSONRequestBody = UserInviteAcceptRequest
