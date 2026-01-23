@@ -505,6 +505,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
+	// Set up notrack rules immediately after proxy is listening to prevent
+	// conntrack entries from being created before the rules are in place
+	e.setupWGProxyNoTrack()
+
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
 		e.rpManager.SetInterface(e.wgInterface)
@@ -615,6 +619,19 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
+}
+
+// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
+// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
+func (e *Engine) setupWGProxyNoTrack() {
+	proxyPort := e.wgInterface.GetProxyPort()
+	if proxyPort == 0 {
+		return
+	}
+
+	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
+		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
+	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -1641,6 +1658,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 
 func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)

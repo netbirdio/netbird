@@ -468,7 +468,6 @@ func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upst
 	return reply, nil
 }
 
-
 // FormatPeerStatus formats peer connection status information for debugging DNS timeouts
 func FormatPeerStatus(peerState *peer.State) string {
 	isConnected := peerState.ConnStatus == peer.StatusConnected

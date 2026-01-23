@@ -33,6 +33,7 @@ var (
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
+	proxyPort         int
 	mtu               uint16
 
 	ebpfManager   ebpfMgr.Manager
@@ -62,23 +63,24 @@ func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 // Listen load ebpf program and listen the proxy
 func (p *WGEBPFProxy) Listen() error {
 	pl := portLookup{}
-	wgPorxyPort, err := pl.searchFreePort()
+	proxyPort, err := pl.searchFreePort()
 	if err != nil {
 		return err
 	}
+	p.proxyPort = proxyPort
 
 	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
 	if err != nil {
 		return err
 	}
 
-	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
+	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
 	if err != nil {
 		return err
 	}
 
 	addr := net.UDPAddr{
-		Port: wgPorxyPort,
+		Port: proxyPort,
 		IP:   net.ParseIP(loopbackAddr),
 	}
 
@@ -94,7 +96,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn = conn
 
 	go p.proxyToRemote()
-	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
+	log.Infof("local wg proxy listening on: %d", proxyPort)
 	return nil
 }
 
@@ -139,6 +141,11 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 	return nberrors.FormatErrorOrNil(result)
+}
+
+// GetProxyPort returns the proxy listening port.
+func (p *WGEBPFProxy) GetProxyPort() uint16 {
+	return uint16(p.proxyPort)
 }
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
