@@ -94,7 +94,9 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Lock()
 	p.paused = false
 
-	p.wgEndpointCurrentUsedAddr = endpoint
+	if endpoint != nil && endpoint.IP != nil {
+		p.wgEndpointCurrentUsedAddr = endpoint
+	}
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()
