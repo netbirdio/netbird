@@ -1327,6 +1327,10 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
+	} else {
+		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
+			log.Debugf("failed to refresh WireGuard stats: %v", err)
+		}
 	}
 }
 
