@@ -31,6 +31,10 @@ type MTLSIdentity struct {
 	Hostname string
 	// Domain extracted from DNSName (e.g., "domain.local")
 	Domain string
+	// MatchedDomain is the AllowedDomain that matched (for audit logging)
+	MatchedDomain string
+	// AccountID is the account UUID from domain mapping (CRITICAL for Multi-Tenant isolation!)
+	AccountID string
 	// IssuerFingerprint is SHA256 of the issuer certificate
 	IssuerFingerprint string
 	// SerialNumber of the client certificate
@@ -51,6 +55,120 @@ var mTLSRequiredMethods = map[string]bool{
 	"/management.ManagementService/SyncMachinePeer":     true,
 	"/management.ManagementService/GetMachineRoutes":    true,
 	"/management.ManagementService/ReportMachineStatus": true,
+}
+
+// MTLSConfig holds the mTLS configuration for domain-account mapping.
+// This is set during server initialization from the config file.
+type MTLSConfig struct {
+	// DomainAccountMapping maps AD domains to NetBird account IDs
+	DomainAccountMapping map[string]string
+	// AccountAllowedDomains maps account IDs to their allowed domains
+	AccountAllowedDomains map[string][]string
+}
+
+// globalMTLSConfig is the server-wide mTLS configuration.
+// Set via SetMTLSConfig during server startup.
+var globalMTLSConfig *MTLSConfig
+
+// SetMTLSConfig sets the global mTLS configuration.
+// Must be called during server initialization before handling requests.
+func SetMTLSConfig(cfg *MTLSConfig) {
+	globalMTLSConfig = cfg
+	log.Infof("mTLS config loaded: %d domain mappings, %d account configs",
+		len(cfg.DomainAccountMapping), len(cfg.AccountAllowedDomains))
+}
+
+// getAccountIDFromDomain maps a domain to its NetBird account ID.
+// Returns error if domain is not mapped to any account.
+// CRITICAL: This mapping prevents cross-tenant certificate acceptance!
+func getAccountIDFromDomain(domain string) (string, error) {
+	if globalMTLSConfig == nil {
+		return "", fmt.Errorf("mTLS config not initialized")
+	}
+
+	// Normalize domain to lowercase for case-insensitive matching
+	normalizedDomain := strings.ToLower(domain)
+
+	accountID, ok := globalMTLSConfig.DomainAccountMapping[normalizedDomain]
+	if !ok {
+		return "", fmt.Errorf("domain %q not mapped to any account", domain)
+	}
+
+	return accountID, nil
+}
+
+// getAllowedDomainsForAccount returns the list of allowed domains for an account.
+// Returns nil if no domains are configured (which means REJECT ALL - fail-safe!).
+// CRITICAL: This is the security boundary for multi-tenant isolation!
+func getAllowedDomainsForAccount(accountID string) []string {
+	if globalMTLSConfig == nil {
+		log.Warn("mTLS config not initialized, rejecting all domains")
+		return nil
+	}
+
+	// First check explicit account configuration
+	if domains, ok := globalMTLSConfig.AccountAllowedDomains[accountID]; ok {
+		return domains
+	}
+
+	// Fallback: derive allowed domains from DomainAccountMapping
+	// (all domains that map to this account are allowed)
+	var domains []string
+	for domain, accID := range globalMTLSConfig.DomainAccountMapping {
+		if accID == accountID {
+			domains = append(domains, domain)
+		}
+	}
+
+	if len(domains) == 0 {
+		log.Warnf("No allowed domains found for account %s", accountID)
+	}
+
+	return domains
+}
+
+// validateDomainForAccount checks if a domain is allowed for the given account.
+// Returns the matched allowed domain pattern (for audit logging) or error.
+func validateDomainForAccount(domain, accountID string) (string, error) {
+	allowedDomains := getAllowedDomainsForAccount(accountID)
+	if len(allowedDomains) == 0 {
+		return "", fmt.Errorf("no allowed domains configured for account %s", accountID)
+	}
+
+	normalizedDomain := strings.ToLower(domain)
+	for _, allowed := range allowedDomains {
+		if strings.ToLower(allowed) == normalizedDomain {
+			return allowed, nil
+		}
+	}
+
+	return "", fmt.Errorf("domain %q not in allowed list for account %s: %v",
+		domain, accountID, allowedDomains)
+}
+
+// checkMultiAccountSpan detects if a certificate's SANs span multiple accounts.
+// This is a security warning - certificates should belong to a single account.
+func checkMultiAccountSpan(dnsNames []string) {
+	seenAccounts := make(map[string]bool)
+	for _, dnsName := range dnsNames {
+		_, domain, err := splitDNSName(dnsName)
+		if err != nil {
+			continue
+		}
+		accountID, err := getAccountIDFromDomain(domain)
+		if err == nil {
+			seenAccounts[accountID] = true
+		}
+	}
+
+	if len(seenAccounts) > 1 {
+		accounts := make([]string, 0, len(seenAccounts))
+		for acc := range seenAccounts {
+			accounts = append(accounts, acc)
+		}
+		log.Warnf("SECURITY: Certificate spans multiple accounts: %v (SANs: %v). "+
+			"Using first valid match only.", accounts, dnsNames)
+	}
 }
 
 // MTLSUnaryInterceptor creates a gRPC unary interceptor for mTLS authentication.
@@ -161,12 +279,66 @@ func extractMTLSIdentity(ctx context.Context) (*MTLSIdentity, error) {
 		return nil, fmt.Errorf("certificate has no SAN DNSName")
 	}
 
-	// Use the first DNSName as primary identity
-	// Expected format: "hostname.domain.local"
-	dnsName := clientCert.DNSNames[0]
-	hostname, domain, err := splitDNSName(dnsName)
-	if err != nil {
-		return nil, fmt.Errorf("invalid SAN DNSName format: %w", err)
+	// Security: Check if certificate SANs span multiple accounts (logging only)
+	checkMultiAccountSpan(clientCert.DNSNames)
+
+	// Find first valid SAN that maps to an account and passes validation
+	var validDNSName, validHostname, validDomain, accountID, matchedDomain string
+	var validationErr error
+
+	for _, dnsName := range clientCert.DNSNames {
+		hostname, domain, err := splitDNSName(dnsName)
+		if err != nil {
+			log.Debugf("Skipping invalid SAN DNSName %q: %v", dnsName, err)
+			continue
+		}
+
+		// Try to get account ID from domain
+		accID, err := getAccountIDFromDomain(domain)
+		if err != nil {
+			log.Debugf("SAN %q: domain not mapped to account: %v", dnsName, err)
+			validationErr = err
+			continue
+		}
+
+		// Validate domain against account's allowed domains
+		matched, err := validateDomainForAccount(domain, accID)
+		if err != nil {
+			log.Debugf("SAN %q: domain validation failed: %v", dnsName, err)
+			validationErr = err
+			continue
+		}
+
+		// Found valid SAN!
+		validDNSName = dnsName
+		validHostname = hostname
+		validDomain = domain
+		accountID = accID
+		matchedDomain = matched
+		log.Debugf("mTLS: Valid SAN found: %s (account: %s, matched: %s)",
+			dnsName, accountID, matchedDomain)
+		break
+	}
+
+	// If no valid SAN was found, return the last validation error
+	// or a generic error if mTLS config is not set up
+	if validDNSName == "" {
+		if globalMTLSConfig == nil {
+			// mTLS config not set - fall back to simple validation (first valid FQDN)
+			dnsName := clientCert.DNSNames[0]
+			hostname, domain, err := splitDNSName(dnsName)
+			if err != nil {
+				return nil, fmt.Errorf("invalid SAN DNSName format: %w", err)
+			}
+			validDNSName = dnsName
+			validHostname = hostname
+			validDomain = domain
+			log.Debugf("mTLS config not set, using first valid SAN: %s", dnsName)
+		} else if validationErr != nil {
+			return nil, fmt.Errorf("no valid SAN DNSName for configured accounts: %w", validationErr)
+		} else {
+			return nil, fmt.Errorf("certificate has no SAN DNSName matching configured domains")
+		}
 	}
 
 	// Compute issuer fingerprint from VerifiedChains (strong binding)
@@ -186,9 +358,11 @@ func extractMTLSIdentity(ctx context.Context) (*MTLSIdentity, error) {
 	peerType := determinePeerType(templateOID, templateName, clientCert)
 
 	identity := &MTLSIdentity{
-		DNSName:           dnsName,
-		Hostname:          hostname,
-		Domain:            domain,
+		DNSName:           validDNSName,
+		Hostname:          validHostname,
+		Domain:            validDomain,
+		MatchedDomain:     matchedDomain,
+		AccountID:         accountID,
 		IssuerFingerprint: issuerFP,
 		SerialNumber:      clientCert.SerialNumber.String(),
 		TemplateOID:       templateOID,

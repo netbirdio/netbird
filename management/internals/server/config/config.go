@@ -128,6 +128,14 @@ type HttpServerConfig struct {
 	// MTLSStrictMode if true, ALL requests require client certificate (no fallback)
 	// if false, only mTLS-required methods need certificates, others fall back to token auth
 	MTLSStrictMode bool
+	// MTLSDomainAccountMapping maps AD domains to NetBird account IDs
+	// Example: {"corp.local": "account-uuid-1", "test.local": "account-uuid-1"}
+	// CRITICAL: This prevents cross-tenant certificate acceptance!
+	MTLSDomainAccountMapping map[string]string
+	// MTLSAccountAllowedDomains maps account IDs to their allowed domains
+	// Example: {"account-uuid-1": ["corp.local", "test.local"]}
+	// If not set, domains are derived from MTLSDomainAccountMapping
+	MTLSAccountAllowedDomains map[string][]string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)
