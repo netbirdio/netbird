@@ -1050,6 +1050,9 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		RefreshStatus: func() {
+			e.RunHealthProbes(true)
+		},
 	}
 
 	bundleJobParams := debug.BundleConfig{
