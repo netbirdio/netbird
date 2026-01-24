@@ -62,6 +62,9 @@ type BaseServer struct {
 	certManager *autocert.Manager
 	update      *version.Update
 
+	// Machine Tunnel Fork: Separate mTLS server for machine peers
+	mtlsServer *MTLSServer
+
 	errCh  chan error
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
@@ -178,6 +181,12 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// Machine Tunnel Fork: Start separate mTLS server if enabled
+	if err := s.startMTLSServer(srvCtx); err != nil {
+		log.WithContext(srvCtx).Warnf("mTLS server not started: %v", err)
+		// Continue - mTLS is optional, main server should still work
+	}
+
 	for _, fn := range s.afterInit {
 		if fn != nil {
 			fn(s)
@@ -215,6 +224,10 @@ func (s *BaseServer) Stop() error {
 		_ = s.certManager.Listener().Close()
 	}
 	s.GRPCServer().Stop()
+	// Machine Tunnel Fork: Stop mTLS server if running
+	if s.mtlsServer != nil {
+		s.mtlsServer.Stop()
+	}
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
@@ -253,6 +266,15 @@ func (s *BaseServer) SetContainer(key string, container any) {
 	}
 	s.container[key] = container
 	log.Tracef("container with key %s set successfully", key)
+}
+
+// GetMTLSServer returns the mTLS gRPC server for Machine Tunnel service registration.
+// Returns nil if mTLS is not enabled or not yet started.
+func (s *BaseServer) GetMTLSServer() *grpc.Server {
+	if s.mtlsServer == nil {
+		return nil
+	}
+	return s.mtlsServer.GetServer()
 }
 
 func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
@@ -336,6 +358,66 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		default:
 		}
 	}()
+}
+
+// startMTLSServer starts the dedicated mTLS-only server for Machine Tunnel clients.
+// This server runs on a separate port (default 33074) with RequireAndVerifyClientCert.
+// Machine-only services (RegisterMachinePeer, SyncMachinePeer) are registered here.
+func (s *BaseServer) startMTLSServer(ctx context.Context) error {
+	if !s.Config.HttpConfig.MTLSEnabled {
+		log.WithContext(ctx).Debug("mTLS server disabled - MTLSEnabled is false")
+		return nil
+	}
+
+	// Server certificate - reuse main server's cert if mTLS-specific not provided
+	certFile := s.Config.HttpConfig.CertFile
+	keyFile := s.Config.HttpConfig.CertKey
+
+	if certFile == "" || keyFile == "" {
+		return fmt.Errorf("mTLS server requires TLS certificates (CertFile and CertKey)")
+	}
+
+	// CA for client certificate verification
+	caDir := s.Config.HttpConfig.MTLSCADir
+	caCertFile := s.Config.HttpConfig.MTLSCACertFile
+
+	if caDir == "" && caCertFile == "" {
+		return fmt.Errorf("mTLS server requires CA certificates (MTLSCADir or MTLSCACertFile)")
+	}
+
+	// Get port (default: 33074)
+	port := s.Config.HttpConfig.MTLSPort
+	if port == 0 {
+		port = MTLSServerPort
+	}
+
+	// Create mTLS server
+	var err error
+	s.mtlsServer, err = NewMTLSServer(certFile, keyFile, caDir, caCertFile, port, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create mTLS server: %w", err)
+	}
+
+	// Initialize mTLS validator config with account-issuer mappings
+	if len(s.Config.HttpConfig.MTLSAccountAllowedIssuers) > 0 {
+		InitMTLSValidatorConfig(s.Config.HttpConfig.MTLSAccountAllowedIssuers)
+	}
+
+	// Create gRPC server with mTLS credentials
+	grpcServer := s.mtlsServer.CreateGRPCServer()
+
+	// Register Machine-only services on mTLS port
+	// Note: These services will be registered by the caller after this method returns
+	// The grpcServer is available via s.mtlsServer.GetServer()
+	_ = grpcServer // Services registered externally
+
+	// Start the mTLS server
+	if err := s.mtlsServer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start mTLS server: %w", err)
+	}
+
+	log.WithContext(ctx).Infof("mTLS-only Machine Tunnel server started on port %d", port)
+	return nil
 }
 
 func getInstallationID(ctx context.Context, store store.Store) (string, error) {

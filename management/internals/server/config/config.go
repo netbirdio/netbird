@@ -121,6 +121,9 @@ type HttpServerConfig struct {
 	// Machine Tunnel Fork - mTLS Configuration
 	// MTLSEnabled enables client certificate authentication for machine peers
 	MTLSEnabled bool
+	// MTLSPort is the dedicated port for mTLS-only Machine Tunnel clients (default: 33074)
+	// When set, a separate gRPC server runs on this port with RequireAndVerifyClientCert
+	MTLSPort int
 	// MTLSCACertFile is the CA certificate file for validating client certificates
 	MTLSCACertFile string
 	// MTLSCADir is a directory containing CA certificates (for multi-tenant support)
@@ -128,6 +131,19 @@ type HttpServerConfig struct {
 	// MTLSStrictMode if true, ALL requests require client certificate (no fallback)
 	// if false, only mTLS-required methods need certificates, others fall back to token auth
 	MTLSStrictMode bool
+	// MTLSDomainAccountMapping maps AD domains to NetBird account IDs
+	// Example: {"corp.local": "account-uuid-1", "test.local": "account-uuid-1"}
+	// CRITICAL: This prevents cross-tenant certificate acceptance!
+	MTLSDomainAccountMapping map[string]string
+	// MTLSAccountAllowedDomains maps account IDs to their allowed domains
+	// Example: {"account-uuid-1": ["corp.local", "test.local"]}
+	// If not set, domains are derived from MTLSDomainAccountMapping
+	MTLSAccountAllowedDomains map[string][]string
+	// MTLSAccountAllowedIssuers maps account IDs to their allowed CA issuer fingerprints (SHA256)
+	// Example: {"account-uuid-1": ["abc123...", "def456..."]}
+	// CRITICAL: If set, only certificates issued by these CAs are accepted for the account
+	// If empty for an account, issuer validation is SKIPPED (NOT RECOMMENDED for production!)
+	MTLSAccountAllowedIssuers map[string][]string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)

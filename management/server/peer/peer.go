@@ -130,6 +130,27 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+
+	// Machine Tunnel Fork - mTLS Authentication Metadata
+	// These fields are populated when peer authenticates via mTLS (machine certificate)
+	// PeerType indicates authentication type: "machine" (mTLS), "user" (SSO), or empty (setup key)
+	PeerType string
+	// AuthMethod indicates how the peer was authenticated: "mtls", "sso", "setup_key"
+	AuthMethod string
+	// CertDNSName is the SAN DNSName from the client certificate (e.g., "hostname.domain.local")
+	CertDNSName string
+	// CertDomain is the domain extracted from CertDNSName (e.g., "domain.local")
+	CertDomain string
+	// CertIssuerFP is SHA256 fingerprint of the issuer CA certificate (for audit)
+	CertIssuerFP string
+	// CertSerial is the serial number of the client certificate
+	CertSerial string
+	// CertTemplate is the certificate template name/OID if present
+	CertTemplate string
+	// FirstAuthTime records when the peer first authenticated via mTLS
+	FirstAuthTime string
+	// LastCertAuthTime records the most recent mTLS authentication
+	LastCertAuthTime string
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {

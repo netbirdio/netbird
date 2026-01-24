@@ -29,6 +29,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/status"
+
+	// Machine Tunnel Fork: mTLS DNS label generation
+	"github.com/netbirdio/netbird/management/internals/shared/mtls"
 )
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
@@ -564,12 +567,25 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 
 		var freeLabel string
-		if ephemeral || attempt > 1 {
+		// Machine Tunnel Fork: Use hash-based DNS label for mTLS peers
+		// This prevents collisions across different domains with same hostname
+		switch {
+		case peer.Meta.CertDNSName != "" && peer.Meta.CertDomain != "":
+			// mTLS peer: use FQDN-hash based label for uniqueness
+			freeLabel = mtls.GenerateUniqueDNSLabel(peer.Meta.Hostname, peer.Meta.CertDomain)
+			if err := mtls.ValidateDNSLabel(freeLabel); err != nil {
+				log.WithContext(ctx).Warnf("Generated DNS label failed validation: %s, falling back to IP-based", freeLabel)
+				freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
+				}
+			}
+		case ephemeral || attempt > 1:
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
 			}
-		} else {
+		default:
 			freeLabel, err = nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)

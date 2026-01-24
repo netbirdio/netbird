@@ -454,3 +454,152 @@ func TestExtractTemplateNameV1(t *testing.T) {
 		t.Errorf("extractTemplateNameV1() without extension = %q, want empty", resultNoExt)
 	}
 }
+
+// TestAccountMapping tests the domain-to-account mapping functions.
+func TestAccountMapping(t *testing.T) {
+	// Set up test config
+	testConfig := &MTLSConfig{
+		DomainAccountMapping: map[string]string{
+			"corp.local":       "account-123",
+			"test.local":       "account-123", // Same account, multiple domains
+			"customer-a.local": "account-456",
+			"customer-b.local": "account-789",
+		},
+		AccountAllowedDomains: map[string][]string{
+			"account-123": {"corp.local", "test.local"},
+			"account-456": {"customer-a.local"},
+			"account-789": {"customer-b.local"},
+		},
+	}
+	SetMTLSConfig(testConfig)
+	defer func() { globalMTLSConfig = nil }() // Cleanup
+
+	// Test getAccountIDFromDomain
+	t.Run("getAccountIDFromDomain", func(t *testing.T) {
+		tests := []struct {
+			domain    string
+			wantAccID string
+			wantErr   bool
+		}{
+			{"corp.local", "account-123", false},
+			{"CORP.LOCAL", "account-123", false}, // Case insensitive
+			{"test.local", "account-123", false},
+			{"customer-a.local", "account-456", false},
+			{"unknown.local", "", true},
+			{"", "", true},
+		}
+
+		for _, tt := range tests {
+			accID, err := getAccountIDFromDomain(tt.domain)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("getAccountIDFromDomain(%q) expected error, got nil", tt.domain)
+				}
+				continue
+			}
+			if err != nil {
+				t.Errorf("getAccountIDFromDomain(%q) unexpected error: %v", tt.domain, err)
+				continue
+			}
+			if accID != tt.wantAccID {
+				t.Errorf("getAccountIDFromDomain(%q) = %q, want %q", tt.domain, accID, tt.wantAccID)
+			}
+		}
+	})
+
+	// Test getAllowedDomainsForAccount
+	t.Run("getAllowedDomainsForAccount", func(t *testing.T) {
+		domains := getAllowedDomainsForAccount("account-123")
+		if len(domains) != 2 {
+			t.Errorf("getAllowedDomainsForAccount(account-123) = %v, want 2 domains", domains)
+		}
+
+		domains = getAllowedDomainsForAccount("account-456")
+		if len(domains) != 1 || domains[0] != "customer-a.local" {
+			t.Errorf("getAllowedDomainsForAccount(account-456) = %v, want [customer-a.local]", domains)
+		}
+
+		domains = getAllowedDomainsForAccount("unknown-account")
+		if len(domains) != 0 {
+			t.Errorf("getAllowedDomainsForAccount(unknown) = %v, want empty (fail-safe)", domains)
+		}
+	})
+
+	// Test validateDomainForAccount
+	t.Run("validateDomainForAccount", func(t *testing.T) {
+		matched, err := validateDomainForAccount("corp.local", "account-123")
+		if err != nil {
+			t.Errorf("validateDomainForAccount(corp.local, account-123) unexpected error: %v", err)
+		}
+		if matched != "corp.local" {
+			t.Errorf("validateDomainForAccount() matched = %q, want corp.local", matched)
+		}
+
+		// Cross-tenant attempt should fail
+		_, err = validateDomainForAccount("customer-a.local", "account-123")
+		if err == nil {
+			t.Error("validateDomainForAccount(customer-a.local, account-123) should fail (cross-tenant)")
+		}
+	})
+
+	t.Log("✅ Account mapping tests PASSED")
+}
+
+// TestExtractMTLSIdentityWithAccountMapping tests identity extraction with account validation.
+func TestExtractMTLSIdentityWithAccountMapping(t *testing.T) {
+	// Set up test config
+	testConfig := &MTLSConfig{
+		DomainAccountMapping: map[string]string{
+			"corp.local": "account-123",
+		},
+		AccountAllowedDomains: map[string][]string{
+			"account-123": {"corp.local"},
+		},
+	}
+	SetMTLSConfig(testConfig)
+	defer func() { globalMTLSConfig = nil }() // Cleanup
+
+	// Find test certs
+	certDir := filepath.Join("..", "..", "..", "test", "certs")
+	clientCertPEM, err := os.ReadFile(filepath.Join(certDir, "client.crt"))
+	if err != nil {
+		t.Skipf("Test certs not found: %v", err)
+	}
+	caCertPEM, err := os.ReadFile(filepath.Join(certDir, "ca.crt"))
+	if err != nil {
+		t.Fatalf("Failed to read CA cert: %v", err)
+	}
+
+	clientCert, _ := parseCertificatePEM(clientCertPEM)
+	caCert, _ := parseCertificatePEM(caCertPEM)
+
+	// Create mock peer context
+	tlsState := tls.ConnectionState{
+		VerifiedChains: [][]*x509.Certificate{{clientCert, caCert}},
+	}
+	tlsInfo := credentials.TLSInfo{State: tlsState}
+	peerInfo := &peer.Peer{
+		Addr:     &net.IPAddr{IP: net.ParseIP("127.0.0.1")},
+		AuthInfo: tlsInfo,
+	}
+	ctx := peer.NewContext(context.Background(), peerInfo)
+
+	// Test extraction with account validation
+	identity, err := extractMTLSIdentity(ctx)
+	if err != nil {
+		t.Fatalf("extractMTLSIdentity failed: %v", err)
+	}
+
+	// Verify account fields are populated
+	if identity.AccountID != "account-123" {
+		t.Errorf("AccountID = %q, want account-123", identity.AccountID)
+	}
+	if identity.MatchedDomain != "corp.local" {
+		t.Errorf("MatchedDomain = %q, want corp.local", identity.MatchedDomain)
+	}
+
+	t.Logf("✅ mTLS Identity with Account Mapping VERIFIED:")
+	t.Logf("   DNSName: %s", identity.DNSName)
+	t.Logf("   AccountID: %s", identity.AccountID)
+	t.Logf("   MatchedDomain: %s", identity.MatchedDomain)
+}
