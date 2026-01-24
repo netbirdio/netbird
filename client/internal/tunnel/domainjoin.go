@@ -51,6 +51,10 @@ const (
 	PortRPCEPM   = 135 // RPC Endpoint Mapper
 )
 
+// domainJoinPromptMessage is the PowerShell Get-Credential prompt text.
+// This is NOT a credential - it's a UI prompt string for the user.
+const domainJoinPromptMessage = "Enter administrator account for domain join" //nolint:gosec
+
 // DefaultDCPorts are the ports required for basic DC connectivity.
 var DefaultDCPorts = []int{PortLDAP, PortKerberos, PortDNS}
 
@@ -119,7 +123,7 @@ func CheckDCConnectivity(ctx context.Context, dcAddress string, timeout time.Dur
 
 // checkTCPPort tests if a TCP port is reachable.
 func checkTCPPort(ctx context.Context, host string, port int, timeout time.Duration) bool {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 
 	// Create dialer with timeout
 	dialer := &net.Dialer{
@@ -140,7 +144,7 @@ func checkTCPPort(ctx context.Context, host string, port int, timeout time.Durat
 // checkUDPPort tests if a UDP port is reachable (best effort - UDP is connectionless).
 // This sends a small packet and checks if there's no immediate ICMP unreachable.
 func checkUDPPort(ctx context.Context, host string, port int, timeout time.Duration) bool {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 
 	conn, err := net.DialTimeout("udp", addr, timeout)
 	if err != nil {
@@ -288,7 +292,7 @@ func GenerateDomainJoinScript(config *DomainJoinConfig) string {
 
 	credentialPart := ""
 	if config.UseCredentials {
-		credentialPart = " -Credential (Get-Credential -Message 'Domain Admin credentials')"
+		credentialPart = fmt.Sprintf(" -Credential (Get-Credential -Message '%s')", domainJoinPromptMessage)
 	}
 
 	ouPart := ""
