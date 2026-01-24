@@ -5,26 +5,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-// inviteAcceptRateLimiter limits accept invite requests by IP address to prevent brute-force attacks
-var inviteAcceptRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimiterConfig{
-	RequestsPerMinute: 10, // 10 attempts per minute per IP
-	Burst:             5,  // Allow burst of 5 requests
-	CleanupInterval:   10 * time.Minute,
-	LimiterTTL:        30 * time.Minute,
-})
 
 // invitesHandler handles user invite operations
 type invitesHandler struct {
