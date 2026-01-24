@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -1600,6 +1601,10 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 		return status.Errorf(status.InvalidArgument, "password is required")
 	}
 
+	if err := validatePassword(password); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid password: %v", err)
+	}
+
 	if err := types.ValidateInviteToken(token); err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid invite token: %v", err)
 	}
@@ -1760,6 +1765,48 @@ func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID
 	}
 
 	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkDeleted, map[string]any{"email": invite.Email})
+
+	return nil
+}
+
+const minPasswordLength = 8
+
+// validatePassword checks password strength requirements:
+// - Minimum 8 characters
+// - At least 1 digit
+// - At least 1 uppercase letter
+// - At least 1 special character
+func validatePassword(password string) error {
+	if len(password) < minPasswordLength {
+		return errors.New("password must be at least 8 characters long")
+	}
+
+	var hasDigit, hasUpper, hasSpecial bool
+	for _, c := range password {
+		switch {
+		case unicode.IsDigit(c):
+			hasDigit = true
+		case unicode.IsUpper(c):
+			hasUpper = true
+		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
+			hasSpecial = true
+		}
+	}
+
+	var missing []string
+	if !hasDigit {
+		missing = append(missing, "one digit")
+	}
+	if !hasUpper {
+		missing = append(missing, "one uppercase letter")
+	}
+	if !hasSpecial {
+		missing = append(missing, "one special character")
+	}
+
+	if len(missing) > 0 {
+		return errors.New("password must contain at least " + strings.Join(missing, ", "))
+	}
 
 	return nil
 }
