@@ -72,7 +72,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if err := bypass.AddBypassPath("/api/users/invites/nbi_*"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
-	if err := bypass.AddBypassPath("/api/users/invites/*/accept"); err != nil {
+	if err := bypass.AddBypassPath("/api/users/invites/nbi_*/accept"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 
