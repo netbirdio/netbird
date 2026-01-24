@@ -1485,7 +1485,12 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 	}
 
 	// Check if invite already exists for this email
-	existingInvite, _ := am.Store.GetUserInviteByEmail(ctx, store.LockingStrengthNone, accountID, invite.Email)
+	existingInvite, err := am.Store.GetUserInviteByEmail(ctx, store.LockingStrengthNone, accountID, invite.Email)
+	if err != nil {
+		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+			return nil, fmt.Errorf("failed to check existing invites: %w", err)
+		}
+	}
 	if existingInvite != nil {
 		return nil, status.Errorf(status.AlreadyExists, "invite already exists for this email")
 	}
