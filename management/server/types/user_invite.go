@@ -5,6 +5,7 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"hash/crc32"
+	"strings"
 	"time"
 
 	b "github.com/hashicorp/go-secure-stdlib/base62"
@@ -56,7 +57,11 @@ func GenerateInviteToken() (hashedToken string, plainToken string, err error) {
 
 	checksum := crc32.ChecksumIEEE([]byte(secret))
 	encodedChecksum := base62.Encode(checksum)
-	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
+	// Left-pad with '0' to ensure exactly 6 characters (fmt.Sprintf %s pads with spaces which breaks base62.Decode)
+	paddedChecksum := encodedChecksum
+	if len(paddedChecksum) < InviteTokenChecksumLength {
+		paddedChecksum = strings.Repeat("0", InviteTokenChecksumLength-len(paddedChecksum)) + paddedChecksum
+	}
 
 	plainToken = InviteTokenPrefix + secret + paddedChecksum
 	hash := sha256.Sum256([]byte(plainToken))
