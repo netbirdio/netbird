@@ -27,7 +27,13 @@ const (
 )
 
 var (
-	localHostNetIP = net.ParseIP("127.0.0.1")
+	localHostNetIPv4 = net.ParseIP("127.0.0.1")
+	localHostNetIPv6 = net.ParseIP("::1")
+
+	serializeOpts = gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -218,31 +224,54 @@ generatePort:
 }
 
 func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
-	payload := gopacket.Payload(data)
-	ipH := &layers.IPv4{
-		DstIP:    localHostNetIP,
-		SrcIP:    endpointAddr.IP,
-		Version:  4,
-		TTL:      64,
-		Protocol: layers.IPProtocolUDP,
+
+	var ipH gopacket.SerializableLayer
+	var networkLayer gopacket.NetworkLayer
+	var dstIP net.IP
+
+	if endpointAddr.IP.To4() != nil {
+		// IPv4 path
+		ipv4 := &layers.IPv4{
+			DstIP:    localHostNetIPv4,
+			SrcIP:    endpointAddr.IP,
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolUDP,
+		}
+		ipH = ipv4
+		networkLayer = ipv4
+		dstIP = localHostNetIPv4
+	} else {
+		// IPv6 path
+		ipv6 := &layers.IPv6{
+			DstIP:      localHostNetIPv6,
+			SrcIP:      endpointAddr.IP,
+			Version:    6,
+			HopLimit:   64,
+			NextHeader: layers.IPProtocolUDP,
+		}
+		ipH = ipv6
+		networkLayer = ipv6
+		dstIP = localHostNetIPv6
 	}
+
 	udpH := &layers.UDP{
 		SrcPort: layers.UDPPort(endpointAddr.Port),
 		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
-	err := udpH.SetNetworkLayerForChecksum(ipH)
-	if err != nil {
+	if err := udpH.SetNetworkLayerForChecksum(networkLayer); err != nil {
 		return fmt.Errorf("set network layer for checksum: %w", err)
 	}
 
 	layerBuffer := gopacket.NewSerializeBuffer()
+	payload := gopacket.Payload(data)
 
-	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
-	if err != nil {
+	if err := gopacket.SerializeLayers(layerBuffer, serializeOpts, ipH, udpH, payload); err != nil {
 		return fmt.Errorf("serialize layers: %w", err)
 	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localHostNetIP}); err != nil {
+
+	if _, err := p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
 		return fmt.Errorf("write to raw conn: %w", err)
 	}
 	return nil
