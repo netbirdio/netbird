@@ -89,8 +89,8 @@ func (s *Server) RegisterMachinePeer(ctx context.Context, req *proto.MachineRegi
 	log.WithContext(ctx).Infof("Machine peer registration: key=%s... hostname=%s domain=%s account=%s...",
 		keyPrefix, identity.Hostname, identity.Domain, accountPrefix)
 
-	// Register or re-register peer via LoginPeer
-	// LoginPeer handles both new registrations and updates for existing peers
+	// Register or re-register peer via LoginPeer which handles both new
+	// registrations and updates for existing peers
 	// For machine peers, SetupKey and UserID are empty - auth is via mTLS
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),

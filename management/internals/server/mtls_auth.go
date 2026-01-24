@@ -354,7 +354,8 @@ func extractMTLSIdentity(ctx context.Context) (*MTLSIdentity, error) {
 	// If no valid SAN was found, return the last validation error
 	// or a generic error if mTLS config is not set up
 	if validDNSName == "" {
-		if globalMTLSConfig == nil {
+		switch {
+		case globalMTLSConfig == nil:
 			// mTLS config not set - fall back to simple validation (first valid FQDN)
 			dnsName := clientCert.DNSNames[0]
 			hostname, domain, err := splitDNSName(dnsName)
@@ -365,9 +366,9 @@ func extractMTLSIdentity(ctx context.Context) (*MTLSIdentity, error) {
 			validHostname = hostname
 			validDomain = domain
 			log.Debugf("mTLS config not set, using first valid SAN: %s", dnsName)
-		} else if validationErr != nil {
+		case validationErr != nil:
 			return nil, fmt.Errorf("no valid SAN DNSName for configured accounts: %w", validationErr)
-		} else {
+		default:
 			return nil, fmt.Errorf("certificate has no SAN DNSName matching configured domains")
 		}
 	}
@@ -495,11 +496,12 @@ func decodeOID(data []byte) string {
 	var components []int
 
 	first := int(data[0])
-	if first < 40 {
+	switch {
+	case first < 40:
 		components = append(components, 0, first)
-	} else if first < 80 {
+	case first < 80:
 		components = append(components, 1, first-40)
-	} else {
+	default:
 		components = append(components, 2, first-80)
 	}
 

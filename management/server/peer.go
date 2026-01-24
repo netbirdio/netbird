@@ -569,7 +569,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		var freeLabel string
 		// Machine Tunnel Fork: Use hash-based DNS label for mTLS peers
 		// This prevents collisions across different domains with same hostname
-		if peer.Meta.CertDNSName != "" && peer.Meta.CertDomain != "" {
+		switch {
+		case peer.Meta.CertDNSName != "" && peer.Meta.CertDomain != "":
 			// mTLS peer: use FQDN-hash based label for uniqueness
 			freeLabel = mtls.GenerateUniqueDNSLabel(peer.Meta.Hostname, peer.Meta.CertDomain)
 			if err := mtls.ValidateDNSLabel(freeLabel); err != nil {
@@ -579,12 +580,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 					return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
 				}
 			}
-		} else if ephemeral || attempt > 1 {
+		case ephemeral || attempt > 1:
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
 			}
-		} else {
+		default:
 			freeLabel, err = nbdns.GetParsedDomainLabel(peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
