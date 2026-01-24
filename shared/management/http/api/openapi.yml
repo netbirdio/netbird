@@ -652,8 +652,10 @@ components:
       description: Request to accept an invite and set password
       properties:
         password:
-          description: The password the user wants to set
+          description: The password the user wants to set (minimum 8 characters)
           type: string
+          format: password
+          minLength: 8
           example: SecurePass123!
       required:
         - password

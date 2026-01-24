@@ -2172,7 +2172,7 @@ type UserCreateRequest struct {
 
 // UserInviteAcceptRequest Request to accept an invite and set password
 type UserInviteAcceptRequest struct {
-	// Password The password the user wants to set
+	// Password The password the user wants to set (minimum 8 characters)
 	Password string `json:"password"`
 }
 
