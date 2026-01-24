@@ -1669,14 +1669,9 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	}
 
 	// Get existing invite
-	existingInvite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, inviteID)
+	existingInvite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)
 	if err != nil {
 		return nil, err
-	}
-
-	// Verify the invite belongs to this account
-	if existingInvite.AccountID != accountID {
-		return nil, status.Errorf(status.NotFound, "invite not found")
 	}
 
 	// Calculate expiration time
@@ -1734,4 +1729,32 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 		InviteLink:      plainToken,
 		InviteExpiresAt: expiresAt,
 	}, nil
+}
+
+// DeleteUserInvite deletes an existing invite by ID.
+func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	invite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)
+	if err != nil {
+		return err
+	}
+
+	if err := am.Store.DeleteUserInvite(ctx, inviteID); err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkDeleted, map[string]any{"email": invite.Email})
+
+	return nil
 }

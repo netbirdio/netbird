@@ -93,7 +93,7 @@ type Store interface {
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
 	SaveUserInvite(ctx context.Context, invite *types.UserInvite) error
-	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error)
+	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInvite, error)
 	GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInvite, error)
 	GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInvite, error)
 	GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInvite, error)

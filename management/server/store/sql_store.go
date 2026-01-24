@@ -830,15 +830,15 @@ func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite)
 	return nil
 }
 
-// GetUserInviteByID retrieves a user invite by its ID
-func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, inviteID string) (*types.UserInvite, error) {
+// GetUserInviteByID retrieves a user invite by its ID and account ID
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInvite, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var invite types.UserInvite
-	result := tx.Take(&invite, idQueryCondition, inviteID)
+	result := tx.Where("account_id = ?", accountID).Take(&invite, idQueryCondition, inviteID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "user invite not found")

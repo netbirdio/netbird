@@ -144,6 +144,7 @@ type MockAccountManager struct {
 	RegenerateUserInviteFunc   func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error)
 	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
+	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
 }
 
 func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
@@ -751,6 +752,13 @@ func (am *MockAccountManager) ListUserInvites(ctx context.Context, accountID, in
 		return am.ListUserInvitesFunc(ctx, accountID, initiatorUserID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListUserInvites is not implemented")
+}
+
+func (am *MockAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
+	if am.DeleteUserInviteFunc != nil {
+		return am.DeleteUserInviteFunc(ctx, accountID, initiatorUserID, inviteID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteUserInvite is not implemented")
 }
 
 func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error) {

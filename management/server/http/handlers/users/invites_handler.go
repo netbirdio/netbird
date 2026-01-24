@@ -26,6 +26,7 @@ func AddInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	// Authenticated endpoints (require admin)
 	router.HandleFunc("/users/invites", h.listInvites).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/invites", h.createInvite).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/invites/{inviteId}", h.deleteInvite).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users/invites/{inviteId}/regenerate", h.regenerateInvite).Methods("POST", "OPTIONS")
 }
 
@@ -234,4 +235,33 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 		InviteLink:      result.InviteLink,
 		InviteExpiresAt: expiresAt,
 	})
+}
+
+// deleteInvite handles DELETE /api/users/invites/{inviteId}
+func (h *invitesHandler) deleteInvite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	inviteID := vars["inviteId"]
+	if inviteID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invite ID is required"), w)
+		return
+	}
+
+	err = h.accountManager.DeleteUserInvite(r.Context(), userAuth.AccountId, userAuth.UserId, inviteID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
