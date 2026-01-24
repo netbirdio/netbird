@@ -2274,7 +2274,8 @@ components:
             "dns.zone.create", "dns.zone.update", "dns.zone.delete",
             "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete",
             "peer.job.create",
-            "user.password.change"
+            "user.password.change",
+            "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete"
           ]
           example: route.add
         initiator_id:
