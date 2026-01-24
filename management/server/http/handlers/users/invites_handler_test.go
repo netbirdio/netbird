@@ -392,28 +392,36 @@ func TestAcceptInvite(t *testing.T) {
 			token:          testInviteToken,
 			requestBody:    `{"password":"Short1!"}`,
 			expectedStatus: http.StatusUnprocessableEntity,
-			mockFunc:       nil, // Should fail before reaching mock
+			mockFunc: func(ctx context.Context, token, password string) error {
+				return status.Errorf(status.InvalidArgument, "password must be at least 8 characters long")
+			},
 		},
 		{
 			name:           "password missing digit",
 			token:          testInviteToken,
 			requestBody:    `{"password":"NoDigitPass!"}`,
 			expectedStatus: http.StatusUnprocessableEntity,
-			mockFunc:       nil,
+			mockFunc: func(ctx context.Context, token, password string) error {
+				return status.Errorf(status.InvalidArgument, "password must contain at least one digit")
+			},
 		},
 		{
 			name:           "password missing uppercase",
 			token:          testInviteToken,
 			requestBody:    `{"password":"nouppercase1!"}`,
 			expectedStatus: http.StatusUnprocessableEntity,
-			mockFunc:       nil,
+			mockFunc: func(ctx context.Context, token, password string) error {
+				return status.Errorf(status.InvalidArgument, "password must contain at least one uppercase letter")
+			},
 		},
 		{
 			name:           "password missing special character",
 			token:          testInviteToken,
 			requestBody:    `{"password":"NoSpecial123"}`,
 			expectedStatus: http.StatusUnprocessableEntity,
-			mockFunc:       nil,
+			mockFunc: func(ctx context.Context, token, password string) error {
+				return status.Errorf(status.InvalidArgument, "password must contain at least one special character")
+			},
 		},
 	}
 
