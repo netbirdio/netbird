@@ -8,7 +8,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/google/gopacket"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -23,16 +22,6 @@ import (
 
 const (
 	loopbackAddr = "127.0.0.1"
-)
-
-var (
-	localHostNetIPv4 = net.ParseIP("127.0.0.1")
-	localHostNetIPv6 = net.ParseIP("::1")
-
-	serializeOpts = gopacket.SerializeOptions{
-		ComputeChecksums: true,
-		FixLengths:       true,
-	}
 )
 
 // WGEBPFProxy definition for proxy with EBPF support

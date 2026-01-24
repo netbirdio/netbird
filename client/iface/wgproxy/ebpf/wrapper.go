@@ -18,6 +18,16 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
+var (
+	localHostNetIPv4 = net.ParseIP("127.0.0.1")
+	localHostNetIPv6 = net.ParseIP("::1")
+
+	serializeOpts = gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
+)
+
 // PacketHeaders holds pre-created headers and buffers for efficient packet sending
 type PacketHeaders struct {
 	ipH           gopacket.SerializableLayer
