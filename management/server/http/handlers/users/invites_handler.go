@@ -2,6 +2,8 @@ package users
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -215,8 +217,11 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 
 	var req api.UserInviteRegenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Allow empty body - expiresIn is optional
-		req = api.UserInviteRegenerateRequest{}
+		// Allow empty body (io.EOF) - expiresIn is optional
+		if !errors.Is(err, io.EOF) {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "couldn't parse JSON request: %v", err), w)
+			return
+		}
 	}
 
 	expiresIn := 0
