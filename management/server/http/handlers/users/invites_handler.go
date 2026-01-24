@@ -18,10 +18,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-const (
-	minPasswordLength = 8
-)
-
 // inviteAcceptRateLimiter limits accept invite requests by IP address to prevent brute-force attacks
 var inviteAcceptRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimiterConfig{
 	RequestsPerMinute: 10, // 10 attempts per minute per IP

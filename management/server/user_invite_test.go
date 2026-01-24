@@ -415,6 +415,9 @@ func TestRegenerateUserInvite_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, newResult)
 
+	// Verify invite ID remains the same (stable ID for clients)
+	assert.Equal(t, originalResult.UserInfo.ID, newResult.UserInfo.ID)
+
 	// Verify new token is different
 	assert.NotEqual(t, originalResult.InviteLink, newResult.InviteLink)
 	assert.Equal(t, "newuser@test.com", newResult.UserInfo.Email)

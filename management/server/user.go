@@ -1691,32 +1691,19 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
 
 	// Generate new invite token
-	newInviteID := types.NewInviteID()
 	hashedToken, plainToken, err := types.GenerateInviteToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate invite token: %w", err)
 	}
 
-	// Create new invite record
-	newInvite := &types.UserInvite{
-		ID:          newInviteID,
-		AccountID:   accountID,
-		Email:       existingInvite.Email,
-		Name:        existingInvite.Name,
-		Role:        existingInvite.Role,
-		AutoGroups:  existingInvite.AutoGroups,
-		HashedToken: hashedToken,
-		ExpiresAt:   expiresAt,
-		CreatedAt:   time.Now().UTC(),
-		CreatedBy:   initiatorUserID,
-	}
+	// Update existing invite with new token and expiration
+	existingInvite.HashedToken = hashedToken
+	existingInvite.ExpiresAt = expiresAt
+	existingInvite.CreatedBy = initiatorUserID
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.DeleteUserInvite(ctx, existingInvite.ID); err != nil {
-			return fmt.Errorf("failed to delete old invite: %w", err)
-		}
-		if err := transaction.SaveUserInvite(ctx, newInvite); err != nil {
-			return fmt.Errorf("failed to save new invite: %w", err)
+		if err := transaction.SaveUserInvite(ctx, existingInvite); err != nil {
+			return fmt.Errorf("failed to save updated invite: %w", err)
 		}
 		return nil
 	})
@@ -1724,11 +1711,11 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 		return nil, err
 	}
 
-	am.StoreEvent(ctx, initiatorUserID, newInvite.ID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": existingInvite.Email})
+	am.StoreEvent(ctx, initiatorUserID, existingInvite.ID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": existingInvite.Email})
 
 	return &types.UserInviteResponse{
 		UserInfo: &types.UserInfo{
-			ID:         newInviteID,
+			ID:         existingInvite.ID,
 			Email:      existingInvite.Email,
 			Name:       existingInvite.Name,
 			Role:       existingInvite.Role,
