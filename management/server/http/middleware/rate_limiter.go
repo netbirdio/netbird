@@ -2,10 +2,14 @@ package middleware
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
 // RateLimiterConfig holds configuration for the API rate limiter
@@ -143,4 +147,46 @@ func (rl *APIRateLimiter) Reset(key string) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	delete(rl.limiters, key)
+}
+
+// Middleware returns an HTTP middleware that rate limits requests by client IP.
+// Returns 429 Too Many Requests if the rate limit is exceeded.
+func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := getClientIP(r)
+		if !rl.Allow(clientIP) {
+			util.WriteErrorResponse("rate limit exceeded, please try again later", http.StatusTooManyRequests, w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// getClientIP extracts the client IP address from the request.
+// It checks X-Forwarded-For and X-Real-IP headers first, then falls back to RemoteAddr.
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (may contain multiple IPs, take the first)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if idx := len(xff); idx > 0 {
+			// Take the first IP in the list (original client)
+			for i := 0; i < len(xff); i++ {
+				if xff[i] == ',' {
+					return xff[:i]
+				}
+			}
+			return xff
+		}
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }

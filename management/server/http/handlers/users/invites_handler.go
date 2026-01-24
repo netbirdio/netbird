@@ -5,16 +5,26 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+// publicInviteRateLimiter limits public invite requests by IP address to prevent brute-force attacks
+var publicInviteRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimiterConfig{
+	RequestsPerMinute: 10, // 10 attempts per minute per IP
+	Burst:             5,  // Allow burst of 5 requests
+	CleanupInterval:   10 * time.Minute,
+	LimiterTTL:        30 * time.Minute,
+})
 
 // invitesHandler handles user invite operations
 type invitesHandler struct {
@@ -32,13 +42,17 @@ func AddInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/users/invites/{inviteId}/regenerate", h.regenerateInvite).Methods("POST", "OPTIONS")
 }
 
-// AddPublicInvitesEndpoints registers public (unauthenticated) invite endpoints
+// AddPublicInvitesEndpoints registers public (unauthenticated) invite endpoints with rate limiting
 func AddPublicInvitesEndpoints(accountManager account.Manager, router *mux.Router) {
 	h := &invitesHandler{accountManager: accountManager}
 
-	// Public endpoints (no auth required, protected by token)
-	router.HandleFunc("/users/invites/{token}", h.getInviteInfo).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/invites/{token}/accept", h.acceptInvite).Methods("POST", "OPTIONS")
+	// Create a subrouter for public invite endpoints with rate limiting middleware
+	publicRouter := router.PathPrefix("/users/invites").Subrouter()
+	publicRouter.Use(publicInviteRateLimiter.Middleware)
+
+	// Public endpoints (no auth required, protected by token and rate limited)
+	publicRouter.HandleFunc("/{token}", h.getInviteInfo).Methods("GET", "OPTIONS")
+	publicRouter.HandleFunc("/{token}/accept", h.acceptInvite).Methods("POST", "OPTIONS")
 }
 
 // listInvites handles GET /api/users/invites
