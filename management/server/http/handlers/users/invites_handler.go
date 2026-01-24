@@ -5,9 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/gorilla/mux"
 
@@ -35,46 +33,6 @@ var inviteAcceptRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimit
 // invitesHandler handles user invite operations
 type invitesHandler struct {
 	accountManager account.Manager
-}
-
-// validatePassword checks password strength requirements:
-// - Minimum 8 characters
-// - At least 1 digit
-// - At least 1 uppercase letter
-// - At least 1 special character
-func validatePassword(password string) error {
-	if len(password) < minPasswordLength {
-		return errors.New("password must be at least 8 characters long")
-	}
-
-	var hasDigit, hasUpper, hasSpecial bool
-	for _, c := range password {
-		switch {
-		case unicode.IsDigit(c):
-			hasDigit = true
-		case unicode.IsUpper(c):
-			hasUpper = true
-		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
-			hasSpecial = true
-		}
-	}
-
-	var missing []string
-	if !hasDigit {
-		missing = append(missing, "one digit")
-	}
-	if !hasUpper {
-		missing = append(missing, "one uppercase letter")
-	}
-	if !hasSpecial {
-		missing = append(missing, "one special character")
-	}
-
-	if len(missing) > 0 {
-		return errors.New("password must contain at least " + strings.Join(missing, ", "))
-	}
-
-	return nil
 }
 
 // AddInvitesEndpoints registers invite-related endpoints
@@ -239,11 +197,6 @@ func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req api.UserInviteAcceptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if err := validatePassword(req.Password); err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid password: %v", err), w)
 		return
 	}
 
