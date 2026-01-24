@@ -1,0 +1,13 @@
+FROM golang:1.25 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -ldflags="-s -w" -o /netbird-mgmt ./management/
+
+FROM ubuntu:24.04
+RUN apt update && apt install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /netbird-mgmt /go/bin/netbird-mgmt
+RUN chmod +x /go/bin/netbird-mgmt
+ENTRYPOINT ["/go/bin/netbird-mgmt", "management"]
+CMD ["--log-file", "console"]
