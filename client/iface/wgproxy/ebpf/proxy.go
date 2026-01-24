@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -221,58 +220,4 @@ generatePort:
 		goto generatePort
 	}
 	return p.lastUsedPort, nil
-}
-
-func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
-
-	var ipH gopacket.SerializableLayer
-	var networkLayer gopacket.NetworkLayer
-	var dstIP net.IP
-
-	if endpointAddr.IP.To4() != nil {
-		// IPv4 path
-		ipv4 := &layers.IPv4{
-			DstIP:    localHostNetIPv4,
-			SrcIP:    endpointAddr.IP,
-			Version:  4,
-			TTL:      64,
-			Protocol: layers.IPProtocolUDP,
-		}
-		ipH = ipv4
-		networkLayer = ipv4
-		dstIP = localHostNetIPv4
-	} else {
-		// IPv6 path
-		ipv6 := &layers.IPv6{
-			DstIP:      localHostNetIPv6,
-			SrcIP:      endpointAddr.IP,
-			Version:    6,
-			HopLimit:   64,
-			NextHeader: layers.IPProtocolUDP,
-		}
-		ipH = ipv6
-		networkLayer = ipv6
-		dstIP = localHostNetIPv6
-	}
-
-	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(endpointAddr.Port),
-		DstPort: layers.UDPPort(p.localWGListenPort),
-	}
-
-	if err := udpH.SetNetworkLayerForChecksum(networkLayer); err != nil {
-		return fmt.Errorf("set network layer for checksum: %w", err)
-	}
-
-	layerBuffer := gopacket.NewSerializeBuffer()
-	payload := gopacket.Payload(data)
-
-	if err := gopacket.SerializeLayers(layerBuffer, serializeOpts, ipH, udpH, payload); err != nil {
-		return fmt.Errorf("serialize layers: %w", err)
-	}
-
-	if _, err := p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
-		return fmt.Errorf("write to raw conn: %w", err)
-	}
-	return nil
 }
