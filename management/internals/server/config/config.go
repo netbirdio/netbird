@@ -121,6 +121,9 @@ type HttpServerConfig struct {
 	// Machine Tunnel Fork - mTLS Configuration
 	// MTLSEnabled enables client certificate authentication for machine peers
 	MTLSEnabled bool
+	// MTLSPort is the dedicated port for mTLS-only Machine Tunnel clients (default: 33074)
+	// When set, a separate gRPC server runs on this port with RequireAndVerifyClientCert
+	MTLSPort int
 	// MTLSCACertFile is the CA certificate file for validating client certificates
 	MTLSCACertFile string
 	// MTLSCADir is a directory containing CA certificates (for multi-tenant support)
