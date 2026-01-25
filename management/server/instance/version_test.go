@@ -1,10 +1,14 @@
 package instance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,24 +16,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultManager_GetVersionInfo_ReturnsCurrentVersion(t *testing.T) {
-	m := &DefaultManager{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+// mockRoundTripper implements http.RoundTripper for testing
+type mockRoundTripper struct {
+	callCount         atomic.Int32
+	managementVersion string
+	dashboardVersion  string
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.callCount.Add(1)
+
+	var body string
+	if strings.Contains(req.URL.String(), "pkgs.netbird.io") {
+		// Plain text response for management version
+		body = m.managementVersion
+	} else if strings.Contains(req.URL.String(), "github.com") {
+		// JSON response for dashboard version
+		jsonResp, _ := json.Marshal(githubRelease{TagName: "v" + m.dashboardVersion})
+		body = string(jsonResp)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+func TestDefaultManager_GetVersionInfo_ReturnsCurrentVersion(t *testing.T) {
+	mockTransport := &mockRoundTripper{
+		managementVersion: "0.65.0",
+		dashboardVersion:  "2.10.0",
+	}
+
+	m := &DefaultManager{
+		httpClient: &http.Client{Transport: mockTransport},
+	}
+
+	ctx := context.Background()
 
 	info, err := m.GetVersionInfo(ctx)
 	require.NoError(t, err)
 
 	// CurrentVersion should always be set
 	assert.NotEmpty(t, info.CurrentVersion)
+	assert.Equal(t, "0.65.0", info.ManagementVersion)
+	assert.Equal(t, "2.10.0", info.DashboardVersion)
+	assert.Equal(t, int32(2), mockTransport.callCount.Load()) // 2 calls: management + dashboard
 }
 
 func TestDefaultManager_GetVersionInfo_CachesResults(t *testing.T) {
+	mockTransport := &mockRoundTripper{
+		managementVersion: "0.65.0",
+		dashboardVersion:  "2.10.0",
+	}
+
 	m := &DefaultManager{
-		httpClient: &http.Client{Timeout: 5 * time.Second},
+		httpClient: &http.Client{Transport: mockTransport},
 	}
 
 	ctx := context.Background()
@@ -38,11 +81,19 @@ func TestDefaultManager_GetVersionInfo_CachesResults(t *testing.T) {
 	info1, err := m.GetVersionInfo(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, info1.CurrentVersion)
+	assert.Equal(t, "0.65.0", info1.ManagementVersion)
 
-	// Second call should use cache
+	initialCallCount := mockTransport.callCount.Load()
+
+	// Second call should use cache (no additional HTTP calls)
 	info2, err := m.GetVersionInfo(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, info1.CurrentVersion, info2.CurrentVersion)
+	assert.Equal(t, info1.ManagementVersion, info2.ManagementVersion)
+	assert.Equal(t, info1.DashboardVersion, info2.DashboardVersion)
+
+	// Verify no additional HTTP calls were made (cache was used)
+	assert.Equal(t, initialCallCount, mockTransport.callCount.Load())
 }
 
 func TestDefaultManager_FetchGitHubRelease_ParsesTagName(t *testing.T) {
