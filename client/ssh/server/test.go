@@ -3,34 +3,65 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
+
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
-// waitForServerReady waits for the SSH server to be ready to accept connections.
-// We use a simple polling approach that doesn't interfere with the SSH handshake.
+// waitForServerReady waits for the SSH server to be ready to accept SSH connections.
+// It attempts a real SSH handshake (which will fail auth) to ensure the server is fully operational.
 func waitForServerReady(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
-	for time.Now().Before(deadline) {
-		// Try to establish a TCP connection
-		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-		if err == nil {
-			// Successfully connected - server is listening
-			// Immediately close without sending any data to avoid
-			// interfering with the SSH server's handshake state
-			_ = conn.Close()
 
-			// Give the server a moment to reset after our probe connection
-			time.Sleep(100 * time.Millisecond)
+	// SSH client config that will fail authentication but succeed in handshake
+	config := &cryptossh.ClientConfig{
+		User:            "probe",
+		Auth:            []cryptossh.AuthMethod{}, // No auth - will fail after handshake
+		HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
+		Timeout:         1 * time.Second,
+	}
+
+	for time.Now().Before(deadline) {
+		// Try a real SSH connection - this verifies the server is actually ready
+		conn, err := cryptossh.Dial("tcp", addr, config)
+		if conn != nil {
+			_ = conn.Close()
+		}
+
+		// We expect auth to fail, but the dial should succeed (TCP + SSH handshake)
+		// If we get "connection refused", the server isn't ready yet
+		// If we get "ssh: handshake failed: EOF" or auth errors, the server IS ready
+		if err == nil {
+			// Unexpected success - server is definitely ready
 			return nil
 		}
+
+		errStr := err.Error()
+		// These errors indicate the SSH server is up and responding:
+		// - "ssh: handshake failed: ssh: no auth methods available" (server working, no auth)
+		// - "ssh: handshake failed: EOF" (server closed after banner)
+		// - Any error that isn't "connection refused" or network-related
+		if !isConnectionRefusedError(errStr) {
+			return nil
+		}
+
 		lastErr = err
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("server did not become ready within %v (last error: %v)", timeout, lastErr)
+}
+
+// isConnectionRefusedError checks if the error indicates the server isn't listening yet
+func isConnectionRefusedError(errStr string) bool {
+	// Check for common connection refused patterns across platforms
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connectex: No connection could be made") ||
+		strings.Contains(errStr, "connect: connection refused") ||
+		(strings.Contains(errStr, "dial tcp") && strings.Contains(errStr, "refused"))
 }
 
 func StartTestServer(t *testing.T, server *Server) string {
