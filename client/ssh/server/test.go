@@ -3,10 +3,25 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
 )
+
+// waitForServerReady waits for the SSH server to be ready to accept connections.
+func waitForServerReady(addr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("server did not become ready within %v", timeout)
+}
 
 func StartTestServer(t *testing.T, server *Server) string {
 	started := make(chan string, 1)
@@ -32,6 +47,10 @@ func StartTestServer(t *testing.T, server *Server) string {
 
 	select {
 	case actualAddr := <-started:
+		// Wait for the server to be ready to accept connections
+		if err := waitForServerReady(actualAddr, 5*time.Second); err != nil {
+			t.Fatalf("Server not ready: %v", err)
+		}
 		return actualAddr
 	case err := <-errChan:
 		t.Fatalf("Server failed to start: %v", err)
