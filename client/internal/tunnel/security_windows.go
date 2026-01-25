@@ -60,7 +60,9 @@ func DPAPIEncrypt(plaintext []byte) (string, error) {
 		return "", fmt.Errorf("CryptProtectData failed: %w", err)
 	}
 
-	defer windows.LocalFree(windows.Handle(unsafe.Pointer(outBlob.pbData)))
+	defer func() {
+		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(outBlob.pbData)))
+	}()
 
 	encrypted := make([]byte, outBlob.cbData)
 	copy(encrypted, unsafe.Slice(outBlob.pbData, outBlob.cbData))
@@ -99,7 +101,9 @@ func DPAPIDecrypt(ciphertext string) ([]byte, error) {
 		return nil, fmt.Errorf("CryptUnprotectData failed: %w", err)
 	}
 
-	defer windows.LocalFree(windows.Handle(unsafe.Pointer(outBlob.pbData)))
+	defer func() {
+		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(outBlob.pbData)))
+	}()
 
 	decrypted := make([]byte, outBlob.cbData)
 	copy(decrypted, unsafe.Slice(outBlob.pbData, outBlob.cbData))

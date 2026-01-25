@@ -332,12 +332,13 @@ func testConfigManagement() bool {
 
 	// Get decrypted setup key
 	setupKey, err := config.GetSetupKey()
-	if err != nil {
+	switch {
+	case err != nil:
 		fmt.Printf("  [FAIL] GetSetupKey: %v\n", err)
 		passed = false
-	} else if setupKey == "NBSK-test-key-1234" {
+	case setupKey == "NBSK-test-key-1234":
 		fmt.Println("  [OK] GetSetupKey returns correct value")
-	} else {
+	default:
 		fmt.Printf("  [FAIL] GetSetupKey returned wrong value: %s\n", setupKey)
 		passed = false
 	}
