@@ -3,6 +3,8 @@
 // trusttest is a test program for T-5.7 trust bootstrap features on Windows.
 // Build: GOOS=windows GOARCH=amd64 go build -o trusttest.exe ./client/internal/tunnel/cmd/trusttest
 // Run on Windows VM (as Administrator) to verify functionality.
+//
+//nolint:forbidigo // This is a CLI test tool that intentionally uses fmt.Print for output
 package main
 
 import (

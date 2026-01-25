@@ -3,6 +3,8 @@
 // securitytest is a comprehensive test program for T-5.6 security features on Windows.
 // Build: GOOS=windows GOARCH=amd64 go build -o securitytest.exe ./client/internal/tunnel/cmd/securitytest
 // Run on Windows VM (as Administrator) to verify functionality.
+//
+//nolint:forbidigo // This is a CLI test tool that intentionally uses fmt.Print for output
 package main
 
 import (
