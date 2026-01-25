@@ -10,26 +10,25 @@ import (
 )
 
 // waitForServerReady waits for the SSH server to be ready to accept connections.
-// Uses aggressive polling with short intervals to minimize test latency while
-// ensuring we catch server readiness even on slow CI runners (especially Windows).
+// We use a simple polling approach that doesn't interfere with the SSH handshake.
 func waitForServerReady(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
-	attempt := 0
 	for time.Now().Before(deadline) {
-		attempt++
+		// Try to establish a TCP connection
 		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			// Successfully connected - server is listening
+			// Immediately close without sending any data to avoid
+			// interfering with the SSH server's handshake state
+			_ = conn.Close()
+
+			// Give the server a moment to reset after our probe connection
+			time.Sleep(100 * time.Millisecond)
 			return nil
 		}
 		lastErr = err
-		// Exponential backoff: 10ms, 20ms, 40ms, 80ms, then cap at 100ms
-		backoff := time.Duration(10<<min(attempt, 4)) * time.Millisecond
-		if backoff > 100*time.Millisecond {
-			backoff = 100 * time.Millisecond
-		}
-		time.Sleep(backoff)
+		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("server did not become ready within %v (last error: %v)", timeout, lastErr)
 }
