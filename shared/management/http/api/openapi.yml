@@ -3625,6 +3625,8 @@ paths:
         '412':
           description: Precondition failed - embedded IdP is not enabled
           content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users/invites/{inviteId}/regenerate:
@@ -3667,6 +3669,8 @@ paths:
         '412':
           description: Precondition failed - embedded IdP is not enabled
           content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/users/invites/{token}:
@@ -3731,6 +3735,8 @@ paths:
         '412':
           description: Precondition failed - embedded IdP is not enabled or invite expired
           content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/peers:
