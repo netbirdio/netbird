@@ -91,10 +91,11 @@ func (h *handler) getVersionInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if versionInfo.DashboardVersion != "" {
-		resp.DashboardVersion = &versionInfo.DashboardVersion
+		resp.DashboardAvailableVersion = &versionInfo.DashboardVersion
 	}
+
 	if versionInfo.ManagementVersion != "" {
-		resp.ManagementVersion = &versionInfo.ManagementVersion
+		resp.ManagementAvailableVersion = &versionInfo.ManagementVersion
 	}
 
 	util.WriteJSONObject(r.Context(), w, resp)

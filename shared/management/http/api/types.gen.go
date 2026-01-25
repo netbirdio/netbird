@@ -876,17 +876,17 @@ type InstanceStatus struct {
 
 // InstanceVersionInfo Version information for NetBird components
 type InstanceVersionInfo struct {
-	// DashboardVersion The latest available version of the dashboard (from GitHub releases)
-	DashboardVersion *string `json:"dashboard_version,omitempty"`
+	// DashboardAvailableVersion The latest available version of the dashboard (from GitHub releases)
+	DashboardAvailableVersion *string `json:"dashboard_available_version,omitempty"`
+
+	// ManagementAvailableVersion The latest available version of the management server (from GitHub releases)
+	ManagementAvailableVersion *string `json:"management_available_version,omitempty"`
 
 	// ManagementCurrentVersion The current running version of the management server
 	ManagementCurrentVersion string `json:"management_current_version"`
 
 	// ManagementUpdateAvailable Indicates if a newer management version is available
 	ManagementUpdateAvailable bool `json:"management_update_available"`
-
-	// ManagementVersion The latest available version of the management server (from GitHub releases)
-	ManagementVersion *string `json:"management_version,omitempty"`
 }
 
 // JobRequest defines model for JobRequest.

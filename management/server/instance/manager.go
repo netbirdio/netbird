@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/mail"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,9 +22,9 @@ import (
 )
 
 const (
-	// GitHub API endpoints for releases
-	managementReleasesURL = "https://api.github.com/repos/netbirdio/netbird/releases/latest"
-	dashboardReleasesURL  = "https://api.github.com/repos/netbirdio/dashboard/releases/latest"
+	// Version endpoints
+	managementVersionURL = "https://pkgs.netbird.io/releases/latest/version"
+	dashboardReleasesURL = "https://api.github.com/repos/netbirdio/dashboard/releases/latest"
 
 	// Cache TTL for version information
 	versionCacheTTL = 60 * time.Minute
@@ -208,16 +210,16 @@ func (m *DefaultManager) fetchVersionInfo(ctx context.Context) (*VersionInfo, er
 		CurrentVersion: version.NetbirdVersion(),
 	}
 
-	// Fetch management version
-	mgmtVersion, err := m.fetchGitHubRelease(ctx, managementReleasesURL)
+	// Fetch management version from pkgs.netbird.io (plain text)
+	mgmtVersion, err := m.fetchPlainTextVersion(ctx, managementVersionURL)
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to fetch management version from GitHub: %v", err)
+		log.WithContext(ctx).Warnf("failed to fetch management version: %v", err)
 	} else {
 		info.ManagementVersion = mgmtVersion
 		info.ManagementUpdateAvailable = isNewerVersion(info.CurrentVersion, mgmtVersion)
 	}
 
-	// Fetch dashboard version
+	// Fetch dashboard version from GitHub
 	dashVersion, err := m.fetchGitHubRelease(ctx, dashboardReleasesURL)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed to fetch dashboard version from GitHub: %v", err)
@@ -247,6 +249,32 @@ func isNewerVersion(currentVersion, latestVersion string) bool {
 	}
 
 	return latest.GreaterThan(current)
+}
+
+func (m *DefaultManager) fetchPlainTextVersion(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", "NetBird-Management/"+version.NetbirdVersion())
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 100))
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	return strings.TrimSpace(string(body)), nil
 }
 
 func (m *DefaultManager) fetchGitHubRelease(ctx context.Context, url string) (string, error) {

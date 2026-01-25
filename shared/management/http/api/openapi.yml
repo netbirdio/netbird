@@ -2856,11 +2856,11 @@ components:
           description: The current running version of the management server
           type: string
           example: "0.35.0"
-        dashboard_version:
+        dashboard_available_version:
           description: The latest available version of the dashboard (from GitHub releases)
           type: string
           example: "2.10.0"
-        management_version:
+        management_available_version:
           description: The latest available version of the management server (from GitHub releases)
           type: string
           example: "0.35.0"

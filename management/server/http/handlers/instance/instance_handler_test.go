@@ -310,10 +310,10 @@ func TestGetVersionInfo_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "0.34.0", response.ManagementCurrentVersion)
-	assert.NotNil(t, response.DashboardVersion)
-	assert.Equal(t, "2.0.0", *response.DashboardVersion)
-	assert.NotNil(t, response.ManagementVersion)
-	assert.Equal(t, "0.35.0", *response.ManagementVersion)
+	assert.NotNil(t, response.DashboardAvailableVersion)
+	assert.Equal(t, "2.0.0", *response.DashboardAvailableVersion)
+	assert.NotNil(t, response.ManagementAvailableVersion)
+	assert.Equal(t, "0.35.0", *response.ManagementAvailableVersion)
 	assert.True(t, response.ManagementUpdateAvailable)
 }
 
