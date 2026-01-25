@@ -126,9 +126,10 @@ func findByNamePrefix(prefix string) (*InterfaceInfo, error) {
 
 	for _, iface := range interfaces {
 		if strings.HasPrefix(iface.Name, prefix) {
-			row, err := getAdapterRow(iface.Index)
-			if err != nil {
+			row, rowErr := getAdapterRow(iface.Index)
+			if rowErr != nil {
 				// Even if we can't get adapter row, return basic info
+				log.Debugf("Could not get adapter row for %s: %v", iface.Name, rowErr)
 				return &InterfaceInfo{
 					Name:  iface.Name,
 					Index: iface.Index,
