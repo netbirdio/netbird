@@ -44,7 +44,23 @@
 .NOTES
     Requires: Administrator privileges, PowerShell 5.1+
     Author: NetBird Machine Tunnel Fork
-    Version: 1.0.0
+    Version: 2.0.0
+
+    SECURITY CONSIDERATIONS:
+
+    1. Script Verification (before running):
+       - Verify SHA256 checksum: Get-FileHash .\bootstrap-new-client.ps1 -Algorithm SHA256
+       - Compare with published checksum in CHECKSUMS.txt or release notes
+
+    2. Authenticode Signing (for production deployments):
+       - Sign with code signing certificate: Set-AuthenticodeSignature -FilePath .\bootstrap-new-client.ps1 -Certificate $cert
+       - Verify signature: Get-AuthenticodeSignature .\bootstrap-new-client.ps1
+
+    3. Setup-Key Handling:
+       - Setup-Keys are one-time use with 24h TTL
+       - ALWAYS revoke Setup-Key in Dashboard after bootstrap
+       - Setup-Key is redacted in all logs (only last 4 chars shown)
+       - Setup-Key is removed from local config after mTLS upgrade
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -174,11 +190,15 @@ Write-Host @"
 
 "@ -ForegroundColor Cyan
 
+# Redact Setup-Key for logging (show only last 4 chars)
+$SetupKeyRedacted = "****-****-****-****-" + $SetupKey.Substring($SetupKey.Length - 4)
+
 Write-Host "Configuration:" -ForegroundColor White
 Write-Host "  Domain:    $DomainName"
 Write-Host "  DC:        $DCAddress"
-Write-Host "  Setup-Key: $($SetupKey.Substring(0,8))..."
+Write-Host "  Setup-Key: $SetupKeyRedacted"
 if ($OUPath) { Write-Host "  OU Path:   $OUPath" }
+Write-Host "  Template:  $CertTemplateName"
 Write-Host ""
 
 # ============================================
@@ -414,29 +434,37 @@ CertificateTemplate = $CertTemplateName
 }
 
 # ============================================
-# Step 7: Update NetBird Config for mTLS
+# Step 7: Update NetBird Config for mTLS (Smart Selection v3.6)
 # ============================================
-Write-Step "Step 7: Updating NetBird Config for mTLS (Phase 2)"
+Write-Step "Step 7: Updating NetBird Config for mTLS (Phase 2 - Smart Selection)"
 
-if ($PSCmdlet.ShouldProcess($NetBirdConfigPath, "Enable mTLS")) {
-    if ($certThumbprint) {
-        # Update config to enable machine cert auth
-        $configUpdate = @"
+if ($PSCmdlet.ShouldProcess($NetBirdConfigPath, "Enable mTLS with Smart Selection")) {
+    # v3.6: Use Smart Cert Selection - no thumbprint needed!
+    # Smart Selection automatically finds the right cert based on:
+    # - Template name match
+    # - SAN must match hostname.domain
+    # - Most recent valid cert
+    $configUpdate = @"
 
-# Machine Certificate Authentication (Phase 2)
+# Machine Certificate Authentication (Phase 2 - Smart Selection v3.6)
+# No thumbprint needed - NetBird automatically selects the right certificate!
 machine_cert_enabled: true
-machine_cert_thumbprint: $certThumbprint
+machine_cert_template_name: $CertTemplateName
+machine_cert_san_must_match: true
 "@
-        Add-Content $NetBirdConfigPath $configUpdate
+    Add-Content $NetBirdConfigPath $configUpdate
 
-        # Remove setup key from config (security)
-        $config = Get-Content $NetBirdConfigPath -Raw
-        $config = $config -replace 'setup_key:.*\n', ''
-        Set-Content $NetBirdConfigPath $config
+    # Remove setup key from config (CRITICAL: security requirement!)
+    $config = Get-Content $NetBirdConfigPath -Raw
+    $config = $config -replace 'setup_key:.*\n', ''
+    Set-Content $NetBirdConfigPath $config
 
-        Write-Success "Config updated for mTLS authentication"
-    } else {
-        Write-Warning "No certificate thumbprint available. Skipping mTLS config."
+    Write-Success "Config updated for mTLS (Smart Selection)"
+    Write-Host "  Template: $CertTemplateName" -ForegroundColor Gray
+    Write-Host "  SAN Match: hostname.$DomainName" -ForegroundColor Gray
+
+    if ($certThumbprint) {
+        Write-Host "  Found Cert: $($certThumbprint.Substring(0,16))..." -ForegroundColor Gray
     }
 }
 
@@ -445,14 +473,31 @@ machine_cert_thumbprint: $certThumbprint
 # ============================================
 Write-Step "Step 8: Completing Bootstrap"
 
+# CRITICAL SECURITY WARNING
+Write-Host @"
+╔═══════════════════════════════════════════════════════════════════╗
+║  ⚠️  SECURITY ACTION REQUIRED                                      ║
+║                                                                   ║
+║  REVOKE the Setup-Key in NetBird Dashboard immediately!           ║
+║                                                                   ║
+║  Setup-Key used: $SetupKeyRedacted
+║                                                                   ║
+║  The Setup-Key has been removed from local config, but it         ║
+║  must also be revoked on the server to prevent reuse.            ║
+║                                                                   ║
+║  Dashboard → Setup Keys → Find & Revoke                           ║
+╚═══════════════════════════════════════════════════════════════════╝
+"@ -ForegroundColor Yellow
+
 if ($NoRestart) {
     Write-Host @"
 
 Bootstrap complete! Manual steps required:
-1. Restart the computer to complete domain join
-2. After restart, the NetBird service will use mTLS (Phase 2)
+1. REVOKE the Setup-Key in NetBird Dashboard (see above)
+2. Restart the computer to complete domain join
+3. After restart, the NetBird service will use mTLS (Phase 2)
 
-"@ -ForegroundColor Yellow
+"@ -ForegroundColor Cyan
 } else {
     Write-Host @"
 
@@ -461,6 +506,8 @@ Bootstrap complete!
 The computer will restart in 30 seconds to complete:
 - Domain join finalization
 - NetBird service restart with mTLS (Phase 2)
+
+REMEMBER: REVOKE the Setup-Key in NetBird Dashboard!
 
 Press Ctrl+C to cancel restart.
 
