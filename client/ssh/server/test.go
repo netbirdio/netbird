@@ -34,13 +34,6 @@ func waitForServerReady(addr string, timeout time.Duration) error {
 	return fmt.Errorf("server did not become ready within %v (last error: %v)", timeout, lastErr)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func StartTestServer(t *testing.T, server *Server) string {
 	started := make(chan string, 1)
 	errChan := make(chan error, 1)
