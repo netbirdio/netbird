@@ -1,58 +1,56 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
-
-	cryptossh "golang.org/x/crypto/ssh"
 )
 
 // waitForServerReady waits for the SSH server to be ready to accept SSH connections.
-// It attempts a real SSH handshake (which will fail auth) to ensure the server is fully operational.
+// It uses a lightweight TCP banner check (reading SSH-2.0 banner) to verify the server
+// is accepting connections and responding properly.
 func waitForServerReady(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 
-	// SSH client config that will fail authentication but succeed in handshake
-	config := &cryptossh.ClientConfig{
-		User:            "probe",
-		Auth:            []cryptossh.AuthMethod{}, // No auth - will fail after handshake
-		HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
-		Timeout:         1 * time.Second,
+	// checkSSHBanner does a lightweight TCP connection that just reads the SSH banner.
+	// This verifies the server's Accept loop is running and handling connections.
+	checkSSHBanner := func() error {
+		dialer := &net.Dialer{Timeout: 2 * time.Second}
+		conn, err := dialer.Dial("tcp", addr)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			return err
+		}
+
+		reader := bufio.NewReader(conn)
+		banner, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read banner: %w", err)
+		}
+
+		if !strings.HasPrefix(banner, "SSH-") {
+			return fmt.Errorf("invalid SSH banner: %s", banner)
+		}
+
+		return nil
 	}
 
 	for time.Now().Before(deadline) {
-		// Try a real SSH connection - this verifies the server is actually ready
-		conn, err := cryptossh.Dial("tcp", addr, config)
-		if conn != nil {
-			_ = conn.Close()
-		}
-
-		// We expect auth to fail, but the dial should succeed (TCP + SSH handshake)
-		// The server is ready when we get an SSH-level error (handshake completed but auth failed)
-		// The server is NOT ready when we get a network-level error (connection refused, timeout, etc.)
-		if err == nil {
-			// Unexpected success - server is definitely ready
-			// Give the server time to process the closed connection
-			time.Sleep(200 * time.Millisecond)
+		if err := checkSSHBanner(); err == nil {
 			return nil
+		} else {
+			lastErr = err
 		}
-
-		errStr := err.Error()
-		// The server is ready if we got an SSH handshake error (means we connected and spoke SSH)
-		// SSH errors contain "ssh:" in the message
-		if strings.Contains(errStr, "ssh:") {
-			// Server responded with SSH protocol - it's ready
-			// Give it time to reset after our probe
-			time.Sleep(200 * time.Millisecond)
-			return nil
-		}
-
-		lastErr = err
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("server did not become ready within %v (last error: %v)", timeout, lastErr)
@@ -78,5 +76,6 @@ func StartTestServer(t *testing.T, server *Server) string {
 	if err := waitForServerReady(addr, 10*time.Second); err != nil {
 		t.Fatalf("Server not ready: %v", err)
 	}
+
 	return addr
 }
