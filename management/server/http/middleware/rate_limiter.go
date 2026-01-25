@@ -163,27 +163,7 @@ func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
 }
 
 // getClientIP extracts the client IP address from the request.
-// It checks X-Forwarded-For and X-Real-IP headers first, then falls back to RemoteAddr.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (may contain multiple IPs, take the first)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if idx := len(xff); idx > 0 {
-			// Take the first IP in the list (original client)
-			for i := 0; i < len(xff); i++ {
-				if xff[i] == ',' {
-					return xff[:i]
-				}
-			}
-			return xff
-		}
-	}
-
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-
-	// Fall back to RemoteAddr
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
