@@ -1,0 +1,154 @@
+name: "E2E Tunnel Tests"
+
+# This workflow is for manual E2E testing in a lab environment.
+# It cannot run in GitHub Actions due to requirements:
+# - Windows domain-joined machine
+# - NetBird Machine Service running
+# - Domain Controller accessible via tunnel
+#
+# Use workflow_dispatch to record test results from lab testing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_environment:
+        description: 'Test environment (e.g., lab-proxmox, azure-lab)'
+        required: true
+        default: 'lab-proxmox'
+      dc_address:
+        description: 'Domain Controller IP address'
+        required: true
+        default: '192.168.100.20'
+      domain_name:
+        description: 'Domain name for SRV lookups'
+        required: true
+        default: 'test.local'
+      test_results:
+        description: 'Test results summary (for documentation)'
+        required: false
+        default: ''
+
+env:
+  TEST_SCRIPT: scripts/tests/Test-TunnelEstablishment.ps1
+
+jobs:
+  validate-script:
+    name: "Validate Test Script Syntax"
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $script = Get-Content "${{ env.TEST_SCRIPT }}" -Raw
+          $errors = $null
+          [System.Management.Automation.PSParser]::Tokenize($script, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            Write-Error "PowerShell syntax errors found:"
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host "PowerShell script syntax is valid"
+
+      - name: Show script help
+        shell: pwsh
+        run: |
+          Get-Help "${{ env.TEST_SCRIPT }}" -Detailed
+
+  document-results:
+    name: "Document Lab Test Results"
+    runs-on: ubuntu-latest
+    needs: validate-script
+    if: ${{ github.event.inputs.test_results != '' }}
+    steps:
+      - name: Create test summary
+        run: |
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          # E2E Tunnel Test Results
+
+          ## Environment
+          - **Test Environment:** ${{ github.event.inputs.test_environment }}
+          - **Domain Controller:** ${{ github.event.inputs.dc_address }}
+          - **Domain:** ${{ github.event.inputs.domain_name }}
+          - **Run Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Triggered by:** ${{ github.actor }}
+
+          ## Results
+          ${{ github.event.inputs.test_results }}
+
+          ## Test Script
+          The following test script was used:
+          - `${{ env.TEST_SCRIPT }}`
+
+          ## Test Cases
+          | Test | Description |
+          |------|-------------|
+          | TC1.1 | Service Running |
+          | TC1.2 | WireGuard Interface |
+          | TC1.3 | Route to DC Network |
+          | TC1.4 | DC LDAP (389/TCP) |
+          | TC1.5 | DC Kerberos (88/TCP) |
+          | TC1.6 | DC DNS (53/TCP) |
+          | TC1.7 | Kerberos TGT |
+          | TC2.1 | LDAP SRV Record |
+          | TC3.1 | Kerberos SRV (UDP) |
+          | TC3.2 | Kerberos SRV (TCP) |
+          | TC4.1 | DC Discovery (nltest) |
+          | TC4.2 | UDP Kerberos Indicator |
+          EOF
+
+  instructions:
+    name: "Lab Testing Instructions"
+    runs-on: ubuntu-latest
+    needs: validate-script
+    if: ${{ github.event.inputs.test_results == '' }}
+    steps:
+      - name: Show testing instructions
+        run: |
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          # E2E Tunnel Testing Instructions
+
+          ## Prerequisites
+          1. Windows 10/11 VM in lab environment (Proxmox/Azure)
+          2. VM must be domain-joined to `${{ github.event.inputs.domain_name }}`
+          3. NetBird Machine Service installed and configured
+          4. Domain Controller at `${{ github.event.inputs.dc_address }}` accessible via tunnel
+
+          ## Running Tests
+
+          ### 1. Copy test script to Windows VM
+          ```powershell
+          # From Linux host
+          scp scripts/tests/Test-TunnelEstablishment.ps1 administrator@<VM-IP>:C:\temp\
+          ```
+
+          ### 2. Run tests on Windows VM (as Administrator)
+          ```powershell
+          cd C:\temp
+          .\Test-TunnelEstablishment.ps1 -DCAddress ${{ github.event.inputs.dc_address }} -DomainName ${{ github.event.inputs.domain_name }} -Verbose
+          ```
+
+          ### 3. Capture results
+          Save the output and re-run this workflow with the `test_results` input filled in.
+
+          ## Expected Output
+          ```
+          ============================================================
+            TEST SUMMARY
+          ============================================================
+
+            Passed:  12
+            Failed:  0
+            Skipped: 0
+
+            Pass Rate: 100%
+          ```
+
+          ## Troubleshooting
+          - **Service not running:** `Start-Service NetBirdMachine`
+          - **No WireGuard interface:** Check service logs in Event Viewer
+          - **DC not reachable:** Verify tunnel is established, check routes
+          - **No Kerberos TGT:** Run `klist purge` then `gpupdate /force`
+          EOF
