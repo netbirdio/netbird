@@ -652,10 +652,14 @@ components:
       description: Request to accept an invite and set password
       properties:
         password:
-          description: The password the user wants to set (minimum 8 characters)
+          description: >-
+            The password the user wants to set. Must be at least 8 characters long
+            and contain at least one uppercase letter, one digit, and one special
+            character (any character that is not a letter or digit, including spaces).
           type: string
           format: password
           minLength: 8
+          pattern: '^(?=.*[0-9])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$'
           example: SecurePass123!
       required:
         - password

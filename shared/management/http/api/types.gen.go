@@ -2187,7 +2187,7 @@ type UserCreateRequest struct {
 
 // UserInviteAcceptRequest Request to accept an invite and set password
 type UserInviteAcceptRequest struct {
-	// Password The password the user wants to set (minimum 8 characters)
+	// Password The password the user wants to set. Must be at least 8 characters long and contain at least one uppercase letter, one digit, and one special character (any character that is not a letter or digit, including spaces).
 	Password string `json:"password"`
 }
 
