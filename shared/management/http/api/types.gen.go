@@ -874,6 +874,21 @@ type InstanceStatus struct {
 	SetupRequired bool `json:"setup_required"`
 }
 
+// InstanceVersionInfo Version information for NetBird components
+type InstanceVersionInfo struct {
+	// DashboardAvailableVersion The latest available version of the dashboard (from GitHub releases)
+	DashboardAvailableVersion *string `json:"dashboard_available_version,omitempty"`
+
+	// ManagementAvailableVersion The latest available version of the management server (from GitHub releases)
+	ManagementAvailableVersion *string `json:"management_available_version,omitempty"`
+
+	// ManagementCurrentVersion The current running version of the management server
+	ManagementCurrentVersion string `json:"management_current_version"`
+
+	// ManagementUpdateAvailable Indicates if a newer management version is available
+	ManagementUpdateAvailable bool `json:"management_update_available"`
+}
+
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
 	Workload WorkloadRequest `json:"workload"`
@@ -2172,7 +2187,7 @@ type UserCreateRequest struct {
 
 // UserInviteAcceptRequest Request to accept an invite and set password
 type UserInviteAcceptRequest struct {
-	// Password The password the user wants to set (minimum 8 characters)
+	// Password The password the user wants to set. Must be at least 8 characters long and contain at least one uppercase letter, one digit, and one special character (any character that is not a letter or digit, including spaces).
 	Password string `json:"password"`
 }
 
