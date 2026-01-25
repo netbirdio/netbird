@@ -10,17 +10,35 @@ import (
 )
 
 // waitForServerReady waits for the SSH server to be ready to accept connections.
+// Uses aggressive polling with short intervals to minimize test latency while
+// ensuring we catch server readiness even on slow CI runners (especially Windows).
 func waitForServerReady(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	var lastErr error
+	attempt := 0
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		attempt++
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		lastErr = err
+		// Exponential backoff: 10ms, 20ms, 40ms, 80ms, then cap at 100ms
+		backoff := time.Duration(10<<min(attempt, 4)) * time.Millisecond
+		if backoff > 100*time.Millisecond {
+			backoff = 100 * time.Millisecond
+		}
+		time.Sleep(backoff)
 	}
-	return fmt.Errorf("server did not become ready within %v", timeout)
+	return fmt.Errorf("server did not become ready within %v (last error: %v)", timeout, lastErr)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func StartTestServer(t *testing.T, server *Server) string {
@@ -47,8 +65,9 @@ func StartTestServer(t *testing.T, server *Server) string {
 
 	select {
 	case actualAddr := <-started:
-		// Wait for the server to be ready to accept connections
-		if err := waitForServerReady(actualAddr, 5*time.Second); err != nil {
+		// Wait for the server to be ready to accept connections.
+		// Use a generous timeout as Windows CI runners can be slow.
+		if err := waitForServerReady(actualAddr, 10*time.Second); err != nil {
 			t.Fatalf("Server not ready: %v", err)
 		}
 		return actualAddr
