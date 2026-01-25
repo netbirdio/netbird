@@ -154,6 +154,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	recordsManager.RegisterEndpoints(router, rManager)
 	idp.AddEndpoints(accountManager, router)
 	instance.AddEndpoints(instanceManager, router)
+	instance.AddVersionEndpoint(instanceManager, router)
 
 	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {

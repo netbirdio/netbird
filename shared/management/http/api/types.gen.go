@@ -874,6 +874,18 @@ type InstanceStatus struct {
 	SetupRequired bool `json:"setup_required"`
 }
 
+// InstanceVersionInfo Version information for NetBird components
+type InstanceVersionInfo struct {
+	// DashboardVersion The latest available version of the dashboard (from GitHub releases)
+	DashboardVersion *string `json:"dashboard_version,omitempty"`
+
+	// ManagementCurrentVersion The current running version of the management server
+	ManagementCurrentVersion string `json:"management_current_version"`
+
+	// ManagementVersion The latest available version of the management server (from GitHub releases)
+	ManagementVersion *string `json:"management_version,omitempty"`
+}
+
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
 	Workload WorkloadRequest `json:"workload"`

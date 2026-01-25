@@ -2848,6 +2848,24 @@ components:
       required:
         - user_id
         - email
+    InstanceVersionInfo:
+      type: object
+      description: Version information for NetBird components
+      properties:
+        management_current_version:
+          description: The current running version of the management server
+          type: string
+          example: "0.35.0"
+        dashboard_version:
+          description: The latest available version of the dashboard (from GitHub releases)
+          type: string
+          example: "2.10.0"
+        management_version:
+          description: The latest available version of the management server (from GitHub releases)
+          type: string
+          example: "0.35.0"
+      required:
+        - management_current_version
   responses:
     not_found:
       description: Resource not found
@@ -2898,6 +2916,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InstanceStatus'
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/instance/version:
+    get:
+      summary: Get Version Info
+      description: Returns version information for NetBird components including the current management server version and latest available versions from GitHub.
+      tags: [ Instance ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceVersionInfo'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/setup:
