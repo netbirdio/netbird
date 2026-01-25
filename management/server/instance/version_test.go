@@ -167,3 +167,68 @@ func TestDefaultManager_FetchGitHubRelease_ContextCancellation(t *testing.T) {
 	_, err := m.fetchGitHubRelease(ctx, server.URL)
 	assert.Error(t, err)
 }
+
+func TestIsNewerVersion(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentVersion string
+		latestVersion  string
+		expected       bool
+	}{
+		{
+			name:           "latest is newer - minor version",
+			currentVersion: "0.64.1",
+			latestVersion:  "0.65.0",
+			expected:       true,
+		},
+		{
+			name:           "latest is newer - patch version",
+			currentVersion: "0.64.1",
+			latestVersion:  "0.64.2",
+			expected:       true,
+		},
+		{
+			name:           "latest is newer - major version",
+			currentVersion: "0.64.1",
+			latestVersion:  "1.0.0",
+			expected:       true,
+		},
+		{
+			name:           "versions are equal",
+			currentVersion: "0.64.1",
+			latestVersion:  "0.64.1",
+			expected:       false,
+		},
+		{
+			name:           "current is newer - minor version",
+			currentVersion: "0.65.0",
+			latestVersion:  "0.64.1",
+			expected:       false,
+		},
+		{
+			name:           "current is newer - patch version",
+			currentVersion: "0.64.2",
+			latestVersion:  "0.64.1",
+			expected:       false,
+		},
+		{
+			name:           "development version",
+			currentVersion: "development",
+			latestVersion:  "0.65.0",
+			expected:       false,
+		},
+		{
+			name:           "invalid latest version",
+			currentVersion: "0.64.1",
+			latestVersion:  "invalid",
+			expected:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isNewerVersion(tc.currentVersion, tc.latestVersion)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}

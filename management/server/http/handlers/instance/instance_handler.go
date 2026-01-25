@@ -86,7 +86,8 @@ func (h *handler) getVersionInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := api.InstanceVersionInfo{
-		ManagementCurrentVersion: versionInfo.CurrentVersion,
+		ManagementCurrentVersion:  versionInfo.CurrentVersion,
+		ManagementUpdateAvailable: versionInfo.ManagementUpdateAvailable,
 	}
 
 	if versionInfo.DashboardVersion != "" {

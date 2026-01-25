@@ -72,9 +72,10 @@ func (m *mockInstanceManager) GetVersionInfo(ctx context.Context) (*nbinstance.V
 		return m.getVersionInfoFn(ctx)
 	}
 	return &nbinstance.VersionInfo{
-		CurrentVersion:    "development",
-		DashboardVersion:  "2.0.0",
-		ManagementVersion: "0.35.0",
+		CurrentVersion:            "0.34.0",
+		DashboardVersion:          "2.0.0",
+		ManagementVersion:         "0.35.0",
+		ManagementUpdateAvailable: true,
 	}, nil
 }
 
@@ -308,11 +309,12 @@ func TestGetVersionInfo_Success(t *testing.T) {
 	err := json.NewDecoder(rec.Body).Decode(&response)
 	require.NoError(t, err)
 
-	assert.Equal(t, "development", response.ManagementCurrentVersion)
+	assert.Equal(t, "0.34.0", response.ManagementCurrentVersion)
 	assert.NotNil(t, response.DashboardVersion)
 	assert.Equal(t, "2.0.0", *response.DashboardVersion)
 	assert.NotNil(t, response.ManagementVersion)
 	assert.Equal(t, "0.35.0", *response.ManagementVersion)
+	assert.True(t, response.ManagementUpdateAvailable)
 }
 
 func TestGetVersionInfo_Error(t *testing.T) {

@@ -882,6 +882,9 @@ type InstanceVersionInfo struct {
 	// ManagementCurrentVersion The current running version of the management server
 	ManagementCurrentVersion string `json:"management_current_version"`
 
+	// ManagementUpdateAvailable Indicates if a newer management version is available
+	ManagementUpdateAvailable bool `json:"management_update_available"`
+
 	// ManagementVersion The latest available version of the management server (from GitHub releases)
 	ManagementVersion *string `json:"management_version,omitempty"`
 }

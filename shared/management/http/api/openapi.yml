@@ -2864,8 +2864,13 @@ components:
           description: The latest available version of the management server (from GitHub releases)
           type: string
           example: "0.35.0"
+        management_update_available:
+          description: Indicates if a newer management version is available
+          type: boolean
+          example: true
       required:
         - management_current_version
+        - management_update_available
   responses:
     not_found:
       description: Resource not found

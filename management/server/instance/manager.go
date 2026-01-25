@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -38,6 +39,8 @@ type VersionInfo struct {
 	DashboardVersion string
 	// ManagementVersion is the latest available management version from GitHub
 	ManagementVersion string
+	// ManagementUpdateAvailable indicates if a newer management version is available
+	ManagementUpdateAvailable bool
 }
 
 // githubRelease represents a GitHub release response
@@ -211,6 +214,7 @@ func (m *DefaultManager) fetchVersionInfo(ctx context.Context) (*VersionInfo, er
 		log.WithContext(ctx).Warnf("failed to fetch management version from GitHub: %v", err)
 	} else {
 		info.ManagementVersion = mgmtVersion
+		info.ManagementUpdateAvailable = isNewerVersion(info.CurrentVersion, mgmtVersion)
 	}
 
 	// Fetch dashboard version
@@ -228,6 +232,21 @@ func (m *DefaultManager) fetchVersionInfo(ctx context.Context) (*VersionInfo, er
 	m.versionMu.Unlock()
 
 	return info, nil
+}
+
+// isNewerVersion returns true if latestVersion is greater than currentVersion
+func isNewerVersion(currentVersion, latestVersion string) bool {
+	current, err := goversion.NewVersion(currentVersion)
+	if err != nil {
+		return false
+	}
+
+	latest, err := goversion.NewVersion(latestVersion)
+	if err != nil {
+		return false
+	}
+
+	return latest.GreaterThan(current)
 }
 
 func (m *DefaultManager) fetchGitHubRelease(ctx context.Context, url string) (string, error) {
