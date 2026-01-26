@@ -17,6 +17,11 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	defaultLog         = slog.LevelInfo
+	defaultLogLevelVar = "NB_ROSENPASS_LOG_LEVEL"
+)
+
 func hashRosenpassKey(key []byte) string {
 	hasher := sha256.New()
 	hasher.Write(key)
@@ -45,7 +50,7 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 	}
 
 	rpKeyHash := hashRosenpassKey(public)
-	log.Debugf("generated new rosenpass key pair with public key %s", rpKeyHash)
+	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
 	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
 }
 
@@ -101,7 +106,7 @@ func (m *Manager) removePeer(wireGuardPubKey string) error {
 
 func (m *Manager) generateConfig() (rp.Config, error) {
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: getLogLevel(),
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
 	cfg := rp.Config{Logger: logger}
@@ -131,6 +136,26 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
 
 	return cfg, nil
+}
+
+func getLogLevel() slog.Level {
+	level, ok := os.LookupEnv(defaultLogLevelVar)
+	if !ok {
+		return defaultLog
+	}
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		log.Warnf("unknown log level: %s. Using default %s", level, defaultLog.String())
+		return defaultLog
+	}
 }
 
 func (m *Manager) OnDisconnected(peerKey string) {
