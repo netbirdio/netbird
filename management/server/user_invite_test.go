@@ -109,7 +109,7 @@ func TestCreateUserInvite_Success(t *testing.T) {
 	assert.Equal(t, "New User", result.UserInfo.Name)
 	assert.Equal(t, "user", result.UserInfo.Role)
 	assert.Equal(t, string(types.UserStatusInvited), result.UserInfo.Status)
-	assert.NotEmpty(t, result.InviteLink)
+	assert.NotEmpty(t, result.InviteToken)
 	assert.True(t, result.InviteExpiresAt.After(time.Now()))
 
 	// Verify invite is stored in DB
@@ -294,7 +294,7 @@ func TestGetUserInviteInfo_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get the invite info using the token
-	info, err := am.GetUserInviteInfo(context.Background(), result.InviteLink)
+	info, err := am.GetUserInviteInfo(context.Background(), result.InviteToken)
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
@@ -351,7 +351,7 @@ func TestGetUserInviteInfo_ExpiredInvite(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Get the invite info - should still return info but Valid should be false
-	info, err := am.GetUserInviteInfo(context.Background(), result.InviteLink)
+	info, err := am.GetUserInviteInfo(context.Background(), result.InviteToken)
 	require.NoError(t, err)
 	assert.False(t, info.Valid)
 }
@@ -419,16 +419,16 @@ func TestRegenerateUserInvite_Success(t *testing.T) {
 	assert.Equal(t, originalResult.UserInfo.ID, newResult.UserInfo.ID)
 
 	// Verify new token is different
-	assert.NotEqual(t, originalResult.InviteLink, newResult.InviteLink)
+	assert.NotEqual(t, originalResult.InviteToken, newResult.InviteToken)
 	assert.Equal(t, "newuser@test.com", newResult.UserInfo.Email)
 	assert.Equal(t, "New User", newResult.UserInfo.Name)
 
 	// Verify old token no longer works
-	_, err = am.GetUserInviteInfo(context.Background(), originalResult.InviteLink)
+	_, err = am.GetUserInviteInfo(context.Background(), originalResult.InviteToken)
 	require.Error(t, err)
 
 	// Verify new token works
-	info, err := am.GetUserInviteInfo(context.Background(), newResult.InviteLink)
+	info, err := am.GetUserInviteInfo(context.Background(), newResult.InviteToken)
 	require.NoError(t, err)
 	assert.Equal(t, "newuser@test.com", info.Email)
 }
@@ -490,7 +490,7 @@ func TestDeleteUserInvite_Success(t *testing.T) {
 	assert.Len(t, invites, 0)
 
 	// Verify token no longer works
-	_, err = am.GetUserInviteInfo(context.Background(), result.InviteLink)
+	_, err = am.GetUserInviteInfo(context.Background(), result.InviteToken)
 	require.Error(t, err)
 }
 
@@ -573,7 +573,7 @@ func TestAcceptUserInvite_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Accept the invite with a valid password
-	err = am.AcceptUserInvite(context.Background(), result.InviteLink, "Password1!")
+	err = am.AcceptUserInvite(context.Background(), result.InviteToken, "Password1!")
 	require.NoError(t, err)
 
 	// Verify user is created in DB
@@ -643,7 +643,7 @@ func TestAcceptUserInvite_ExpiredToken(t *testing.T) {
 	// Wait for expiration
 	time.Sleep(2 * time.Second)
 
-	err = am.AcceptUserInvite(context.Background(), result.InviteLink, "Password1!")
+	err = am.AcceptUserInvite(context.Background(), result.InviteToken, "Password1!")
 	require.Error(t, err)
 
 	sErr, ok := status.FromError(err)
@@ -667,7 +667,7 @@ func TestAcceptUserInvite_EmptyPassword(t *testing.T) {
 	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 0)
 	require.NoError(t, err)
 
-	err = am.AcceptUserInvite(context.Background(), result.InviteLink, "")
+	err = am.AcceptUserInvite(context.Background(), result.InviteToken, "")
 	require.Error(t, err)
 
 	sErr, ok := status.FromError(err)
@@ -704,7 +704,7 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := am.AcceptUserInvite(context.Background(), result.InviteLink, tc.password)
+			err := am.AcceptUserInvite(context.Background(), result.InviteToken, tc.password)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expectedMsg)
 		})
@@ -880,7 +880,7 @@ func TestAcceptUserInvite_WithAutoGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	// Accept the invite
-	err = am.AcceptUserInvite(context.Background(), result.InviteLink, "Password1!")
+	err = am.AcceptUserInvite(context.Background(), result.InviteToken, "Password1!")
 	require.NoError(t, err)
 
 	// Verify user has the auto groups and role
