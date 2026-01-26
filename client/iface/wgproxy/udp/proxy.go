@@ -64,7 +64,6 @@ func (p *WGUDPProxy) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn
 		return err
 	}
 
-	log.Infof("remote conn: %v", remoteConn.RemoteAddr())
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn
 	p.sendPkg = p.localConn.Write
