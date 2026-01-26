@@ -529,7 +529,7 @@ func TestRegenerateInvite(t *testing.T) {
 			name:           "invalid JSON should return error",
 			inviteID:       testInviteID,
 			requestBody:    `{invalid json}`,
-			expectedStatus: http.StatusUnprocessableEntity,
+			expectedStatus: http.StatusBadRequest,
 			mockFunc:       nil,
 		},
 	}

@@ -214,7 +214,7 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Allow empty body (io.EOF) - expiresIn is optional
 		if !errors.Is(err, io.EOF) {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "couldn't parse JSON request: %v", err), w)
+			util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 			return
 		}
 	}
