@@ -34,7 +34,8 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	lastUsedPort uint16
-	rawConn      net.PacketConn
+	rawConnIPv4  net.PacketConn
+	rawConnIPv6  net.PacketConn
 	conn         transport.UDPConn
 
 	ctx       context.Context
@@ -61,13 +62,28 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
+	// Prepare IPv4 raw socket (required)
+	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
 	if err != nil {
 		return err
 	}
 
+	// Prepare IPv6 raw socket (optional)
+	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
+	if err != nil {
+		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
+	}
+
 	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
 	if err != nil {
+		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
+		}
+		if p.rawConnIPv6 != nil {
+			if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+				log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+			}
+		}
 		return err
 	}
 
@@ -129,8 +145,16 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 
-	if err := p.rawConn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.rawConnIPv4 != nil {
+		if err := p.rawConnIPv4.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	if p.rawConnIPv6 != nil {
+		if err := p.rawConnIPv6.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return nberrors.FormatErrorOrNil(result)
 }
