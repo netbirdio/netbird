@@ -4269,6 +4269,9 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 		Take(&userID, GetKeyQueryCondition(s), peerKey)
 
 	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "peer not found: index lookup failed")
+		}
 		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
 	}
 
