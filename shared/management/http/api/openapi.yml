@@ -3585,6 +3585,37 @@ paths:
           "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{inviteId}:
+    delete:
+      summary: Delete a user invite
+      description: Deletes a pending invite. Only available when embedded IdP is enabled.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: inviteId
+          required: true
+          schema:
+            type: string
+          description: The ID of the invite to delete
+      responses:
+        '200':
+          description: Invite deleted successfully
+          content: { }
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          description: Invite not found
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/users/invites/{inviteId}/regenerate:
     post:
       summary: Regenerate a user invite
