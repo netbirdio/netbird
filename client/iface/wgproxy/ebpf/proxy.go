@@ -46,7 +46,8 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	lastUsedPort uint16
-	rawConn      net.PacketConn
+	rawConnIPv4  net.PacketConn
+	rawConnIPv6  net.PacketConn
 	conn         transport.UDPConn
 
 	ctx       context.Context
@@ -73,13 +74,20 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
+	// Prepare both IPv4 and IPv6 raw sockets
+	p.rawConnIPv4, p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocket()
 	if err != nil {
 		return err
 	}
 
 	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
 	if err != nil {
+		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
+		}
+		if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+		}
 		return err
 	}
 
@@ -141,8 +149,16 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 
-	if err := p.rawConn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.rawConnIPv4 != nil {
+		if err := p.rawConnIPv4.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	if p.rawConnIPv6 != nil {
+		if err := p.rawConnIPv6.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return nberrors.FormatErrorOrNil(result)
 }
@@ -228,6 +244,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 	var ipH gopacket.SerializableLayer
 	var networkLayer gopacket.NetworkLayer
 	var dstIP net.IP
+	var rawConn net.PacketConn
 
 	if endpointAddr.IP.To4() != nil {
 		// IPv4 path
@@ -241,6 +258,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 		ipH = ipv4
 		networkLayer = ipv4
 		dstIP = localHostNetIPv4
+		rawConn = p.rawConnIPv4
 	} else {
 		// IPv6 path
 		ipv6 := &layers.IPv6{
@@ -253,6 +271,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 		ipH = ipv6
 		networkLayer = ipv6
 		dstIP = localHostNetIPv6
+		rawConn = p.rawConnIPv6
 	}
 
 	udpH := &layers.UDP{
@@ -271,7 +290,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 		return fmt.Errorf("serialize layers: %w", err)
 	}
 
-	if _, err := p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
+	if _, err := rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
 		return fmt.Errorf("write to raw conn: %w", err)
 	}
 	return nil

@@ -38,19 +38,28 @@ type SrcFaker struct {
 }
 
 func NewSrcFaker(dstPort int, srcAddr *net.UDPAddr) (*SrcFaker, error) {
-	rawSocket, err := rawsocket.PrepareSenderRawSocket()
+	// Create only the raw socket for the address family we need
+	var rawSocket net.PacketConn
+	var err error
+	var localHostAddr *net.IPAddr
+
+	if srcAddr.IP.To4() != nil {
+		rawSocket, err = rawsocket.PrepareSenderRawSocketIPv4()
+		localHostAddr = localHostNetIPAddrV4
+	} else {
+		rawSocket, err = rawsocket.PrepareSenderRawSocketIPv6()
+		localHostAddr = localHostNetIPAddrV6
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	ipH, udpH, err := prepareHeaders(dstPort, srcAddr)
 	if err != nil {
+		if closeErr := rawSocket.Close(); closeErr != nil {
+			log.Warnf("failed to close raw socket: %v", closeErr)
+		}
 		return nil, err
-	}
-
-	localHostAddr := localHostNetIPAddrV4
-	if srcAddr.IP.To4() == nil {
-		localHostAddr = localHostNetIPAddrV6
 	}
 
 	f := &SrcFaker{
