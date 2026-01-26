@@ -52,6 +52,11 @@ const (
 	envConcurrentSyncs = "NB_MAX_CONCURRENT_SYNCS"
 
 	defaultSyncLim = 1000
+
+	// jobStreamHeartbeatInterval defines how often to send heartbeat messages
+	// on the Job gRPC stream to keep connections alive through reverse proxies
+	// (e.g., Traefik, Cloudflare) that may have idle timeouts.
+	jobStreamHeartbeatInterval = 30 * time.Second
 )
 
 // Server an instance of a Management gRPC API server
@@ -372,10 +377,9 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 	// todo figure out better error handling strategy
 	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 
-	// Send heartbeat every 30 seconds to keep stream alive through proxies (e.g., Traefik, Cloudflare)
-	// that may have idle timeouts. The client ignores empty messages with no ID.
-	heartbeatInterval := 30 * time.Second
-	ticker := time.NewTicker(heartbeatInterval)
+	// Send heartbeat to keep stream alive through proxies that have idle timeouts.
+	// The client ignores empty messages with no ID.
+	ticker := time.NewTicker(jobStreamHeartbeatInterval)
 	defer ticker.Stop()
 
 	for {
@@ -396,8 +400,10 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 			}
 			if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
 				log.WithContext(ctx).Warnf("send job failed: %v", err)
-				return nil
+				return err
 			}
+			// Reset ticker after successful job send to avoid unnecessary heartbeats
+			ticker.Reset(jobStreamHeartbeatInterval)
 		}
 	}
 }
@@ -506,7 +512,17 @@ func (s *Server) sendHeartbeat(ctx context.Context, peerKey wgtypes.Key, srv pro
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed sending heartbeat")
+		// Preserve original error for expected shutdown scenarios
+		if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+			return err
+		}
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.Canceled, codes.Unavailable:
+				return err
+			}
+		}
+		return status.Errorf(codes.Internal, "failed sending heartbeat: %v", err)
 	}
 
 	log.WithContext(ctx).Tracef("sent heartbeat to peer: %s", peerKey.String())
