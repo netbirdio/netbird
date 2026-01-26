@@ -331,6 +331,7 @@ func TestInviteTokenConstants(t *testing.T) {
 	assert.Equal(t, 6, InviteTokenChecksumLength)
 	assert.Equal(t, 40, InviteTokenLength)
 	assert.Equal(t, 259200, DefaultInviteExpirationSeconds) // 72 hours
+	assert.Equal(t, 3600, MinInviteExpirationSeconds)       // 1 hour
 }
 
 func TestGenerateInviteToken_ValidatesOwnOutput(t *testing.T) {

@@ -1500,6 +1500,10 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 	if expiresIn <= 0 {
 		expiresIn = types.DefaultInviteExpirationSeconds
 	}
+
+	if expiresIn < types.MinInviteExpirationSeconds {
+		return nil, status.Errorf(status.InvalidArgument, "invite expiration must be at least 1 hour")
+	}
 	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
 
 	// Generate invite token
@@ -1707,6 +1711,9 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	// Calculate expiration time
 	if expiresIn <= 0 {
 		expiresIn = types.DefaultInviteExpirationSeconds
+	}
+	if expiresIn < types.MinInviteExpirationSeconds {
+		return nil, status.Errorf(status.InvalidArgument, "invite expiration must be at least 1 hour")
 	}
 	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
 

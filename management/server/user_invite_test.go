@@ -236,6 +236,27 @@ func TestCreateUserInvite_OwnerRole(t *testing.T) {
 	assert.Equal(t, status.InvalidArgument, sErr.Type())
 }
 
+func TestCreateUserInvite_ExpirationTooShort(t *testing.T) {
+	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
+	defer cleanup()
+
+	invite := &types.UserInfo{
+		Email:      "newuser@test.com",
+		Name:       "New User",
+		Role:       "user",
+		AutoGroups: []string{},
+	}
+
+	// Try to create with expiration less than 1 hour
+	_, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 1800) // 30 minutes
+	require.Error(t, err)
+
+	sErr, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.InvalidArgument, sErr.Type())
+	assert.Contains(t, err.Error(), "at least 1 hour")
+}
+
 func TestCreateUserInvite_CustomExpiration(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
@@ -247,11 +268,11 @@ func TestCreateUserInvite_CustomExpiration(t *testing.T) {
 		AutoGroups: []string{},
 	}
 
-	expiresIn := 3600 // 1 hour
+	expiresIn := 7200 // 2 hours
 	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, expiresIn)
 	require.NoError(t, err)
 
-	// Verify expiration is approximately 1 hour from now
+	// Verify expiration is approximately 2 hours from now
 	expectedExpiration := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	assert.WithinDuration(t, expectedExpiration, result.InviteExpiresAt, time.Minute)
 }
@@ -336,7 +357,7 @@ func TestGetUserInviteInfo_ExpiredInvite(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
 
-	// Create an invite with very short expiration
+	// Create an invite with valid expiration
 	invite := &types.UserInfo{
 		Email:      "newuser@test.com",
 		Name:       "New User",
@@ -344,11 +365,15 @@ func TestGetUserInviteInfo_ExpiredInvite(t *testing.T) {
 		AutoGroups: []string{},
 	}
 
-	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 1)
+	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 0)
 	require.NoError(t, err)
 
-	// Wait for expiration
-	time.Sleep(2 * time.Second)
+	// Manually set the invite to expired by updating the store directly
+	inviteRecord, err := am.Store.GetUserInviteByID(context.Background(), store.LockingStrengthUpdate, testAccountID, result.UserInfo.ID)
+	require.NoError(t, err)
+	inviteRecord.ExpiresAt = time.Now().Add(-time.Hour) // Set to 1 hour ago
+	err = am.Store.SaveUserInvite(context.Background(), inviteRecord)
+	require.NoError(t, err)
 
 	// Get the invite info - should still return info but Valid should be false
 	info, err := am.GetUserInviteInfo(context.Background(), result.InviteToken)
@@ -629,7 +654,7 @@ func TestAcceptUserInvite_ExpiredToken(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
 
-	// Create an invite with very short expiration
+	// Create an invite with valid expiration
 	invite := &types.UserInfo{
 		Email:      "newuser@test.com",
 		Name:       "New User",
@@ -637,11 +662,15 @@ func TestAcceptUserInvite_ExpiredToken(t *testing.T) {
 		AutoGroups: []string{},
 	}
 
-	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 1)
+	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 0)
 	require.NoError(t, err)
 
-	// Wait for expiration
-	time.Sleep(2 * time.Second)
+	// Manually set the invite to expired by updating the store directly
+	inviteRecord, err := am.Store.GetUserInviteByID(context.Background(), store.LockingStrengthUpdate, testAccountID, result.UserInfo.ID)
+	require.NoError(t, err)
+	inviteRecord.ExpiresAt = time.Now().Add(-time.Hour) // Set to 1 hour ago
+	err = am.Store.SaveUserInvite(context.Background(), inviteRecord)
+	require.NoError(t, err)
 
 	err = am.AcceptUserInvite(context.Background(), result.InviteToken, "Password1!")
 	require.Error(t, err)

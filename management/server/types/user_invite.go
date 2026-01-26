@@ -26,6 +26,8 @@ const (
 	InviteTokenLength = 40
 	// DefaultInviteExpirationSeconds is the default expiration time for invites (72 hours)
 	DefaultInviteExpirationSeconds = 259200
+	// MinInviteExpirationSeconds is the minimum expiration time for invites (1 hour)
+	MinInviteExpirationSeconds = 3600
 )
 
 // UserInviteRecord represents an invitation for a user to set up their account (database model)
