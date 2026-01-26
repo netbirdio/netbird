@@ -106,7 +106,7 @@ func prepareHeaders(dstPort int, srcAddr *net.UDPAddr) (gopacket.SerializableLay
 	if srcAddr.IP.To4() != nil {
 		// IPv4
 		ipv4 := &layers.IPv4{
-			DstIP:    net.ParseIP("127.0.0.1"),
+			DstIP:    localHostNetIPAddrV4.IP,
 			SrcIP:    srcAddr.IP,
 			Version:  4,
 			TTL:      64,
@@ -117,7 +117,7 @@ func prepareHeaders(dstPort int, srcAddr *net.UDPAddr) (gopacket.SerializableLay
 	} else {
 		// IPv6
 		ipv6 := &layers.IPv6{
-			DstIP:      net.ParseIP("::1"),
+			DstIP:      localHostNetIPAddrV6.IP,
 			SrcIP:      srcAddr.IP,
 			Version:    6,
 			HopLimit:   64,
