@@ -76,5 +76,10 @@ func prepareSenderRawSocket(family int, isIPv4 bool) (net.PacketConn, error) {
 		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
 	}
 
+	// Close the original file to release the FD (net.FilePacketConn duplicates it)
+	if closeErr := file.Close(); closeErr != nil {
+		log.Warnf("failed to close file after creating packet conn: %v", closeErr)
+	}
+
 	return packetConn, nil
 }
