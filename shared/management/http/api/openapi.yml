@@ -519,57 +519,9 @@ components:
         - name
         - role
         - auto_groups
-    UserInviteCreateResponse:
+    UserInvite:
       type: object
-      description: Response after creating a user invite
-      properties:
-        id:
-          description: Invite ID
-          type: string
-          example: d5p7eedra0h0lt6f59hg
-        email:
-          description: User's email address
-          type: string
-          example: user@example.com
-        name:
-          description: User's full name
-          type: string
-          example: John Doe
-        role:
-          description: User's NetBird account role
-          type: string
-          example: user
-        auto_groups:
-          description: Group IDs to auto-assign to peers registered by this user
-          type: array
-          items:
-            type: string
-            example: ch8i4ug6lnn4g9hqv7m0
-        status:
-          description: User status
-          type: string
-          example: invited
-        invite_link:
-          description: The invite token to be shared with the user
-          type: string
-          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
-        invite_expires_at:
-          description: Invite expiration time
-          type: string
-          format: date-time
-          example: "2024-01-25T10:00:00Z"
-      required:
-        - id
-        - email
-        - name
-        - role
-        - auto_groups
-        - status
-        - invite_link
-        - invite_expires_at
-    UserInviteListItem:
-      type: object
-      description: An invite in the list
+      description: A user invite
       properties:
         id:
           description: Invite ID
@@ -607,6 +559,10 @@ components:
           description: Whether the invite has expired
           type: boolean
           example: false
+        invite_link:
+          description: The invite link to be shared with the user. Only returned when the invite is created or regenerated.
+          type: string
+          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
       required:
         - id
         - email
@@ -3582,7 +3538,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/UserInviteListItem'
+                  $ref: '#/components/schemas/UserInvite'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':
@@ -3612,7 +3568,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserInviteCreateResponse'
+                $ref: '#/components/schemas/UserInvite'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

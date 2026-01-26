@@ -26,6 +26,29 @@ var publicInviteRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimit
 	LimiterTTL:        30 * time.Minute,
 })
 
+// toUserInviteResponse converts a UserInvite to an API response.
+func toUserInviteResponse(invite *types.UserInvite) api.UserInvite {
+	autoGroups := invite.UserInfo.AutoGroups
+	if autoGroups == nil {
+		autoGroups = []string{}
+	}
+	var inviteLink *string
+	if invite.InviteLink != "" {
+		inviteLink = &invite.InviteLink
+	}
+	return api.UserInvite{
+		Id:         invite.UserInfo.ID,
+		Email:      invite.UserInfo.Email,
+		Name:       invite.UserInfo.Name,
+		Role:       invite.UserInfo.Role,
+		AutoGroups: autoGroups,
+		ExpiresAt:  invite.InviteExpiresAt.UTC(),
+		CreatedAt:  invite.InviteCreatedAt.UTC(),
+		Expired:    time.Now().After(invite.InviteExpiresAt),
+		InviteLink: inviteLink,
+	}
+}
+
 // invitesHandler handles user invite operations
 type invitesHandler struct {
 	accountManager account.Manager
@@ -70,22 +93,9 @@ func (h *invitesHandler) listInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := make([]api.UserInviteListItem, 0, len(invites))
+	resp := make([]api.UserInvite, 0, len(invites))
 	for _, invite := range invites {
-		autoGroups := invite.AutoGroups
-		if autoGroups == nil {
-			autoGroups = []string{}
-		}
-		resp = append(resp, api.UserInviteListItem{
-			Id:         invite.ID,
-			Email:      invite.Email,
-			Name:       invite.Name,
-			Role:       invite.Role,
-			AutoGroups: autoGroups,
-			ExpiresAt:  invite.ExpiresAt.UTC(),
-			CreatedAt:  invite.CreatedAt.UTC(),
-			Expired:    invite.IsExpired(),
-		})
+		resp = append(resp, toUserInviteResponse(invite))
 	}
 
 	util.WriteJSONObject(r.Context(), w, resp)
@@ -124,22 +134,9 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	autoGroups := result.UserInfo.AutoGroups
-	if autoGroups == nil {
-		autoGroups = []string{}
-	}
-
-	expiresAt := result.InviteExpiresAt.UTC()
-	util.WriteJSONObject(r.Context(), w, &api.UserInviteCreateResponse{
-		Id:              result.UserInfo.ID,
-		Email:           result.UserInfo.Email,
-		Name:            result.UserInfo.Name,
-		Role:            result.UserInfo.Role,
-		AutoGroups:      autoGroups,
-		Status:          result.UserInfo.Status,
-		InviteLink:      result.InviteLink,
-		InviteExpiresAt: expiresAt,
-	})
+	result.InviteCreatedAt = time.Now().UTC()
+	resp := toUserInviteResponse(result)
+	util.WriteJSONObject(r.Context(), w, &resp)
 }
 
 // getInviteInfo handles GET /api/users/invites/{token}

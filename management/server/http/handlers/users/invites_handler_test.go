@@ -41,24 +41,26 @@ func TestListInvites(t *testing.T) {
 	now := time.Now().UTC()
 	testInvites := []*types.UserInvite{
 		{
-			ID:         "invite-1",
-			AccountID:  testAccountID,
-			Email:      "user1@example.com",
-			Name:       "User One",
-			Role:       "user",
-			AutoGroups: []string{"group-1"},
-			ExpiresAt:  now.Add(24 * time.Hour),
-			CreatedAt:  now,
+			UserInfo: &types.UserInfo{
+				ID:         "invite-1",
+				Email:      "user1@example.com",
+				Name:       "User One",
+				Role:       "user",
+				AutoGroups: []string{"group-1"},
+			},
+			InviteExpiresAt: now.Add(24 * time.Hour),
+			InviteCreatedAt: now,
 		},
 		{
-			ID:         "invite-2",
-			AccountID:  testAccountID,
-			Email:      "user2@example.com",
-			Name:       "User Two",
-			Role:       "admin",
-			AutoGroups: nil,
-			ExpiresAt:  now.Add(-1 * time.Hour), // Expired
-			CreatedAt:  now.Add(-48 * time.Hour),
+			UserInfo: &types.UserInfo{
+				ID:         "invite-2",
+				Email:      "user2@example.com",
+				Name:       "User Two",
+				Role:       "admin",
+				AutoGroups: nil,
+			},
+			InviteExpiresAt: now.Add(-1 * time.Hour), // Expired
+			InviteCreatedAt: now.Add(-48 * time.Hour),
 		},
 	}
 
@@ -113,7 +115,7 @@ func TestListInvites(t *testing.T) {
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
 			if tc.expectedStatus == http.StatusOK {
-				var resp []api.UserInviteListItem
+				var resp []api.UserInvite
 				err := json.NewDecoder(rr.Body).Decode(&resp)
 				require.NoError(t, err)
 				assert.Len(t, resp, tc.expectedCount)
@@ -130,14 +132,14 @@ func TestCreateInvite(t *testing.T) {
 		name           string
 		requestBody    string
 		expectedStatus int
-		mockFunc       func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error)
+		mockFunc       func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error)
 	}{
 		{
 			name:           "successful create",
 			requestBody:    `{"email":"test@example.com","name":"Test User","role":"user","auto_groups":["group-1"]}`,
 			expectedStatus: http.StatusOK,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
-				return &types.UserInviteResponse{
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
+				return &types.UserInvite{
 					UserInfo: &types.UserInfo{
 						ID:         testInviteID,
 						Email:      invite.Email,
@@ -155,9 +157,9 @@ func TestCreateInvite(t *testing.T) {
 			name:           "successful create with custom expiration",
 			requestBody:    `{"email":"test@example.com","name":"Test User","role":"admin","auto_groups":[],"expires_in":3600}`,
 			expectedStatus: http.StatusOK,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 				assert.Equal(t, 3600, expiresIn)
-				return &types.UserInviteResponse{
+				return &types.UserInvite{
 					UserInfo: &types.UserInfo{
 						ID:         testInviteID,
 						Email:      invite.Email,
@@ -175,7 +177,7 @@ func TestCreateInvite(t *testing.T) {
 			name:           "user already exists",
 			requestBody:    `{"email":"existing@example.com","name":"Existing User","role":"user","auto_groups":[]}`,
 			expectedStatus: http.StatusConflict,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.Errorf(status.UserAlreadyExists, "user with this email already exists")
 			},
 		},
@@ -183,7 +185,7 @@ func TestCreateInvite(t *testing.T) {
 			name:           "invite already exists",
 			requestBody:    `{"email":"invited@example.com","name":"Invited User","role":"user","auto_groups":[]}`,
 			expectedStatus: http.StatusConflict,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.Errorf(status.AlreadyExists, "invite already exists for this email")
 			},
 		},
@@ -191,7 +193,7 @@ func TestCreateInvite(t *testing.T) {
 			name:           "permission denied",
 			requestBody:    `{"email":"test@example.com","name":"Test User","role":"user","auto_groups":[]}`,
 			expectedStatus: http.StatusForbidden,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.NewPermissionDeniedError()
 			},
 		},
@@ -199,7 +201,7 @@ func TestCreateInvite(t *testing.T) {
 			name:           "embedded IDP not enabled",
 			requestBody:    `{"email":"test@example.com","name":"Test User","role":"user","auto_groups":[]}`,
 			expectedStatus: http.StatusPreconditionFailed,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 			},
 		},
@@ -230,11 +232,12 @@ func TestCreateInvite(t *testing.T) {
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
 			if tc.expectedStatus == http.StatusOK {
-				var resp api.UserInviteCreateResponse
+				var resp api.UserInvite
 				err := json.NewDecoder(rr.Body).Decode(&resp)
 				require.NoError(t, err)
 				assert.Equal(t, testInviteID, resp.Id)
-				assert.NotEmpty(t, resp.InviteLink)
+				assert.NotNil(t, resp.InviteLink)
+				assert.NotEmpty(t, *resp.InviteLink)
 			}
 		})
 	}
@@ -461,16 +464,16 @@ func TestRegenerateInvite(t *testing.T) {
 		inviteID       string
 		requestBody    string
 		expectedStatus int
-		mockFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error)
+		mockFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error)
 	}{
 		{
 			name:           "successful regenerate with empty body",
 			inviteID:       testInviteID,
 			requestBody:    "",
 			expectedStatus: http.StatusOK,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 				assert.Equal(t, 0, expiresIn)
-				return &types.UserInviteResponse{
+				return &types.UserInvite{
 					UserInfo: &types.UserInfo{
 						ID:    inviteID,
 						Email: testEmail,
@@ -485,9 +488,9 @@ func TestRegenerateInvite(t *testing.T) {
 			inviteID:       testInviteID,
 			requestBody:    `{"expires_in":7200}`,
 			expectedStatus: http.StatusOK,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 				assert.Equal(t, 7200, expiresIn)
-				return &types.UserInviteResponse{
+				return &types.UserInvite{
 					UserInfo: &types.UserInfo{
 						ID:    inviteID,
 						Email: testEmail,
@@ -502,7 +505,7 @@ func TestRegenerateInvite(t *testing.T) {
 			inviteID:       "non-existent-invite",
 			requestBody:    "",
 			expectedStatus: http.StatusNotFound,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.Errorf(status.NotFound, "invite not found")
 			},
 		},
@@ -511,7 +514,7 @@ func TestRegenerateInvite(t *testing.T) {
 			inviteID:       testInviteID,
 			requestBody:    "",
 			expectedStatus: http.StatusForbidden,
-			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 				return nil, status.NewPermissionDeniedError()
 			},
 		},

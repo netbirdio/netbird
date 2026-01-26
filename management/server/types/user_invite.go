@@ -28,8 +28,8 @@ const (
 	DefaultInviteExpirationSeconds = 259200
 )
 
-// UserInvite represents an invitation for a user to set up their account
-type UserInvite struct {
+// UserInviteRecord represents an invitation for a user to set up their account (database model)
+type UserInviteRecord struct {
 	ID          string    `gorm:"primaryKey"`
 	AccountID   string    `gorm:"index;not null"`
 	Email       string    `gorm:"index;not null"`
@@ -43,7 +43,7 @@ type UserInvite struct {
 }
 
 // TableName returns the table name for GORM
-func (UserInvite) TableName() string {
+func (UserInviteRecord) TableName() string {
 	return "user_invites"
 }
 
@@ -105,15 +105,16 @@ func ValidateInviteToken(token string) error {
 }
 
 // IsExpired checks if the invite has expired
-func (i *UserInvite) IsExpired() bool {
+func (i *UserInviteRecord) IsExpired() bool {
 	return time.Now().After(i.ExpiresAt)
 }
 
-// UserInviteResponse contains the result of creating or regenerating an invite
-type UserInviteResponse struct {
+// UserInvite contains the result of creating or regenerating an invite
+type UserInvite struct {
 	UserInfo        *UserInfo
 	InviteLink      string
 	InviteExpiresAt time.Time
+	InviteCreatedAt time.Time
 }
 
 // UserInviteInfo contains public information about an invite (for unauthenticated endpoint)
@@ -131,7 +132,7 @@ func NewInviteID() string {
 }
 
 // EncryptSensitiveData encrypts the invite's sensitive fields (Email and Name) in place.
-func (i *UserInvite) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+func (i *UserInviteRecord) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}
@@ -155,7 +156,7 @@ func (i *UserInvite) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 }
 
 // DecryptSensitiveData decrypts the invite's sensitive fields (Email and Name) in place.
-func (i *UserInvite) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
+func (i *UserInviteRecord) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}
@@ -178,12 +179,12 @@ func (i *UserInvite) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
-// Copy creates a deep copy of the UserInvite
-func (i *UserInvite) Copy() *UserInvite {
+// Copy creates a deep copy of the UserInviteRecord
+func (i *UserInviteRecord) Copy() *UserInviteRecord {
 	autoGroups := make([]string, len(i.AutoGroups))
 	copy(autoGroups, i.AutoGroups)
 
-	return &UserInvite{
+	return &UserInviteRecord{
 		ID:          i.ID,
 		AccountID:   i.AccountID,
 		Email:       i.Email,

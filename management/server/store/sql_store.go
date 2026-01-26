@@ -126,7 +126,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInvite{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -816,7 +816,7 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 }
 
 // SaveUserInvite saves a user invite to the database
-func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite) error {
+func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error {
 	inviteCopy := invite.Copy()
 	if err := inviteCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt invite: %w", err)
@@ -831,13 +831,13 @@ func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInvite)
 }
 
 // GetUserInviteByID retrieves a user invite by its ID and account ID
-func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInvite, error) {
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var invite types.UserInvite
+	var invite types.UserInviteRecord
 	result := tx.Where("account_id = ?", accountID).Take(&invite, idQueryCondition, inviteID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -855,13 +855,13 @@ func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingSt
 }
 
 // GetUserInviteByHashedToken retrieves a user invite by its hashed token
-func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInvite, error) {
+func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInviteRecord, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var invite types.UserInvite
+	var invite types.UserInviteRecord
 	result := tx.Take(&invite, "hashed_token = ?", hashedToken)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -881,13 +881,13 @@ func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength 
 // GetUserInviteByEmail retrieves a user invite by account ID and email.
 // Since email is encrypted with random IVs, we fetch all invites for the account
 // and compare emails in memory after decryption.
-func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInvite, error) {
+func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInviteRecord, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var invites []*types.UserInvite
+	var invites []*types.UserInviteRecord
 	result := tx.Find(&invites, "account_id = ?", accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
@@ -907,13 +907,13 @@ func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength Lockin
 }
 
 // GetAccountUserInvites retrieves all user invites for an account
-func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInvite, error) {
+func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInviteRecord, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var invites []*types.UserInvite
+	var invites []*types.UserInviteRecord
 	result := tx.Find(&invites, "account_id = ?", accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
@@ -931,7 +931,7 @@ func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength Locki
 
 // DeleteUserInvite deletes a user invite by its ID
 func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
-	result := s.db.Delete(&types.UserInvite{}, idQueryCondition, inviteID)
+	result := s.db.Delete(&types.UserInviteRecord{}, idQueryCondition, inviteID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete user invite from store")

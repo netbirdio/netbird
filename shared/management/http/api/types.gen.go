@@ -2185,6 +2185,36 @@ type UserCreateRequest struct {
 	Role string `json:"role"`
 }
 
+// UserInvite A user invite
+type UserInvite struct {
+	// AutoGroups Group IDs to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
+	// CreatedAt Invite creation time
+	CreatedAt time.Time `json:"created_at"`
+
+	// Email User's email address
+	Email string `json:"email"`
+
+	// Expired Whether the invite has expired
+	Expired bool `json:"expired"`
+
+	// ExpiresAt Invite expiration time
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id Invite ID
+	Id string `json:"id"`
+
+	// InviteLink The invite link to be shared with the user. Only returned when the invite is created or regenerated.
+	InviteLink *string `json:"invite_link,omitempty"`
+
+	// Name User's full name
+	Name string `json:"name"`
+
+	// Role User's NetBird account role
+	Role string `json:"role"`
+}
+
 // UserInviteAcceptRequest Request to accept an invite and set password
 type UserInviteAcceptRequest struct {
 	// Password The password the user wants to set. Must be at least 8 characters long and contain at least one uppercase letter, one digit, and one special character (any character that is not a letter or digit, including spaces).
@@ -2215,33 +2245,6 @@ type UserInviteCreateRequest struct {
 	Role string `json:"role"`
 }
 
-// UserInviteCreateResponse Response after creating a user invite
-type UserInviteCreateResponse struct {
-	// AutoGroups Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string `json:"auto_groups"`
-
-	// Email User's email address
-	Email string `json:"email"`
-
-	// Id Invite ID
-	Id string `json:"id"`
-
-	// InviteExpiresAt Invite expiration time
-	InviteExpiresAt time.Time `json:"invite_expires_at"`
-
-	// InviteLink The invite token to be shared with the user
-	InviteLink string `json:"invite_link"`
-
-	// Name User's full name
-	Name string `json:"name"`
-
-	// Role User's NetBird account role
-	Role string `json:"role"`
-
-	// Status User status
-	Status string `json:"status"`
-}
-
 // UserInviteInfo Public information about an invite
 type UserInviteInfo struct {
 	// Email User's email address
@@ -2258,33 +2261,6 @@ type UserInviteInfo struct {
 
 	// Valid Whether the invite is still valid (not expired)
 	Valid bool `json:"valid"`
-}
-
-// UserInviteListItem An invite in the list
-type UserInviteListItem struct {
-	// AutoGroups Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string `json:"auto_groups"`
-
-	// CreatedAt Invite creation time
-	CreatedAt time.Time `json:"created_at"`
-
-	// Email User's email address
-	Email string `json:"email"`
-
-	// Expired Whether the invite has expired
-	Expired bool `json:"expired"`
-
-	// ExpiresAt Invite expiration time
-	ExpiresAt time.Time `json:"expires_at"`
-
-	// Id Invite ID
-	Id string `json:"id"`
-
-	// Name User's full name
-	Name string `json:"name"`
-
-	// Role User's NetBird account role
-	Role string `json:"role"`
 }
 
 // UserInviteRegenerateRequest Request to regenerate an invite link

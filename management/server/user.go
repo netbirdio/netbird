@@ -1457,7 +1457,7 @@ func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, init
 
 // CreateUserInvite creates an invite link for a new user in the embedded IdP.
 // The user is NOT created until the invite is accepted.
-func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInviteResponse, error) {
+func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
 	if !IsEmbeddedIdp(am.idpManager) {
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
@@ -1510,7 +1510,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 	}
 
 	// Create the invite record (no user created yet)
-	userInvite := &types.UserInvite{
+	userInvite := &types.UserInviteRecord{
 		ID:          inviteID,
 		AccountID:   accountID,
 		Email:       invite.Email,
@@ -1529,7 +1529,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 
 	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkCreated, map[string]any{"email": invite.Email})
 
-	return &types.UserInviteResponse{
+	return &types.UserInvite{
 		UserInfo: &types.UserInfo{
 			ID:         inviteID,
 			Email:      invite.Email,
@@ -1588,7 +1588,27 @@ func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID,
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountUserInvites(ctx, store.LockingStrengthNone, accountID)
+	records, err := am.Store.GetAccountUserInvites(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	invites := make([]*types.UserInvite, 0, len(records))
+	for _, record := range records {
+		invites = append(invites, &types.UserInvite{
+			UserInfo: &types.UserInfo{
+				ID:         record.ID,
+				Email:      record.Email,
+				Name:       record.Name,
+				Role:       record.Role,
+				AutoGroups: record.AutoGroups,
+			},
+			InviteExpiresAt: record.ExpiresAt,
+			InviteCreatedAt: record.CreatedAt,
+		})
+	}
+
+	return invites, nil
 }
 
 // AcceptUserInvite accepts an invite and creates the user in both IdP and NetBird DB.
@@ -1665,7 +1685,7 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 }
 
 // RegenerateUserInvite creates a new invite token for an existing invite, invalidating the previous one.
-func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInviteResponse, error) {
+func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 	if !IsEmbeddedIdp(am.idpManager) {
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
@@ -1713,7 +1733,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 
 	am.StoreEvent(ctx, initiatorUserID, existingInvite.ID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": existingInvite.Email})
 
-	return &types.UserInviteResponse{
+	return &types.UserInvite{
 		UserInfo: &types.UserInfo{
 			ID:         existingInvite.ID,
 			Email:      existingInvite.Email,
