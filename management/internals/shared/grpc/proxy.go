@@ -14,6 +14,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type serviceStore interface {
+	GetAccountServices(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*services.Service, error)
+}
+
 // ProxyServiceServer implements the ProxyService gRPC server
 type ProxyServiceServer struct {
 	proto.UnimplementedProxyServiceServer
@@ -23,6 +27,9 @@ type ProxyServiceServer struct {
 
 	// Channel for broadcasting service updates to all proxies
 	updatesChan chan *proto.ProxyMapping
+
+	// Store of services
+	serviceStore serviceStore
 }
 
 // proxyConnection represents a connected proxy
@@ -36,9 +43,10 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer() *ProxyServiceServer {
+func NewProxyServiceServer(store serviceStore) *ProxyServiceServer {
 	return &ProxyServiceServer{
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		updatesChan:  make(chan *proto.ProxyMapping, 100),
+		serviceStore: store,
 	}
 }
 
@@ -93,35 +101,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 }
 
-type serviceStore interface {
-	GetAccountServices(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*services.Service, error)
-}
-
-// stubstore implements a serviceStore using stubbed out data rather than a real database connection.
-type stubstore struct{}
-
-func (stubstore) GetAccountServices(_ context.Context, _ store.LockingStrength, _ string) ([]*services.Service, error) {
-	return []*services.Service{
-		{
-			ID:     "test",
-			Domain: "test.netbird.io",
-			Targets: []services.Target{
-				{
-					Enabled: true,
-					Path:    "/",
-					Host:    "100.116.118.156:8181",
-				},
-			},
-			Enabled:           true,
-			Exposed:           true,
-			AuthBearerEnabled: true,
-		},
-	}, nil
-}
-
 // sendSnapshot sends the initial snapshot of all services to proxy
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	svcs, err := stubstore{}.GetAccountServices(ctx, store.LockingStrengthNone, conn.proxyID) // TODO: check locking strength and accountID. Use an actual database connection here!
+	svcs, err := s.serviceStore.GetAccountServices(ctx, store.LockingStrengthNone, conn.proxyID) // TODO: check locking strength and accountID.
 	if err != nil {
 		// TODO: something
 		return fmt.Errorf("get account services from store: %w", err)
