@@ -33,19 +33,19 @@ func toUserInviteResponse(invite *types.UserInvite) api.UserInvite {
 		autoGroups = []string{}
 	}
 	var inviteLink *string
-	if invite.InviteLink != "" {
-		inviteLink = &invite.InviteLink
+	if invite.InviteToken != "" {
+		inviteLink = &invite.InviteToken
 	}
 	return api.UserInvite{
-		Id:         invite.UserInfo.ID,
-		Email:      invite.UserInfo.Email,
-		Name:       invite.UserInfo.Name,
-		Role:       invite.UserInfo.Role,
-		AutoGroups: autoGroups,
-		ExpiresAt:  invite.InviteExpiresAt.UTC(),
-		CreatedAt:  invite.InviteCreatedAt.UTC(),
-		Expired:    time.Now().After(invite.InviteExpiresAt),
-		InviteLink: inviteLink,
+		Id:          invite.UserInfo.ID,
+		Email:       invite.UserInfo.Email,
+		Name:        invite.UserInfo.Name,
+		Role:        invite.UserInfo.Role,
+		AutoGroups:  autoGroups,
+		ExpiresAt:   invite.InviteExpiresAt.UTC(),
+		CreatedAt:   invite.InviteCreatedAt.UTC(),
+		Expired:     time.Now().After(invite.InviteExpiresAt),
+		InviteToken: inviteLink,
 	}
 }
 
@@ -232,7 +232,7 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 
 	expiresAt := result.InviteExpiresAt.UTC()
 	util.WriteJSONObject(r.Context(), w, &api.UserInviteRegenerateResponse{
-		InviteLink:      result.InviteLink,
+		InviteToken:     result.InviteToken,
 		InviteExpiresAt: expiresAt,
 	})
 }

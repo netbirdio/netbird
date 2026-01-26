@@ -559,7 +559,7 @@ components:
           description: Whether the invite has expired
           type: boolean
           example: false
-        invite_link:
+        invite_token:
           description: The invite link to be shared with the user. Only returned when the invite is created or regenerated.
           type: string
           example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
@@ -641,7 +641,7 @@ components:
       type: object
       description: Response after regenerating an invite
       properties:
-        invite_link:
+        invite_token:
           description: The new invite token
           type: string
           example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
@@ -651,7 +651,7 @@ components:
           format: date-time
           example: "2024-01-28T10:00:00Z"
       required:
-        - invite_link
+        - invite_token
         - invite_expires_at
     PeerMinimum:
       type: object

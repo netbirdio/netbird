@@ -1539,7 +1539,7 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},
-		InviteLink:      plainToken,
+		InviteToken:     plainToken,
 		InviteExpiresAt: expiresAt,
 	}, nil
 }
@@ -1743,7 +1743,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 			Status:     string(types.UserStatusInvited),
 			Issued:     types.UserIssuedAPI,
 		},
-		InviteLink:      plainToken,
+		InviteToken:     plainToken,
 		InviteExpiresAt: expiresAt,
 	}, nil
 }

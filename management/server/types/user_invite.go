@@ -112,7 +112,7 @@ func (i *UserInviteRecord) IsExpired() bool {
 // UserInvite contains the result of creating or regenerating an invite
 type UserInvite struct {
 	UserInfo        *UserInfo
-	InviteLink      string
+	InviteToken     string
 	InviteExpiresAt time.Time
 	InviteCreatedAt time.Time
 }

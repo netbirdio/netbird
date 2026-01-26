@@ -783,22 +783,22 @@ func TestInviteToken_ValidateInvalid(t *testing.T) {
 	}
 }
 
-func TestUserInvite_IsExpired(t *testing.T) {
+func TestUserInviteRecord_IsExpired(t *testing.T) {
 	// Not expired
-	invite := &types.UserInvite{
+	invite := &types.UserInviteRecord{
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	assert.False(t, invite.IsExpired())
 
 	// Expired
-	invite = &types.UserInvite{
+	invite = &types.UserInviteRecord{
 		ExpiresAt: time.Now().Add(-time.Hour),
 	}
 	assert.True(t, invite.IsExpired())
 }
 
-func TestUserInvite_Copy(t *testing.T) {
-	original := &types.UserInvite{
+func TestUserInviteRecord_Copy(t *testing.T) {
+	original := &types.UserInviteRecord{
 		ID:          "invite-id",
 		AccountID:   "account-id",
 		Email:       "test@example.com",
@@ -906,7 +906,7 @@ func TestUserInvite_EncryptDecryptSensitiveData(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("encrypt and decrypt", func(t *testing.T) {
-		invite := &types.UserInvite{
+		invite := &types.UserInviteRecord{
 			ID:        "test-invite",
 			AccountID: "test-account",
 			Email:     "test@example.com",
@@ -932,7 +932,7 @@ func TestUserInvite_EncryptDecryptSensitiveData(t *testing.T) {
 	})
 
 	t.Run("encrypt empty fields", func(t *testing.T) {
-		invite := &types.UserInvite{
+		invite := &types.UserInviteRecord{
 			ID:        "test-invite",
 			AccountID: "test-account",
 			Email:     "",
@@ -958,7 +958,7 @@ func TestUserInvite_EncryptDecryptSensitiveData(t *testing.T) {
 	})
 
 	t.Run("nil encryptor", func(t *testing.T) {
-		invite := &types.UserInvite{
+		invite := &types.UserInviteRecord{
 			ID:        "test-invite",
 			AccountID: "test-account",
 			Email:     "test@example.com",

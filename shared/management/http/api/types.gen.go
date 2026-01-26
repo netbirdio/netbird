@@ -2205,8 +2205,8 @@ type UserInvite struct {
 	// Id Invite ID
 	Id string `json:"id"`
 
-	// InviteLink The invite link to be shared with the user. Only returned when the invite is created or regenerated.
-	InviteLink *string `json:"invite_link,omitempty"`
+	// InviteToken The invite link to be shared with the user. Only returned when the invite is created or regenerated.
+	InviteToken *string `json:"invite_token,omitempty"`
 
 	// Name User's full name
 	Name string `json:"name"`
@@ -2274,8 +2274,8 @@ type UserInviteRegenerateResponse struct {
 	// InviteExpiresAt New invite expiration time
 	InviteExpiresAt time.Time `json:"invite_expires_at"`
 
-	// InviteLink The new invite token
-	InviteLink string `json:"invite_link"`
+	// InviteToken The new invite token
+	InviteToken string `json:"invite_token"`
 }
 
 // UserPermissions defines model for UserPermissions.

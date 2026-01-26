@@ -148,7 +148,7 @@ func TestCreateInvite(t *testing.T) {
 						AutoGroups: invite.AutoGroups,
 						Status:     string(types.UserStatusInvited),
 					},
-					InviteLink:      testInviteToken,
+					InviteToken:     testInviteToken,
 					InviteExpiresAt: expiresAt,
 				}, nil
 			},
@@ -168,7 +168,7 @@ func TestCreateInvite(t *testing.T) {
 						AutoGroups: []string{},
 						Status:     string(types.UserStatusInvited),
 					},
-					InviteLink:      testInviteToken,
+					InviteToken:     testInviteToken,
 					InviteExpiresAt: expiresAt,
 				}, nil
 			},
@@ -236,8 +236,8 @@ func TestCreateInvite(t *testing.T) {
 				err := json.NewDecoder(rr.Body).Decode(&resp)
 				require.NoError(t, err)
 				assert.Equal(t, testInviteID, resp.Id)
-				assert.NotNil(t, resp.InviteLink)
-				assert.NotEmpty(t, *resp.InviteLink)
+				assert.NotNil(t, resp.InviteToken)
+				assert.NotEmpty(t, *resp.InviteToken)
 			}
 		})
 	}
@@ -478,7 +478,7 @@ func TestRegenerateInvite(t *testing.T) {
 						ID:    inviteID,
 						Email: testEmail,
 					},
-					InviteLink:      "nbi_newtoken12345678901234567890",
+					InviteToken:     "nbi_newtoken12345678901234567890",
 					InviteExpiresAt: expiresAt,
 				}, nil
 			},
@@ -495,7 +495,7 @@ func TestRegenerateInvite(t *testing.T) {
 						ID:    inviteID,
 						Email: testEmail,
 					},
-					InviteLink:      "nbi_newtoken12345678901234567890",
+					InviteToken:     "nbi_newtoken12345678901234567890",
 					InviteExpiresAt: expiresAt,
 				}, nil
 			},
@@ -564,7 +564,7 @@ func TestRegenerateInvite(t *testing.T) {
 				var resp api.UserInviteRegenerateResponse
 				err := json.NewDecoder(rr.Body).Decode(&resp)
 				require.NoError(t, err)
-				assert.NotEmpty(t, resp.InviteLink)
+				assert.NotEmpty(t, resp.InviteToken)
 			}
 		})
 	}
