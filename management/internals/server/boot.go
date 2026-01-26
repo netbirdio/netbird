@@ -150,7 +150,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
-		proxyService := nbgrpc.NewProxyServiceServer(s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccountManager())
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, proxyService)
 		log.Info("ProxyService registered on gRPC server")
 

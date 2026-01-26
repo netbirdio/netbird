@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/netbirdio/netbird/management/internals/modules/services"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -16,6 +18,10 @@ import (
 
 type serviceStore interface {
 	GetAccountServices(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*services.Service, error)
+}
+
+type keyStore interface {
+	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
@@ -30,6 +36,9 @@ type ProxyServiceServer struct {
 
 	// Store of services
 	serviceStore serviceStore
+
+	// Store for client setup keys
+	keyStore keyStore
 }
 
 // proxyConnection represents a connected proxy
@@ -150,6 +159,22 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			})
 		}
 
+		// TODO: should this even be here? We're running in a loop, and on each proxy, this will create a LOT of setup key entries that we currently have no way to remove.
+		key, err := s.keyStore.CreateSetupKey(ctx,
+			"accountID",
+			"keyname",
+			types.SetupKeyOneOff,       // TODO: is this correct? Might make cleanup simpler and we're going to generate a new key every time the proxy connects.
+			time.Minute,                // TODO: only provide just enough time for the proxy to make the connection before this key becomes invalid. Should help with cleanup as well as protection against these leaking in transit.
+			[]string{"auto", "groups"}, // TODO: join a group for proxy to simplify adding rules to proxies?
+			1,                          // TODO: usage limit, how is this different from the OneOff key type?
+			"userID",
+			false, // TODO: ephemeral peers are different...right?
+			false, // TODO: not sure but I think this should be false.
+		)
+		if err != nil {
+			// TODO: how to handle this?
+		}
+
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping: []*proto.ProxyMapping{
 				{
@@ -157,7 +182,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 					Id:       svc.ID,
 					Domain:   svc.Domain,
 					Path:     paths,
-					SetupKey: "", // TODO: get the setup key.
+					SetupKey: key.Key,
 					Auth:     auth,
 				},
 			},
