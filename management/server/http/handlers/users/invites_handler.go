@@ -239,10 +239,6 @@ func (h *invitesHandler) regenerateInvite(w http.ResponseWriter, r *http.Request
 
 // deleteInvite handles DELETE /api/users/invites/{inviteId}
 func (h *invitesHandler) deleteInvite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
 
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
