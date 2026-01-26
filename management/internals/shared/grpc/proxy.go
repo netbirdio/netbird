@@ -2,8 +2,11 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	"github.com/netbirdio/netbird/management/internals/modules/services"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -74,7 +77,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		log.Infof("Proxy %s disconnected", proxyID)
 	}()
 
-	if err := s.sendSnapshot(conn); err != nil {
+	if err := s.sendSnapshot(ctx, conn); err != nil {
 		log.Errorf("Failed to send snapshot to proxy %s: %v", proxyID, err)
 		return err
 	}
@@ -90,39 +93,96 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 }
 
+type serviceStore interface {
+	GetAccountServices(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*services.Service, error)
+}
+
+// stubstore implements a serviceStore using stubbed out data rather than a real database connection.
+type stubstore struct{}
+
+func (stubstore) GetAccountServices(_ context.Context, _ store.LockingStrength, _ string) ([]*services.Service, error) {
+	return []*services.Service{
+		{
+			ID:     "test",
+			Domain: "test.netbird.io",
+			Targets: []services.Target{
+				{
+					Enabled: true,
+					Path:    "/",
+					Host:    "100.116.118.156:8181",
+				},
+			},
+			Enabled:           true,
+			Exposed:           true,
+			AuthBearerEnabled: true,
+		},
+	}, nil
+}
+
 // sendSnapshot sends the initial snapshot of all services to proxy
-func (s *ProxyServiceServer) sendSnapshot(conn *proxyConnection) error {
-	// TODO: Get actual services from database/store
-	// For now, sending test service
-	testService := &proto.ProxyMapping{
-		Id:     "test",
-		Domain: "test.netbird.io",
-		Path: []*proto.PathMapping{
-			{
-				Path:   "/",
-				Target: "100.116.118.156:8181",
-			},
-		},
-		SetupKey: "some-key",
-		Auth: &proto.Authentication{
-			Oidc: &proto.OIDC{
+func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
+	svcs, err := stubstore{}.GetAccountServices(ctx, store.LockingStrengthNone, conn.proxyID) // TODO: check locking strength and accountID. Use an actual database connection here!
+	if err != nil {
+		// TODO: something
+		return fmt.Errorf("get account services from store: %w", err)
+	}
+
+	for _, svc := range svcs {
+		if !svc.Enabled || !svc.Exposed {
+			// We don't care about disabled services for snapshots.
+			continue
+		}
+
+		// Fill auth values.
+		// TODO: This will be removed soon as the management server should be handling authentication rather than the proxy, so probably not much use in fleshing this out too much.
+		auth := &proto.Authentication{}
+		if svc.AuthBearerEnabled {
+			auth.Oidc = &proto.OIDC{
 				Enabled: true,
+				// TODO: fill other OIDC fields from account OIDC settings.
+			}
+		}
+		if svc.AuthBasicPassword != "" {
+			auth.Basic = &proto.HTTPBasic{
+				Enabled:  true,
+				Username: svc.AuthBasicUsername,
+				Password: svc.AuthBasicPassword,
+			}
+		}
+		if svc.AuthPINValue != "" {
+			auth.Pin = &proto.Pin{
+				Enabled: true,
+				Pin:     svc.AuthPINValue,
+			}
+		}
+
+		var paths []*proto.PathMapping
+		for _, t := range svc.Targets {
+			if !t.Enabled {
+				// We don't care about disabled service targets for snapshots.
+				continue
+			}
+			paths = append(paths, &proto.PathMapping{
+				Path:   t.Path,
+				Target: t.Host,
+			})
+		}
+
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			Mapping: []*proto.ProxyMapping{
+				{
+					Type:     proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, // Initial snapshot, all records are "new" for the proxy.
+					Id:       svc.ID,
+					Domain:   svc.Domain,
+					Path:     paths,
+					SetupKey: "", // TODO: get the setup key.
+					Auth:     auth,
+				},
 			},
-		},
-	}
-
-	snapshot := []*proto.ProxyMapping{
-		testService,
-	}
-
-	msg := &proto.GetMappingUpdateResponse{
-		Mapping: snapshot,
-	}
-
-	log.Infof("Sending snapshot to proxy %s with %d services", conn.proxyID, len(snapshot))
-
-	if err := conn.stream.Send(msg); err != nil {
-		return status.Errorf(codes.Internal, "failed to send snapshot: %v", err)
+		}); err != nil {
+			// TODO: log the error, maybe retry?
+			continue
+		}
 	}
 
 	return nil
