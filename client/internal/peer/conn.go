@@ -22,6 +22,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
+	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -36,6 +37,7 @@ type ServiceDependencies struct {
 	SrWatcher          *guard.SRWatcher
 	Semaphore          *semaphoregroup.SemaphoreGroup
 	PeerConnDispatcher *dispatcher.ConnectionDispatcher
+	PortForwardManager *portforward.Manager
 }
 
 type WgConfig struct {
@@ -77,16 +79,17 @@ type ConnConfig struct {
 }
 
 type Conn struct {
-	Log            *log.Entry
-	mu             sync.Mutex
-	ctx            context.Context
-	ctxCancel      context.CancelFunc
-	config         ConnConfig
-	statusRecorder *Status
-	signaler       *Signaler
-	iFaceDiscover  stdnet.ExternalIFaceDiscover
-	relayManager   *relayClient.Manager
-	srWatcher      *guard.SRWatcher
+	Log                *log.Entry
+	mu                 sync.Mutex
+	ctx                context.Context
+	ctxCancel          context.CancelFunc
+	config             ConnConfig
+	statusRecorder     *Status
+	signaler           *Signaler
+	iFaceDiscover      stdnet.ExternalIFaceDiscover
+	relayManager       *relayClient.Manager
+	srWatcher          *guard.SRWatcher
+	portForwardManager *portforward.Manager
 
 	onConnected                               func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected                            func(remotePeer string)
@@ -132,19 +135,20 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 
 	dumpState := newStateDump(config.Key, connLog, services.StatusRecorder)
 	var conn = &Conn{
-		Log:             connLog,
-		config:          config,
-		statusRecorder:  services.StatusRecorder,
-		signaler:        services.Signaler,
-		iFaceDiscover:   services.IFaceDiscover,
-		relayManager:    services.RelayManager,
-		srWatcher:       services.SrWatcher,
-		semaphore:       services.Semaphore,
-		statusRelay:     worker.NewAtomicStatus(),
-		statusICE:       worker.NewAtomicStatus(),
-		dumpState:       dumpState,
-		endpointUpdater: NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
-		wgWatcher:       NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
+		Log:                connLog,
+		config:             config,
+		statusRecorder:     services.StatusRecorder,
+		signaler:           services.Signaler,
+		iFaceDiscover:      services.IFaceDiscover,
+		relayManager:       services.RelayManager,
+		srWatcher:          services.SrWatcher,
+		semaphore:          services.Semaphore,
+		portForwardManager: services.PortForwardManager,
+		statusRelay:        worker.NewAtomicStatus(),
+		statusICE:          worker.NewAtomicStatus(),
+		dumpState:          dumpState,
+		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
+		wgWatcher:          NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
 	}
 
 	return conn, nil

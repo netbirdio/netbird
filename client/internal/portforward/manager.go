@@ -1,0 +1,289 @@
+package portforward
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/libp2p/go-nat"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+)
+
+const (
+	defaultMappingTTL  = 2 * time.Hour
+	renewalInterval    = defaultMappingTTL / 2
+	discoveryTimeout   = 10 * time.Second
+	mappingDescription = "NetBird"
+
+	envDisableNATMapper = "NB_DISABLE_NAT_MAPPER"
+)
+
+type Mapping struct {
+	Protocol     string
+	InternalPort uint16
+	ExternalPort uint16
+	ExternalIP   net.IP
+	NATType      string
+}
+
+type Manager struct {
+	ctx          context.Context
+	cancel       context.CancelFunc
+	stateManager *statemanager.Manager
+
+	mu      sync.RWMutex
+	gateway nat.NAT
+	mapping *Mapping
+
+	wgPort uint16
+	wg     sync.WaitGroup
+}
+
+func NewManager(stateManager *statemanager.Manager) *Manager {
+	return &Manager{
+		stateManager: stateManager,
+	}
+}
+
+// Start begins async discovery and mapping creation for the given WireGuard port.
+// This does not block - use GetMapping() to check if mapping is ready.
+func (m *Manager) Start(ctx context.Context, wgPort int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cancel != nil {
+		return
+	}
+
+	if isDisabledByEnv() {
+		log.Infof("NAT port mapper disabled via %s", envDisableNATMapper)
+		return
+	}
+
+	m.ctx, m.cancel = context.WithCancel(ctx)
+	m.wgPort = uint16(wgPort)
+
+	m.stateManager.RegisterState(&State{})
+
+	m.wg.Add(1)
+	go m.run()
+}
+
+func isDisabledByEnv() bool {
+	val := os.Getenv(envDisableNATMapper)
+	if val == "" {
+		return false
+	}
+
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", envDisableNATMapper, err)
+		return false
+	}
+	return disabled
+}
+
+func (m *Manager) run() {
+	defer m.wg.Done()
+
+	if err := m.stateManager.LoadState(&State{}); err != nil {
+		log.Warnf("failed to load port forward state: %v", err)
+	}
+
+	var residualState *State
+	if existing := m.stateManager.GetState(&State{}); existing != nil {
+		if state, ok := existing.(*State); ok && state.InternalPort != 0 {
+			residualState = state
+		}
+	}
+
+	discoverCtx, discoverCancel := context.WithTimeout(m.ctx, discoveryTimeout)
+	defer discoverCancel()
+
+	gateway, err := nat.DiscoverGateway(discoverCtx)
+	if err != nil {
+		log.Infof("NAT gateway discovery failed: %v (port forwarding disabled)", err)
+		return
+	}
+
+	m.mu.Lock()
+	m.gateway = gateway
+	m.mu.Unlock()
+
+	log.Infof("discovered NAT gateway: %s", gateway.Type())
+
+	if residualState != nil {
+		if err := m.cleanupResidual(residualState); err != nil {
+			log.Warnf("failed to cleanup residual mapping: %v", err)
+		}
+	}
+
+	if err := m.createMapping(); err != nil {
+		log.Warnf("failed to create port mapping: %v", err)
+		return
+	}
+
+	m.renewLoop()
+}
+
+func (m *Manager) cleanupResidual(state *State) error {
+	m.mu.RLock()
+	gateway := m.gateway
+	m.mu.RUnlock()
+
+	if gateway == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+
+	if err := gateway.DeletePortMapping(ctx, state.Protocol, int(state.InternalPort)); err != nil {
+		return fmt.Errorf("delete residual mapping: %w", err)
+	}
+
+	log.Infof("cleaned up residual port mapping for port %d", state.InternalPort)
+
+	if err := m.stateManager.UpdateState(&State{}); err != nil {
+		return fmt.Errorf("clear state after cleanup: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) createMapping() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.gateway == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+
+	externalPort, err := m.gateway.AddPortMapping(ctx, "udp", int(m.wgPort), mappingDescription, defaultMappingTTL)
+	if err != nil {
+		return err
+	}
+
+	externalIP, err := m.gateway.GetExternalAddress()
+	if err != nil {
+		log.Debugf("failed to get external address: %v", err)
+	}
+
+	m.mapping = &Mapping{
+		Protocol:     "udp",
+		InternalPort: m.wgPort,
+		ExternalPort: uint16(externalPort),
+		ExternalIP:   externalIP,
+		NATType:      m.gateway.Type(),
+	}
+
+	log.Infof("created port mapping: %d -> %d via %s (external IP: %s)",
+		m.wgPort, externalPort, m.gateway.Type(), externalIP)
+
+	return m.persistStateLocked()
+}
+
+func (m *Manager) Stop() {
+	m.mu.Lock()
+	cancel := m.cancel
+	m.cancel = nil
+	m.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	m.wg.Wait()
+
+	m.mu.Lock()
+	if err := m.persistStateLocked(); err != nil {
+		log.Debugf("persist state on stop: %v", err)
+	}
+	m.mu.Unlock()
+}
+
+// GetMapping returns the current mapping if ready, nil otherwise
+func (m *Manager) GetMapping() *Mapping {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.mapping == nil {
+		return nil
+	}
+
+	mapping := *m.mapping
+	return &mapping
+}
+
+// IsAvailable returns true if port forwarding is available and mapping exists
+func (m *Manager) IsAvailable() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.mapping != nil
+}
+
+func (m *Manager) renewLoop() {
+	ticker := time.NewTicker(renewalInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			if err := m.renewMapping(); err != nil {
+				log.Warnf("failed to renew port mapping: %v", err)
+			}
+		}
+	}
+}
+
+func (m *Manager) renewMapping() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.mapping == nil || m.gateway == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+
+	externalPort, err := m.gateway.AddPortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort), mappingDescription, defaultMappingTTL)
+	if err != nil {
+		return fmt.Errorf("add port mapping: %w", err)
+	}
+
+	if uint16(externalPort) != m.mapping.ExternalPort {
+		log.Warnf("external port changed on renewal: %d -> %d (candidate may be stale)",
+			m.mapping.ExternalPort, externalPort)
+		m.mapping.ExternalPort = uint16(externalPort)
+	}
+
+	log.Debugf("renewed port mapping: %d -> %d", m.mapping.InternalPort, m.mapping.ExternalPort)
+	return nil
+}
+
+func (m *Manager) persistStateLocked() error {
+	var state *State
+	if m.mapping != nil {
+		state = &State{
+			InternalPort: m.mapping.InternalPort,
+			Protocol:     m.mapping.Protocol,
+		}
+	} else {
+		state = &State{}
+	}
+
+	return m.stateManager.UpdateState(state)
+}

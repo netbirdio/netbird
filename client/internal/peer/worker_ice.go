@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 )
@@ -60,6 +61,9 @@ type WorkerICE struct {
 
 	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
 	lastKnownState ice.ConnectionState
+
+	// portForwardAttempted tracks if we've already tried port forwarding this session
+	portForwardAttempted bool
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
@@ -210,6 +214,8 @@ func (w *WorkerICE) Close() {
 }
 
 func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+	w.portForwardAttempted = false
+
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
 		return nil, fmt.Errorf("create agent: %w", err)
@@ -362,6 +368,77 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 			w.log.Errorf("failed signaling candidate to the remote peer %s %s", w.config.Key, err)
 		}
 	}()
+
+	if candidate.Type() == ice.CandidateTypeServerReflexive {
+		w.injectPortForwardedCandidate(candidate)
+	}
+}
+
+// injectPortForwardedCandidate signals an additional candidate using the pre-created port mapping.
+func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
+	w.muxAgent.Lock()
+	if w.portForwardAttempted {
+		w.muxAgent.Unlock()
+		return
+	}
+	w.portForwardAttempted = true
+	w.muxAgent.Unlock()
+
+	pfManager := w.conn.portForwardManager
+	if pfManager == nil || !pfManager.IsAvailable() {
+		return
+	}
+
+	mapping := pfManager.GetMapping()
+	if mapping == nil {
+		return
+	}
+
+	forwardedCandidate, err := w.createForwardedCandidate(srflxCandidate, mapping)
+	if err != nil {
+		w.log.Warnf("create forwarded candidate: %v", err)
+		return
+	}
+
+	w.log.Debugf("injecting port-forwarded candidate: %s (mapping: %d -> %d via %s, priority: %d)",
+		forwardedCandidate.String(), mapping.InternalPort, mapping.ExternalPort, mapping.NATType, forwardedCandidate.Priority())
+
+	go func() {
+		if err := w.signaler.SignalICECandidate(forwardedCandidate, w.config.Key); err != nil {
+			w.log.Errorf("signal port-forwarded candidate: %v", err)
+		}
+	}()
+}
+
+// createForwardedCandidate creates a new server reflexive candidate with the forwarded port.
+// It uses the NAT gateway's external IP with the forwarded port.
+func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mapping *portforward.Mapping) (ice.Candidate, error) {
+	var externalIP string
+	if mapping.ExternalIP != nil && !mapping.ExternalIP.IsUnspecified() {
+		externalIP = mapping.ExternalIP.String()
+	} else {
+		// Fallback to STUN-discovered address if NAT didn't provide external IP
+		externalIP = srflxCandidate.Address()
+	}
+
+	// Per RFC 8445, the related address for srflx is the base (host candidate address).
+	// If the original srflx has unspecified related address, use its own address as base.
+	relAddr := srflxCandidate.RelatedAddress().Address
+	if relAddr == "" || relAddr == "0.0.0.0" || relAddr == "::" {
+		relAddr = srflxCandidate.Address()
+	}
+
+	priority := srflxCandidate.Priority() + 1000
+
+	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+		Network:   srflxCandidate.NetworkType().String(),
+		Address:   externalIP,
+		Port:      int(mapping.ExternalPort),
+		Component: srflxCandidate.Component(),
+		Priority:  priority,
+		RelAddr:   relAddr,
+		RelPort:   int(mapping.InternalPort),
+	})
 }
 
 func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
@@ -403,10 +480,10 @@ func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
 			if !lok || !rok {
 				continue
 			}
-			w.log.Debugf("successful ICE path %s: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
+			w.log.Debugf("successful ICE path %s: [%s %s %s:%d] <-> [%s %s %s:%d] rtt=%.3fms",
 				sessionID,
-				local.NetworkType(), local.Type(), local.Address(),
-				remote.NetworkType(), remote.Type(), remote.Address(),
+				local.NetworkType(), local.Type(), local.Address(), local.Port(),
+				remote.NetworkType(), remote.Type(), remote.Address(), remote.Port(),
 				stat.CurrentRoundTripTime*1000)
 		}
 	}
