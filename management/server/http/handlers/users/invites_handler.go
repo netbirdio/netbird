@@ -57,10 +57,6 @@ func AddPublicInvitesEndpoints(accountManager account.Manager, router *mux.Route
 
 // listInvites handles GET /api/users/invites
 func (h *invitesHandler) listInvites(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
 
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -97,10 +93,6 @@ func (h *invitesHandler) listInvites(w http.ResponseWriter, r *http.Request) {
 
 // createInvite handles POST /api/users/invites
 func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
 
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -152,10 +144,6 @@ func (h *invitesHandler) createInvite(w http.ResponseWriter, r *http.Request) {
 
 // getInviteInfo handles GET /api/users/invites/{token}
 func (h *invitesHandler) getInviteInfo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
 
 	vars := mux.Vars(r)
 	token := vars["token"]
@@ -182,10 +170,6 @@ func (h *invitesHandler) getInviteInfo(w http.ResponseWriter, r *http.Request) {
 
 // acceptInvite handles POST /api/users/invites/{token}/accept
 func (h *invitesHandler) acceptInvite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
 
 	vars := mux.Vars(r)
 	token := vars["token"]
