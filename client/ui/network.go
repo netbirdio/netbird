@@ -341,11 +341,19 @@ func (s *serviceClient) updateExitNodes() {
 		log.Errorf("get client: %v", err)
 		return
 	}
-
-	exitNodes, err := s.getExitNodes(conn)
-	if err != nil {
-		log.Errorf("get exit nodes: %v", err)
-		return
+	// todo: on a new GUI version, we should implementing a better way to get routes information since
+	// the client might appear ready, it doesn't have the network map yet.
+	var exitNodes []*proto.Network
+	for i := 0; i < 3; i++ {
+		exitNodes, err = s.getExitNodes(conn)
+		if err != nil {
+			log.Errorf("get exit nodes: %v", err)
+			return
+		}
+		if len(exitNodes) != 0 {
+			break
+		}
+		time.Sleep(1 * time.Second)
 	}
 
 	s.exitNodeMu.Lock()
