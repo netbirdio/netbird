@@ -372,22 +372,32 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 	// todo figure out better error handling strategy
 	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 
-	for {
-		event, err := updates.Event(ctx)
-		if err != nil {
-			if errors.Is(err, job.ErrJobChannelClosed) {
-				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
-				return nil
-			}
+	// Send heartbeat every 30 seconds to keep stream alive through proxies (e.g., Traefik, Cloudflare)
+	// that may have idle timeouts. The client ignores empty messages with no ID.
+	heartbeatInterval := 30 * time.Second
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
 
+	for {
+		select {
+		case <-ctx.Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
 			return ctx.Err()
-		}
-
-		if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
-			log.WithContext(ctx).Warnf("send job failed: %v", err)
-			return nil
+		case <-ticker.C:
+			if err := s.sendHeartbeat(ctx, peerKey, srv); err != nil {
+				log.WithContext(ctx).Warnf("send heartbeat failed: %v", err)
+				return err
+			}
+		case event, ok := <-updates.EventChan():
+			if !ok {
+				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
+				return nil
+			}
+			if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
+				log.WithContext(ctx).Warnf("send job failed: %v", err)
+				return nil
+			}
 		}
 	}
 }
@@ -472,6 +482,34 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 		return status.Errorf(codes.Internal, "failed sending job message")
 	}
 	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
+	return nil
+}
+
+// sendHeartbeat sends an empty JobRequest to keep the stream alive through proxies.
+// The client recognizes messages with empty ID as heartbeats and ignores them.
+func (s *Server) sendHeartbeat(ctx context.Context, peerKey wgtypes.Key, srv proto.ManagementService_JobServer) error {
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get server key for heartbeat")
+	}
+
+	// Empty JobRequest with no ID serves as heartbeat
+	heartbeat := &proto.JobRequest{}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, wgKey, heartbeat)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to encrypt heartbeat")
+	}
+
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed sending heartbeat")
+	}
+
+	log.WithContext(ctx).Tracef("sent heartbeat to peer: %s", peerKey.String())
 	return nil
 }
 
