@@ -74,10 +74,16 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	// Prepare both IPv4 and IPv6 raw sockets
-	p.rawConnIPv4, p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocket()
+	// Prepare IPv4 raw socket (required)
+	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
 	if err != nil {
 		return err
+	}
+
+	// Prepare IPv6 raw socket (optional)
+	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
+	if err != nil {
+		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
 	}
 
 	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
@@ -85,8 +91,10 @@ func (p *WGEBPFProxy) Listen() error {
 		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
 			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
 		}
-		if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
-			log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+		if p.rawConnIPv6 != nil {
+			if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+				log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+			}
 		}
 		return err
 	}
@@ -261,6 +269,9 @@ func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 		rawConn = p.rawConnIPv4
 	} else {
 		// IPv6 path
+		if p.rawConnIPv6 == nil {
+			return fmt.Errorf("IPv6 raw socket not available")
+		}
 		ipv6 := &layers.IPv6{
 			DstIP:      localHostNetIPv6,
 			SrcIP:      endpointAddr.IP,

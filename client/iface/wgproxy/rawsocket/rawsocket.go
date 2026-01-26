@@ -13,25 +13,6 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-// PrepareSenderRawSocket creates and configures raw sockets for sending both IPv4 and IPv6 packets.
-// Returns IPv4 socket, IPv6 socket, and error.
-func PrepareSenderRawSocket() (net.PacketConn, net.PacketConn, error) {
-	ipv4Conn, err := PrepareSenderRawSocketIPv4()
-	if err != nil {
-		return nil, nil, fmt.Errorf("prepare IPv4 raw socket: %w", err)
-	}
-
-	ipv6Conn, err := PrepareSenderRawSocketIPv6()
-	if err != nil {
-		if closeErr := ipv4Conn.Close(); closeErr != nil {
-			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
-		}
-		return nil, nil, fmt.Errorf("prepare IPv6 raw socket: %w", err)
-	}
-
-	return ipv4Conn, ipv6Conn, nil
-}
-
 // PrepareSenderRawSocketIPv4 creates and configures a raw socket for sending IPv4 packets
 func PrepareSenderRawSocketIPv4() (net.PacketConn, error) {
 	return prepareSenderRawSocket(syscall.AF_INET, true)
