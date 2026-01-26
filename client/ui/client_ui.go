@@ -918,7 +918,7 @@ func (s *serviceClient) updateStatus() error {
 				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
 			}
 			systray.SetTooltip("NetBird (Connected)")
-			s.mStatus.SetTitle("Connected2")
+			s.mStatus.SetTitle("Connected")
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
