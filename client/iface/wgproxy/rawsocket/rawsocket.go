@@ -34,7 +34,7 @@ func prepareSenderRawSocket(family int, isIPv4 bool) (net.PacketConn, error) {
 	// Set the header include option on the socket to tell the kernel that headers are included in the packet.
 	// For IPv4, we need to set IP_HDRINCL. For IPv6, we need to set IPV6_HDRINCL to accept application-provided IPv6 headers.
 	if isIPv4 {
-		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
+		err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, unix.IP_HDRINCL, 1)
 		if err != nil {
 			if closeErr := syscall.Close(fd); closeErr != nil {
 				log.Warnf("failed to close raw socket fd: %v", closeErr)
