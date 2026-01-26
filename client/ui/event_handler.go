@@ -63,6 +63,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleNetworksClick()
 		case <-h.client.mNotifications.ClickedCh:
 			h.handleNotificationsClick()
+		case <-systray.TrayOpenedCh:
+			h.client.updateExitNodes()
 		}
 	}
 }
