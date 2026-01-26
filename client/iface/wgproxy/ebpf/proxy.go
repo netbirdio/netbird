@@ -27,7 +27,13 @@ const (
 )
 
 var (
-	localHostNetIP = net.ParseIP("127.0.0.1")
+	localHostNetIPv4 = net.ParseIP("127.0.0.1")
+	localHostNetIPv6 = net.ParseIP("::1")
+
+	serializeOpts = gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -40,7 +46,8 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	lastUsedPort uint16
-	rawConn      net.PacketConn
+	rawConnIPv4  net.PacketConn
+	rawConnIPv6  net.PacketConn
 	conn         transport.UDPConn
 
 	ctx       context.Context
@@ -67,13 +74,28 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
+	// Prepare IPv4 raw socket (required)
+	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
 	if err != nil {
 		return err
 	}
 
+	// Prepare IPv6 raw socket (optional)
+	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
+	if err != nil {
+		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
+	}
+
 	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
 	if err != nil {
+		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
+		}
+		if p.rawConnIPv6 != nil {
+			if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+				log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+			}
+		}
 		return err
 	}
 
@@ -135,8 +157,16 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 
-	if err := p.rawConn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.rawConnIPv4 != nil {
+		if err := p.rawConnIPv4.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	if p.rawConnIPv6 != nil {
+		if err := p.rawConnIPv6.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return nberrors.FormatErrorOrNil(result)
 }
@@ -218,31 +248,60 @@ generatePort:
 }
 
 func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
-	payload := gopacket.Payload(data)
-	ipH := &layers.IPv4{
-		DstIP:    localHostNetIP,
-		SrcIP:    endpointAddr.IP,
-		Version:  4,
-		TTL:      64,
-		Protocol: layers.IPProtocolUDP,
+
+	var ipH gopacket.SerializableLayer
+	var networkLayer gopacket.NetworkLayer
+	var dstIP net.IP
+	var rawConn net.PacketConn
+
+	if endpointAddr.IP.To4() != nil {
+		// IPv4 path
+		ipv4 := &layers.IPv4{
+			DstIP:    localHostNetIPv4,
+			SrcIP:    endpointAddr.IP,
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolUDP,
+		}
+		ipH = ipv4
+		networkLayer = ipv4
+		dstIP = localHostNetIPv4
+		rawConn = p.rawConnIPv4
+	} else {
+		// IPv6 path
+		if p.rawConnIPv6 == nil {
+			return fmt.Errorf("IPv6 raw socket not available")
+		}
+		ipv6 := &layers.IPv6{
+			DstIP:      localHostNetIPv6,
+			SrcIP:      endpointAddr.IP,
+			Version:    6,
+			HopLimit:   64,
+			NextHeader: layers.IPProtocolUDP,
+		}
+		ipH = ipv6
+		networkLayer = ipv6
+		dstIP = localHostNetIPv6
+		rawConn = p.rawConnIPv6
 	}
+
 	udpH := &layers.UDP{
 		SrcPort: layers.UDPPort(endpointAddr.Port),
 		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
-	err := udpH.SetNetworkLayerForChecksum(ipH)
-	if err != nil {
+	if err := udpH.SetNetworkLayerForChecksum(networkLayer); err != nil {
 		return fmt.Errorf("set network layer for checksum: %w", err)
 	}
 
 	layerBuffer := gopacket.NewSerializeBuffer()
+	payload := gopacket.Payload(data)
 
-	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
-	if err != nil {
+	if err := gopacket.SerializeLayers(layerBuffer, serializeOpts, ipH, udpH, payload); err != nil {
 		return fmt.Errorf("serialize layers: %w", err)
 	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localHostNetIP}); err != nil {
+
+	if _, err := rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
 		return fmt.Errorf("write to raw conn: %w", err)
 	}
 	return nil
