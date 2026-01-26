@@ -1721,12 +1721,7 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 	existingInvite.ExpiresAt = expiresAt
 	existingInvite.CreatedBy = initiatorUserID
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.SaveUserInvite(ctx, existingInvite); err != nil {
-			return fmt.Errorf("failed to save updated invite: %w", err)
-		}
-		return nil
-	})
+	err = am.Store.SaveUserInvite(ctx, existingInvite)
 	if err != nil {
 		return nil, err
 	}
