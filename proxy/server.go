@@ -20,13 +20,14 @@ import (
 	"time"
 
 	"github.com/cloudflare/backoff"
+	"google.golang.org/grpc"
+
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	"google.golang.org/grpc"
 )
 
 type errorLog interface {
@@ -215,12 +216,6 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	// Note: this does require the management server to always send a
 	// full mapping rather than deltas during a modification.
 	var schemes []auth.Scheme
-	if mapping.GetAuth().GetBasic().GetEnabled() {
-		schemes = append(schemes, auth.NewBasicAuth(
-			mapping.GetAuth().GetBasic().GetUsername(),
-			mapping.GetAuth().GetBasic().GetPassword(),
-		))
-	}
 	if mapping.GetAuth().GetPin().GetEnabled() {
 		schemes = append(schemes, auth.NewPin(
 			mapping.GetAuth().GetPin().GetPin(),
