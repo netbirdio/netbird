@@ -31,6 +31,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+const remoteJobsMinVer = "0.64.0"
+
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
@@ -324,6 +326,134 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	return peer, nil
 }
 
+func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	p, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return err
+	}
+
+	if p.AccountID != accountID {
+		return status.NewPeerNotPartOfAccountError()
+	}
+
+	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
+	if !strings.Contains(p.Meta.WtVersion, "dev") && (!meetMinVer || err != nil) {
+		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
+	}
+
+	if !am.jobManager.IsPeerConnected(peerID) {
+		return status.Errorf(status.BadRequest, "peer not connected")
+	}
+
+	// check if already has pending jobs
+	// todo: The job checks here are not protected. The user can run this function from multiple threads,
+	// and each thread can think there is no job yet. This means entries in the pending job map will be overwritten,
+	// and only one will be kept, but potentially another one will overwrite it in the queue.
+	if am.jobManager.IsPeerHasPendingJobs(peerID) {
+		return status.Errorf(status.BadRequest, "peer already has pending job")
+	}
+
+	jobStream, err := job.ToStreamJobRequest()
+	if err != nil {
+		return status.Errorf(status.BadRequest, "invalid job request %v", err)
+	}
+
+	// try sending job first
+	if err := am.jobManager.SendJob(ctx, accountID, peerID, jobStream); err != nil {
+		return status.Errorf(status.Internal, "failed to send job: %v", err)
+	}
+
+	var peer *nbpeer.Peer
+	var eventsToStore func()
+
+	// persist job in DB only if send succeeded
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return err
+		}
+		if err := transaction.CreatePeerJob(ctx, job); err != nil {
+			return err
+		}
+
+		jobMeta := map[string]any{
+			"for_peer_name": peer.Name,
+			"job_type":      job.Workload.Type,
+		}
+
+		eventsToStore = func() {
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, jobMeta)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	eventsToStore()
+	return nil
+}
+
+func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return nil, status.NewPeerNotPartOfAccountError()
+	}
+
+	accountJobs, err := am.Store.GetPeerJobs(ctx, accountID, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	return accountJobs, nil
+}
+
+func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return nil, status.NewPeerNotPartOfAccountError()
+	}
+
+	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
@@ -596,6 +726,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 			if err != nil {
 				return fmt.Errorf("failed adding peer to All group: %w", err)
+			}
+
+			if temporary {
+				// we should track ephemeral peers to be able to clean them if the peer don't sync and be marked as connected
+				am.networkMapController.TrackEphemeralPeer(ctx, newPeer)
 			}
 
 			if addedByUser {

@@ -1145,6 +1145,38 @@ func (d *Status) PeersStatus() (*configurer.Stats, error) {
 	return d.wgIface.FullStats()
 }
 
+// RefreshWireGuardStats fetches fresh WireGuard statistics from the interface
+// and updates the cached peer states. This ensures accurate handshake times and
+// transfer statistics in status reports without running full health probes.
+func (d *Status) RefreshWireGuardStats() error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	if d.wgIface == nil {
+		return nil // silently skip if interface not set
+	}
+
+	stats, err := d.wgIface.FullStats()
+	if err != nil {
+		return fmt.Errorf("get wireguard stats: %w", err)
+	}
+
+	// Update each peer's WireGuard statistics
+	for _, peerStats := range stats.Peers {
+		peerState, ok := d.peers[peerStats.PublicKey]
+		if !ok {
+			continue
+		}
+
+		peerState.LastWireguardHandshake = peerStats.LastHandshake
+		peerState.BytesRx = peerStats.RxBytes
+		peerState.BytesTx = peerStats.TxBytes
+		d.peers[peerStats.PublicKey] = peerState
+	}
+
+	return nil
+}
+
 type EventQueue struct {
 	maxSize int
 	events  []*proto.SystemEvent

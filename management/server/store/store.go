@@ -93,6 +93,13 @@ type Store interface {
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
+	SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error
+	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error)
+	GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInviteRecord, error)
+	GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInviteRecord, error)
+	GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInviteRecord, error)
+	DeleteUserInvite(ctx context.Context, inviteID string) error
+
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
 	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
@@ -227,6 +234,13 @@ type Store interface {
 	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
 	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
 	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
+	CreatePeerJob(ctx context.Context, job *types.Job) error
+	CompletePeerJob(ctx context.Context, job *types.Job) error
+	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
 	CreateService(ctx context.Context, service *services.Service) error
 	UpdateService(ctx context.Context, service *services.Service) error

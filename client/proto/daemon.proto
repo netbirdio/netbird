@@ -94,6 +94,12 @@ service DaemonService {
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 
+// StartCPUProfile starts CPU profiling in the daemon
+  rpc StartCPUProfile(StartCPUProfileRequest) returns (StartCPUProfileResponse) {}
+
+  // StopCPUProfile stops CPU profiling in the daemon
+  rpc StopCPUProfile(StopCPUProfileRequest) returns (StopCPUProfileResponse) {}
+
   rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
 
   rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
@@ -455,7 +461,6 @@ message ForwardingRulesResponse {
 // DebugBundler
 message DebugBundleRequest {
   bool anonymize = 1;
-  string status = 2;
   bool systemInfo = 3;
   string uploadURL = 4;
   uint32 logFileCount = 5;
@@ -776,6 +781,18 @@ message WaitJWTTokenResponse {
   // expiration time in seconds
   int64 expiresIn = 3;
 }
+
+// StartCPUProfileRequest for starting CPU profiling
+message StartCPUProfileRequest {}
+
+// StartCPUProfileResponse confirms CPU profiling has started
+message StartCPUProfileResponse {}
+
+// StopCPUProfileRequest for stopping CPU profiling
+message StopCPUProfileRequest {}
+
+// StopCPUProfileResponse confirms CPU profiling has stopped
+message StopCPUProfileResponse {}
 
 message InstallerResultRequest {
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,9 +14,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
@@ -67,7 +67,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	clientRunning     bool // protected by mutex
 	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{}
+	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
 	connectClient *internal.ConnectClient
 
@@ -77,6 +77,9 @@ type Server struct {
 	lastProbe           time.Time
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
+
+	cpuProfileBuf *bytes.Buffer
+	cpuProfiling  bool
 
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
@@ -250,10 +253,17 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
-	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		log.Errorf("failed to create auth client: %v", err)
+		return internal.StatusLoginFailed, err
+	}
+	defer authClient.Close()
+
+	var status internal.StatusType
+	err, isAuthError := authClient.Login(ctx, setupKey, jwtToken)
+	if err != nil {
+		if isAuthError {
 			log.Warnf("failed login: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
@@ -578,8 +588,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
+	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	s.mutex.Lock()
@@ -793,9 +802,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+
+	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
+		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
@@ -803,6 +814,20 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.mutex.Unlock()
+
+	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
+	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
+	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	if giveUpChan != nil {
+		select {
+		case <-giveUpChan:
+			log.Debugf("client goroutine finished successfully")
+		case <-time.After(5 * time.Second):
+			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
+		}
+	}
 
 	return &proto.DownResponse{}, nil
 }
@@ -1308,6 +1333,10 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
+	} else {
+		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
+			log.Debugf("failed to refresh WireGuard stats: %v", err)
+		}
 	}
 }
 
@@ -1521,7 +1550,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan); err != nil {
+	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil

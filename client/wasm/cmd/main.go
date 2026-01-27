@@ -12,7 +12,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
-	"github.com/netbirdio/netbird/client/proto"
 	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
@@ -350,12 +349,8 @@ func getStatusOverview(client *netbird.Client) (nbstatus.OutputOverview, error) 
 	}
 
 	pbFullStatus := fullStatus.ToProto()
-	statusResp := &proto.StatusResponse{
-		DaemonVersion: version.NetbirdVersion(),
-		FullStatus:    pbFullStatus,
-	}
 
-	return nbstatus.ConvertToStatusOutputOverview(statusResp, false, "", nil, nil, nil, "", ""), nil
+	return nbstatus.ConvertToStatusOutputOverview(pbFullStatus, false, version.NetbirdVersion(), "", nil, nil, nil, "", ""), nil
 }
 
 // createStatusMethod creates the status method that returns JSON

@@ -28,22 +28,45 @@ const (
 )
 
 type WindowsExecutorConfig struct {
-	Username    string
-	Domain      string
-	WorkingDir  string
-	Shell       string
-	Command     string
-	Args        []string
-	Interactive bool
-	Pty         bool
-	PtyWidth    int
-	PtyHeight   int
+	Username   string
+	Domain     string
+	WorkingDir string
+	Shell      string
+	Command    string
+	Args       []string
+	Pty        bool
+	PtyWidth   int
+	PtyHeight  int
 }
 
-type PrivilegeDropper struct{}
+type PrivilegeDropper struct {
+	logger *log.Entry
+}
 
-func NewPrivilegeDropper() *PrivilegeDropper {
-	return &PrivilegeDropper{}
+// PrivilegeDropperOption is a functional option for configuring PrivilegeDropper
+type PrivilegeDropperOption func(*PrivilegeDropper)
+
+func NewPrivilegeDropper(opts ...PrivilegeDropperOption) *PrivilegeDropper {
+	pd := &PrivilegeDropper{}
+	for _, opt := range opts {
+		opt(pd)
+	}
+	return pd
+}
+
+// WithLogger sets the logger for the PrivilegeDropper
+func WithLogger(logger *log.Entry) PrivilegeDropperOption {
+	return func(pd *PrivilegeDropper) {
+		pd.logger = logger
+	}
+}
+
+// log returns the logger, falling back to standard logger if none set
+func (pd *PrivilegeDropper) log() *log.Entry {
+	if pd.logger != nil {
+		return pd.logger
+	}
+	return log.NewEntry(log.StandardLogger())
 }
 
 var (
@@ -56,7 +79,6 @@ const (
 
 	// Common error messages
 	commandFlag          = "-Command"
-	closeTokenErrorMsg   = "close token error: %v" // #nosec G101 -- This is an error message template, not credentials
 	convertUsernameError = "convert username to UTF16: %w"
 	convertDomainError   = "convert domain to UTF16: %w"
 )
@@ -80,7 +102,7 @@ func (pd *PrivilegeDropper) CreateWindowsExecutorCommand(ctx context.Context, co
 		shellArgs = []string{shell}
 	}
 
-	log.Tracef("creating Windows direct shell command: %s %v", shellArgs[0], shellArgs)
+	pd.log().Tracef("creating Windows direct shell command: %s %v", shellArgs[0], shellArgs)
 
 	cmd, token, err := pd.CreateWindowsProcessAsUser(
 		ctx, shellArgs[0], shellArgs, config.Username, config.Domain, config.WorkingDir)
@@ -180,10 +202,10 @@ func newLsaString(s string) lsaString {
 
 // generateS4UUserToken creates a Windows token using S4U authentication
 // This is the exact approach OpenSSH for Windows uses for public key authentication
-func generateS4UUserToken(username, domain string) (windows.Handle, error) {
+func generateS4UUserToken(logger *log.Entry, username, domain string) (windows.Handle, error) {
 	userCpn := buildUserCpn(username, domain)
 
-	pd := NewPrivilegeDropper()
+	pd := NewPrivilegeDropper(WithLogger(logger))
 	isDomainUser := !pd.isLocalUser(domain)
 
 	lsaHandle, err := initializeLsaConnection()
@@ -197,12 +219,12 @@ func generateS4UUserToken(username, domain string) (windows.Handle, error) {
 		return 0, err
 	}
 
-	logonInfo, logonInfoSize, err := prepareS4ULogonStructure(username, domain, isDomainUser)
+	logonInfo, logonInfoSize, err := prepareS4ULogonStructure(logger, username, domain, isDomainUser)
 	if err != nil {
 		return 0, err
 	}
 
-	return performS4ULogon(lsaHandle, authPackageId, logonInfo, logonInfoSize, userCpn, isDomainUser)
+	return performS4ULogon(logger, lsaHandle, authPackageId, logonInfo, logonInfoSize, userCpn, isDomainUser)
 }
 
 // buildUserCpn constructs the user principal name
@@ -310,21 +332,21 @@ func lookupPrincipalName(username, domain string) (string, error) {
 }
 
 // prepareS4ULogonStructure creates the appropriate S4U logon structure
-func prepareS4ULogonStructure(username, domain string, isDomainUser bool) (unsafe.Pointer, uintptr, error) {
+func prepareS4ULogonStructure(logger *log.Entry, username, domain string, isDomainUser bool) (unsafe.Pointer, uintptr, error) {
 	if isDomainUser {
-		return prepareDomainS4ULogon(username, domain)
+		return prepareDomainS4ULogon(logger, username, domain)
 	}
-	return prepareLocalS4ULogon(username)
+	return prepareLocalS4ULogon(logger, username)
 }
 
 // prepareDomainS4ULogon creates S4U logon structure for domain users
-func prepareDomainS4ULogon(username, domain string) (unsafe.Pointer, uintptr, error) {
+func prepareDomainS4ULogon(logger *log.Entry, username, domain string) (unsafe.Pointer, uintptr, error) {
 	upn, err := lookupPrincipalName(username, domain)
 	if err != nil {
 		return nil, 0, fmt.Errorf("lookup principal name: %w", err)
 	}
 
-	log.Debugf("using KerbS4ULogon for domain user with UPN: %s", upn)
+	logger.Debugf("using KerbS4ULogon for domain user with UPN: %s", upn)
 
 	upnUtf16, err := windows.UTF16FromString(upn)
 	if err != nil {
@@ -357,8 +379,8 @@ func prepareDomainS4ULogon(username, domain string) (unsafe.Pointer, uintptr, er
 }
 
 // prepareLocalS4ULogon creates S4U logon structure for local users
-func prepareLocalS4ULogon(username string) (unsafe.Pointer, uintptr, error) {
-	log.Debugf("using Msv1_0S4ULogon for local user: %s", username)
+func prepareLocalS4ULogon(logger *log.Entry, username string) (unsafe.Pointer, uintptr, error) {
+	logger.Debugf("using Msv1_0S4ULogon for local user: %s", username)
 
 	usernameUtf16, err := windows.UTF16FromString(username)
 	if err != nil {
@@ -406,11 +428,11 @@ func prepareLocalS4ULogon(username string) (unsafe.Pointer, uintptr, error) {
 }
 
 // performS4ULogon executes the S4U logon operation
-func performS4ULogon(lsaHandle windows.Handle, authPackageId uint32, logonInfo unsafe.Pointer, logonInfoSize uintptr, userCpn string, isDomainUser bool) (windows.Handle, error) {
+func performS4ULogon(logger *log.Entry, lsaHandle windows.Handle, authPackageId uint32, logonInfo unsafe.Pointer, logonInfoSize uintptr, userCpn string, isDomainUser bool) (windows.Handle, error) {
 	var tokenSource tokenSource
 	copy(tokenSource.SourceName[:], "netbird")
 	if ret, _, _ := procAllocateLocallyUniqueId.Call(uintptr(unsafe.Pointer(&tokenSource.SourceIdentifier))); ret == 0 {
-		log.Debugf("AllocateLocallyUniqueId failed")
+		logger.Debugf("AllocateLocallyUniqueId failed")
 	}
 
 	originName := newLsaString("netbird")
@@ -441,7 +463,7 @@ func performS4ULogon(lsaHandle windows.Handle, authPackageId uint32, logonInfo u
 
 	if profile != 0 {
 		if ret, _, _ := procLsaFreeReturnBuffer.Call(profile); ret != StatusSuccess {
-			log.Debugf("LsaFreeReturnBuffer failed: 0x%x", ret)
+			logger.Debugf("LsaFreeReturnBuffer failed: 0x%x", ret)
 		}
 	}
 
@@ -449,7 +471,7 @@ func performS4ULogon(lsaHandle windows.Handle, authPackageId uint32, logonInfo u
 		return 0, fmt.Errorf("LsaLogonUser S4U for %s: NTSTATUS=0x%x, SubStatus=0x%x", userCpn, ret, subStatus)
 	}
 
-	log.Debugf("created S4U %s token for user %s",
+	logger.Debugf("created S4U %s token for user %s",
 		map[bool]string{true: "domain", false: "local"}[isDomainUser], userCpn)
 	return token, nil
 }
@@ -497,8 +519,8 @@ func (pd *PrivilegeDropper) isLocalUser(domain string) bool {
 
 // authenticateLocalUser handles authentication for local users
 func (pd *PrivilegeDropper) authenticateLocalUser(username, fullUsername string) (windows.Handle, error) {
-	log.Debugf("using S4U authentication for local user %s", fullUsername)
-	token, err := generateS4UUserToken(username, ".")
+	pd.log().Debugf("using S4U authentication for local user %s", fullUsername)
+	token, err := generateS4UUserToken(pd.log(), username, ".")
 	if err != nil {
 		return 0, fmt.Errorf("S4U authentication for local user %s: %w", fullUsername, err)
 	}
@@ -507,12 +529,12 @@ func (pd *PrivilegeDropper) authenticateLocalUser(username, fullUsername string)
 
 // authenticateDomainUser handles authentication for domain users
 func (pd *PrivilegeDropper) authenticateDomainUser(username, domain, fullUsername string) (windows.Handle, error) {
-	log.Debugf("using S4U authentication for domain user %s", fullUsername)
-	token, err := generateS4UUserToken(username, domain)
+	pd.log().Debugf("using S4U authentication for domain user %s", fullUsername)
+	token, err := generateS4UUserToken(pd.log(), username, domain)
 	if err != nil {
 		return 0, fmt.Errorf("S4U authentication for domain user %s: %w", fullUsername, err)
 	}
-	log.Debugf("Successfully created S4U token for domain user %s", fullUsername)
+	pd.log().Debugf("successfully created S4U token for domain user %s", fullUsername)
 	return token, nil
 }
 
@@ -526,7 +548,7 @@ func (pd *PrivilegeDropper) CreateWindowsProcessAsUser(ctx context.Context, exec
 
 	defer func() {
 		if err := windows.CloseHandle(token); err != nil {
-			log.Debugf("close impersonation token: %v", err)
+			pd.log().Debugf("close impersonation token: %v", err)
 		}
 	}()
 
@@ -564,7 +586,7 @@ func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceTo
 	return cmd, primaryToken, nil
 }
 
-// createSuCommand creates a command using su -l -c for privilege switching (Windows stub)
-func (s *Server) createSuCommand(ssh.Session, *user.User, bool) (*exec.Cmd, error) {
+// createSuCommand creates a command using su - for privilege switching (Windows stub).
+func (s *Server) createSuCommand(*log.Entry, ssh.Session, *user.User, bool) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("su command not available on Windows")
 }

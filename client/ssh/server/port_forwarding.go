@@ -271,13 +271,6 @@ func (s *Server) isRemotePortForwardingAllowed() bool {
 	return s.allowRemotePortForwarding
 }
 
-// isPortForwardingEnabled checks if any port forwarding (local or remote) is enabled
-func (s *Server) isPortForwardingEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.allowLocalPortForwarding || s.allowRemotePortForwarding
-}
-
 // parseTcpipForwardRequest parses the SSH request payload
 func (s *Server) parseTcpipForwardRequest(req *cryptossh.Request) (*tcpipForwardMsg, error) {
 	var payload tcpipForwardMsg

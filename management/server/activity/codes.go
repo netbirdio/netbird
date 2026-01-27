@@ -195,9 +195,18 @@ const (
 	DNSRecordUpdated Activity = 100
 	DNSRecordDeleted Activity = 101
 
-	ServiceCreated Activity = 102
-	ServiceUpdated Activity = 103
-	ServiceDeleted Activity = 104
+	JobCreatedByUser Activity = 102
+
+	UserPasswordChanged Activity = 103
+
+	UserInviteLinkCreated     Activity = 104
+	UserInviteLinkAccepted    Activity = 105
+	UserInviteLinkRegenerated Activity = 106
+	UserInviteLinkDeleted     Activity = 107
+
+	ServiceCreated Activity = 108
+	ServiceUpdated Activity = 109
+	ServiceDeleted Activity = 110
 
 	AccountDeleted Activity = 99999
 )
@@ -323,6 +332,15 @@ var activityMap = map[Activity]Code{
 	DNSRecordCreated: {"DNS zone record created", "dns.zone.record.create"},
 	DNSRecordUpdated: {"DNS zone record updated", "dns.zone.record.update"},
 	DNSRecordDeleted: {"DNS zone record deleted", "dns.zone.record.delete"},
+
+	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
+
+	UserPasswordChanged: {"User password changed", "user.password.change"},
+
+	UserInviteLinkCreated:     {"User invite link created", "user.invite.link.create"},
+	UserInviteLinkAccepted:    {"User invite link accepted", "user.invite.link.accept"},
+	UserInviteLinkRegenerated: {"User invite link regenerated", "user.invite.link.regenerate"},
+	UserInviteLinkDeleted:     {"User invite link deleted", "user.invite.link.delete"},
 
 	ServiceCreated: {"Service created", "service.create"},
 	ServiceUpdated: {"Service updated", "service.update"},

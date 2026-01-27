@@ -11,7 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
+
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -116,9 +120,7 @@ type OutputOverview struct {
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
-	pbFullStatus := resp.GetFullStatus()
-
+func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, anon bool, daemonVersion string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
 	managementState := pbFullStatus.GetManagementState()
 	managementOverview := ManagementStateOutput{
 		URL:       managementState.GetURL(),
@@ -134,13 +136,13 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 	}
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
-	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
+	peersOverview := mapPeers(pbFullStatus.GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
 		CliVersion:              version.NetbirdVersion(),
-		DaemonVersion:           resp.GetDaemonVersion(),
+		DaemonVersion:           daemonVersion,
 		ManagementState:         managementOverview,
 		SignalState:             signalOverview,
 		Relays:                  relayOverview,
@@ -489,6 +491,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
+	var forwardingRulesString string
+	if o.NumberOfForwardingRules > 0 {
+		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
+	}
+
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	goarm := ""
@@ -512,7 +519,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
-			"Forwarding rules: %d\n"+
+			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		o.DaemonVersion,
@@ -529,7 +536,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
-		o.NumberOfForwardingRules,
+		forwardingRulesString,
 		peersCountString,
 	)
 	return summary
@@ -551,6 +558,94 @@ func (o *OutputOverview) FullDetailSummary() string {
 		parsedEventsString,
 		summary,
 	)
+}
+
+func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
+	pbFullStatus := proto.FullStatus{
+		ManagementState: &proto.ManagementState{},
+		SignalState:     &proto.SignalState{},
+		LocalPeerState:  &proto.LocalPeerState{},
+		Peers:           []*proto.PeerState{},
+	}
+
+	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
+	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+	if err := fullStatus.ManagementState.Error; err != nil {
+		pbFullStatus.ManagementState.Error = err.Error()
+	}
+
+	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
+	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+	if err := fullStatus.SignalState.Error; err != nil {
+		pbFullStatus.SignalState.Error = err.Error()
+	}
+
+	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
+	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
+	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
+	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
+	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
+
+	for _, peerState := range fullStatus.Peers {
+		pbPeerState := &proto.PeerState{
+			IP:                         peerState.IP,
+			PubKey:                     peerState.PubKey,
+			ConnStatus:                 peerState.ConnStatus.String(),
+			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                    peerState.Relayed,
+			LocalIceCandidateType:      peerState.LocalIceCandidateType,
+			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
+			Fqdn:                       peerState.FQDN,
+			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
+			BytesRx:                    peerState.BytesRx,
+			BytesTx:                    peerState.BytesTx,
+			RosenpassEnabled:           peerState.RosenpassEnabled,
+			Networks:                   maps.Keys(peerState.GetRoutes()),
+			Latency:                    durationpb.New(peerState.Latency),
+			SshHostKey:                 peerState.SSHHostKey,
+		}
+		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
+	}
+
+	for _, relayState := range fullStatus.Relays {
+		pbRelayState := &proto.RelayState{
+			URI:       relayState.URI,
+			Available: relayState.Err == nil,
+		}
+		if err := relayState.Err; err != nil {
+			pbRelayState.Error = err.Error()
+		}
+		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
+	for _, dnsState := range fullStatus.NSGroupStates {
+		var err string
+		if dnsState.Error != nil {
+			err = dnsState.Error.Error()
+		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
+		pbDnsState := &proto.NSGroupState{
+			Servers: servers,
+			Domains: dnsState.Domains,
+			Enabled: dnsState.Enabled,
+			Error:   err,
+		}
+		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
+	}
+
+	return &pbFullStatus
 }
 
 func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
