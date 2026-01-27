@@ -98,6 +98,7 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
+	// TODO: refactor to avoid policy and group creation here
 	group := &types.Group{
 		ID:     xid.New().String(),
 		Name:   reverseProxy.Name,
@@ -128,7 +129,6 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		}
 
 		policy := &types.Policy{
-			ID:        policyID,
 			AccountID: accountID,
 			Name:      reverseProxy.Name,
 			Enabled:   true,

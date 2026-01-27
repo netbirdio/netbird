@@ -69,7 +69,7 @@ func (h *handler) createReverseProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reverseProxy := new(reverseproxy.ReverseProxy)
-	reverseProxy.FromAPIRequest(&req)
+	reverseProxy.FromAPIRequest(&req, userAuth.AccountId)
 
 	if err = reverseProxy.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
@@ -128,7 +128,7 @@ func (h *handler) updateReverseProxy(w http.ResponseWriter, r *http.Request) {
 
 	reverseProxy := new(reverseproxy.ReverseProxy)
 	reverseProxy.ID = reverseProxyID
-	reverseProxy.FromAPIRequest(&req)
+	reverseProxy.FromAPIRequest(&req, userAuth.AccountId)
 
 	if err = reverseProxy.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)

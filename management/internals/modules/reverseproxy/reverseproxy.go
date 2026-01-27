@@ -199,9 +199,10 @@ func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
 	}
 }
 
-func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest) {
+func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID string) {
 	r.Name = req.Name
 	r.Domain = req.Domain
+	r.AccountID = accountID
 
 	targets := make([]Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
