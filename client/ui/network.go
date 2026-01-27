@@ -341,7 +341,6 @@ func (s *serviceClient) updateExitNodes() {
 		log.Errorf("get client: %v", err)
 		return
 	}
-
 	exitNodes, err := s.getExitNodes(conn)
 	if err != nil {
 		log.Errorf("get exit nodes: %v", err)
