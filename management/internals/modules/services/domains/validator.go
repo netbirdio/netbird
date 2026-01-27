@@ -1,13 +1,4 @@
-// Package domainvalidation provides a mechanism for verifying ownership of
-// a domain.
-// It is intended to be used before custom domains can be assigned to reverse
-// proxy services.
-// Acceptable domains should be set to the known domains that reverse proxy
-// servers are hosted at.
-//
-// After a custom domain is validated, it should be pinned to a single account
-// to prevent domain abuse across accounts.
-package domainvalidation
+package domains
 
 import (
 	"context"
