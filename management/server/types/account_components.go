@@ -3,12 +3,16 @@ package types
 import (
 	"context"
 	"slices"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -20,8 +24,11 @@ func (a *Account) GetPeerNetworkMapFromComponents(
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
+	metrics *telemetry.AccountManagerMetrics,
 	groupIDToUserIDs map[string][]string,
 ) *NetworkMap {
+	start := time.Now()
+
 	components := a.GetPeerNetworkMapComponents(
 		ctx,
 		peerID,
@@ -37,7 +44,21 @@ func (a *Account) GetPeerNetworkMapFromComponents(
 		return &NetworkMap{Network: a.Network.Copy()}
 	}
 
-	return CalculateNetworkMapFromComponents(ctx, components)
+	nm := CalculateNetworkMapFromComponents(ctx, components)
+
+	if metrics != nil {
+		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+
+		if objectCount > 5000 {
+			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects from components, "+
+				"peers: %d, offline peers: %d, routes: %d, firewall rules: %d, route firewall rules: %d",
+				a.Id, objectCount, len(nm.Peers), len(nm.OfflinePeers), len(nm.Routes), len(nm.FirewallRules), len(nm.RoutesFirewallRules))
+		}
+	}
+
+	return nm
 }
 
 func (a *Account) GetPeerNetworkMapComponents(
