@@ -49,6 +49,9 @@ const (
 	EventActivityCodeRuleAdd                                  EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                               EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                               EventActivityCode = "rule.update"
+	EventActivityCodeServiceCreate                            EventActivityCode = "service.create"
+	EventActivityCodeServiceDelete                            EventActivityCode = "service.delete"
+	EventActivityCodeServiceUpdate                            EventActivityCode = "service.update"
 	EventActivityCodeServiceUserCreate                        EventActivityCode = "service.user.create"
 	EventActivityCodeServiceUserDelete                        EventActivityCode = "service.user.delete"
 	EventActivityCodeSetupkeyAdd                              EventActivityCode = "setupkey.add"
@@ -193,11 +196,24 @@ const (
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
-// Defines values for ServiceAuthConfigType.
+// Defines values for ReverseProxyAuthConfigType.
 const (
-	ServiceAuthConfigTypeBasic  ServiceAuthConfigType = "basic"
-	ServiceAuthConfigTypeBearer ServiceAuthConfigType = "bearer"
-	ServiceAuthConfigTypePin    ServiceAuthConfigType = "pin"
+	ReverseProxyAuthConfigTypeBearer   ReverseProxyAuthConfigType = "bearer"
+	ReverseProxyAuthConfigTypeLink     ReverseProxyAuthConfigType = "link"
+	ReverseProxyAuthConfigTypePassword ReverseProxyAuthConfigType = "password"
+	ReverseProxyAuthConfigTypePin      ReverseProxyAuthConfigType = "pin"
+)
+
+// Defines values for ReverseProxyTargetProtocol.
+const (
+	ReverseProxyTargetProtocolHttp  ReverseProxyTargetProtocol = "http"
+	ReverseProxyTargetProtocolHttps ReverseProxyTargetProtocol = "https"
+)
+
+// Defines values for ReverseProxyTargetTargetType.
+const (
+	ReverseProxyTargetTargetTypePeer     ReverseProxyTargetTargetType = "peer"
+	ReverseProxyTargetTargetTypeResource ReverseProxyTargetTargetType = "resource"
 )
 
 // Defines values for UserStatus.
@@ -375,17 +391,11 @@ type AvailablePorts struct {
 	Udp int `json:"udp"`
 }
 
-// BasicAuthConfig defines model for BasicAuthConfig.
-type BasicAuthConfig struct {
-	// Password Basic auth password
-	Password string `json:"password"`
-
-	// Username Basic auth username
-	Username string `json:"username"`
-}
-
 // BearerAuthConfig defines model for BearerAuthConfig.
 type BearerAuthConfig struct {
+	// DistributionGroups List of group IDs that can use bearer auth
+	DistributionGroups *[]string `json:"distribution_groups,omitempty"`
+
 	// Enabled Whether bearer auth is enabled
 	Enabled bool `json:"enabled"`
 }
@@ -777,6 +787,12 @@ type InstanceStatus struct {
 	SetupRequired bool `json:"setup_required"`
 }
 
+// LinkAuthConfig defines model for LinkAuthConfig.
+type LinkAuthConfig struct {
+	// Enabled Whether link auth is enabled
+	Enabled bool `json:"enabled"`
+}
+
 // Location Describe geographical location information
 type Location struct {
 	// CityName Commonly used English name of the city
@@ -1149,11 +1165,20 @@ type OSVersionCheck struct {
 
 // PINAuthConfig defines model for PINAuthConfig.
 type PINAuthConfig struct {
-	// Header HTTP header name for PIN
-	Header string `json:"header"`
+	// Enabled Whether PIN auth is enabled
+	Enabled bool `json:"enabled"`
 
 	// Pin PIN value
 	Pin string `json:"pin"`
+}
+
+// PasswordAuthConfig defines model for PasswordAuthConfig.
+type PasswordAuthConfig struct {
+	// Enabled Whether password auth is enabled
+	Enabled bool `json:"enabled"`
+
+	// Password Auth password
+	Password string `json:"password"`
 }
 
 // Peer defines model for Peer.
@@ -1717,6 +1742,87 @@ type Resource struct {
 // ResourceType defines model for ResourceType.
 type ResourceType string
 
+// ReverseProxy defines model for ReverseProxy.
+type ReverseProxy struct {
+	Auth ReverseProxyAuthConfig `json:"auth"`
+
+	// Domain Domain for the reverse proxy
+	Domain string `json:"domain"`
+
+	// Enabled Whether the reverse proxy is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id Reverse proxy ID
+	Id string `json:"id"`
+
+	// Name Reverse proxy name
+	Name string `json:"name"`
+
+	// Targets List of target backends for this reverse proxy
+	Targets []ReverseProxyTarget `json:"targets"`
+}
+
+// ReverseProxyAuthConfig defines model for ReverseProxyAuthConfig.
+type ReverseProxyAuthConfig struct {
+	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
+	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
+	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
+
+	// Type Authentication type
+	Type ReverseProxyAuthConfigType `json:"type"`
+}
+
+// ReverseProxyAuthConfigType Authentication type
+type ReverseProxyAuthConfigType string
+
+// ReverseProxyRequest defines model for ReverseProxyRequest.
+type ReverseProxyRequest struct {
+	Auth ReverseProxyAuthConfig `json:"auth"`
+
+	// Domain Domain for the reverse proxy
+	Domain string `json:"domain"`
+
+	// Enabled Whether the reverse proxy is enabled
+	Enabled bool `json:"enabled"`
+
+	// Name Reverse proxy name
+	Name string `json:"name"`
+
+	// Targets List of target backends for this reverse proxy
+	Targets []ReverseProxyTarget `json:"targets"`
+}
+
+// ReverseProxyTarget defines model for ReverseProxyTarget.
+type ReverseProxyTarget struct {
+	// Enabled Whether this target is enabled
+	Enabled bool `json:"enabled"`
+
+	// Host Backend ip or domain for this target
+	Host string `json:"host"`
+
+	// Path URL path prefix for this target
+	Path *string `json:"path,omitempty"`
+
+	// Port Backend port for this target
+	Port int `json:"port"`
+
+	// Protocol Protocol to use when connecting to the backend
+	Protocol ReverseProxyTargetProtocol `json:"protocol"`
+
+	// TargetId Target ID
+	TargetId string `json:"target_id"`
+
+	// TargetType Target type (e.g., "peer", "resource")
+	TargetType ReverseProxyTargetTargetType `json:"target_type"`
+}
+
+// ReverseProxyTargetProtocol Protocol to use when connecting to the backend
+type ReverseProxyTargetProtocol string
+
+// ReverseProxyTargetTargetType Target type (e.g., "peer", "resource")
+type ReverseProxyTargetTargetType string
+
 // Route defines model for Route.
 type Route struct {
 	// AccessControlGroups Access control group identifier associated with route.
@@ -1814,86 +1920,6 @@ type RulePortRange struct {
 
 	// Start The starting port of the range
 	Start int `json:"start"`
-}
-
-// Service defines model for Service.
-type Service struct {
-	Auth *ServiceAuthConfig `json:"auth,omitempty"`
-
-	// Description Service description
-	Description *string `json:"description,omitempty"`
-
-	// DistributionGroups List of group IDs that can access this service
-	DistributionGroups []string `json:"distribution_groups"`
-
-	// Domain Domain for the service
-	Domain string `json:"domain"`
-
-	// Enabled Whether the service is enabled
-	Enabled bool `json:"enabled"`
-
-	// Exposed Whether the service is exposed
-	Exposed bool `json:"exposed"`
-
-	// Id Service ID
-	Id string `json:"id"`
-
-	// Name Service name
-	Name string `json:"name"`
-
-	// Targets List of target backends for this service
-	Targets []ServiceTarget `json:"targets"`
-}
-
-// ServiceAuthConfig defines model for ServiceAuthConfig.
-type ServiceAuthConfig struct {
-	BasicAuth  *BasicAuthConfig  `json:"basic_auth,omitempty"`
-	BearerAuth *BearerAuthConfig `json:"bearer_auth,omitempty"`
-	PinAuth    *PINAuthConfig    `json:"pin_auth,omitempty"`
-
-	// Type Authentication type
-	Type ServiceAuthConfigType `json:"type"`
-}
-
-// ServiceAuthConfigType Authentication type
-type ServiceAuthConfigType string
-
-// ServiceRequest defines model for ServiceRequest.
-type ServiceRequest struct {
-	Auth *ServiceAuthConfig `json:"auth,omitempty"`
-
-	// Description Service description
-	Description *string `json:"description,omitempty"`
-
-	// DistributionGroups List of group IDs that can access this service
-	DistributionGroups []string `json:"distribution_groups"`
-
-	// Domain Domain for the service
-	Domain string `json:"domain"`
-
-	// Enabled Whether the service is enabled
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// Exposed Whether the service is exposed
-	Exposed *bool `json:"exposed,omitempty"`
-
-	// Name Service name
-	Name string `json:"name"`
-
-	// Targets List of target backends for this service
-	Targets []ServiceTarget `json:"targets"`
-}
-
-// ServiceTarget defines model for ServiceTarget.
-type ServiceTarget struct {
-	// Enabled Whether this target is enabled
-	Enabled bool `json:"enabled"`
-
-	// Host Backend host:port for this target
-	Host string `json:"host"`
-
-	// Path URL path prefix for this target
-	Path string `json:"path"`
 }
 
 // SetupKey defines model for SetupKey.
@@ -2351,17 +2377,17 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
+// PostApiReverseProxyJSONRequestBody defines body for PostApiReverseProxy for application/json ContentType.
+type PostApiReverseProxyJSONRequestBody = ReverseProxyRequest
+
+// PutApiReverseProxyProxyIdJSONRequestBody defines body for PutApiReverseProxyProxyId for application/json ContentType.
+type PutApiReverseProxyProxyIdJSONRequestBody = ReverseProxyRequest
+
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
 
 // PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
-
-// PostApiServicesJSONRequestBody defines body for PostApiServices for application/json ContentType.
-type PostApiServicesJSONRequestBody = ServiceRequest
-
-// PutApiServicesServiceIdJSONRequestBody defines body for PutApiServicesServiceId for application/json ContentType.
-type PutApiServicesServiceIdJSONRequestBody = ServiceRequest
 
 // PostApiSetupJSONRequestBody defines body for PostApiSetup for application/json ContentType.
 type PostApiSetupJSONRequestBody = SetupRequest
