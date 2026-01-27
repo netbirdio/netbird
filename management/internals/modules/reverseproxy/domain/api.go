@@ -61,7 +61,7 @@ func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ret []api.ReverseProxyDomain
+	ret := make([]api.ReverseProxyDomain, 0)
 	for _, d := range domains {
 		ret = append(ret, domainToApi(d))
 	}

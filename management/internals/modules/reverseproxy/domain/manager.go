@@ -6,7 +6,6 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type domainType string
@@ -59,10 +58,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 		return nil, fmt.Errorf("list free domains: %w", err)
 	}
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
-	if statusErr, ok := status.FromError(err); ok && statusErr.Type() == status.NotFound {
-		// This is fine, make sure domains are correctly set and continue.
-		domains = make([]*Domain, 0)
-	} else if err != nil {
+	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
 	}
 

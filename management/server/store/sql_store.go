@@ -4715,7 +4715,7 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	tx := s.db
 
 	var domains []*domain.Domain
-	result := tx.Find(domains, accountIDCondition, accountID)
+	result := tx.Find(&domains, accountIDCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get reverse proxy custom domains from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domains from store")
