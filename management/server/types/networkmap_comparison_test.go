@@ -249,15 +249,15 @@ func normalizeAndSortNetworkMap(nm *NetworkMap) {
 	}
 }
 
-func compareNetworkMaps(t *testing.T, legacy, new *NetworkMap) {
+func compareNetworkMaps(t *testing.T, legacy, current *NetworkMap) {
 	t.Helper()
 
-	if legacy.Network.Serial != new.Network.Serial {
-		t.Errorf("Network Serial mismatch: legacy=%d, new=%d", legacy.Network.Serial, new.Network.Serial)
+	if legacy.Network.Serial != current.Network.Serial {
+		t.Errorf("Network Serial mismatch: legacy=%d, current=%d", legacy.Network.Serial, current.Network.Serial)
 	}
 
-	if len(legacy.Peers) != len(new.Peers) {
-		t.Errorf("Peers count mismatch: legacy=%d, new=%d", len(legacy.Peers), len(new.Peers))
+	if len(legacy.Peers) != len(current.Peers) {
+		t.Errorf("Peers count mismatch: legacy=%d, current=%d", len(legacy.Peers), len(current.Peers))
 	}
 
 	legacyPeerIDs := make(map[string]bool)
@@ -265,30 +265,30 @@ func compareNetworkMaps(t *testing.T, legacy, new *NetworkMap) {
 		legacyPeerIDs[p.ID] = true
 	}
 
-	for _, p := range new.Peers {
+	for _, p := range current.Peers {
 		if !legacyPeerIDs[p.ID] {
-			t.Errorf("New NetworkMap contains peer %s not in legacy", p.ID)
+			t.Errorf("Current NetworkMap contains peer %s not in legacy", p.ID)
 		}
 	}
 
-	if len(legacy.OfflinePeers) != len(new.OfflinePeers) {
-		t.Errorf("OfflinePeers count mismatch: legacy=%d, new=%d", len(legacy.OfflinePeers), len(new.OfflinePeers))
+	if len(legacy.OfflinePeers) != len(current.OfflinePeers) {
+		t.Errorf("OfflinePeers count mismatch: legacy=%d, current=%d", len(legacy.OfflinePeers), len(current.OfflinePeers))
 	}
 
-	if len(legacy.FirewallRules) != len(new.FirewallRules) {
-		t.Logf("FirewallRules count mismatch: legacy=%d, new=%d", len(legacy.FirewallRules), len(new.FirewallRules))
+	if len(legacy.FirewallRules) != len(current.FirewallRules) {
+		t.Logf("FirewallRules count mismatch: legacy=%d, current=%d", len(legacy.FirewallRules), len(current.FirewallRules))
 	}
 
-	if len(legacy.Routes) != len(new.Routes) {
-		t.Logf("Routes count mismatch: legacy=%d, new=%d", len(legacy.Routes), len(new.Routes))
+	if len(legacy.Routes) != len(current.Routes) {
+		t.Logf("Routes count mismatch: legacy=%d, current=%d", len(legacy.Routes), len(current.Routes))
 	}
 
-	if len(legacy.RoutesFirewallRules) != len(new.RoutesFirewallRules) {
-		t.Logf("RoutesFirewallRules count mismatch: legacy=%d, new=%d", len(legacy.RoutesFirewallRules), len(new.RoutesFirewallRules))
+	if len(legacy.RoutesFirewallRules) != len(current.RoutesFirewallRules) {
+		t.Logf("RoutesFirewallRules count mismatch: legacy=%d, current=%d", len(legacy.RoutesFirewallRules), len(current.RoutesFirewallRules))
 	}
 
-	if legacy.DNSConfig.ServiceEnable != new.DNSConfig.ServiceEnable {
-		t.Errorf("DNSConfig.ServiceEnable mismatch: legacy=%v, new=%v", legacy.DNSConfig.ServiceEnable, new.DNSConfig.ServiceEnable)
+	if legacy.DNSConfig.ServiceEnable != current.DNSConfig.ServiceEnable {
+		t.Errorf("DNSConfig.ServiceEnable mismatch: legacy=%v, current=%v", legacy.DNSConfig.ServiceEnable, current.DNSConfig.ServiceEnable)
 	}
 }
 

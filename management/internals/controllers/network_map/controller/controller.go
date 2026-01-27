@@ -239,11 +239,12 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 			var remotePeerNetworkMap *types.NetworkMap
 
-			if c.experimentalNetworkMap(accountID) {
+			switch {
+			case c.experimentalNetworkMap(accountID):
 				remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
-			} else if c.compactedNetworkMap {
+			case c.compactedNetworkMap:
 				remotePeerNetworkMap = account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-			} else {
+			default:
 				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 			}
 
@@ -362,11 +363,12 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	var remotePeerNetworkMap *types.NetworkMap
 
-	if c.experimentalNetworkMap(accountId) {
+	switch {
+	case c.experimentalNetworkMap(accountId):
 		remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
-	} else if c.compactedNetworkMap {
+	case c.compactedNetworkMap:
 		remotePeerNetworkMap = account.GetPeerNetworkMapFromComponents(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-	} else {
+	default:
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 	}
 

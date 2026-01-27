@@ -180,10 +180,10 @@ func (a *Account) GetPeerNetworkMapComponents(
 				}
 				isValid, pname := a.validatePostureChecksOnPeerGetFailed(ctx, policy.SourcePostureChecks, peerID)
 				if !isValid && len(pname) > 0 {
-					if _, ok := (*components).PostureFailedPeers[pname]; !ok {
-						(*components).PostureFailedPeers[pname] = make(map[string]struct{})
+					if _, ok := components.PostureFailedPeers[pname]; !ok {
+						components.PostureFailedPeers[pname] = make(map[string]struct{})
 					}
-					(*components).PostureFailedPeers[pname][peer.ID] = struct{}{}
+					components.PostureFailedPeers[pname][peer.ID] = struct{}{}
 					continue
 				}
 				addSourcePeers = true
@@ -379,7 +379,6 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 
 		if group.IsGroupAll() || len(groups) == 1 {
 			filteredPeerIDs = filteredPeerIDs[:0]
-			seenPeerIds = make(map[string]struct{}, len(group.Peers))
 			peerInGroups = false
 			for _, pid := range group.Peers {
 				peer, ok := a.Peers[pid]
