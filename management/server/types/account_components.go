@@ -83,7 +83,6 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	components := &NetworkMapComponents{
 		PeerID:              peerID,
-		Serial:              a.Network.Serial,
 		Network:             a.Network.Copy(),
 		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
 		CustomZoneDomain:    peersCustomZone.Domain,
@@ -448,7 +447,7 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 
 func (a *Account) validatePostureChecksOnPeerGetFailed(ctx context.Context, sourcePostureChecksID []string, peerID string) (bool, string) {
 	peer, ok := a.Peers[peerID]
-	if !ok && peer == nil {
+	if !ok || peer == nil {
 		return false, ""
 	}
 

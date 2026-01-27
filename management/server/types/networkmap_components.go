@@ -23,7 +23,6 @@ const EnvNewNetworkMapCompacted = "NB_NETWORK_MAP_COMPACTED"
 
 type NetworkMapComponents struct {
 	PeerID string
-	Serial uint64
 
 	Network          *Network
 	AccountSettings  *AccountSettingsInfo
@@ -35,8 +34,8 @@ type NetworkMapComponents struct {
 	Policies            []*Policy
 	Routes              []*route.Route
 	NameServerGroups    []*nbdns.NameServerGroup
-	AllDNSRecords []nbdns.SimpleRecord
-	AccountZones  []nbdns.CustomZone
+	AllDNSRecords       []nbdns.SimpleRecord
+	AccountZones        []nbdns.CustomZone
 	ResourcePoliciesMap map[string][]*Policy
 	RoutersMap          map[string]map[string]*routerTypes.NetworkRouter
 	NetworkResources    []*resourceTypes.NetworkResource
