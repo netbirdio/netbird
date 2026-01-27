@@ -2855,10 +2855,6 @@ components:
     ReverseProxyAuthConfig:
       type: object
       properties:
-        type:
-          type: string
-          enum: [password, pin, bearer, link]
-          description: Authentication type
         password_auth:
           $ref: '#/components/schemas/PasswordAuthConfig'
         pin_auth:
@@ -2867,8 +2863,6 @@ components:
           $ref: '#/components/schemas/BearerAuthConfig'
         link_auth:
           $ref: '#/components/schemas/LinkAuthConfig'
-      required:
-        - type
     PasswordAuthConfig:
       type: object
       properties:

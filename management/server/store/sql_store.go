@@ -27,7 +27,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/services"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -127,7 +127,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &services.Service{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -4604,87 +4604,87 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	return peerID, nil
 }
 
-func (s *SqlStore) CreateService(ctx context.Context, service *services.Service) error {
-	result := s.db.Create(service)
+func (s *SqlStore) CreateReverseProxy(ctx context.Context, proxy *reverseproxy.ReverseProxy) error {
+	result := s.db.Create(proxy)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to create service to store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to create service to store")
+		log.WithContext(ctx).Errorf("failed to create reverse proxy to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create reverse proxy to store")
 	}
 
 	return nil
 }
 
-func (s *SqlStore) UpdateService(ctx context.Context, service *services.Service) error {
-	result := s.db.Select("*").Save(service)
+func (s *SqlStore) UpdateReverseProxy(ctx context.Context, proxy *reverseproxy.ReverseProxy) error {
+	result := s.db.Select("*").Save(proxy)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to update service to store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to update service to store")
+		log.WithContext(ctx).Errorf("failed to update reverse proxy to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update reverse proxy to store")
 	}
 
 	return nil
 }
 
-func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
-	result := s.db.Delete(&services.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+func (s *SqlStore) DeleteReverseProxy(ctx context.Context, accountID, proxyID string) error {
+	result := s.db.Delete(&reverseproxy.ReverseProxy{}, accountAndIDQueryCondition, accountID, proxyID)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to delete service from store")
+		log.WithContext(ctx).Errorf("failed to delete reverse proxy from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete reverse proxy from store")
 	}
 
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "service %s not found", serviceID)
+		return status.Errorf(status.NotFound, "reverse proxy %s not found", proxyID)
 	}
 
 	return nil
 }
 
-func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*services.Service, error) {
+func (s *SqlStore) GetReverseProxyByID(ctx context.Context, lockStrength LockingStrength, accountID, proxyID string) (*reverseproxy.ReverseProxy, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var service *services.Service
-	result := tx.Take(&service, accountAndIDQueryCondition, accountID, serviceID)
+	var proxy *reverseproxy.ReverseProxy
+	result := tx.Take(&proxy, accountAndIDQueryCondition, accountID, proxyID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "service %s not found", serviceID)
+			return nil, status.Errorf(status.NotFound, "reverse proxy %s not found", proxyID)
 		}
 
-		log.WithContext(ctx).Errorf("failed to get service from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get service from store")
+		log.WithContext(ctx).Errorf("failed to get reverse proxy from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
 	}
 
-	return service, nil
+	return proxy, nil
 }
 
-func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*services.Service, error) {
-	var service *services.Service
-	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
+func (s *SqlStore) GetReverseProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error) {
+	var proxy *reverseproxy.ReverseProxy
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&proxy)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+			return nil, status.Errorf(status.NotFound, "reverse proxy with domain %s not found", domain)
 		}
 
-		log.WithContext(ctx).Errorf("failed to get service by domain from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get service by domain from store")
+		log.WithContext(ctx).Errorf("failed to get reverse proxy by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy by domain from store")
 	}
 
-	return service, nil
+	return proxy, nil
 }
 
-func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*services.Service, error) {
+func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var servicesList []*services.Service
-	result := tx.Find(&servicesList, accountIDCondition, accountID)
+	var proxyList []*reverseproxy.ReverseProxy
+	result := tx.Find(&proxyList, accountIDCondition, accountID)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get services from store")
+		log.WithContext(ctx).Errorf("failed to get reverse proxy from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
 	}
 
-	return servicesList, nil
+	return proxyList, nil
 }

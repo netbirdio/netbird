@@ -8,8 +8,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
-	"github.com/netbirdio/netbird/management/internals/modules/services"
-	nbservices "github.com/netbirdio/netbird/management/internals/modules/services/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -177,8 +177,8 @@ func (s *BaseServer) RecordsManager() records.Manager {
 	})
 }
 
-func (s *BaseServer) ServiceManager() services.Manager {
-	return Create(s, func() services.Manager {
-		return nbservices.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
+	return Create(s, func() reverseproxy.Manager {
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
 	})
 }

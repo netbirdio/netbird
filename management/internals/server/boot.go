@@ -92,7 +92,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ReverseProxyManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -150,7 +150,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
-		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccountManager())
+		proxyService := nbgrpc.NewProxyServiceServer(s.Store())
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, proxyService)
 		log.Info("ProxyService registered on gRPC server")
 

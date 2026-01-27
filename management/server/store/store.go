@@ -23,7 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/services"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -242,12 +242,12 @@ type Store interface {
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
-	CreateService(ctx context.Context, service *services.Service) error
-	UpdateService(ctx context.Context, service *services.Service) error
-	DeleteService(ctx context.Context, accountID, serviceID string) error
-	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*services.Service, error)
-	GetServiceByDomain(ctx context.Context, accountID, domain string) (*services.Service, error)
-	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*services.Service, error)
+	CreateReverseProxy(ctx context.Context, service *reverseproxy.ReverseProxy) error
+	UpdateReverseProxy(ctx context.Context, service *reverseproxy.ReverseProxy) error
+	DeleteReverseProxy(ctx context.Context, accountID, serviceID string) error
+	GetReverseProxyByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.ReverseProxy, error)
+	GetReverseProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error)
+	GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error)
 }
 
 const (
