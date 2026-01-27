@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -12,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -94,7 +98,54 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, ""))
+	group := &types.Group{
+		ID:     xid.New().String(),
+		Name:   reverseProxy.Name,
+		Issued: types.GroupIssuedAPI,
+	}
+	err = m.accountManager.CreateGroup(ctx, accountID, activity.SystemInitiator, group)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create default group for reverse proxy: %w", err)
+	}
+
+	for _, target := range reverseProxy.Targets {
+		policyID := uuid.New().String()
+		// TODO: support other resource types in the future
+		targetType := types.ResourceTypePeer
+		if target.TargetType == "resource" {
+			targetType = types.ResourceTypeHost
+		}
+		policyRule := &types.PolicyRule{
+			ID:                  policyID,
+			PolicyID:            policyID,
+			Name:                reverseProxy.Name,
+			Enabled:             true,
+			Action:              types.PolicyTrafficActionAccept,
+			Protocol:            types.PolicyRuleProtocolALL,
+			Sources:             []string{group.ID},
+			DestinationResource: types.Resource{Type: targetType, ID: target.TargetId},
+			Bidirectional:       false,
+		}
+
+		policy := &types.Policy{
+			ID:        policyID,
+			AccountID: accountID,
+			Name:      reverseProxy.Name,
+			Enabled:   true,
+			Rules:     []*types.PolicyRule{policyRule},
+		}
+		_, err = m.accountManager.SavePolicy(ctx, accountID, activity.SystemInitiator, policy, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create default policy for reverse proxy: %w", err)
+		}
+	}
+
+	key, err := m.accountManager.CreateSetupKey(ctx, accountID, reverseProxy.Name, types.SetupKeyReusable, 0, []string{group.ID}, 0, activity.SystemInitiator, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create setup key for reverse proxy: %w", err)
+	}
+
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key))
 
 	return reverseProxy, nil
 }
