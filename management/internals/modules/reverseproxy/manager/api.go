@@ -17,7 +17,7 @@ type handler struct {
 	manager reverseproxy.Manager
 }
 
-func RegisterEndpoints(router *mux.Router, manager reverseproxy.Manager) {
+func RegisterEndpoints(manager reverseproxy.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}

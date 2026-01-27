@@ -135,9 +135,8 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			}
 		}
 		if rp.Auth.PasswordAuth != nil && rp.Auth.PasswordAuth.Password != "" {
-			auth.Basic = &proto.HTTPBasic{
+			auth.Password = &proto.Password{
 				Enabled:  true,
-				Username: "",
 				Password: rp.Auth.PasswordAuth.Password,
 			}
 		}

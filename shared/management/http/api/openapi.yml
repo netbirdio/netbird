@@ -6532,7 +6532,7 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxy:
+  /api/reverse-proxies:
     get:
       summary: List all Reverse Proxies
       description: Returns a list of all reverse proxies
@@ -6583,7 +6583,7 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxy/{proxyId}:
+  /api/reverse-proxies/{proxyId}:
     get:
       summary: Retrieve a Reverse Proxy
       description: Get information about a specific reverse proxy
@@ -6679,7 +6679,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxy/domains:
+  /api/reverse-proxies/domains:
     get:
       summary: Retrieve Reverse Proxy Domains
       description: Get information about domains that can be used for Reverse Proxy endpoints.
@@ -6736,7 +6736,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxy/domains/{domainId}:
+  /api/reverse-proxies/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
       description: Delete an existing reverse proxy custom domain
@@ -6764,7 +6764,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxy/domains/{domainId}/validate:
+  /api/reverse-proxies/domains/{domainId}/validate:
     get:
       summary: Validate a custom domain
       description: Trigger domain ownership validation for a custom domain

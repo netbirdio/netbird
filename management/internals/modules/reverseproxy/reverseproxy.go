@@ -2,10 +2,21 @@ package reverseproxy
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/proto"
+)
+
+type Operation string
+
+const (
+	Create Operation = "create"
+	Update Operation = "update"
+	Delete Operation = "delete"
 )
 
 type Target struct {
@@ -119,11 +130,79 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 }
 
+func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *proto.ProxyMapping {
+	pathMappings := make([]*proto.PathMapping, 0, len(r.Targets))
+	for _, target := range r.Targets {
+		if !target.Enabled {
+			continue
+		}
+
+		targetURL := target.Protocol + "://" + target.Host
+		if target.Port > 0 {
+			targetURL += ":" + fmt.Sprintf("%d", target.Port)
+		}
+
+		path := "/"
+		if target.Path != nil {
+			path = *target.Path
+		}
+
+		pathMappings = append(pathMappings, &proto.PathMapping{
+			Path:   path,
+			Target: targetURL,
+		})
+	}
+
+	auth := &proto.Authentication{}
+
+	if r.Auth.PasswordAuth != nil && r.Auth.PasswordAuth.Enabled {
+		auth.Password = &proto.Password{
+			Enabled:  true,
+			Password: r.Auth.PasswordAuth.Password,
+		}
+	}
+
+	if r.Auth.PinAuth != nil && r.Auth.PinAuth.Enabled {
+		auth.Pin = &proto.Pin{
+			Enabled: true,
+			Pin:     r.Auth.PinAuth.Pin,
+		}
+	}
+
+	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
+		auth.Oidc = &proto.OIDC{
+			Enabled: true,
+		}
+	}
+
+	return &proto.ProxyMapping{
+		Type:     operationToProtoType(operation),
+		Id:       r.ID,
+		Domain:   r.Domain,
+		Path:     pathMappings,
+		SetupKey: setupKey,
+		Auth:     auth,
+	}
+}
+
+func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
+	switch op {
+	case Create:
+		return proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
+	case Update:
+		return proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
+	case Delete:
+		return proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+	default:
+		log.Fatalf("unknown operation type: %v", op)
+		return proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
+	}
+}
+
 func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest) {
 	r.Name = req.Name
 	r.Domain = req.Domain
 
-	// Convert API targets to internal targets
 	targets := make([]Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
 		targets = append(targets, Target{

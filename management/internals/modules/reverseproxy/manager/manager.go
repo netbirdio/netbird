@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -18,13 +19,15 @@ type managerImpl struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
+	proxyGRPCServer    *nbgrpc.ProxyServiceServer
 }
 
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager) reverseproxy.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer) reverseproxy.Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
+		proxyGRPCServer:    proxyGRPCServer,
 	}
 }
 
@@ -91,6 +94,8 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, ""))
+
 	return reverseProxy, nil
 }
 
@@ -135,6 +140,8 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Update, ""))
+
 	return reverseProxy, nil
 }
 
@@ -166,6 +173,8 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxyID, accountID, activity.ReverseProxyDeleted, reverseProxy.EventMeta())
+
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, ""))
 
 	return nil
 }

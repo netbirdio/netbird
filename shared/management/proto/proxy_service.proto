@@ -40,20 +40,24 @@ message PathMapping {
 }
 
 message Authentication {
-  HTTPBasic basic = 1;
+  Password password = 1;
   Pin pin = 2;
   OIDC oidc = 3;
 }
 
-message HTTPBasic {
+message Password {
   bool enabled = 1;
-  string username = 2;
-  string password = 3;
+  string password = 2;
 }
 
 message Pin {
   bool enabled = 1;
   string pin = 2;
+}
+
+message Link {
+  bool enabled = 1;
+  string link_url = 2;
 }
 
 message OIDC {
