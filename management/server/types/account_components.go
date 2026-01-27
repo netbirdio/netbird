@@ -12,6 +12,34 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+func (a *Account) GetPeerNetworkMapFromComponents(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	accountZones []*zones.Zone,
+	validatedPeersMap map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+	groupIDToUserIDs map[string][]string,
+) *NetworkMap {
+	components := a.GetPeerNetworkMapComponents(
+		ctx,
+		peerID,
+		peersCustomZone,
+		accountZones,
+		validatedPeersMap,
+		resourcePolicies,
+		routers,
+		groupIDToUserIDs,
+	)
+
+	if components == nil {
+		return &NetworkMap{Network: a.Network.Copy()}
+	}
+
+	return CalculateNetworkMapFromComponents(ctx, components)
+}
+
 func (a *Account) GetPeerNetworkMapComponents(
 	ctx context.Context,
 	peerID string,

@@ -241,11 +241,10 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 			if c.experimentalNetworkMap(accountID) {
 				remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
+			} else if c.compactedNetworkMap {
+				remotePeerNetworkMap = account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 			} else {
 				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-				if c.compactedNetworkMap {
-					account.ShadowCompareNetworkMap(ctx, p.ID, remotePeerNetworkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
-				}
 			}
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
@@ -365,11 +364,10 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	if c.experimentalNetworkMap(accountId) {
 		remotePeerNetworkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, peersCustomZone, accountZones, c.accountManagerMetrics)
+	} else if c.compactedNetworkMap {
+		remotePeerNetworkMap = account.GetPeerNetworkMapFromComponents(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 	} else {
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
-		if c.compactedNetworkMap {
-			account.ShadowCompareNetworkMap(ctx, peerId, remotePeerNetworkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
-		}
 	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
@@ -486,9 +484,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		resourcePolicies := account.GetResourcePoliciesMap()
 		routers := account.GetResourceRoutersMap()
 		groupIDToUserIDs := account.GetActiveGroupUsers()
-		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 		if c.compactedNetworkMap {
-			account.ShadowCompareNetworkMap(ctx, peer.ID, networkMap, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs, c.accountManagerMetrics)
+			networkMap = account.GetPeerNetworkMapFromComponents(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
+		} else {
+			networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
 		}
 	}
 
@@ -862,9 +861,11 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	} else {
 		resourcePolicies := account.GetResourcePoliciesMap()
 		routers := account.GetResourceRoutersMap()
-		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+		groupIDToUserIDs := account.GetActiveGroupUsers()
 		if c.compactedNetworkMap {
-			account.ShadowCompareNetworkMap(ctx, peer.ID, networkMap, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, account.GetActiveGroupUsers(), c.accountManagerMetrics)
+			networkMap = account.GetPeerNetworkMapFromComponents(ctx, peer.ID, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, groupIDToUserIDs)
+		} else {
+			networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, nil, groupIDToUserIDs)
 		}
 	}
 

@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -17,6 +18,8 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
+
+const EnvNewNetworkMapCompacted = "NB_NETWORK_MAP_COMPACTED"
 
 type NetworkMapComponents struct {
 	PeerID string
@@ -101,40 +104,29 @@ func (c *NetworkMapComponents) ValidatePostureChecksOnPeer(peerID string, postur
 	return true
 }
 
-type NetworkMapCalculator struct {
-	components *NetworkMapComponents
-}
-
-func NewNetworkMapCalculator(components *NetworkMapComponents) *NetworkMapCalculator {
-	return &NetworkMapCalculator{
-		components: components,
-	}
-}
-
 func CalculateNetworkMapFromComponents(ctx context.Context, components *NetworkMapComponents) *NetworkMap {
-	calculator := NewNetworkMapCalculator(components)
-	return calculator.Calculate(ctx)
+	return components.Calculate(ctx)
 }
 
-func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
-	targetPeerID := calc.components.PeerID
+func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
+	targetPeerID := c.PeerID
 
-	peerGroups := calc.components.GetPeerGroups(targetPeerID)
+	peerGroups := c.GetPeerGroups(targetPeerID)
 
-	aclPeers, firewallRules, authorizedUsers, sshEnabled := calc.getPeerConnectionResources(ctx, targetPeerID)
+	aclPeers, firewallRules, authorizedUsers, sshEnabled := c.getPeerConnectionResources(targetPeerID)
 
-	peersToConnect, expiredPeers := calc.filterPeersByLoginExpiration(aclPeers)
+	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
-	routesUpdate := calc.getRoutesToSync(ctx, targetPeerID, peersToConnect, peerGroups)
-	routesFirewallRules := calc.getPeerRoutesFirewallRules(ctx, targetPeerID)
+	routesUpdate := c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups)
+	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID)
 
-	isRouter, networkResourcesRoutes, sourcePeers := calc.getNetworkResourcesRoutesToSync(ctx, targetPeerID)
+	isRouter, networkResourcesRoutes, sourcePeers := c.getNetworkResourcesRoutesToSync(targetPeerID)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
-		networkResourcesFirewallRules = calc.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes)
+		networkResourcesFirewallRules = c.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes)
 	}
 
-	peersToConnectIncludingRouters := calc.addNetworksRoutingPeers(
+	peersToConnectIncludingRouters := c.addNetworksRoutingPeers(
 		networkResourcesRoutes,
 		targetPeerID,
 		peersToConnect,
@@ -143,7 +135,7 @@ func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
 		sourcePeers,
 	)
 
-	dnsManagementStatus := calc.getPeerDNSManagementStatus(targetPeerID)
+	dnsManagementStatus := c.getPeerDNSManagementStatus(targetPeerID)
 	dnsUpdate := nbdns.Config{
 		ServiceEnable: dnsManagementStatus,
 	}
@@ -151,22 +143,22 @@ func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
 	if dnsManagementStatus {
 		var customZones []nbdns.CustomZone
 
-		if calc.components.CustomZoneDomain != "" && len(calc.components.AllDNSRecords) > 0 {
+		if c.CustomZoneDomain != "" && len(c.AllDNSRecords) > 0 {
 			customZones = append(customZones, nbdns.CustomZone{
-				Domain:  calc.components.CustomZoneDomain,
-				Records: calc.components.AllDNSRecords,
+				Domain:  c.CustomZoneDomain,
+				Records: c.AllDNSRecords,
 			})
 		}
 
-		customZones = append(customZones, calc.components.AccountZones...)
+		customZones = append(customZones, c.AccountZones...)
 
 		dnsUpdate.CustomZones = customZones
-		dnsUpdate.NameServerGroups = calc.getPeerNSGroups(targetPeerID)
+		dnsUpdate.NameServerGroups = c.getPeerNSGroups(targetPeerID)
 	}
 
 	return &NetworkMap{
 		Peers:               peersToConnectIncludingRouters,
-		Network:             calc.components.Network.Copy(),
+		Network:             c.Network.Copy(),
 		Routes:              append(networkResourcesRoutes, routesUpdate...),
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
@@ -177,17 +169,17 @@ func (calc *NetworkMapCalculator) Calculate(ctx context.Context) *NetworkMap {
 	}
 }
 
-func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context, targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
-	targetPeer := calc.components.GetPeerInfo(targetPeerID)
+func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
+	targetPeer := c.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
 		return nil, nil, nil, false
 	}
 
-	generateResources, getAccumulatedResources := calc.connResourcesGenerator(ctx, targetPeer)
+	generateResources, getAccumulatedResources := c.connResourcesGenerator(targetPeer)
 	authorizedUsers := make(map[string]map[string]struct{})
 	sshEnabled := false
 
-	for _, policy := range calc.components.Policies {
+	for _, policy := range c.Policies {
 		if !policy.Enabled {
 			continue
 		}
@@ -201,15 +193,15 @@ func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = calc.getPeerFromResource(rule.SourceResource, targetPeerID)
+				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
 			} else {
-				sourcePeers, peerInSources = calc.getAllPeersFromGroups(ctx, rule.Sources, targetPeerID, policy.SourcePostureChecks)
+				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = calc.getPeerFromResource(rule.DestinationResource, targetPeerID)
+				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID)
 			} else {
-				destinationPeers, peerInDestinations = calc.getAllPeersFromGroups(ctx, rule.Destinations, targetPeerID, nil)
+				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
 			}
 
 			if rule.Bidirectional {
@@ -234,7 +226,7 @@ func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context
 				switch {
 				case len(rule.AuthorizedGroups) > 0:
 					for groupID, localUsers := range rule.AuthorizedGroups {
-						userIDs, ok := calc.components.GroupIDToUserIDs[groupID]
+						userIDs, ok := c.GroupIDToUserIDs[groupID]
 						if !ok {
 							continue
 						}
@@ -258,11 +250,11 @@ func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context
 					}
 					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
 				default:
-					authorizedUsers[auth.Wildcard] = calc.getAllowedUserIDs()
+					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
 			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
 				sshEnabled = true
-				authorizedUsers[auth.Wildcard] = calc.getAllowedUserIDs()
+				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
 		}
 	}
@@ -271,18 +263,16 @@ func (calc *NetworkMapCalculator) getPeerConnectionResources(ctx context.Context
 	return peers, fwRules, authorizedUsers, sshEnabled
 }
 
-func (calc *NetworkMapCalculator) getAllowedUserIDs() map[string]struct{} {
-	if calc.components.AllowedUserIDs != nil {
-		result := make(map[string]struct{}, len(calc.components.AllowedUserIDs))
-		for k, v := range calc.components.AllowedUserIDs {
-			result[k] = v
-		}
+func (c *NetworkMapComponents) getAllowedUserIDs() map[string]struct{} {
+	if c.AllowedUserIDs != nil {
+		result := make(map[string]struct{}, len(c.AllowedUserIDs))
+		maps.Copy(result, c.AllowedUserIDs)
 		return result
 	}
 	return make(map[string]struct{})
 }
 
-func (calc *NetworkMapCalculator) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
+func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
@@ -337,22 +327,22 @@ func (calc *NetworkMapCalculator) connResourcesGenerator(ctx context.Context, ta
 		}
 }
 
-func (calc *NetworkMapCalculator) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
+func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := calc.getUniquePeerIDsFromGroupsIDs(ctx, groups)
+	uniquePeerIDs := c.getUniquePeerIDsFromGroupsIDs(groups)
 	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
 
 	for _, p := range uniquePeerIDs {
-		peerInfo := calc.components.GetPeerInfo(p)
+		peerInfo := c.GetPeerInfo(p)
 		if peerInfo == nil {
 			continue
 		}
 
-		if _, ok := calc.components.Peers[p]; !ok {
+		if _, ok := c.Peers[p]; !ok {
 			continue
 		}
 
-		if !calc.components.ValidatePostureChecksOnPeer(p, sourcePostureChecksIDs) {
+		if !c.ValidatePostureChecksOnPeer(p, sourcePostureChecksIDs) {
 			continue
 		}
 
@@ -367,10 +357,10 @@ func (calc *NetworkMapCalculator) getAllPeersFromGroups(ctx context.Context, gro
 	return filteredPeers, peerInGroups
 }
 
-func (calc *NetworkMapCalculator) getUniquePeerIDsFromGroupsIDs(ctx context.Context, groups []string) []string {
+func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []string {
 	peerIDs := make(map[string]struct{}, len(groups))
 	for _, groupID := range groups {
-		group := calc.components.GetGroupInfo(groupID)
+		group := c.GetGroupInfo(groupID)
 		if group == nil {
 			continue
 		}
@@ -392,12 +382,12 @@ func (calc *NetworkMapCalculator) getUniquePeerIDsFromGroupsIDs(ctx context.Cont
 	return ids
 }
 
-func (calc *NetworkMapCalculator) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
+func (c *NetworkMapComponents) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
 	if resource.ID == peerID {
 		return []*nbpeer.Peer{}, true
 	}
 
-	peerInfo := calc.components.GetPeerInfo(resource.ID)
+	peerInfo := c.GetPeerInfo(resource.ID)
 	if peerInfo == nil {
 		return []*nbpeer.Peer{}, false
 	}
@@ -405,13 +395,13 @@ func (calc *NetworkMapCalculator) getPeerFromResource(resource Resource, peerID 
 	return []*nbpeer.Peer{peerInfo}, false
 }
 
-func (calc *NetworkMapCalculator) filterPeersByLoginExpiration(aclPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*nbpeer.Peer) {
+func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*nbpeer.Peer) {
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
 
 	for _, p := range aclPeers {
-		expired, _ := p.LoginExpired(calc.components.AccountSettings.PeerLoginExpiration)
-		if calc.components.AccountSettings.PeerLoginExpirationEnabled && expired {
+		expired, _ := p.LoginExpired(c.AccountSettings.PeerLoginExpiration)
+		if c.AccountSettings.PeerLoginExpirationEnabled && expired {
 			expiredPeers = append(expiredPeers, p)
 			continue
 		}
@@ -421,10 +411,10 @@ func (calc *NetworkMapCalculator) filterPeersByLoginExpiration(aclPeers []*nbpee
 	return peersToConnect, expiredPeers
 }
 
-func (calc *NetworkMapCalculator) getPeerDNSManagementStatus(peerID string) bool {
-	peerGroups := calc.components.GetPeerGroups(peerID)
+func (c *NetworkMapComponents) getPeerDNSManagementStatus(peerID string) bool {
+	peerGroups := c.GetPeerGroups(peerID)
 	enabled := true
-	for _, groupID := range calc.components.DNSSettings.DisabledManagementGroups {
+	for _, groupID := range c.DNSSettings.DisabledManagementGroups {
 		if _, found := peerGroups[groupID]; found {
 			enabled = false
 			break
@@ -433,20 +423,20 @@ func (calc *NetworkMapCalculator) getPeerDNSManagementStatus(peerID string) bool
 	return enabled
 }
 
-func (calc *NetworkMapCalculator) getPeerNSGroups(peerID string) []*nbdns.NameServerGroup {
-	groupList := calc.components.GetPeerGroups(peerID)
+func (c *NetworkMapComponents) getPeerNSGroups(peerID string) []*nbdns.NameServerGroup {
+	groupList := c.GetPeerGroups(peerID)
 
 	var peerNSGroups []*nbdns.NameServerGroup
 
-	for _, nsGroup := range calc.components.NameServerGroups {
+	for _, nsGroup := range c.NameServerGroups {
 		if !nsGroup.Enabled {
 			continue
 		}
 		for _, gID := range nsGroup.Groups {
 			_, found := groupList[gID]
 			if found {
-				targetPeerInfo := calc.components.GetPeerInfo(peerID)
-				if targetPeerInfo != nil && !calc.peerIsNameserver(targetPeerInfo, nsGroup) {
+				targetPeerInfo := c.GetPeerInfo(peerID)
+				if targetPeerInfo != nil && !c.peerIsNameserver(targetPeerInfo, nsGroup) {
 					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
 					break
 				}
@@ -457,7 +447,7 @@ func (calc *NetworkMapCalculator) getPeerNSGroups(peerID string) []*nbdns.NameSe
 	return peerNSGroups
 }
 
-func (calc *NetworkMapCalculator) peerIsNameserver(peerInfo *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
+func (c *NetworkMapComponents) peerIsNameserver(peerInfo *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
 	for _, ns := range nsGroup.NameServers {
 		if peerInfo.IP.String() == ns.IP.String() {
 			return true
@@ -466,27 +456,27 @@ func (calc *NetworkMapCalculator) peerIsNameserver(peerInfo *nbpeer.Peer, nsGrou
 	return false
 }
 
-func (calc *NetworkMapCalculator) getRoutesToSync(ctx context.Context, peerID string, aclPeers []*nbpeer.Peer, peerGroups LookupMap) []*route.Route {
-	routes, peerDisabledRoutes := calc.getRoutingPeerRoutes(ctx, peerID)
+func (c *NetworkMapComponents) getRoutesToSync(peerID string, aclPeers []*nbpeer.Peer, peerGroups LookupMap) []*route.Route {
+	routes, peerDisabledRoutes := c.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(LookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[string(r.GetHAUniqueID())] = struct{}{}
 	}
 
 	for _, peer := range aclPeers {
-		activeRoutes, _ := calc.getRoutingPeerRoutes(ctx, peer.ID)
-		groupFilteredRoutes := calc.filterRoutesByGroups(activeRoutes, peerGroups)
-		filteredRoutes := calc.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
+		activeRoutes, _ := c.getRoutingPeerRoutes(peer.ID)
+		groupFilteredRoutes := c.filterRoutesByGroups(activeRoutes, peerGroups)
+		filteredRoutes := c.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
 	}
 
 	return routes
 }
 
-func (calc *NetworkMapCalculator) getRoutingPeerRoutes(ctx context.Context, peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
-	peerInfo := calc.components.GetPeerInfo(peerID)
+func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
+	peerInfo := c.GetPeerInfo(peerID)
 	if peerInfo == nil {
-		peerInfo = calc.components.GetRouterPeerInfo(peerID)
+		peerInfo = c.GetRouterPeerInfo(peerID)
 	}
 	if peerInfo == nil {
 		return enabledRoutes, disabledRoutes
@@ -494,13 +484,13 @@ func (calc *NetworkMapCalculator) getRoutingPeerRoutes(ctx context.Context, peer
 
 	seenRoute := make(map[route.ID]struct{})
 
-	takeRoute := func(r *route.Route, id string) {
+	takeRoute := func(r *route.Route) {
 		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
 		seenRoute[r.ID] = struct{}{}
 
-		routeObj := calc.copyRoute(r)
+		routeObj := c.copyRoute(r)
 		routeObj.Peer = peerInfo.Key
 
 		if r.Enabled {
@@ -510,9 +500,9 @@ func (calc *NetworkMapCalculator) getRoutingPeerRoutes(ctx context.Context, peer
 		disabledRoutes = append(disabledRoutes, routeObj)
 	}
 
-	for _, r := range calc.components.Routes {
+	for _, r := range c.Routes {
 		for _, groupID := range r.PeerGroups {
-			group := calc.components.GetGroupInfo(groupID)
+			group := c.GetGroupInfo(groupID)
 			if group == nil {
 				continue
 			}
@@ -521,23 +511,23 @@ func (calc *NetworkMapCalculator) getRoutingPeerRoutes(ctx context.Context, peer
 					continue
 				}
 
-				newPeerRoute := calc.copyRoute(r)
+				newPeerRoute := c.copyRoute(r)
 				newPeerRoute.Peer = id
 				newPeerRoute.PeerGroups = nil
 				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id)
-				takeRoute(newPeerRoute, id)
+				takeRoute(newPeerRoute)
 				break
 			}
 		}
 		if r.Peer == peerID {
-			takeRoute(calc.copyRoute(r), peerID)
+			takeRoute(c.copyRoute(r))
 		}
 	}
 
 	return enabledRoutes, disabledRoutes
 }
 
-func (calc *NetworkMapCalculator) copyRoute(r *route.Route) *route.Route {
+func (c *NetworkMapComponents) copyRoute(r *route.Route) *route.Route {
 	var groups, accessControlGroups, peerGroups []string
 	var domains domain.List
 
@@ -575,7 +565,7 @@ func (calc *NetworkMapCalculator) copyRoute(r *route.Route) *route.Route {
 	}
 }
 
-func (calc *NetworkMapCalculator) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
+func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
 		for _, groupID := range r.Groups {
@@ -589,7 +579,7 @@ func (calc *NetworkMapCalculator) filterRoutesByGroups(routes []*route.Route, gr
 	return filteredRoutes
 }
 
-func (calc *NetworkMapCalculator) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships LookupMap) []*route.Route {
+func (c *NetworkMapComponents) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
 		_, found := peerMemberships[string(r.GetHAUniqueID())]
@@ -600,22 +590,22 @@ func (calc *NetworkMapCalculator) filterRoutesFromPeersOfSameHAGroup(routes []*r
 	return filteredRoutes
 }
 
-func (calc *NetworkMapCalculator) getPeerRoutesFirewallRules(ctx context.Context, peerID string) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getPeerRoutesFirewallRules(ctx context.Context, peerID string) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
-	enabledRoutes, _ := calc.getRoutingPeerRoutes(ctx, peerID)
+	enabledRoutes, _ := c.getRoutingPeerRoutes(peerID)
 	for _, r := range enabledRoutes {
 		if len(r.AccessControlGroups) == 0 {
-			defaultPermit := calc.getDefaultPermit(r)
+			defaultPermit := c.getDefaultPermit(r)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
 
-		distributionPeers := calc.getDistributionGroupsPeers(r)
+		distributionPeers := c.getDistributionGroupsPeers(r)
 
 		for _, accessGroup := range r.AccessControlGroups {
-			policies := calc.getAllRoutePoliciesFromGroups([]string{accessGroup})
-			rules := calc.getRouteFirewallRules(ctx, peerID, policies, r, distributionPeers)
+			policies := c.getAllRoutePoliciesFromGroups([]string{accessGroup})
+			rules := c.getRouteFirewallRules(ctx, peerID, policies, r, distributionPeers)
 			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
@@ -623,27 +613,7 @@ func (calc *NetworkMapCalculator) getPeerRoutesFirewallRules(ctx context.Context
 	return routesFirewallRules
 }
 
-func (calc *NetworkMapCalculator) findRoute(routeID route.ID) *route.Route {
-	for _, r := range calc.components.Routes {
-		if r.ID == routeID {
-			return r
-		}
-	}
-
-	parts := strings.Split(string(routeID), ":")
-	if len(parts) > 1 {
-		baseRouteID := route.ID(parts[0])
-		for _, r := range calc.components.Routes {
-			if r.ID == baseRouteID {
-				return r
-			}
-		}
-	}
-
-	return nil
-}
-
-func (calc *NetworkMapCalculator) getDefaultPermit(r *route.Route) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getDefaultPermit(r *route.Route) []*RouteFirewallRule {
 	var rules []*RouteFirewallRule
 
 	sources := []string{"0.0.0.0/0"}
@@ -672,10 +642,10 @@ func (calc *NetworkMapCalculator) getDefaultPermit(r *route.Route) []*RouteFirew
 	return rules
 }
 
-func (calc *NetworkMapCalculator) getDistributionGroupsPeers(r *route.Route) map[string]struct{} {
+func (c *NetworkMapComponents) getDistributionGroupsPeers(r *route.Route) map[string]struct{} {
 	distPeers := make(map[string]struct{})
 	for _, id := range r.Groups {
-		group := calc.components.GetGroupInfo(id)
+		group := c.GetGroupInfo(id)
 		if group == nil {
 			continue
 		}
@@ -687,16 +657,13 @@ func (calc *NetworkMapCalculator) getDistributionGroupsPeers(r *route.Route) map
 	return distPeers
 }
 
-func (calc *NetworkMapCalculator) getAllRoutePoliciesFromGroups(accessControlGroups []string) []*Policy {
+func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups []string) []*Policy {
 	routePolicies := make([]*Policy, 0)
 	for _, groupID := range accessControlGroups {
-		for _, policy := range calc.components.Policies {
+		for _, policy := range c.Policies {
 			for _, rule := range policy.Rules {
-				for _, destGroupID := range rule.Destinations {
-					if destGroupID == groupID {
-						routePolicies = append(routePolicies, policy)
-						break
-					}
+				if slices.Contains(rule.Destinations, groupID) {
+					routePolicies = append(routePolicies, policy)
 				}
 			}
 		}
@@ -705,7 +672,7 @@ func (calc *NetworkMapCalculator) getAllRoutePoliciesFromGroups(accessControlGro
 	return routePolicies
 }
 
-func (calc *NetworkMapCalculator) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, distributionPeers map[string]struct{}) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, distributionPeers map[string]struct{}) []*RouteFirewallRule {
 	var fwRules []*RouteFirewallRule
 	for _, policy := range policies {
 		if !policy.Enabled {
@@ -717,7 +684,7 @@ func (calc *NetworkMapCalculator) getRouteFirewallRules(ctx context.Context, pee
 				continue
 			}
 
-			rulePeers := calc.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers)
+			rulePeers := c.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers)
 			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN)
 			fwRules = append(fwRules, rules...)
 		}
@@ -725,10 +692,10 @@ func (calc *NetworkMapCalculator) getRouteFirewallRules(ctx context.Context, pee
 	return fwRules
 }
 
-func (calc *NetworkMapCalculator) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nbpeer.Peer {
+func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nbpeer.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
-		group := calc.components.GetGroupInfo(id)
+		group := c.GetGroupInfo(id)
 		if group == nil {
 			continue
 		}
@@ -738,23 +705,23 @@ func (calc *NetworkMapCalculator) getRulePeers(rule *PolicyRule, postureChecks [
 				continue
 			}
 			_, distPeer := distributionPeers[pID]
-			_, valid := calc.components.Peers[pID]
-			if distPeer && valid && calc.components.ValidatePostureChecksOnPeer(pID, postureChecks) {
+			_, valid := c.Peers[pID]
+			if distPeer && valid && c.ValidatePostureChecksOnPeer(pID, postureChecks) {
 				distPeersWithPolicy[pID] = struct{}{}
 			}
 		}
 	}
 	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
 		_, distPeer := distributionPeers[rule.SourceResource.ID]
-		_, valid := calc.components.Peers[rule.SourceResource.ID]
-		if distPeer && valid && calc.components.ValidatePostureChecksOnPeer(rule.SourceResource.ID, postureChecks) {
+		_, valid := c.Peers[rule.SourceResource.ID]
+		if distPeer && valid && c.ValidatePostureChecksOnPeer(rule.SourceResource.ID, postureChecks) {
 			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
 		}
 	}
 
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
-		peerInfo := calc.components.GetPeerInfo(pID)
+		peerInfo := c.GetPeerInfo(pID)
 		if peerInfo == nil {
 			continue
 		}
@@ -763,41 +730,41 @@ func (calc *NetworkMapCalculator) getRulePeers(rule *PolicyRule, postureChecks [
 	return distributionGroupPeers
 }
 
-func (calc *NetworkMapCalculator) getNetworkResourcesRoutesToSync(ctx context.Context, peerID string) (bool, []*route.Route, map[string]struct{}) {
+func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}) {
 	var isRoutingPeer bool
 	var routes []*route.Route
 	allSourcePeers := make(map[string]struct{})
 
-	for _, resource := range calc.components.NetworkResources {
+	for _, resource := range c.NetworkResources {
 		if !resource.Enabled {
 			continue
 		}
 
 		var addSourcePeers bool
 
-		networkRoutingPeers, exists := calc.components.RoutersMap[resource.NetworkID]
+		networkRoutingPeers, exists := c.RoutersMap[resource.NetworkID]
 		if exists {
 			if router, ok := networkRoutingPeers[peerID]; ok {
 				isRoutingPeer, addSourcePeers = true, true
-				routes = append(routes, calc.getNetworkResourcesRoutes(resource, peerID, router)...)
+				routes = append(routes, c.getNetworkResourcesRoutes(resource, peerID, router)...)
 			}
 		}
 
 		addedResourceRoute := false
-		for _, policy := range calc.components.ResourcePoliciesMap[resource.ID] {
+		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
 			var peers []string
 			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
 				peers = []string{policy.Rules[0].SourceResource.ID}
 			} else {
-				peers = calc.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+				peers = c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
 			}
 			if addSourcePeers {
-				for _, pID := range calc.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+				for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}
 				}
-			} else if calc.peerInSlice(peerID, peers) && calc.components.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
+			} else if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
 				for peerId, router := range networkRoutingPeers {
-					routes = append(routes, calc.getNetworkResourcesRoutes(resource, peerId, router)...)
+					routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
 				}
 				addedResourceRoute = true
 			}
@@ -810,21 +777,21 @@ func (calc *NetworkMapCalculator) getNetworkResourcesRoutesToSync(ctx context.Co
 	return isRoutingPeer, routes, allSourcePeers
 }
 
-func (calc *NetworkMapCalculator) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
-	resourceAppliedPolicies := calc.components.ResourcePoliciesMap[resource.ID]
+func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
+	resourceAppliedPolicies := c.ResourcePoliciesMap[resource.ID]
 
 	var routes []*route.Route
 	if len(resourceAppliedPolicies) > 0 {
-		peerInfo := calc.components.GetPeerInfo(peerID)
+		peerInfo := c.GetPeerInfo(peerID)
 		if peerInfo != nil {
-			routes = append(routes, calc.networkResourceToRoute(resource, peerInfo, router))
+			routes = append(routes, c.networkResourceToRoute(resource, peerInfo, router))
 		}
 	}
 
 	return routes
 }
 
-func (calc *NetworkMapCalculator) networkResourceToRoute(resource *resourceTypes.NetworkResource, peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
+func (c *NetworkMapComponents) networkResourceToRoute(resource *resourceTypes.NetworkResource, peer *nbpeer.Peer, router *routerTypes.NetworkRouter) *route.Route {
 	r := &route.Route{
 		ID:          route.ID(resource.ID + ":" + peer.ID),
 		AccountID:   resource.AccountID,
@@ -859,29 +826,20 @@ func (calc *NetworkMapCalculator) networkResourceToRoute(resource *resourceTypes
 	return r
 }
 
-func (calc *NetworkMapCalculator) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
+func (c *NetworkMapComponents) getPostureValidPeers(inputPeers []string, postureChecksIDs []string) []string {
 	var dest []string
 	for _, peerID := range inputPeers {
-		if calc.components.ValidatePostureChecksOnPeer(peerID, postureChecksIDs) {
+		if c.ValidatePostureChecksOnPeer(peerID, postureChecksIDs) {
 			dest = append(dest, peerID)
 		}
 	}
 	return dest
 }
 
-func (calc *NetworkMapCalculator) peerInSlice(peerID string, peers []string) bool {
-	for _, p := range peers {
-		if p == peerID {
-			return true
-		}
-	}
-	return false
-}
-
-func (calc *NetworkMapCalculator) getPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, routes []*route.Route) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, routes []*route.Route) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
-	peerInfo := calc.components.GetPeerInfo(peerID)
+	peerInfo := c.GetPeerInfo(peerID)
 	if peerInfo == nil {
 		return routesFirewallRules
 	}
@@ -892,10 +850,10 @@ func (calc *NetworkMapCalculator) getPeerNetworkResourceFirewallRules(ctx contex
 		}
 
 		resourceID := string(r.GetResourceID())
-		resourcePolicies := calc.components.ResourcePoliciesMap[resourceID]
-		distributionPeers := calc.getPoliciesSourcePeers(resourcePolicies)
+		resourcePolicies := c.ResourcePoliciesMap[resourceID]
+		distributionPeers := c.getPoliciesSourcePeers(resourcePolicies)
 
-		rules := calc.getRouteFirewallRules(ctx, peerID, resourcePolicies, r, distributionPeers)
+		rules := c.getRouteFirewallRules(ctx, peerID, resourcePolicies, r, distributionPeers)
 		for _, rule := range rules {
 			if len(rule.SourceRanges) > 0 {
 				routesFirewallRules = append(routesFirewallRules, rule)
@@ -906,13 +864,13 @@ func (calc *NetworkMapCalculator) getPeerNetworkResourceFirewallRules(ctx contex
 	return routesFirewallRules
 }
 
-func (calc *NetworkMapCalculator) getPoliciesSourcePeers(policies []*Policy) map[string]struct{} {
+func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*Policy) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
 
 	for _, policy := range policies {
 		for _, rule := range policy.Rules {
 			for _, sourceGroup := range rule.Sources {
-				group := calc.components.GetGroupInfo(sourceGroup)
+				group := c.GetGroupInfo(sourceGroup)
 				if group == nil {
 					continue
 				}
@@ -931,7 +889,7 @@ func (calc *NetworkMapCalculator) getPoliciesSourcePeers(policies []*Policy) map
 	return sourcePeers
 }
 
-func (calc *NetworkMapCalculator) addNetworksRoutingPeers(
+func (c *NetworkMapComponents) addNetworksRoutingPeers(
 	networkResourcesRoutes []*route.Route,
 	peerID string,
 	peersToConnect []*nbpeer.Peer,
@@ -968,9 +926,9 @@ func (calc *NetworkMapCalculator) addNetworksRoutingPeers(
 	}
 
 	for p := range missingPeers {
-		peerInfo := calc.components.GetPeerInfo(p)
+		peerInfo := c.GetPeerInfo(p)
 		if peerInfo == nil {
-			peerInfo = calc.components.GetRouterPeerInfo(p)
+			peerInfo = c.GetRouterPeerInfo(p)
 		}
 		if peerInfo != nil {
 			peersToConnect = append(peersToConnect, peerInfo)
