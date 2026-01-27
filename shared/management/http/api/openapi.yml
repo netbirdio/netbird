@@ -36,8 +36,8 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
-  - name: Services
-    description: Interact with and view information about exposed services.
+  - name: Reverse Proxy
+    description: Interact with and view information about reverse proxies.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
 components:
@@ -2431,145 +2431,154 @@ components:
         - issuer
         - client_id
         - client_secret
-    Service:
+    ReverseProxy:
       type: object
       properties:
         id:
           type: string
-          description: Service ID
+          description: Reverse proxy ID
         name:
           type: string
-          description: Service name
-        description:
-          type: string
-          description: Service description
+          description: Reverse proxy name
         domain:
           type: string
-          description: Domain for the service
+          description: Domain for the reverse proxy
         targets:
           type: array
           items:
-            $ref: '#/components/schemas/ServiceTarget'
-          description: List of target backends for this service
-        distribution_groups:
-          type: array
-          items:
-            type: string
-          description: List of group IDs that can access this service
+            $ref: '#/components/schemas/ReverseProxyTarget'
+          description: List of target backends for this reverse proxy
         enabled:
           type: boolean
-          description: Whether the service is enabled
-        exposed:
-          type: boolean
-          description: Whether the service is exposed
+          description: Whether the reverse proxy is enabled
         auth:
-          $ref: '#/components/schemas/ServiceAuthConfig'
+          $ref: '#/components/schemas/ReverseProxyAuthConfig'
       required:
         - id
         - name
         - domain
         - targets
-        - distribution_groups
         - enabled
-        - exposed
-    ServiceRequest:
+        - auth
+    ReverseProxyRequest:
       type: object
       properties:
         name:
           type: string
-          description: Service name
-        description:
-          type: string
-          description: Service description
+          description: Reverse proxy name
         domain:
           type: string
-          description: Domain for the service
+          description: Domain for the reverse proxy
         targets:
           type: array
           items:
-            $ref: '#/components/schemas/ServiceTarget'
-          description: List of target backends for this service
-        distribution_groups:
-          type: array
-          items:
-            type: string
-          description: List of group IDs that can access this service
+            $ref: '#/components/schemas/ReverseProxyTarget'
+          description: List of target backends for this reverse proxy
         enabled:
           type: boolean
-          description: Whether the service is enabled
+          description: Whether the reverse proxy is enabled
           default: true
-        exposed:
-          type: boolean
-          description: Whether the service is exposed
-          default: false
         auth:
-          $ref: '#/components/schemas/ServiceAuthConfig'
+          $ref: '#/components/schemas/ReverseProxyAuthConfig'
       required:
         - name
         - domain
         - targets
-        - distribution_groups
-    ServiceTarget:
+        - auth
+        - enabled
+    ReverseProxyTarget:
       type: object
       properties:
+        target_id:
+          type: string
+          description: Target ID
+        target_type:
+          type: string
+          description: Target type (e.g., "peer", "resource")
+          enum: [peer, resource]
         path:
           type: string
           description: URL path prefix for this target
+        protocol:
+          type: string
+          description: Protocol to use when connecting to the backend
+          enum: [http, https]
         host:
           type: string
-          description: Backend host:port for this target
+          description: Backend ip or domain for this target
+        port:
+          type: integer
+          description: Backend port for this target
         enabled:
           type: boolean
           description: Whether this target is enabled
       required:
-        - path
+        - target_id
+        - target_type
+        - protocol
         - host
+        - port
         - enabled
-    ServiceAuthConfig:
+    ReverseProxyAuthConfig:
       type: object
       properties:
         type:
           type: string
-          enum: [basic, pin, bearer]
+          enum: [password, pin, bearer, link]
           description: Authentication type
-        basic_auth:
-          $ref: '#/components/schemas/BasicAuthConfig'
+        password_auth:
+          $ref: '#/components/schemas/PasswordAuthConfig'
         pin_auth:
           $ref: '#/components/schemas/PINAuthConfig'
         bearer_auth:
           $ref: '#/components/schemas/BearerAuthConfig'
+        link_auth:
+          $ref: '#/components/schemas/LinkAuthConfig'
       required:
         - type
-    BasicAuthConfig:
+    PasswordAuthConfig:
       type: object
       properties:
-        username:
-          type: string
-          description: Basic auth username
+        enabled:
+          type: boolean
+          description: Whether password auth is enabled
         password:
           type: string
-          description: Basic auth password
+          description: Auth password
       required:
-        - username
+        - enabled
         - password
     PINAuthConfig:
       type: object
       properties:
+        enabled:
+          type: boolean
+          description: Whether PIN auth is enabled
         pin:
           type: string
           description: PIN value
-        header:
-          type: string
-          description: HTTP header name for PIN
       required:
+        - enabled
         - pin
-        - header
     BearerAuthConfig:
       type: object
       properties:
         enabled:
           type: boolean
           description: Whether bearer auth is enabled
+        distribution_groups:
+          type: array
+          items:
+            type: string
+          description: List of group IDs that can use bearer auth
+      required:
+        - enabled
+    LinkAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether link auth is enabled
       required:
         - enabled
     InstanceStatus:
@@ -5773,23 +5782,23 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/services:
+  /api/reverse-proxy:
     get:
-      summary: List all Services
-      description: Returns a list of all exposed services
-      tags: [ Services ]
+      summary: List all Reverse Proxies
+      description: Returns a list of all reverse proxies
+      tags: [ Reverse Proxy ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       responses:
         '200':
-          description: A JSON Array of Services
+          description: A JSON Array of reverse proxies
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Service'
+                  $ref: '#/components/schemas/ReverseProxy'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':
@@ -5797,25 +5806,25 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a Service
-      description: Creates a new exposed service
-      tags: [ Services ]
+      summary: Create a Reverse Proxy
+      description: Creates a new reverse proxy
+      tags: [ Reverse Proxy ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       requestBody:
-        description: New service request
+        description: New reverse proxy request
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ServiceRequest'
+              $ref: '#/components/schemas/ReverseProxyRequest'
       responses:
         '200':
-          description: Service created
+          description: Reverse proxy created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Service'
+                $ref: '#/components/schemas/ReverseProxy'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -5824,28 +5833,28 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/services/{serviceId}:
+  /api/reverse-proxy/{proxyId}:
     get:
-      summary: Retrieve a Service
-      description: Get information about a specific service
-      tags: [ Services ]
+      summary: Retrieve a Reverse Proxy
+      description: Get information about a specific reverse proxy
+      tags: [ Reverse Proxy ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: serviceId
+          name: proxyId
           required: true
           schema:
             type: string
-          description: The unique identifier of a service
+          description: The unique identifier of a reverse proxy
       responses:
         '200':
-          description: A Service object
+          description: A reverse proxy object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Service'
+                $ref: '#/components/schemas/ReverseProxy'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -5857,32 +5866,32 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a Service
-      description: Update an existing service configuration
-      tags: [ Services ]
+      summary: Update a Reverse Proxy
+      description: Update an existing reverse proxy
+      tags: [ Reverse Proxy ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: serviceId
+          name: proxyId
           required: true
           schema:
             type: string
-          description: The unique identifier of a service
+          description: The unique identifier of a reverse proxy
       requestBody:
-        description: Service update request
+        description: Reverse proxy update request
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ServiceRequest'
+              $ref: '#/components/schemas/ReverseProxyRequest'
       responses:
         '200':
-          description: Service updated
+          description: Reverse proxy updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Service'
+                $ref: '#/components/schemas/ReverseProxy'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -5894,22 +5903,22 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a Service
-      description: Delete an existing service
-      tags: [ Services ]
+      summary: Delete a Reverse Proxy
+      description: Delete an existing reverse proxy
+      tags: [ Reverse Proxy ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: serviceId
+          name: proxyId
           required: true
           schema:
             type: string
-          description: The unique identifier of a service
+          description: The unique identifier of a reverse proxy
       responses:
         '200':
-          description: Service deleted
+          description: Reverse proxy deleted
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
