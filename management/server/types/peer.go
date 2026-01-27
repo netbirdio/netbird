@@ -15,6 +15,9 @@ type PeerSync struct {
 	// UpdateAccountPeers indicate updating account peers,
 	// which occurs when the peer's metadata is updated
 	UpdateAccountPeers bool
+	// NetworkMapSerial is the last known network map serial number on the client.
+	// Used to skip network map recalculation if client already has the latest.
+	NetworkMapSerial uint64
 }
 
 // PeerLogin used as a data object between the gRPC API and Manager on Login request.

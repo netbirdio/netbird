@@ -394,23 +394,26 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 	return nil
 }
 
-func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
-	if isRequiresApproval {
-		network, err := c.repo.GetAccountNetwork(ctx, accountID)
-		if err != nil {
-			return nil, nil, nil, 0, err
-		}
+func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer, clientSerial uint64) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+	network, err := c.repo.GetAccountNetwork(ctx, accountID)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
 
+	if isRequiresApproval {
 		emptyMap := &types.NetworkMap{
 			Network: network.Copy(),
 		}
 		return peer, emptyMap, nil, 0, nil
 	}
 
-	var (
-		account *types.Account
-		err     error
-	)
+	if clientSerial > 0 && clientSerial == network.CurrentSerial() {
+		log.WithContext(ctx).Debugf("client serial %d matches current serial, skipping network map calculation", clientSerial)
+		return peer, nil, nil, 0, nil
+	}
+
+	var account *types.Account
+
 	if c.experimentalNetworkMap(accountID) {
 		account = c.getAccountFromHolderOrInit(accountID)
 	} else {
