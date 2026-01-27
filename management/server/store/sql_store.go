@@ -4693,7 +4693,7 @@ func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength Lo
 func (s *SqlStore) GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error) {
 	tx := s.db
 
-	var customDomain *domain.Domain
+	customDomain := &domain.Domain{}
 	result := tx.Take(&customDomain, accountAndIDQueryCondition, accountID, domainID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
