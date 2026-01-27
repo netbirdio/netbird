@@ -56,6 +56,10 @@ func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domains, err := h.manager.GetDomains(r.Context(), userAuth.AccountId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
 	var ret []api.ReverseProxyDomain
 	for _, d := range domains {

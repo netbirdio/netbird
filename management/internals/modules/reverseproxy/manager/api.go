@@ -30,7 +30,8 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
 
 	// Hang domain endpoints off the main router here.
-	domain.RegisterEndpoints(router.PathPrefix("/reverse-proxies").Subrouter(), domainManager)
+	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
+	domain.RegisterEndpoints(domainRouter, domainManager)
 }
 
 func (h *handler) getAllReverseProxies(w http.ResponseWriter, r *http.Request) {
