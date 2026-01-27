@@ -1,43 +1,57 @@
-package domains
+package domain
 
 import (
 	"context"
 	"fmt"
+	"net"
+
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 type domainType string
 
 const (
-	domainTypeFree   domainType = "free"
-	domainTypeCustom domainType = "custom"
+	TypeFree   domainType = "free"
+	TypeCustom domainType = "custom"
 )
 
-type domain struct {
-	ID        string
-	Domain    string
-	Type      domainType
+type Domain struct {
+	ID        string     `gorm:"unique;primaryKey;autoIncrement"`
+	Domain    string     `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
+	AccountID string     `gorm:"index"`
+	Type      domainType `gorm:"-"`
 	Validated bool
 }
 
 type store interface {
-	GetAccountDomainNonce(ctx context.Context, accountID string) (nonce string, err error)
-	GetCustomDomain(ctx context.Context, accountID string, domainID string) (domain, error)
+	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
-	ListCustomDomains(ctx context.Context, accountID string) ([]domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (domain, error)
-	UpdateCustomDomain(ctx context.Context, accountID string, d domain) (domain, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *Domain) (*Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 }
 
-type manager struct {
+type Manager struct {
 	store     store
 	validator Validator
 }
 
-func (m manager) GetDomains(ctx context.Context, accountID string) ([]domain, error) {
-	nonce, err := m.store.GetAccountDomainNonce(ctx, accountID)
+func NewManager(store store) Manager {
+	return Manager{
+		store: store,
+		validator: Validator{
+			resolver: net.DefaultResolver,
+		},
+	}
+}
+
+func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, error) {
+	account, err := m.store.GetAccount(ctx, accountID)
 	if err != nil {
-		return nil, fmt.Errorf("get account domain nonce: %w", err)
+		return nil, fmt.Errorf("get account: %w", err)
 	}
 	free, err := m.store.ListFreeDomains(ctx, accountID)
 	if err != nil {
@@ -55,16 +69,17 @@ func (m manager) GetDomains(ctx context.Context, accountID string) ([]domain, er
 	// query free domain usage across accounts and simplifies tracking free domain
 	// usage across accounts.
 	for _, name := range free {
-		domains = append(domains, domain{
-			Domain:    nonce + "." + name,
-			Type:      domainTypeFree,
+		domains = append(domains, &Domain{
+			Domain:    account.ReverseProxyFreeDomainNonce + "." + name,
+			AccountID: accountID,
+			Type:      TypeFree,
 			Validated: true,
 		})
 	}
 	return domains, nil
 }
 
-func (m manager) CreateDomain(ctx context.Context, accountID, domainName string) (domain, error) {
+func (m Manager) CreateDomain(ctx context.Context, accountID, domainName string) (*Domain, error) {
 	// Attempt an initial validation; however, a failure is still acceptable for creation
 	// because the user may not yet have configured their DNS records, or the DNS update
 	// has not yet reached the servers that are queried by the validation resolver.
@@ -83,7 +98,7 @@ func (m manager) CreateDomain(ctx context.Context, accountID, domainName string)
 	return d, nil
 }
 
-func (m manager) DeleteDomain(ctx context.Context, accountID, domainID string) error {
+func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) error {
 	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
 		// TODO: check for "no records" type error. Because that is a success condition.
 		return fmt.Errorf("delete domain from store: %w", err)
@@ -91,7 +106,7 @@ func (m manager) DeleteDomain(ctx context.Context, accountID, domainID string) e
 	return nil
 }
 
-func (m manager) ValidateDomain(accountID, domainID string) {
+func (m Manager) ValidateDomain(accountID, domainID string) {
 	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
 	if err != nil {
 		// TODO: something? Log?

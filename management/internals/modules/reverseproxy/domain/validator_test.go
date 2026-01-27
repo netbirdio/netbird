@@ -1,10 +1,10 @@
-package domains_test
+package domain_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domains"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 )
 
 type resolver struct {
@@ -46,7 +46,7 @@ func TestIsValid(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			validator := domains.NewValidator(test.resolver)
+			validator := domain.NewValidator(test.resolver)
 			actual := validator.IsValid(t.Context(), test.domain, test.accept)
 			if test.expect != actual {
 				t.Errorf("Incorrect return value:\nexpect: %v\nactual: %v", test.expect, actual)

@@ -28,6 +28,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -127,7 +128,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{}, &domain.Domain{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -4687,4 +4688,79 @@ func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength Lo
 	}
 
 	return proxyList, nil
+}
+
+func (s *SqlStore) GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error) {
+	tx := s.db
+
+	var customDomain *domain.Domain
+	result := tx.Take(&customDomain, accountAndIDQueryCondition, accountID, domainID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "reverse proxy custom domain %s not found", domainID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get reverse proxy custom domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domain from store")
+	}
+
+	return customDomain, nil
+}
+
+func (s *SqlStore) ListFreeDomains(ctx context.Context, accountID string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
+	tx := s.db
+
+	var domains []*domain.Domain
+	result := tx.Find(domains, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get reverse proxy custom domains from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domains from store")
+	}
+
+	return domains, nil
+}
+
+func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*domain.Domain, error) {
+	newDomain := &domain.Domain{
+		Domain:    domainName,
+		AccountID: accountID,
+		Type:      domain.TypeCustom,
+		Validated: validated,
+	}
+	result := s.db.Create(newDomain)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
+	}
+
+	return newDomain, nil
+}
+
+func (s *SqlStore) UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error) {
+	d.AccountID = accountID
+	result := s.db.Select("*").Save(d)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update reverse proxy custom domain to store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to update reverse proxy custom domain to store")
+	}
+
+	return d, nil
+}
+
+func (s *SqlStore) DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error {
+	result := s.db.Delete(domain.Domain{}, accountAndIDQueryCondition, accountID, domainID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete reverse proxy custom domain from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete reverse proxy custom domain from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "reverse proxy custom domain %s not found", domainID)
+	}
+
+	return nil
 }

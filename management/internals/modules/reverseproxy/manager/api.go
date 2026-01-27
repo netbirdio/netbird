@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -17,7 +18,7 @@ type handler struct {
 	manager reverseproxy.Manager
 }
 
-func RegisterEndpoints(manager reverseproxy.Manager, router *mux.Router) {
+func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
@@ -27,6 +28,9 @@ func RegisterEndpoints(manager reverseproxy.Manager, router *mux.Router) {
 	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
+
+	// Hang domain endpoints off the main router here.
+	domain.RegisterEndpoints(router.PathPrefix("/reverse-proxies").Subrouter(), domainManager)
 }
 
 func (h *handler) getAllReverseProxies(w http.ResponseWriter, r *http.Request) {

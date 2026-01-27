@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
@@ -180,5 +181,11 @@ func (s *BaseServer) RecordsManager() records.Manager {
 func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
 	return Create(s, func() reverseproxy.Manager {
 		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer())
+	})
+}
+
+func (s *BaseServer) ReverseProxyDomainManager() domain.Manager {
+	return Create(s, func() domain.Manager {
+		return domain.NewManager(s.Store())
 	})
 }

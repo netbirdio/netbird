@@ -1,4 +1,4 @@
-package domains
+package domain
 
 import (
 	"encoding/json"
@@ -13,11 +13,13 @@ import (
 )
 
 type handler struct {
-	manager manager
+	manager Manager
 }
 
-func RegisterEndpoints(router *mux.Router) {
-	h := &handler{}
+func RegisterEndpoints(router *mux.Router, manager Manager) {
+	h := &handler{
+		manager: manager,
+	}
 
 	router.HandleFunc("/domains", h.getAllDomains).Methods("GET", "OPTIONS")
 	router.HandleFunc("/domains", h.createCustomDomain).Methods("POST", "OPTIONS")
@@ -27,9 +29,9 @@ func RegisterEndpoints(router *mux.Router) {
 
 func domainTypeToApi(t domainType) api.ReverseProxyDomainType {
 	switch t {
-	case domainTypeCustom:
+	case TypeCustom:
 		return api.ReverseProxyDomainTypeCustom
-	case domainTypeFree:
+	case TypeFree:
 		return api.ReverseProxyDomainTypeFree
 	}
 	// By default return as a "free" domain as that is more restrictive.
@@ -37,7 +39,7 @@ func domainTypeToApi(t domainType) api.ReverseProxyDomainType {
 	return api.ReverseProxyDomainTypeFree
 }
 
-func domainToApi(d domain) api.ReverseProxyDomain {
+func domainToApi(d *Domain) api.ReverseProxyDomain {
 	return api.ReverseProxyDomain{
 		Domain:    d.Domain,
 		Id:        d.ID,

@@ -108,6 +108,8 @@ type Account struct {
 
 	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
 	nmapInitOnce    *sync.Once         `gorm:"-"`
+
+	ReverseProxyFreeDomainNonce string
 }
 
 func (a *Account) InitOnce() {
