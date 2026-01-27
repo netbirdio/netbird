@@ -186,7 +186,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
 					s.updateMapping(ctx, mapping)
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED:
-					s.removeMapping(mapping)
+					s.removeMapping(ctx, mapping)
 				}
 			}
 		}
@@ -194,7 +194,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 }
 
 func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	if err := s.netbird.AddPeer(mapping.GetDomain(), mapping.GetSetupKey()); err != nil {
+	if err := s.netbird.AddPeer(ctx, mapping.GetDomain(), mapping.GetSetupKey()); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", mapping.GetDomain(), err)
 	}
 	if s.acme != nil {
@@ -245,8 +245,12 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.proxy.AddMapping(s.protoToMapping(mapping))
 }
 
-func (s *Server) removeMapping(mapping *proto.ProxyMapping) {
-	s.netbird.RemovePeer(mapping.GetDomain())
+func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
+	if err := s.netbird.RemovePeer(ctx, mapping.GetDomain()); err != nil {
+		s.ErrorLog.ErrorContext(ctx, "Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist",
+			"domain", mapping.GetDomain(),
+			"error", err)
+	}
 	if s.acme != nil {
 		s.acme.RemoveDomain(mapping.GetDomain())
 	}

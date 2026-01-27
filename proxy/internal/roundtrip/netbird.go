@@ -1,6 +1,7 @@
 package roundtrip
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
@@ -16,17 +17,17 @@ type NetBird struct {
 	mgmtAddr string
 
 	clientsMux sync.RWMutex
-	clients    map[string]*http.Client
+	clients    map[string]*embed.Client
 }
 
 func NewNetBird(mgmtAddr string) *NetBird {
 	return &NetBird{
 		mgmtAddr: mgmtAddr,
-		clients:  make(map[string]*http.Client),
+		clients:  make(map[string]*embed.Client),
 	}
 }
 
-func (n *NetBird) AddPeer(domain, key string) error {
+func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + domain,
 		ManagementURL: n.mgmtAddr,
@@ -35,16 +36,30 @@ func (n *NetBird) AddPeer(domain, key string) error {
 	if err != nil {
 		return fmt.Errorf("create netbird client: %w", err)
 	}
+	if err := client.Start(ctx); err != nil {
+		return fmt.Errorf("start netbird client: %w", err)
+	}
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
-	n.clients[domain] = client.NewHTTPClient()
+	n.clients[domain] = client
 	return nil
 }
 
-func (n *NetBird) RemovePeer(domain string) {
+func (n *NetBird) RemovePeer(ctx context.Context, domain string) error {
+	n.clientsMux.RLock()
+	client, exists := n.clients[domain]
+	n.clientsMux.RUnlock()
+	if !exists {
+		// Mission failed successfully!
+		return nil
+	}
+	if err := client.Stop(ctx); err != nil {
+		return fmt.Errorf("stop netbird client: %w", err)
+	}
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
 	delete(n.clients, domain)
+	return nil
 }
 
 func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -57,5 +72,5 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !exists {
 		return nil, fmt.Errorf("no peer connection found for host: %s", req.Host)
 	}
-	return client.Do(req)
+	return client.NewHTTPClient().Do(req)
 }
