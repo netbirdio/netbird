@@ -570,6 +570,14 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
+// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
+func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.SetupEBPFProxyNoTrack(proxyPort, wgPort)
+}
+
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {

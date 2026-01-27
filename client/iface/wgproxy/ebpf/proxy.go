@@ -39,6 +39,7 @@ var (
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
+	proxyPort         int
 	mtu               uint16
 
 	ebpfManager   ebpfMgr.Manager
@@ -69,10 +70,11 @@ func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 // Listen load ebpf program and listen the proxy
 func (p *WGEBPFProxy) Listen() error {
 	pl := portLookup{}
-	wgPorxyPort, err := pl.searchFreePort()
+	proxyPort, err := pl.searchFreePort()
 	if err != nil {
 		return err
 	}
+	p.proxyPort = proxyPort
 
 	// Prepare IPv4 raw socket (required)
 	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
@@ -86,7 +88,7 @@ func (p *WGEBPFProxy) Listen() error {
 		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
 	}
 
-	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
+	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
 	if err != nil {
 		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
 			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
@@ -100,7 +102,7 @@ func (p *WGEBPFProxy) Listen() error {
 	}
 
 	addr := net.UDPAddr{
-		Port: wgPorxyPort,
+		Port: proxyPort,
 		IP:   net.ParseIP(loopbackAddr),
 	}
 
@@ -116,7 +118,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn = conn
 
 	go p.proxyToRemote()
-	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
+	log.Infof("local wg proxy listening on: %d", proxyPort)
 	return nil
 }
 
@@ -169,6 +171,11 @@ func (p *WGEBPFProxy) Free() error {
 		}
 	}
 	return nberrors.FormatErrorOrNil(result)
+}
+
+// GetProxyPort returns the proxy listening port.
+func (p *WGEBPFProxy) GetProxyPort() uint16 {
+	return uint16(p.proxyPort)
 }
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
