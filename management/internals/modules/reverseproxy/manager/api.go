@@ -23,15 +23,15 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 		manager: manager,
 	}
 
+	// Hang domain endpoints off the main router here.
+	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
+	domain.RegisterEndpoints(domainRouter, domainManager)
+
 	router.HandleFunc("/reverse-proxies", h.getAllReverseProxies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies", h.createReverseProxy).Methods("POST", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
-
-	// Hang domain endpoints off the main router here.
-	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
-	domain.RegisterEndpoints(domainRouter, domainManager)
 }
 
 func (h *handler) getAllReverseProxies(w http.ResponseWriter, r *http.Request) {
