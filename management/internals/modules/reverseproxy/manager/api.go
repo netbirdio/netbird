@@ -25,9 +25,9 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 
 	router.HandleFunc("/reverse-proxies", h.getAllReverseProxies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies", h.createReverseProxy).Methods("POST", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{reverseProxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/{proxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/{proxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/{proxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
 
 	// Hang domain endpoints off the main router here.
 	domain.RegisterEndpoints(router.PathPrefix("/reverse-proxies").Subrouter(), domainManager)
