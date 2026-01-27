@@ -2581,6 +2581,40 @@ components:
           description: Whether link auth is enabled
       required:
         - enabled
+    ReverseProxyDomainType:
+      type: string
+      description: Type of Reverse Proxy Domain
+      enum:
+        - free
+        - custom
+      example: free
+    ReverseProxyDomain:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Domain ID
+        domain:
+          type: string
+          description: Domain name
+        validated:
+          type: boolean
+          description: Whether the domain has been validated
+        type:
+          $ref: '#/components/schemas/ReverseProxyDomainType'
+      required:
+        - id
+        - domain
+        - validated
+        - type
+    ReverseProxyDomainRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Domain name
+      required:
+        - domain
     InstanceStatus:
       type: object
       description: Instance status information
@@ -5919,6 +5953,119 @@ paths:
       responses:
         '200':
           description: Reverse proxy deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxy/domains:
+    get:
+      summary: Retrieve Reverse Proxy Domains
+      description: Get information about domains that can be used for Reverse Proxy endpoints.
+      tags: [ Reverse Proxy ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of ReverseProxyDomains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReverseProxyDomain'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Custom domain
+      description: Create a new Custom domain for use with Reverse Proxy endpoints, this will trigger an initial validation check
+      tags: [ Reverse Proxy ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Custom domain creation request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseProxyDomainRequest'
+      responses:
+        '200':
+          description: Reverse proxy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReverseProxy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxy/domains/{domainId}:
+    delete:
+      summary: Delete a Custom domain
+      description: Delete an existing reverse proxy custom domain
+      tags: [ Reverse Proxy ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '204':
+          description: Reverse proxy custom domain deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxy/domains/{domainId}/validate:
+    get:
+      summary: Validate a custom domain
+      description: Trigger domain ownership validation for a custom domain
+      tags: [ Reverse Proxy ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '202':
+          description: Reverse proxy custom domain validation triggered
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

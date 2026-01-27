@@ -204,6 +204,12 @@ const (
 	ReverseProxyAuthConfigTypePin      ReverseProxyAuthConfigType = "pin"
 )
 
+// Defines values for ReverseProxyDomainType.
+const (
+	ReverseProxyDomainTypeCustom ReverseProxyDomainType = "custom"
+	ReverseProxyDomainTypeFree   ReverseProxyDomainType = "free"
+)
+
 // Defines values for ReverseProxyTargetProtocol.
 const (
 	ReverseProxyTargetProtocolHttp  ReverseProxyTargetProtocol = "http"
@@ -1776,6 +1782,30 @@ type ReverseProxyAuthConfig struct {
 // ReverseProxyAuthConfigType Authentication type
 type ReverseProxyAuthConfigType string
 
+// ReverseProxyDomain defines model for ReverseProxyDomain.
+type ReverseProxyDomain struct {
+	// Domain Domain name
+	Domain string `json:"domain"`
+
+	// Id Domain ID
+	Id string `json:"id"`
+
+	// Type Type of Reverse Proxy Domain
+	Type ReverseProxyDomainType `json:"type"`
+
+	// Validated Whether the domain has been validated
+	Validated bool `json:"validated"`
+}
+
+// ReverseProxyDomainRequest defines model for ReverseProxyDomainRequest.
+type ReverseProxyDomainRequest struct {
+	// Domain Domain name
+	Domain string `json:"domain"`
+}
+
+// ReverseProxyDomainType Type of Reverse Proxy Domain
+type ReverseProxyDomainType string
+
 // ReverseProxyRequest defines model for ReverseProxyRequest.
 type ReverseProxyRequest struct {
 	Auth ReverseProxyAuthConfig `json:"auth"`
@@ -2379,6 +2409,9 @@ type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
 // PostApiReverseProxyJSONRequestBody defines body for PostApiReverseProxy for application/json ContentType.
 type PostApiReverseProxyJSONRequestBody = ReverseProxyRequest
+
+// PostApiReverseProxyDomainsJSONRequestBody defines body for PostApiReverseProxyDomains for application/json ContentType.
+type PostApiReverseProxyDomainsJSONRequestBody = ReverseProxyDomainRequest
 
 // PutApiReverseProxyProxyIdJSONRequestBody defines body for PutApiReverseProxyProxyId for application/json ContentType.
 type PutApiReverseProxyProxyIdJSONRequestBody = ReverseProxyRequest
