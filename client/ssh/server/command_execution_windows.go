@@ -20,32 +20,32 @@ import (
 
 // getUserEnvironment retrieves the Windows environment for the target user.
 // Follows OpenSSH's resilient approach with graceful degradation on failures.
-func (s *Server) getUserEnvironment(username, domain string) ([]string, error) {
-	userToken, err := s.getUserToken(username, domain)
+func (s *Server) getUserEnvironment(logger *log.Entry, username, domain string) ([]string, error) {
+	userToken, err := s.getUserToken(logger, username, domain)
 	if err != nil {
 		return nil, fmt.Errorf("get user token: %w", err)
 	}
 	defer func() {
 		if err := windows.CloseHandle(userToken); err != nil {
-			log.Debugf("close user token: %v", err)
+			logger.Debugf("close user token: %v", err)
 		}
 	}()
 
-	return s.getUserEnvironmentWithToken(userToken, username, domain)
+	return s.getUserEnvironmentWithToken(logger, userToken, username, domain)
 }
 
 // getUserEnvironmentWithToken retrieves the Windows environment using an existing token.
-func (s *Server) getUserEnvironmentWithToken(userToken windows.Handle, username, domain string) ([]string, error) {
+func (s *Server) getUserEnvironmentWithToken(logger *log.Entry, userToken windows.Handle, username, domain string) ([]string, error) {
 	userProfile, err := s.loadUserProfile(userToken, username, domain)
 	if err != nil {
-		log.Debugf("failed to load user profile for %s\\%s: %v", domain, username, err)
+		logger.Debugf("failed to load user profile for %s\\%s: %v", domain, username, err)
 		userProfile = fmt.Sprintf("C:\\Users\\%s", username)
 	}
 
 	envMap := make(map[string]string)
 
 	if err := s.loadSystemEnvironment(envMap); err != nil {
-		log.Debugf("failed to load system environment from registry: %v", err)
+		logger.Debugf("failed to load system environment from registry: %v", err)
 	}
 
 	s.setUserEnvironmentVariables(envMap, userProfile, username, domain)
@@ -59,8 +59,8 @@ func (s *Server) getUserEnvironmentWithToken(userToken windows.Handle, username,
 }
 
 // getUserToken creates a user token for the specified user.
-func (s *Server) getUserToken(username, domain string) (windows.Handle, error) {
-	privilegeDropper := NewPrivilegeDropper()
+func (s *Server) getUserToken(logger *log.Entry, username, domain string) (windows.Handle, error) {
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	token, err := privilegeDropper.createToken(username, domain)
 	if err != nil {
 		return 0, fmt.Errorf("generate S4U user token: %w", err)
@@ -242,9 +242,9 @@ func (s *Server) setUserEnvironmentVariables(envMap map[string]string, userProfi
 }
 
 // prepareCommandEnv prepares environment variables for command execution on Windows
-func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []string {
+func (s *Server) prepareCommandEnv(logger *log.Entry, localUser *user.User, session ssh.Session) []string {
 	username, domain := s.parseUsername(localUser.Username)
-	userEnv, err := s.getUserEnvironment(username, domain)
+	userEnv, err := s.getUserEnvironment(logger, username, domain)
 	if err != nil {
 		log.Debugf("failed to get user environment for %s\\%s, using fallback: %v", domain, username, err)
 		env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
@@ -267,22 +267,16 @@ func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []
 	return env
 }
 
-func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window) bool {
 	if privilegeResult.User == nil {
 		logger.Errorf("no user in privilege result")
 		return false
 	}
 
-	cmd := session.Command()
 	shell := getUserShell(privilegeResult.User.Uid)
+	logger.Infof("starting interactive shell: %s", shell)
 
-	if len(cmd) == 0 {
-		logger.Infof("starting interactive shell: %s", shell)
-	} else {
-		logger.Infof("executing command: %s", safeLogCommand(cmd))
-	}
-
-	s.handlePtyWithUserSwitching(logger, session, privilegeResult, ptyReq, winCh, cmd)
+	s.executeCommandWithPty(logger, session, nil, privilegeResult, ptyReq, nil)
 	return true
 }
 
@@ -294,11 +288,6 @@ func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
 	return []string{shell, "-Command", cmdString}
 }
 
-func (s *Server) handlePtyWithUserSwitching(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window, _ []string) {
-	logger.Info("starting interactive shell")
-	s.executeConPtyCommand(logger, session, privilegeResult, ptyReq, session.RawCommand())
-}
-
 type PtyExecutionRequest struct {
 	Shell    string
 	Command  string
@@ -308,25 +297,25 @@ type PtyExecutionRequest struct {
 	Domain   string
 }
 
-func executePtyCommandWithUserToken(ctx context.Context, session ssh.Session, req PtyExecutionRequest) error {
-	log.Tracef("executing Windows ConPty command with user switching: shell=%s, command=%s, user=%s\\%s, size=%dx%d",
+func executePtyCommandWithUserToken(logger *log.Entry, session ssh.Session, req PtyExecutionRequest) error {
+	logger.Tracef("executing Windows ConPty command with user switching: shell=%s, command=%s, user=%s\\%s, size=%dx%d",
 		req.Shell, req.Command, req.Domain, req.Username, req.Width, req.Height)
 
-	privilegeDropper := NewPrivilegeDropper()
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	userToken, err := privilegeDropper.createToken(req.Username, req.Domain)
 	if err != nil {
 		return fmt.Errorf("create user token: %w", err)
 	}
 	defer func() {
 		if err := windows.CloseHandle(userToken); err != nil {
-			log.Debugf("close user token: %v", err)
+			logger.Debugf("close user token: %v", err)
 		}
 	}()
 
 	server := &Server{}
-	userEnv, err := server.getUserEnvironmentWithToken(userToken, req.Username, req.Domain)
+	userEnv, err := server.getUserEnvironmentWithToken(logger, userToken, req.Username, req.Domain)
 	if err != nil {
-		log.Debugf("failed to get user environment for %s\\%s, using system environment: %v", req.Domain, req.Username, err)
+		logger.Debugf("failed to get user environment for %s\\%s, using system environment: %v", req.Domain, req.Username, err)
 		userEnv = os.Environ()
 	}
 
@@ -348,8 +337,8 @@ func executePtyCommandWithUserToken(ctx context.Context, session ssh.Session, re
 		Environment: userEnv,
 	}
 
-	log.Debugf("executePtyCommandWithUserToken: calling winpty execution with working dir: %s", workingDir)
-	return winpty.ExecutePtyWithUserToken(ctx, session, ptyConfig, userConfig)
+	logger.Debugf("executePtyCommandWithUserToken: calling winpty execution with working dir: %s", workingDir)
+	return winpty.ExecutePtyWithUserToken(session, ptyConfig, userConfig)
 }
 
 func getUserHomeFromEnv(env []string) string {
@@ -371,10 +360,8 @@ func (s *Server) killProcessGroup(cmd *exec.Cmd) {
 		return
 	}
 
-	logger := log.WithField("pid", cmd.Process.Pid)
-
 	if err := cmd.Process.Kill(); err != nil {
-		logger.Debugf("kill process failed: %v", err)
+		log.Debugf("kill process %d failed: %v", cmd.Process.Pid, err)
 	}
 }
 
@@ -389,21 +376,7 @@ func (s *Server) detectUtilLinuxLogin(context.Context) bool {
 }
 
 // executeCommandWithPty executes a command with PTY allocation on Windows using ConPty
-func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
-	command := session.RawCommand()
-	if command == "" {
-		logger.Error("no command specified for PTY execution")
-		if err := session.Exit(1); err != nil {
-			logSessionExitError(logger, err)
-		}
-		return false
-	}
-
-	return s.executeConPtyCommand(logger, session, privilegeResult, ptyReq, command)
-}
-
-// executeConPtyCommand executes a command using ConPty (common for interactive and command execution)
-func (s *Server) executeConPtyCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, command string) bool {
+func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _ *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window) bool {
 	localUser := privilegeResult.User
 	if localUser == nil {
 		logger.Errorf("no user in privilege result")
@@ -415,14 +388,14 @@ func (s *Server) executeConPtyCommand(logger *log.Entry, session ssh.Session, pr
 
 	req := PtyExecutionRequest{
 		Shell:    shell,
-		Command:  command,
+		Command:  session.RawCommand(),
 		Width:    ptyReq.Window.Width,
 		Height:   ptyReq.Window.Height,
 		Username: username,
 		Domain:   domain,
 	}
 
-	if err := executePtyCommandWithUserToken(session.Context(), session, req); err != nil {
+	if err := executePtyCommandWithUserToken(logger, session, req); err != nil {
 		logger.Errorf("ConPty execution failed: %v", err)
 		if err := session.Exit(1); err != nil {
 			logSessionExitError(logger, err)

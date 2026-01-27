@@ -25,6 +25,7 @@ type mockInstanceManager struct {
 	isSetupRequired   bool
 	isSetupRequiredFn func(ctx context.Context) (bool, error)
 	createOwnerUserFn func(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	getVersionInfoFn  func(ctx context.Context) (*nbinstance.VersionInfo, error)
 }
 
 func (m *mockInstanceManager) IsSetupRequired(ctx context.Context) (bool, error) {
@@ -63,6 +64,18 @@ func (m *mockInstanceManager) CreateOwnerUser(ctx context.Context, email, passwo
 		ID:    "test-user-id",
 		Email: email,
 		Name:  name,
+	}, nil
+}
+
+func (m *mockInstanceManager) GetVersionInfo(ctx context.Context) (*nbinstance.VersionInfo, error) {
+	if m.getVersionInfoFn != nil {
+		return m.getVersionInfoFn(ctx)
+	}
+	return &nbinstance.VersionInfo{
+		CurrentVersion:            "0.34.0",
+		DashboardVersion:          "2.0.0",
+		ManagementVersion:         "0.35.0",
+		ManagementUpdateAvailable: true,
 	}, nil
 }
 
@@ -273,6 +286,47 @@ func TestSetup_ManagerError(t *testing.T) {
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "User"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGetVersionInfo_Success(t *testing.T) {
+	manager := &mockInstanceManager{}
+	router := mux.NewRouter()
+	AddVersionEndpoint(manager, router)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response api.InstanceVersionInfo
+	err := json.NewDecoder(rec.Body).Decode(&response)
+	require.NoError(t, err)
+
+	assert.Equal(t, "0.34.0", response.ManagementCurrentVersion)
+	assert.NotNil(t, response.DashboardAvailableVersion)
+	assert.Equal(t, "2.0.0", *response.DashboardAvailableVersion)
+	assert.NotNil(t, response.ManagementAvailableVersion)
+	assert.Equal(t, "0.35.0", *response.ManagementAvailableVersion)
+	assert.True(t, response.ManagementUpdateAvailable)
+}
+
+func TestGetVersionInfo_Error(t *testing.T) {
+	manager := &mockInstanceManager{
+		getVersionInfoFn: func(ctx context.Context) (*nbinstance.VersionInfo, error) {
+			return nil, errors.New("failed to fetch versions")
+		},
+	}
+	router := mux.NewRouter()
+	AddVersionEndpoint(manager, router)
+
+	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

@@ -107,6 +107,7 @@ type MockWGIface struct {
 	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
+	GetProxyPortFunc           func() uint16
 	GetNetFunc                 func() *netstack.Net
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
@@ -201,6 +202,13 @@ func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
+}
+
+func (m *MockWGIface) GetProxyPort() uint16 {
+	if m.GetProxyPortFunc != nil {
+		return m.GetProxyPortFunc()
+	}
+	return 0
 }
 
 func (m *MockWGIface) GetNet() *netstack.Net {

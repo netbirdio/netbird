@@ -41,7 +41,7 @@ func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
 		closeListener: listener.NewCloseListener(),
 	}
 }
-func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
+func (p *ProxyWrapper) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
 	addr, err := p.wgeBPFProxy.AddTurnConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add turn conn: %w", err)
@@ -91,6 +91,10 @@ func (p *ProxyWrapper) Pause() {
 }
 
 func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
+	if endpoint == nil || endpoint.IP == nil {
+		log.Errorf("failed to start package redirection, endpoint is nil")
+		return
+	}
 	p.pausedCond.L.Lock()
 	p.paused = false
 

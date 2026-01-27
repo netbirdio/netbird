@@ -879,3 +879,7 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peerIDs []string) {
 	c.peersUpdateManager.CloseChannels(ctx, peerIDs)
 }
+
+func (c *Controller) TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer) {
+	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
+}

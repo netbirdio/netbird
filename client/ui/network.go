@@ -341,7 +341,6 @@ func (s *serviceClient) updateExitNodes() {
 		log.Errorf("get client: %v", err)
 		return
 	}
-
 	exitNodes, err := s.getExitNodes(conn)
 	if err != nil {
 		log.Errorf("get exit nodes: %v", err)
@@ -390,7 +389,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
 		s.mExitNode.Remove()
-		s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+		s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	}
 
 	var showDeselectAll bool

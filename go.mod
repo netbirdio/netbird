@@ -31,7 +31,7 @@ require (
 
 require (
 	fyne.io/fyne/v2 v2.7.0
-	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58
+	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
 	github.com/awnumar/memguard v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.36.3
