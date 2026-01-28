@@ -62,20 +62,32 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 		return nil, fmt.Errorf("list custom domains: %w", err)
 	}
 
+	var ret []*Domain
+	// Populate all fields correctly for custom domains that are retrieved.
+	for _, domain := range domains {
+		ret = append(ret, &Domain{
+			ID:        domain.ID,
+			Domain:    domain.Domain,
+			AccountID: accountID,
+			Type:      TypeCustom,
+			Validated: domain.Validated,
+		})
+	}
+
 	// Prepend each free domain with the account nonce and then add it to the domain
 	// array to be returned.
 	// This account nonce is added to free domains to prevent users being able to
 	// query free domain usage across accounts and simplifies tracking free domain
 	// usage across accounts.
 	for _, name := range free {
-		domains = append(domains, &Domain{
+		ret = append(ret, &Domain{
 			Domain:    account.ReverseProxyFreeDomainNonce + "." + name,
 			AccountID: accountID,
 			Type:      TypeFree,
 			Validated: true,
 		})
 	}
-	return domains, nil
+	return ret, nil
 }
 
 func (m Manager) CreateDomain(ctx context.Context, accountID, domainName string) (*Domain, error) {
