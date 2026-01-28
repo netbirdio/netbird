@@ -157,8 +157,14 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 				// We don't care about disabled reverse proxy targets for snapshots.
 				continue
 			}
+			// todo: review this fix
+			path := "/"
+			if t.Path != nil {
+				path = "/"
+			}
+
 			paths = append(paths, &proto.PathMapping{
-				Path:   *t.Path,
+				Path:   path,
 				Target: t.Host,
 			})
 		}
