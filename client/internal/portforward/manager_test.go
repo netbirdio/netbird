@@ -1,3 +1,5 @@
+//go:build !js
+
 package portforward
 
 import (
@@ -73,7 +75,7 @@ func setupTestManager(t *testing.T) (*Manager, context.CancelFunc) {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		sm.Stop(ctx)
+		require.NoError(t, sm.Stop(ctx))
 	})
 
 	m := NewManager(sm)
