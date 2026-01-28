@@ -78,7 +78,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// The very first thing to do should be to connect to the Management server.
 	// Without this connection, the Proxy cannot do anything.
-	s.mgmtConn, err = grpc.NewClient(s.ManagementAddress,
+	mgmtURL, err := url.Parse(s.ManagementAddress)
+	if err != nil {
+		return fmt.Errorf("parse management address: %w", err)
+	}
+	s.mgmtConn, err = grpc.NewClient(mgmtURL.Host,
 		grpc.WithTransportCredentials(insecure.NewCredentials()), // TODO: TLS needed here.
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                20 * time.Second,
