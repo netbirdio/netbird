@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	EphemeralLifeTime = 10 * time.Minute
+	EphemeralLifeTime = 1 * time.Minute
 )
 
 type Manager interface {

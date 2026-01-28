@@ -108,10 +108,19 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 			if err != nil {
+				if e, ok := status.FromError(err); ok && e.ErrorType == status.NotFound {
+					log.WithContext(ctx).Tracef("DeletePeers: peer %s not found, skipping", peerID)
+					return nil
+				}
 				return err
 			}
 
 			if checkConnected && (peer.Status.Connected || peer.Status.LastSeen.After(time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)))) {
+				log.WithContext(ctx).Tracef("DeletePeers: peer %s skipped (connected=%t, lastSeen=%s, threshold=%s, ephemeral=%t)",
+					peerID, peer.Status.Connected,
+					peer.Status.LastSeen.Format(time.RFC3339),
+					time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)).Format(time.RFC3339),
+					peer.Ephemeral)
 				return nil
 			}
 
@@ -150,7 +159,8 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 			return nil
 		})
 		if err != nil {
-			return err
+			log.WithContext(ctx).Errorf("DeletePeers: failed to delete peer %s: %v", peerID, err)
+			continue
 		}
 
 		if m.integratedPeerValidator != nil {
