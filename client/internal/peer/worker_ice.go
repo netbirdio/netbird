@@ -428,6 +428,8 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 		relAddr = srflxCandidate.Address()
 	}
 
+	// Arbitrary +1000 boost on top of RFC 8445 priority to favor port-forwarded candidates
+	// over regular srflx during ICE connectivity checks.
 	priority := srflxCandidate.Priority() + 1000
 
 	candidate, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
