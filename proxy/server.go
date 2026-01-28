@@ -170,6 +170,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			StartedAt: timestamppb.New(s.startTime),
 		})
 		if err != nil {
+			log.WithError(err).Warn("Could not get mapping updates, will retry")
 			backoffDuration := b.Duration()
 			log.WithFields(log.Fields{
 				"backoff": backoffDuration,
@@ -178,6 +179,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			time.Sleep(backoffDuration)
 			continue
 		}
+		log.Debug("Got mapping updates client from management server")
 		err = s.handleMappingStream(ctx, mappingClient)
 		backoffDuration := b.Duration()
 		switch {
@@ -185,6 +187,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			errors.Is(err, context.DeadlineExceeded):
 			// Context is telling us that it is time to quit so gracefully exit here.
 			// No need to log the error as it is a parent context causing this return.
+			log.Debugf("Got context error, will exit loop: %v", err)
 			return
 		case err != nil:
 			// Log the error and then retry the connection.
@@ -217,7 +220,6 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 				// Something has gone horribly wrong, return and hope the parent retries the connection.
 				return fmt.Errorf("receive msg: %w", err)
 			}
-
 			log.Debug("Received mapping update, starting processing")
 			// Process msg updates sequentially to avoid conflict, so block
 			// additional receiving until this processing is completed.
@@ -226,6 +228,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 					"type":   mapping.GetType(),
 					"domain": mapping.GetDomain(),
 					"path":   mapping.GetPath(),
+					"id":     mapping.GetId(),
 				}).Debug("Processing mapping update")
 				switch mapping.GetType() {
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:

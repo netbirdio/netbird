@@ -251,7 +251,7 @@ func (s *ProxyServiceServer) SendReverseProxyUpdate(update *proto.ProxyMapping) 
 		conn := value.(*proxyConnection)
 		select {
 		case conn.sendChan <- update:
-			log.Debugf("Sent reverse proxy update to proxy %s", conn.proxyID)
+			log.Debugf("Sent reverse proxy update with id %s to proxy %s", update.Id, conn.proxyID)
 		default:
 			log.Warnf("Failed to send reverse proxy update to proxy %s (channel full)", conn.proxyID)
 		}
