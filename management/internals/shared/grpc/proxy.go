@@ -246,6 +246,7 @@ func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendA
 // Management should call this when reverse proxies are created/updated/removed
 func (s *ProxyServiceServer) SendReverseProxyUpdate(update *proto.ProxyMapping) {
 	// Send it to all connected proxies
+	log.Debugf("Broadcasting reverse proxy update to all connected proxies")
 	s.connectedProxies.Range(func(key, value interface{}) bool {
 		conn := value.(*proxyConnection)
 		select {
