@@ -756,7 +756,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			}
 
 			if ephemeral {
-				// we should track ephemeral peers to be able to clean them if the peer don't sync and be marked as connected
+				// we should track ephemeral peers to be able to clean them if the peer doesn't sync and isn't marked as connected
 				am.networkMapController.TrackEphemeralPeer(ctx, newPeer)
 			}
 
