@@ -159,7 +159,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.Store())
+		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccountManager())
 		return proxyService
 	})
 }

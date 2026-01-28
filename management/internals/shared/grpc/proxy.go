@@ -53,10 +53,11 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore) *ProxyServiceServer {
+func NewProxyServiceServer(store reverseProxyStore, keys keyStore) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
 		reverseProxyStore: store,
+		keyStore:          keys,
 	}
 }
 
@@ -113,9 +114,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 // sendSnapshot sends the initial snapshot of all reverse proxies to proxy
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	reverseProxies, err := s.reverseProxyStore.GetAccountReverseProxies(ctx, store.LockingStrengthNone, conn.proxyID) // TODO: check locking strength and accountID.
+	reverseProxies, err := s.reverseProxyStore.GetAccountReverseProxies(ctx, store.LockingStrengthNone, "accountID") // TODO: check locking strength and accountID.
 	if err != nil {
-		// TODO: something
+		// TODO: something?
 		return fmt.Errorf("get account reverse proxies from store: %w", err)
 	}
 
@@ -161,15 +162,15 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 
 		// TODO: should this even be here? We're running in a loop, and on each proxy, this will create a LOT of setup key entries that we currently have no way to remove.
 		key, err := s.keyStore.CreateSetupKey(ctx,
-			"accountID",
-			"keyname",
+			"accountID",                // TODO: get an account ID from somewhere, likely needs to be passed in from higher up.
+			"keyname",                  // TODO: define a sensible key name to make cleanup easier.
 			types.SetupKeyOneOff,       // TODO: is this correct? Might make cleanup simpler and we're going to generate a new key every time the proxy connects.
 			time.Minute,                // TODO: only provide just enough time for the proxy to make the connection before this key becomes invalid. Should help with cleanup as well as protection against these leaking in transit.
 			[]string{"auto", "groups"}, // TODO: join a group for proxy to simplify adding rules to proxies?
 			1,                          // TODO: usage limit, how is this different from the OneOff key type?
-			"userID",
-			false, // TODO: ephemeral peers are different...right?
-			false, // TODO: not sure but I think this should be false.
+			"userID",                   // TODO: use a set userID for proxy peers?
+			false,                      // TODO: ephemeral peers are different...right?
+			false,                      // TODO: not sure but I think this should be false.
 		)
 		if err != nil {
 			// TODO: how to handle this?
