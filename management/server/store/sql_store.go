@@ -4675,6 +4675,22 @@ func (s *SqlStore) GetReverseProxyByDomain(ctx context.Context, accountID, domai
 	return proxy, nil
 }
 
+func (s *SqlStore) GetReverseProxies(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.ReverseProxy, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var proxyList []*reverseproxy.ReverseProxy
+	result := tx.Find(&proxyList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get reverse proxy from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
+	}
+
+	return proxyList, nil
+}
+
 func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {

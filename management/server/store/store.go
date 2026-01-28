@@ -248,6 +248,7 @@ type Store interface {
 	DeleteReverseProxy(ctx context.Context, accountID, serviceID string) error
 	GetReverseProxyByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.ReverseProxy, error)
 	GetReverseProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error)
+	GetReverseProxies(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.ReverseProxy, error)
 	GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
