@@ -213,7 +213,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	}
 	conn.workerICE = workerICE
 
-	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay)
+	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, &conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
 	if !isForceRelayed() {

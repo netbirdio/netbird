@@ -29,13 +29,35 @@ func (s *MetricsStages) RecordSemaphoreAcquired() {
 	s.stageTimestamps.SemaphoreAcquired = time.Now()
 }
 
+// RecordSignaling records the signaling timestamp when sending offers
+// For initial connections: records when we start sending
+// For reconnections: does nothing (we wait for RecordSignalingReceived)
 func (s *MetricsStages) RecordSignaling() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordSignaling")
+	log.Infof("--- RecordSignaling (send)")
+
+	if s.isReconnectionAttempt {
+		return
+	}
 
 	if s.stageTimestamps.Signaling.IsZero() {
-		log.Infof("--- Recorded Signaling")
+		log.Infof("--- Recorded Signaling (initial connection, sending)")
+		s.stageTimestamps.Signaling = time.Now()
+	}
+}
+
+// RecordSignalingReceived records the signaling timestamp when receiving offers/answers
+// For reconnections: records when we receive the first signal
+// For initial connections: does nothing (already recorded in RecordSignaling)
+func (s *MetricsStages) RecordSignalingReceived() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	log.Infof("--- RecordSignalingReceived (receive)")
+
+	// Only record for reconnections when we receive a signal
+	if s.isReconnectionAttempt && s.stageTimestamps.Signaling.IsZero() {
+		log.Infof("--- Recorded Signaling (reconnection, receiving)")
 		s.stageTimestamps.Signaling = time.Now()
 	}
 }
