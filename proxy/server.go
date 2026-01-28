@@ -14,14 +14,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"time"
 
 	"github.com/cloudflare/backoff"
-	"github.com/netbirdio/netbird/util/embeddedroots"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,12 +33,8 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/embeddedroots"
 )
-
-type errorLog interface {
-	Error(msg string, args ...any)
-	ErrorContext(ctx context.Context, msg string, args ...any)
-}
 
 type Server struct {
 	mgmtConn *grpc.ClientConn
@@ -55,7 +50,6 @@ type Server struct {
 
 	ID                       string
 	Version                  string
-	ErrorLog                 errorLog
 	ManagementAddress        string
 	CertificateDirectory     string
 	GenerateACMECertificates bool
@@ -73,10 +67,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Fallback version option in case it is not set.
 	if s.Version == "" {
 		s.Version = "dev"
-	}
-	if s.ErrorLog == nil {
-		// If no ErrorLog is specified, then just discard the log output.
-		s.ErrorLog = slog.New(slog.DiscardHandler)
 	}
 
 	// The very first thing to do should be to connect to the Management server.
@@ -99,6 +89,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			RootCAs: certPool,
 		})
 	}
+	log.WithFields(log.Fields{
+		"gRPC_address": mgmtURL.Host,
+		"TLS_enabled":  mgmtURL.Scheme == "https",
+	}).Debug("starting management gRPC client")
 	s.mgmtConn, err = grpc.NewClient(mgmtURL.Host,
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -120,6 +114,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
 	if s.GenerateACMECertificates {
+		log.WithField("acme_server", s.ACMEDirectory).Debug("ACME certificates enabled, configuring certificate manager")
 		s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory)
 		s.http = &http.Server{
 			Addr:    s.ACMEChallengeAddress,
@@ -129,12 +124,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			if err := s.http.ListenAndServe(); err != nil {
 				// Rather than retry, log the issue periodically so that hopefully someone notices and fixes the issue.
 				for range time.Tick(10 * time.Second) {
-					s.ErrorLog.ErrorContext(ctx, "ACME HTTP-01 challenge server error", "error", err)
+					log.WithError(err).Error("ACME HTTP-01 challenge server error")
 				}
 			}
 		}()
 		tlsConfig = s.acme.TLSConfig()
 	} else {
+		log.Debug("ACME certificates disabled, using static certificates")
 		// Otherwise pull some certificates from expected locations.
 		cert, err := tls.LoadX509KeyPair(
 			filepath.Join(s.CertificateDirectory, "tls.crt"),
@@ -153,7 +149,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.auth = auth.NewMiddleware()
 
 	// Configure Access logs to management server.
-	accessLog := accesslog.NewLogger(mgmtClient, s.ErrorLog)
+	accessLog := accesslog.NewLogger(mgmtClient)
 
 	// Finally, start the reverse proxy.
 	s.https = &http.Server{
@@ -167,6 +163,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
 	b := backoff.New(0, 0)
 	for {
+		log.Debug("Getting mapping updates from management server")
 		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 			ProxyId:   s.ID,
 			Version:   s.Version,
@@ -174,9 +171,10 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 		})
 		if err != nil {
 			backoffDuration := b.Duration()
-			s.ErrorLog.ErrorContext(ctx, "Unable to create mapping client to management server, retrying connection after backoff.",
-				"backoff", backoffDuration,
-				"error", err)
+			log.WithFields(log.Fields{
+				"backoff": backoffDuration,
+				"error":   err,
+			}).Error("Unable to create mapping client to management server, retrying connection after backoff")
 			time.Sleep(backoffDuration)
 			continue
 		}
@@ -190,13 +188,13 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			return
 		case err != nil:
 			// Log the error and then retry the connection.
-			s.ErrorLog.ErrorContext(ctx, "Error processing mapping stream from management server, retrying connection after backoff.",
-				"backoff", backoffDuration,
-				"error", err)
+			log.WithFields(log.Fields{
+				"backoff": backoffDuration,
+				"error":   err,
+			}).Error("Error processing mapping stream from management server, retrying connection after backoff")
 		default:
 			// TODO: should this really be at error level? Maybe, if you start getting lots of these this could be an indication of connectivity issues.
-			s.ErrorLog.ErrorContext(ctx, "Management mapping connection terminated by the server, retrying connection after backoff.",
-				"backoff", backoffDuration)
+			log.WithField("backoff", backoffDuration).Error("Management mapping connection terminated by the server, retrying connection after backoff")
 		}
 		time.Sleep(backoffDuration)
 	}
@@ -220,17 +218,24 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 				return fmt.Errorf("receive msg: %w", err)
 			}
 
+			log.Debug("Received mapping update, starting processing")
 			// Process msg updates sequentially to avoid conflict, so block
 			// additional receiving until this processing is completed.
 			for _, mapping := range msg.GetMapping() {
+				log.WithFields(log.Fields{
+					"type":   mapping.GetType(),
+					"domain": mapping.GetDomain(),
+					"path":   mapping.GetPath(),
+				}).Debug("Processing mapping update")
 				switch mapping.GetType() {
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
 					if err := s.addMapping(ctx, mapping); err != nil {
 						// TODO: Retry this? Or maybe notify the management server that this mapping has failed?
-						s.ErrorLog.ErrorContext(ctx, "Error adding new mapping, ignoring this mapping and continuing processing.",
-							"service_id", mapping.GetId(),
-							"domain", mapping.GetDomain(),
-							"error", err)
+						log.WithFields(log.Fields{
+							"service_id": mapping.GetId(),
+							"domain":     mapping.GetDomain(),
+							"error":      err,
+						}).Error("Error adding new mapping, ignoring this mapping and continuing processing")
 					}
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
 					s.updateMapping(ctx, mapping)
@@ -279,7 +284,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 			OIDCScopes:       oidc.GetOidcScopes(),
 		})
 		if err != nil {
-			s.ErrorLog.Error("Failed to create OIDC scheme", "error", err)
+			log.WithError(err).Error("Failed to create OIDC scheme")
 		} else {
 			schemes = append(schemes, scheme)
 		}
@@ -290,9 +295,10 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
 	if err := s.netbird.RemovePeer(ctx, mapping.GetDomain()); err != nil {
-		s.ErrorLog.ErrorContext(ctx, "Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist",
-			"domain", mapping.GetDomain(),
-			"error", err)
+		log.WithFields(log.Fields{
+			"domain": mapping.GetDomain(),
+			"error":  err,
+		}).Error("Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist")
 	}
 	if s.acme != nil {
 		s.acme.RemoveDomain(mapping.GetDomain())
@@ -307,12 +313,13 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
 			// TODO: Should we warn management about this so it can be bubbled up to a user to reconfigure?
-			s.ErrorLog.Error("Error parsing target URL for path, this path will be ignored but other paths will still be configured.",
-				"service_id", mapping.GetId(),
-				"domain", mapping.GetDomain(),
-				"path", pathMapping.GetPath(),
-				"target", pathMapping.GetTarget(),
-				"error", err)
+			log.WithFields(log.Fields{
+				"service_id": mapping.GetId(),
+				"domain":     mapping.GetDomain(),
+				"path":       pathMapping.GetPath(),
+				"target":     pathMapping.GetTarget(),
+				"error":      err,
+			}).Error("Error parsing target URL for path, this path will be ignored but other paths will still be configured")
 		}
 		paths[pathMapping.GetPath()] = targetURL
 	}

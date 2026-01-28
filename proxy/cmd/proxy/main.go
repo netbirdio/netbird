@@ -4,14 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
-	"log/slog"
 	"os"
 	"runtime"
 	"strings"
 
-	"github.com/netbirdio/netbird/proxy"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
+
+	"github.com/netbirdio/netbird/proxy"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -48,11 +48,12 @@ func envStringOrDefault(key string, def string) string {
 
 func main() {
 	var (
-		version, acmeCerts                         bool
+		version, debug, acmeCerts                  bool
 		mgmtAddr, addr, certDir, acmeAddr, acmeDir string
 	)
 
 	flag.BoolVar(&version, "v", false, "Print version and exit")
+	flag.BoolVar(&debug, "debug", false, "Enable debug logs")
 	flag.StringVar(&mgmtAddr, "mgmt", envStringOrDefault("NB_PROXY_MANAGEMENT_ADDRESS", DefaultManagementURL), "Management address to connect to.")
 	flag.StringVar(&addr, "addr", envStringOrDefault("NB_PROXY_ADDRESS", ":443"), "Reverse proxy address to listen on.")
 	flag.StringVar(&certDir, "cert-dir", envStringOrDefault("NB_PROXY_CERTIFICATE_DIRECTORY", "./certs"), "Directory to store ")
@@ -66,12 +67,15 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Write error logs to stderr.
-	errorLog := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// Configure logrus.
+	log.SetOutput(os.Stderr)
+	log.SetLevel(log.ErrorLevel)
+	if debug {
+		log.SetLevel(log.DebugLevel)
+	}
 
 	srv := proxy.Server{
 		Version:                  Version,
-		ErrorLog:                 errorLog,
 		ManagementAddress:        mgmtAddr,
 		CertificateDirectory:     certDir,
 		GenerateACMECertificates: acmeCerts,

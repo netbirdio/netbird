@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -162,7 +162,7 @@ func (o *OIDC) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Exchange code for token
 	token, err := o.oauthConfig.Exchange(r.Context(), code)
 	if err != nil {
-		slog.Error("Token exchange failed", "error", err)
+		log.WithError(err).Error("Token exchange failed")
 		http.Error(w, "Authentication failed", http.StatusUnauthorized)
 		return
 	}

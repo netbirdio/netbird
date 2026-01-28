@@ -2,33 +2,25 @@ package accesslog
 
 import (
 	"context"
-	"log/slog"
 
-	"github.com/netbirdio/netbird/shared/management/proto"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type gRPCClient interface {
 	SendAccessLog(ctx context.Context, in *proto.SendAccessLogRequest, opts ...grpc.CallOption) (*proto.SendAccessLogResponse, error)
 }
 
-type errorLogger interface {
-	ErrorContext(ctx context.Context, msg string, args ...any)
-}
-
 type Logger struct {
-	client   gRPCClient
-	errorLog errorLogger
+	client gRPCClient
 }
 
-func NewLogger(client gRPCClient, errorLog errorLogger) *Logger {
-	if errorLog == nil {
-		errorLog = slog.New(slog.DiscardHandler)
-	}
+func NewLogger(client gRPCClient) *Logger {
 	return &Logger{
-		client:   client,
-		errorLog: errorLog,
+		client: client,
 	}
 }
 
@@ -45,7 +37,7 @@ type logEntry struct {
 	AuthSuccess   bool
 }
 
-func (l *Logger) log(ctx context.Context, log logEntry) {
+func (l *Logger) log(ctx context.Context, entry logEntry) {
 	// Fire off the log request in a separate routine.
 	// This increases the possibility of losing a log message
 	// (although it should still get logged in the event of an error),
@@ -59,31 +51,32 @@ func (l *Logger) log(ctx context.Context, log logEntry) {
 		if _, err := l.client.SendAccessLog(ctx, &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				Timestamp:     now,
-				ServiceId:     log.ServiceId,
-				Host:          log.Host,
-				Path:          log.Path,
-				DurationMs:    log.DurationMs,
-				Method:        log.Method,
-				ResponseCode:  log.ResponseCode,
-				SourceIp:      log.SourceIp,
-				AuthMechanism: log.AuthMechanism,
-				UserId:        log.UserId,
-				AuthSuccess:   log.AuthSuccess,
+				ServiceId:     entry.ServiceId,
+				Host:          entry.Host,
+				Path:          entry.Path,
+				DurationMs:    entry.DurationMs,
+				Method:        entry.Method,
+				ResponseCode:  entry.ResponseCode,
+				SourceIp:      entry.SourceIp,
+				AuthMechanism: entry.AuthMechanism,
+				UserId:        entry.UserId,
+				AuthSuccess:   entry.AuthSuccess,
 			},
 		}); err != nil {
 			// If it fails to send on the gRPC connection, then at least log it to the error log.
-			l.errorLog.ErrorContext(ctx, "Error sending access log on gRPC connection",
-				"service_id", log.ServiceId,
-				"host", log.Host,
-				"path", log.Path,
-				"duration", log.DurationMs,
-				"method", log.Method,
-				"response_code", log.ResponseCode,
-				"source_ip", log.SourceIp,
-				"auth_mechanism", log.AuthMechanism,
-				"user_id", log.UserId,
-				"auth_success", log.AuthSuccess,
-				"error", err)
+			log.WithFields(log.Fields{
+				"service_id":     entry.ServiceId,
+				"host":           entry.Host,
+				"path":           entry.Path,
+				"duration":       entry.DurationMs,
+				"method":         entry.Method,
+				"response_code":  entry.ResponseCode,
+				"source_ip":      entry.SourceIp,
+				"auth_mechanism": entry.AuthMechanism,
+				"user_id":        entry.UserId,
+				"auth_success":   entry.AuthSuccess,
+				"error":          err,
+			}).Error("Error sending access log on gRPC connection")
 		}
 	}()
 }
