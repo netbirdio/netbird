@@ -33,6 +33,7 @@ require (
 	fyne.io/fyne/v2 v2.7.0
 	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
+	github.com/VictoriaMetrics/metrics v1.40.2
 	github.com/awnumar/memguard v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
@@ -141,7 +142,6 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/Microsoft/hcsshim v0.12.3 // indirect
-	github.com/VictoriaMetrics/metrics v1.40.2 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/awnumar/memcall v0.4.0 // indirect
