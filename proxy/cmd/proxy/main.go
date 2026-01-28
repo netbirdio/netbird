@@ -70,6 +70,7 @@ func main() {
 	errorLog := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	srv := proxy.Server{
+		Version:                  Version,
 		ErrorLog:                 errorLog,
 		ManagementAddress:        mgmtAddr,
 		CertificateDirectory:     certDir,

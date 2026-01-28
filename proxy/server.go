@@ -21,6 +21,9 @@ import (
 
 	"github.com/cloudflare/backoff"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
@@ -44,6 +47,11 @@ type Server struct {
 	http     *http.Server
 	https    *http.Server
 
+	// Mostly used for debugging on management.
+	startTime time.Time
+
+	ID                       string
+	Version                  string
 	ErrorLog                 errorLog
 	ManagementAddress        string
 	CertificateDirectory     string
@@ -53,6 +61,16 @@ type Server struct {
 }
 
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
+	s.startTime = time.Now()
+
+	// If no ID is set then one can be generated.
+	if s.ID == "" {
+		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
+	}
+	// Fallback version option in case it is not set.
+	if s.Version == "" {
+		s.Version = "dev"
+	}
 	if s.ErrorLog == nil {
 		// If no ErrorLog is specified, then just discard the log output.
 		s.ErrorLog = slog.New(slog.DiscardHandler)
@@ -60,7 +78,14 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// The very first thing to do should be to connect to the Management server.
 	// Without this connection, the Proxy cannot do anything.
-	s.mgmtConn, err = grpc.NewClient(s.ManagementAddress)
+	s.mgmtConn, err = grpc.NewClient(s.ManagementAddress,
+		grpc.WithTransportCredentials(insecure.NewCredentials()), // TODO: TLS needed here.
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                20 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("could not create management connection: %w", err)
 	}
@@ -118,39 +143,41 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	return s.https.ListenAndServeTLS("", "")
 }
 
-func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) func() {
+func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
 	b := backoff.New(0, 0)
-	return func() {
-		for {
-			mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{})
-			if err != nil {
-				backoffDuration := b.Duration()
-				s.ErrorLog.ErrorContext(ctx, "Unable to create mapping client to management server, retrying connection after backoff.",
-					"backoff", backoffDuration,
-					"error", err)
-				time.Sleep(backoffDuration)
-				continue
-			}
-			err = s.handleMappingStream(ctx, mappingClient)
+	for {
+		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
+			ProxyId:   s.ID,
+			Version:   s.Version,
+			StartedAt: timestamppb.New(s.startTime),
+		})
+		if err != nil {
 			backoffDuration := b.Duration()
-			switch {
-			case errors.Is(err, context.Canceled),
-				errors.Is(err, context.DeadlineExceeded):
-				// Context is telling us that it is time to quit so gracefully exit here.
-				// No need to log the error as it is a parent context causing this return.
-				return
-			case err != nil:
-				// Log the error and then retry the connection.
-				s.ErrorLog.ErrorContext(ctx, "Error processing mapping stream from management server, retrying connection after backoff.",
-					"backoff", backoffDuration,
-					"error", err)
-			default:
-				// TODO: should this really be at error level? Maybe, if you start getting lots of these this could be an indication of connectivity issues.
-				s.ErrorLog.ErrorContext(ctx, "Management mapping connection terminated by the server, retrying connection after backoff.",
-					"backoff", backoffDuration)
-			}
+			s.ErrorLog.ErrorContext(ctx, "Unable to create mapping client to management server, retrying connection after backoff.",
+				"backoff", backoffDuration,
+				"error", err)
 			time.Sleep(backoffDuration)
+			continue
 		}
+		err = s.handleMappingStream(ctx, mappingClient)
+		backoffDuration := b.Duration()
+		switch {
+		case errors.Is(err, context.Canceled),
+			errors.Is(err, context.DeadlineExceeded):
+			// Context is telling us that it is time to quit so gracefully exit here.
+			// No need to log the error as it is a parent context causing this return.
+			return
+		case err != nil:
+			// Log the error and then retry the connection.
+			s.ErrorLog.ErrorContext(ctx, "Error processing mapping stream from management server, retrying connection after backoff.",
+				"backoff", backoffDuration,
+				"error", err)
+		default:
+			// TODO: should this really be at error level? Maybe, if you start getting lots of these this could be an indication of connectivity issues.
+			s.ErrorLog.ErrorContext(ctx, "Management mapping connection terminated by the server, retrying connection after backoff.",
+				"backoff", backoffDuration)
+		}
+		time.Sleep(backoffDuration)
 	}
 }
 
