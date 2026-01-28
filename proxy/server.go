@@ -10,6 +10,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +21,9 @@ import (
 	"time"
 
 	"github.com/cloudflare/backoff"
+	"github.com/netbirdio/netbird/util/embeddedroots"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -82,8 +85,22 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	if err != nil {
 		return fmt.Errorf("parse management address: %w", err)
 	}
+	creds := insecure.NewCredentials()
+	// Simple TLS check using management URL.
+	// Assume management TLS is enabled for gRPC as well if using HTTPS for the API.
+	if mgmtURL.Scheme == "https" {
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			// Fall back to embedded CAs if no OS-provided ones are available.
+			certPool = embeddedroots.Get()
+		}
+
+		creds = credentials.NewTLS(&tls.Config{
+			RootCAs: certPool,
+		})
+	}
 	s.mgmtConn, err = grpc.NewClient(mgmtURL.Host,
-		grpc.WithTransportCredentials(insecure.NewCredentials()), // TODO: TLS needed here.
+		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                20 * time.Second,
 			Timeout:             10 * time.Second,
