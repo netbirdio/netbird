@@ -165,6 +165,7 @@ func (p *ProxyWrapper) Work() {
 	p.paused = false
 
 	p.headerCurrentUsed = p.headers
+	p.rawConn = p.selectRawConn(p.headerCurrentUsed)
 
 	if !p.isStarted {
 		p.isStarted = true
