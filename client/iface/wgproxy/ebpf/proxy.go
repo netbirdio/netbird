@@ -8,8 +8,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -24,16 +22,6 @@ import (
 
 const (
 	loopbackAddr = "127.0.0.1"
-)
-
-var (
-	localHostNetIPv4 = net.ParseIP("127.0.0.1")
-	localHostNetIPv6 = net.ParseIP("::1")
-
-	serializeOpts = gopacket.SerializeOptions{
-		ComputeChecksums: true,
-		FixLengths:       true,
-	}
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -252,64 +240,4 @@ generatePort:
 		goto generatePort
 	}
 	return p.lastUsedPort, nil
-}
-
-func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
-
-	var ipH gopacket.SerializableLayer
-	var networkLayer gopacket.NetworkLayer
-	var dstIP net.IP
-	var rawConn net.PacketConn
-
-	if endpointAddr.IP.To4() != nil {
-		// IPv4 path
-		ipv4 := &layers.IPv4{
-			DstIP:    localHostNetIPv4,
-			SrcIP:    endpointAddr.IP,
-			Version:  4,
-			TTL:      64,
-			Protocol: layers.IPProtocolUDP,
-		}
-		ipH = ipv4
-		networkLayer = ipv4
-		dstIP = localHostNetIPv4
-		rawConn = p.rawConnIPv4
-	} else {
-		// IPv6 path
-		if p.rawConnIPv6 == nil {
-			return fmt.Errorf("IPv6 raw socket not available")
-		}
-		ipv6 := &layers.IPv6{
-			DstIP:      localHostNetIPv6,
-			SrcIP:      endpointAddr.IP,
-			Version:    6,
-			HopLimit:   64,
-			NextHeader: layers.IPProtocolUDP,
-		}
-		ipH = ipv6
-		networkLayer = ipv6
-		dstIP = localHostNetIPv6
-		rawConn = p.rawConnIPv6
-	}
-
-	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(endpointAddr.Port),
-		DstPort: layers.UDPPort(p.localWGListenPort),
-	}
-
-	if err := udpH.SetNetworkLayerForChecksum(networkLayer); err != nil {
-		return fmt.Errorf("set network layer for checksum: %w", err)
-	}
-
-	layerBuffer := gopacket.NewSerializeBuffer()
-	payload := gopacket.Payload(data)
-
-	if err := gopacket.SerializeLayers(layerBuffer, serializeOpts, ipH, udpH, payload); err != nil {
-		return fmt.Errorf("serialize layers: %w", err)
-	}
-
-	if _, err := rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: dstIP}); err != nil {
-		return fmt.Errorf("write to raw conn: %w", err)
-	}
-	return nil
 }
