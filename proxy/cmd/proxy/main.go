@@ -74,7 +74,9 @@ func main() {
 		level = "debug"
 	}
 
-	util.InitLog(level, "console")
+	_ = util.InitLog(level, util.LogConsole)
+
+	log.Infof("configured log level: %s", level)
 
 	srv := proxy.Server{
 		Version:                  Version,
