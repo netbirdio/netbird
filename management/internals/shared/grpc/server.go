@@ -232,6 +232,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
 		s.syncSem.Add(-1)
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
 		return mapError(ctx, err)
 	}
 

@@ -63,6 +63,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleNetworksClick()
 		case <-h.client.mNotifications.ClickedCh:
 			h.handleNotificationsClick()
+		case <-systray.TrayOpenedCh:
+			h.client.updateExitNodes()
 		}
 	}
 }
@@ -98,6 +100,8 @@ func (h *eventHandler) handleConnectClick() {
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
+
+	h.client.exitNodeStates = []exitNodeState{}
 
 	if h.client.connectCancel != nil {
 		log.Debugf("cancelling ongoing connect operation")

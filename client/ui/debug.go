@@ -406,6 +406,10 @@ func (s *serviceClient) configureServiceForDebug(
 	}
 	time.Sleep(time.Second * 3)
 
+	if _, err := conn.StartCPUProfile(s.ctx, &proto.StartCPUProfileRequest{}); err != nil {
+		log.Warnf("failed to start CPU profiling: %v", err)
+	}
+
 	return nil
 }
 
@@ -427,6 +431,10 @@ func (s *serviceClient) collectDebugData(
 	wg.Wait()
 	progress.progressBar.Hide()
 	progress.statusLabel.SetText("Collecting debug data...")
+
+	if _, err := conn.StopCPUProfile(s.ctx, &proto.StopCPUProfileRequest{}); err != nil {
+		log.Warnf("failed to stop CPU profiling: %v", err)
+	}
 
 	return nil
 }

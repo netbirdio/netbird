@@ -168,6 +168,10 @@ type Manager interface {
 
 	// RemoveInboundDNAT removes inbound DNAT rule
 	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+
+	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
+	// This prevents conntrack from interfering with WireGuard proxy communication.
+	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
 }
 
 func GenKey(format string, pair RouterPair) string {

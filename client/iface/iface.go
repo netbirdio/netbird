@@ -50,6 +50,7 @@ func ValidateMTU(mtu uint16) error {
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
+	GetProxyPort() uint16
 	Free() error
 }
 
@@ -78,6 +79,12 @@ type WGIface struct {
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
+}
+
+// GetProxyPort returns the proxy port used by the WireGuard proxy.
+// Returns 0 if no proxy port is used (e.g., for userspace WireGuard).
+func (w *WGIface) GetProxyPort() uint16 {
+	return w.wgProxyFactory.GetProxyPort()
 }
 
 // GetBind returns the EndpointManager userspace bind mode.

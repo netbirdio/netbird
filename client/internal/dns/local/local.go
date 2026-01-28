@@ -81,7 +81,10 @@ func (d *Resolver) ProbeAvailability() {}
 
 // ServeDNS handles a DNS request
 func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	logger := log.WithField("request_id", resutil.GetRequestID(w))
+	logger := log.WithFields(log.Fields{
+		"request_id": resutil.GetRequestID(w),
+		"dns_id":     fmt.Sprintf("%04x", r.Id),
+	})
 
 	if len(r.Question) == 0 {
 		logger.Debug("received local resolver request with no question")

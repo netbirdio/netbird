@@ -88,20 +88,20 @@ func validateUsernameFormat(username string) error {
 
 // createExecutorCommand creates a command using Windows executor for privilege dropping.
 // Returns the command and a cleanup function that must be called after starting the process.
-func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
-	log.Debugf("creating Windows executor command for user %s (Pty: %v)", localUser.Username, hasPty)
+func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
+	logger.Debugf("creating Windows executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
 	username, _ := s.parseUsername(localUser.Username)
 	if err := validateUsername(username); err != nil {
 		return nil, nil, fmt.Errorf("invalid username %q: %w", username, err)
 	}
 
-	return s.createUserSwitchCommand(localUser, session, hasPty)
+	return s.createUserSwitchCommand(logger, session, localUser)
 }
 
 // createUserSwitchCommand creates a command with Windows user switching.
 // Returns the command and a cleanup function that must be called after starting the process.
-func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Session, interactive bool) (*exec.Cmd, func(), error) {
+func (s *Server) createUserSwitchCommand(logger *log.Entry, session ssh.Session, localUser *user.User) (*exec.Cmd, func(), error) {
 	username, domain := s.parseUsername(localUser.Username)
 
 	shell := getUserShell(localUser.Uid)
@@ -113,15 +113,14 @@ func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Sessi
 	}
 
 	config := WindowsExecutorConfig{
-		Username:    username,
-		Domain:      domain,
-		WorkingDir:  localUser.HomeDir,
-		Shell:       shell,
-		Command:     command,
-		Interactive: interactive || (rawCmd == ""),
+		Username:   username,
+		Domain:     domain,
+		WorkingDir: localUser.HomeDir,
+		Shell:      shell,
+		Command:    command,
 	}
 
-	dropper := NewPrivilegeDropper()
+	dropper := NewPrivilegeDropper(WithLogger(logger))
 	cmd, token, err := dropper.CreateWindowsExecutorCommand(session.Context(), config)
 	if err != nil {
 		return nil, nil, err
@@ -130,7 +129,7 @@ func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Sessi
 	cleanup := func() {
 		if token != 0 {
 			if err := windows.CloseHandle(windows.Handle(token)); err != nil {
-				log.Debugf("close primary token: %v", err)
+				logger.Debugf("close primary token: %v", err)
 			}
 		}
 	}

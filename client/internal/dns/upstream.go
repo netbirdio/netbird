@@ -71,6 +71,11 @@ type upstreamResolverBase struct {
 	statusRecorder *peer.Status
 }
 
+type upstreamFailure struct {
+	upstream netip.AddrPort
+	reason   string
+}
+
 func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, domain string) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -114,7 +119,10 @@ func (u *upstreamResolverBase) Stop() {
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	logger := log.WithField("request_id", resutil.GetRequestID(w))
+	logger := log.WithFields(log.Fields{
+		"request_id": resutil.GetRequestID(w),
+		"dns_id":     fmt.Sprintf("%04x", r.Id),
+	})
 
 	u.prepareRequest(r)
 
@@ -123,11 +131,13 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	if u.tryUpstreamServers(w, r, logger) {
-		return
+	ok, failures := u.tryUpstreamServers(w, r, logger)
+	if len(failures) > 0 {
+		u.logUpstreamFailures(r.Question[0].Name, failures, ok, logger)
 	}
-
-	u.writeErrorResponse(w, r, logger)
+	if !ok {
+		u.writeErrorResponse(w, r, logger)
+	}
 }
 
 func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
@@ -136,7 +146,7 @@ func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
 	}
 }
 
-func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) bool {
+func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) (bool, []upstreamFailure) {
 	timeout := u.upstreamTimeout
 	if len(u.upstreamServers) > 1 {
 		maxTotal := 5 * time.Second
@@ -149,15 +159,19 @@ func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.M
 		}
 	}
 
+	var failures []upstreamFailure
 	for _, upstream := range u.upstreamServers {
-		if u.queryUpstream(w, r, upstream, timeout, logger) {
-			return true
+		if failure := u.queryUpstream(w, r, upstream, timeout, logger); failure != nil {
+			failures = append(failures, *failure)
+		} else {
+			return true, failures
 		}
 	}
-	return false
+	return false, failures
 }
 
-func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) bool {
+// queryUpstream queries a single upstream server. Returns nil on success, or failure info to try next upstream.
+func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) *upstreamFailure {
 	var rm *dns.Msg
 	var t time.Duration
 	var err error
@@ -171,31 +185,32 @@ func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, u
 	}()
 
 	if err != nil {
-		u.handleUpstreamError(err, upstream, r.Question[0].Name, startTime, timeout, logger)
-		return false
+		return u.handleUpstreamError(err, upstream, startTime)
 	}
 
 	if rm == nil || !rm.Response {
-		logger.Warnf("no response from upstream %s for question domain=%s", upstream, r.Question[0].Name)
-		return false
+		return &upstreamFailure{upstream: upstream, reason: "no response"}
 	}
 
-	return u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, logger)
+	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
+		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
+	}
+
+	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, logger)
+	return nil
 }
 
-func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, domain string, startTime time.Time, timeout time.Duration, logger *log.Entry) {
+func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {
 	if !errors.Is(err, context.DeadlineExceeded) && !isTimeout(err) {
-		logger.Warnf("failed to query upstream %s for question domain=%s: %s", upstream, domain, err)
-		return
+		return &upstreamFailure{upstream: upstream, reason: err.Error()}
 	}
 
 	elapsed := time.Since(startTime)
-	timeoutMsg := fmt.Sprintf("upstream %s timed out for question domain=%s after %v (timeout=%v)", upstream, domain, elapsed.Truncate(time.Millisecond), timeout)
+	reason := fmt.Sprintf("timeout after %v", elapsed.Truncate(time.Millisecond))
 	if peerInfo := u.debugUpstreamTimeout(upstream); peerInfo != "" {
-		timeoutMsg += " " + peerInfo
+		reason += " " + peerInfo
 	}
-	timeoutMsg += fmt.Sprintf(" - error: %v", err)
-	logger.Warn(timeoutMsg)
+	return &upstreamFailure{upstream: upstream, reason: reason}
 }
 
 func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
@@ -215,14 +230,32 @@ func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dn
 	return true
 }
 
-func (u *upstreamResolverBase) writeErrorResponse(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) {
-	logger.Errorf("all queries to the %s failed for question domain=%s", u, r.Question[0].Name)
+func (u *upstreamResolverBase) logUpstreamFailures(domain string, failures []upstreamFailure, succeeded bool, logger *log.Entry) {
+	totalUpstreams := len(u.upstreamServers)
+	failedCount := len(failures)
+	failureSummary := formatFailures(failures)
 
+	if succeeded {
+		logger.Warnf("%d/%d upstreams failed for domain=%s: %s", failedCount, totalUpstreams, domain, failureSummary)
+	} else {
+		logger.Errorf("%d/%d upstreams failed for domain=%s: %s", failedCount, totalUpstreams, domain, failureSummary)
+	}
+}
+
+func (u *upstreamResolverBase) writeErrorResponse(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) {
 	m := new(dns.Msg)
 	m.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(m); err != nil {
-		logger.Errorf("failed to write error response for %s for question domain=%s: %s", u, r.Question[0].Name, err)
+		logger.Errorf("write error response for domain=%s: %s", r.Question[0].Name, err)
 	}
+}
+
+func formatFailures(failures []upstreamFailure) string {
+	parts := make([]string, 0, len(failures))
+	for _, f := range failures {
+		parts = append(parts, fmt.Sprintf("%s=%s", f.upstream, f.reason))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ProbeAvailability tests all upstream servers simultaneously and
@@ -467,7 +500,6 @@ func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upst
 
 	return reply, nil
 }
-
 
 // FormatPeerStatus formats peer connection status information for debugging DNS timeouts
 func FormatPeerStatus(peerState *peer.State) string {

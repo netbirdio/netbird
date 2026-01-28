@@ -3,9 +3,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"runtime/pprof"
 
 	log "github.com/sirupsen/logrus"
 
@@ -31,12 +33,34 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}
 
+	var cpuProfileData []byte
+	if s.cpuProfileBuf != nil && !s.cpuProfiling {
+		cpuProfileData = s.cpuProfileBuf.Bytes()
+		defer func() {
+			s.cpuProfileBuf = nil
+		}()
+	}
+
+	// Prepare refresh callback for health probes
+	var refreshStatus func()
+	if s.connectClient != nil {
+		engine := s.connectClient.Engine()
+		if engine != nil {
+			refreshStatus = func() {
+				log.Debug("refreshing system health status for debug bundle")
+				engine.RunHealthProbes(true)
+			}
+		}
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
 			InternalConfig: s.config,
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
 			LogPath:        s.logFile,
+			CPUProfile:     cpuProfileData,
+			RefreshStatus:  refreshStatus,
 			ClientMetrics:  clientMetrics,
 		},
 		debug.BundleConfig{
@@ -116,4 +140,44 @@ func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	}
 
 	return cClient.GetLatestSyncResponse()
+}
+
+// StartCPUProfile starts CPU profiling in the daemon.
+func (s *Server) StartCPUProfile(_ context.Context, _ *proto.StartCPUProfileRequest) (*proto.StartCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling already in progress")
+	}
+
+	s.cpuProfileBuf = &bytes.Buffer{}
+	s.cpuProfiling = true
+	if err := pprof.StartCPUProfile(s.cpuProfileBuf); err != nil {
+		s.cpuProfileBuf = nil
+		s.cpuProfiling = false
+		return nil, fmt.Errorf("start CPU profile: %w", err)
+	}
+
+	log.Info("CPU profiling started")
+	return &proto.StartCPUProfileResponse{}, nil
+}
+
+// StopCPUProfile stops CPU profiling in the daemon.
+func (s *Server) StopCPUProfile(_ context.Context, _ *proto.StopCPUProfileRequest) (*proto.StopCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if !s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling not in progress")
+	}
+
+	pprof.StopCPUProfile()
+	s.cpuProfiling = false
+
+	if s.cpuProfileBuf != nil {
+		log.Infof("CPU profiling stopped, captured %d bytes", s.cpuProfileBuf.Len())
+	}
+
+	return &proto.StopCPUProfileResponse{}, nil
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -76,6 +77,9 @@ type Server struct {
 	lastProbe           time.Time
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
+
+	cpuProfileBuf *bytes.Buffer
+	cpuProfiling  bool
 
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
@@ -249,10 +253,17 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
-	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		log.Errorf("failed to create auth client: %v", err)
+		return internal.StatusLoginFailed, err
+	}
+	defer authClient.Close()
+
+	var status internal.StatusType
+	err, isAuthError := authClient.Login(ctx, setupKey, jwtToken)
+	if err != nil {
+		if isAuthError {
 			log.Warnf("failed login: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
@@ -577,8 +588,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
+	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	s.mutex.Lock()
@@ -1322,6 +1332,10 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 	if time.Since(s.lastProbe) > probeThreshold {
 		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
+		}
+	} else {
+		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
+			log.Debugf("failed to refresh WireGuard stats: %v", err)
 		}
 	}
 }

@@ -219,10 +219,32 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(3 * time.Second)
 
+	cpuProfilingStarted := false
+	if _, err := client.StartCPUProfile(cmd.Context(), &proto.StartCPUProfileRequest{}); err != nil {
+		cmd.PrintErrf("Failed to start CPU profiling: %v\n", err)
+	} else {
+		cpuProfilingStarted = true
+		defer func() {
+			if cpuProfilingStarted {
+				if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+					cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+				}
+			}
+		}()
+	}
+
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
 		return waitErr
 	}
 	cmd.Println("\nDuration completed")
+
+	if cpuProfilingStarted {
+		if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+			cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+		} else {
+			cpuProfilingStarted = false
+		}
+	}
 
 	cmd.Println("Creating debug bundle...")
 
@@ -353,6 +375,7 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			StatusRecorder: recorder,
 			SyncResponse:   syncResponse,
 			LogPath:        logFilePath,
+			CPUProfile:     nil,
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,

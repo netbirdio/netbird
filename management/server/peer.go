@@ -728,6 +728,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
+			if temporary {
+				// we should track ephemeral peers to be able to clean them if the peer don't sync and be marked as connected
+				am.networkMapController.TrackEphemeralPeer(ctx, newPeer)
+			}
+
 			if addedByUser {
 				err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 				if err != nil {

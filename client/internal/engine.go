@@ -516,6 +516,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
+	// Set up notrack rules immediately after proxy is listening to prevent
+	// conntrack entries from being created before the rules are in place
+	e.setupWGProxyNoTrack()
+
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
 		e.rpManager.SetInterface(e.wgInterface)
@@ -626,6 +630,23 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
+}
+
+// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
+// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
+func (e *Engine) setupWGProxyNoTrack() {
+	if e.firewall == nil {
+		return
+	}
+
+	proxyPort := e.wgInterface.GetProxyPort()
+	if proxyPort == 0 {
+		return
+	}
+
+	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
+		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
+	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -1062,6 +1083,9 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
 		ClientMetrics:  e.clientMetrics,
+		RefreshStatus: func() {
+			e.RunHealthProbes(true)
+		},
 	}
 
 	bundleJobParams := debug.BundleConfig{
@@ -1654,6 +1678,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 
 func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
@@ -1845,7 +1870,7 @@ func (e *Engine) getRosenpassAddr() string {
 	return ""
 }
 
-// RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
+// RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services
 // and updates the status recorder with the latest states.
 func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
@@ -1859,23 +1884,8 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	stuns := slices.Clone(e.STUNs)
 	turns := slices.Clone(e.TURNs)
 
-	if e.wgInterface != nil {
-		stats, err := e.wgInterface.GetStats()
-		if err != nil {
-			log.Warnf("failed to get wireguard stats: %v", err)
-			e.syncMsgMux.Unlock()
-			return false
-		}
-		for _, key := range e.peerStore.PeersPubKey() {
-			// wgStats could be zero value, in which case we just reset the stats
-			wgStats, ok := stats[key]
-			if !ok {
-				continue
-			}
-			if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-				log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-			}
-		}
+	if err := e.statusRecorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
 	}
 
 	e.syncMsgMux.Unlock()
