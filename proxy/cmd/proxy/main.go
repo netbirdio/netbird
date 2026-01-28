@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 
@@ -68,11 +69,12 @@ func main() {
 	}
 
 	// Configure logrus.
-	log.SetOutput(os.Stderr)
-	log.SetLevel(log.ErrorLevel)
+	level := "error"
 	if debug {
-		log.SetLevel(log.DebugLevel)
+		level = "debug"
 	}
+
+	util.InitLog(level, "console")
 
 	srv := proxy.Server{
 		Version:                  Version,
