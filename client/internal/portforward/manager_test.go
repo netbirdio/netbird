@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-nat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -142,14 +143,25 @@ func TestManager_IsAvailable(t *testing.T) {
 }
 
 func TestState_Cleanup(t *testing.T) {
+	origDiscover := discoverGateway
+	defer func() { discoverGateway = origDiscover }()
+
+	mockGateway := newMockNAT()
+	discoverGateway = func(ctx context.Context) (nat.NAT, error) {
+		return mockGateway, nil
+	}
+
 	state := &State{
 		Protocol:     "udp",
 		InternalPort: 51820,
 	}
 
-	// Cleanup should not error even if NAT discovery fails
 	err := state.Cleanup()
 	assert.NoError(t, err)
+
+	// Verify the mapping was deleted
+	_, exists := mockGateway.mappings[51820]
+	assert.False(t, exists, "mapping should be deleted after cleanup")
 }
 
 func TestState_Name(t *testing.T) {

@@ -10,6 +10,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// discoverGateway is the function used for NAT gateway discovery.
+// It can be replaced in tests to avoid real network operations.
+var discoverGateway = nat.DiscoverGateway
+
 // State is persisted only for crash recovery cleanup
 type State struct {
 	InternalPort uint16 `json:"internal_port,omitempty"`
@@ -31,7 +35,7 @@ func (s *State) Cleanup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
 	defer cancel()
 
-	gateway, err := nat.DiscoverGateway(ctx)
+	gateway, err := discoverGateway(ctx)
 	if err != nil {
 		// Discovery failure is not an error - gateway may not exist
 		log.Debugf("cleanup: no gateway found: %v", err)
