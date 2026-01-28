@@ -18,6 +18,7 @@ type MockClient struct {
 	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
+	GetServerURLFunc               func() string
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
@@ -86,6 +87,14 @@ func (m *MockClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 // GetNetworkMap mock implementation of GetNetworkMap from mgm.Client interface
 func (m *MockClient) GetNetworkMap(_ *system.Info) (*proto.NetworkMap, error) {
 	return nil, nil
+}
+
+// GetServerURL mock implementation of GetServerURL from mgm.Client interface
+func (m *MockClient) GetServerURL() string {
+	if m.GetServerURLFunc == nil {
+		return ""
+	}
+	return m.GetServerURLFunc()
 }
 
 func (m *MockClient) SyncMeta(sysInfo *system.Info) error {
