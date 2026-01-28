@@ -303,7 +303,6 @@ func (conn *Conn) Close(signalToRemote bool) {
 	}
 
 	conn.setStatusToDisconnected()
-
 	conn.opened = false
 	conn.wg.Wait()
 	conn.Log.Infof("peer connection closed")
@@ -343,7 +342,6 @@ func (conn *Conn) SetRosenpassInitializedPresharedKeyValidator(handler func(peer
 func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
 	conn.dumpState.RemoteOffer()
 	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
-
 	conn.handshaker.OnRemoteOffer(offer)
 }
 
@@ -387,7 +385,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	if conn.currentConnPriority > priority {
 		conn.Log.Infof("current connection priority (%s) is higher than the new one (%s), do not upgrade connection", conn.currentConnPriority, priority)
 		conn.statusICE.SetConnected()
-		conn.updateIceState(iceConnInfo)
+		conn.updateIceState(iceConnInfo, time.Now())
 		return
 	}
 
@@ -428,11 +426,14 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 
 	conn.Log.Infof("configure WireGuard endpoint to: %s", ep.String())
 	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey)
-	conn.enableWgWatcherIfNeeded()
+	updateTime := time.Now()
 	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
+
+	conn.enableWgWatcherIfNeeded(updateTime)
+
 	wgConfigWorkaround()
 
 	if conn.wgProxyRelay != nil {
@@ -442,8 +443,8 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
-	conn.updateIceState(iceConnInfo)
-	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
+	conn.updateIceState(iceConnInfo, updateTime)
+	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
 func (conn *Conn) onICEStateDisconnected() {
@@ -535,13 +536,13 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
 		conn.statusRelay.SetConnected()
-		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
+		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
 		return
 	}
 
 	wgProxy.Work()
 	presharedKey := conn.presharedKey(rci.rosenpassPubKey)
-	conn.enableWgWatcherIfNeeded()
+	updateTime := time.Now()
 	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), presharedKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
@@ -550,14 +551,17 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
+	conn.enableWgWatcherIfNeeded(updateTime)
+
 	wgConfigWorkaround()
+
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
-	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
+	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
-	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
+	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
 
 func (conn *Conn) onRelayDisconnected() {
@@ -640,10 +644,10 @@ func (conn *Conn) onWGDisconnected() {
 	}
 }
 
-func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte) {
+func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
 	peerState := State{
 		PubKey:             conn.config.Key,
-		ConnStatusUpdate:   time.Now(),
+		ConnStatusUpdate:   updateTime,
 		ConnStatus:         conn.evalStatus(),
 		Relayed:            conn.isRelayed(),
 		RelayServerAddress: relayServerAddr,
@@ -656,10 +660,10 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 	}
 }
 
-func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo) {
+func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) {
 	peerState := State{
 		PubKey:                     conn.config.Key,
-		ConnStatusUpdate:           time.Now(),
+		ConnStatusUpdate:           updateTime,
 		ConnStatus:                 conn.evalStatus(),
 		Relayed:                    iceConnInfo.Relayed,
 		LocalIceCandidateType:      iceConnInfo.LocalIceCandidateType,
@@ -697,12 +701,12 @@ func (conn *Conn) setStatusToDisconnected() {
 	}
 }
 
-func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAddr string) {
+func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAddr string, updateTime time.Time) {
 	if runtime.GOOS == "ios" {
 		runtime.GC()
 	}
 
-	conn.metricsStages.RecordConnectionReady()
+	conn.metricsStages.RecordConnectionReady(updateTime)
 
 	if conn.onConnected != nil {
 		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.config.WgConfig.AllowedIps[0].Addr().String(), remoteRosenpassAddr)
@@ -768,15 +772,14 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 	return true
 }
 
-func (conn *Conn) enableWgWatcherIfNeeded() {
+func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
 	if !conn.wgWatcher.IsEnabled() {
 		wgWatcherCtx, wgWatcherCancel := context.WithCancel(conn.ctx)
 		conn.wgWatcherCancel = wgWatcherCancel
 		conn.wgWatcherWg.Add(1)
-		now := time.Now()
 		go func() {
 			defer conn.wgWatcherWg.Done()
-			conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, now, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
+			conn.wgWatcher.EnableWgWatcher(wgWatcherCtx, enabledTime, conn.onWGDisconnected, conn.onWGHandshakeSuccess)
 		}()
 	}
 }
@@ -848,9 +851,7 @@ func (conn *Conn) onWGHandshakeSuccess(when time.Time) {
 
 // recordConnectionMetrics records connection stage timestamps as metrics
 func (conn *Conn) recordConnectionMetrics() {
-	log.Infof("--- record Metrics")
 	if conn.metricsRecorder == nil {
-		log.Infof("--- is nil")
 		return
 	}
 
@@ -863,7 +864,6 @@ func (conn *Conn) recordConnectionMetrics() {
 		connType = metrics.ConnectionTypeICE
 	}
 
-	log.Infof("-- record: connType: %v, %v, %v", connType, conn.metricsStages.IsReconnection(), conn.metricsStages.GetTimestamps())
 	// Record metrics with timestamps - duration calculation happens in metrics package
 	conn.metricsRecorder.RecordConnectionStages(
 		context.Background(),

@@ -4,8 +4,6 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/metrics"
 )
 
@@ -18,14 +16,12 @@ type MetricsStages struct {
 func (s *MetricsStages) RecordCreated() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordCreated")
 	s.stageTimestamps.Created = time.Now()
 }
 
 func (s *MetricsStages) RecordSemaphoreAcquired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordSemaphoreAcquired")
 	s.stageTimestamps.SemaphoreAcquired = time.Now()
 }
 
@@ -35,14 +31,12 @@ func (s *MetricsStages) RecordSemaphoreAcquired() {
 func (s *MetricsStages) RecordSignaling() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordSignaling (send)")
 
 	if s.isReconnectionAttempt {
 		return
 	}
 
 	if s.stageTimestamps.Signaling.IsZero() {
-		log.Infof("--- Recorded Signaling (initial connection, sending)")
 		s.stageTimestamps.Signaling = time.Now()
 	}
 }
@@ -53,47 +47,47 @@ func (s *MetricsStages) RecordSignaling() {
 func (s *MetricsStages) RecordSignalingReceived() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordSignalingReceived (receive)")
 
 	// Only record for reconnections when we receive a signal
 	if s.isReconnectionAttempt && s.stageTimestamps.Signaling.IsZero() {
-		log.Infof("--- Recorded Signaling (reconnection, receiving)")
 		s.stageTimestamps.Signaling = time.Now()
 	}
 }
 
-func (s *MetricsStages) RecordConnectionReady() {
+func (s *MetricsStages) RecordConnectionReady(when time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	log.Infof("--- RecordConnectionReady")
 	if s.stageTimestamps.ConnectionReady.IsZero() {
-		log.Infof("--- Recorded ConnectionReady")
-		s.stageTimestamps.ConnectionReady = time.Now()
+		s.stageTimestamps.ConnectionReady = when
 	}
-
 }
 
-func (s *MetricsStages) RecordWGHandshakeSuccess(elapsed time.Time) {
+func (s *MetricsStages) RecordWGHandshakeSuccess(handshakeTime time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Infof("--- record: %v, %v", s.stageTimestamps.ConnectionReady, elapsed)
 	if !s.stageTimestamps.ConnectionReady.IsZero() {
-		// todo, check if it is earlier then ConnectionReady
-		s.stageTimestamps.WgHandshakeSuccess = elapsed
+		// WireGuard only reports handshake times with second precision, but ConnectionReady
+		// is captured with microsecond precision. If handshake appears before ConnectionReady
+		// due to truncation (e.g., handshake at 6.042s truncated to 6.000s), normalize to
+		// ConnectionReady to avoid negative duration metrics.
+		if handshakeTime.Before(s.stageTimestamps.ConnectionReady) {
+			s.stageTimestamps.WgHandshakeSuccess = s.stageTimestamps.ConnectionReady
+		} else {
+			s.stageTimestamps.WgHandshakeSuccess = handshakeTime
+		}
 	}
 }
 
+// Disconnected sets the mode to reconnection. It is called only when both ICE and Relay have been disconnected at the same time.
 func (s *MetricsStages) Disconnected() {
-	log.Infof("--- Disconnected")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
-	s.stageTimestamps = metrics.ConnectionStageTimestamps{
-		Created:           now,
-		SemaphoreAcquired: now,
-	}
+	// Reset all timestamps for reconnection
+	// For reconnections, we only track from Signaling onwards
+	// This avoids meaningless creation→semaphore and semaphore→signaling metrics
+	s.stageTimestamps = metrics.ConnectionStageTimestamps{}
 	s.isReconnectionAttempt = true
 }
 
