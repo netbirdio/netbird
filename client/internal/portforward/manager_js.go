@@ -25,7 +25,7 @@ func NewManager(_ *statemanager.Manager) *Manager {
 }
 
 // Start is a no-op on js/wasm.
-func (m *Manager) Start(context.Context, int) {}
+func (m *Manager) Start(context.Context, uint16) {}
 
 // Stop is a no-op on js/wasm.
 func (m *Manager) Stop() {}

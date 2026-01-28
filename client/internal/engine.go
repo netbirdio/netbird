@@ -513,7 +513,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.setupWGProxyNoTrack()
 
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
-	e.portForwardManager.Start(e.ctx, e.config.WgPort)
+	e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {

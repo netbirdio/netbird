@@ -55,7 +55,7 @@ func NewManager(stateManager *statemanager.Manager) *Manager {
 
 // Start begins async discovery and mapping creation for the given WireGuard port.
 // This does not block - use GetMapping() to check if mapping is ready.
-func (m *Manager) Start(ctx context.Context, wgPort int) {
+func (m *Manager) Start(ctx context.Context, wgPort uint16) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -69,7 +69,7 @@ func (m *Manager) Start(ctx context.Context, wgPort int) {
 	}
 
 	m.ctx, m.cancel = context.WithCancel(ctx)
-	m.wgPort = uint16(wgPort)
+	m.wgPort = wgPort
 
 	m.stateManager.RegisterState(&State{})
 
@@ -207,10 +207,26 @@ func (m *Manager) Stop() {
 	m.wg.Wait()
 
 	m.mu.Lock()
-	if err := m.persistStateLocked(); err != nil {
-		log.Debugf("persist state on stop: %v", err)
+	defer m.mu.Unlock()
+
+	if m.gateway == nil || m.mapping == nil {
+		return
 	}
-	m.mu.Unlock()
+
+	ctx, ctxCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer ctxCancel()
+
+	if err := m.gateway.DeletePortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort)); err != nil {
+		log.Debugf("delete port mapping on stop: %v", err)
+		return
+	}
+
+	log.Infof("deleted port mapping for port %d", m.mapping.InternalPort)
+	m.mapping = nil
+
+	if err := m.persistStateLocked(); err != nil {
+		log.Debugf("clear state on stop: %v", err)
+	}
 }
 
 // GetMapping returns the current mapping if ready, nil otherwise
