@@ -558,7 +558,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 
-			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			host, portStr, err := net.SplitHostPort(val)
 			if err != nil {
 				log.Errorf("failed to parse endpoint: %v", err)
 				continue
