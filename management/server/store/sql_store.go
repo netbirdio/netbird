@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -4726,6 +4727,7 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 
 func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
+		ID:        xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
 		Domain:    domainName,
 		AccountID: accountID,
 		Type:      domain.TypeCustom,
