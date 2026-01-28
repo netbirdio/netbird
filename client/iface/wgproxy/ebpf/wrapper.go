@@ -19,6 +19,9 @@ import (
 )
 
 var (
+	errIPv6ConnNotAvailable = errors.New("IPv6 endpoint but rawConnIPv6 is not available")
+	errIPv4ConnNotAvailable = errors.New("IPv4 endpoint but rawConnIPv4 is not available")
+
 	localHostNetIPv4 = net.ParseIP("127.0.0.1")
 	localHostNetIPv6 = net.ParseIP("::1")
 
@@ -124,16 +127,24 @@ func (p *ProxyWrapper) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteCo
 		return fmt.Errorf("add turn conn: %w", err)
 	}
 
-	sender, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, addr)
+	headers, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, addr)
 	if err != nil {
 		return fmt.Errorf("create packet sender: %w", err)
+	}
+
+	// Check if required raw connection is available
+	if !headers.isIPv4 && p.wgeBPFProxy.rawConnIPv6 == nil {
+		return errIPv6ConnNotAvailable
+	}
+	if headers.isIPv4 && p.wgeBPFProxy.rawConnIPv4 == nil {
+		return errIPv4ConnNotAvailable
 	}
 
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.wgRelayedEndpointAddr = addr
-	p.headers = sender
-	p.rawConn = p.selectRawConn(sender)
+	p.headers = headers
+	p.rawConn = p.selectRawConn(headers)
 	return nil
 }
 
@@ -184,6 +195,16 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 	header, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, endpoint)
 	if err != nil {
 		log.Errorf("failed to create packet headers: %s", err)
+		return
+	}
+
+	// Check if required raw connection is available
+	if !header.isIPv4 && p.wgeBPFProxy.rawConnIPv6 == nil {
+		log.Error(errIPv6ConnNotAvailable)
+		return
+	}
+	if header.isIPv4 && p.wgeBPFProxy.rawConnIPv4 == nil {
+		log.Error(errIPv4ConnNotAvailable)
 		return
 	}
 
