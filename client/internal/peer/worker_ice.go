@@ -430,7 +430,7 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 
 	priority := srflxCandidate.Priority() + 1000
 
-	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+	candidate, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
 		Network:   srflxCandidate.NetworkType().String(),
 		Address:   externalIP,
 		Port:      int(mapping.ExternalPort),
@@ -439,6 +439,20 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 		RelAddr:   relAddr,
 		RelPort:   int(mapping.InternalPort),
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create candidate: %w", err)
+	}
+
+	for _, e := range srflxCandidate.Extensions() {
+		if e.Key == ice.ExtensionKeyCandidateID {
+			e.Value = srflxCandidate.ID()
+		}
+		if err := candidate.AddExtension(e); err != nil {
+			return nil, fmt.Errorf("add extension: %w", err)
+		}
+	}
+
+	return candidate, nil
 }
 
 func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
