@@ -356,7 +356,7 @@ func TestRouteChanged(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := routeChanged(tt.route, tt.nexthopv4, tt.nexthopv6)
+			result := routeChanged(tt.route, tt.nexthopv4, tt.nexthopv6, nil)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -381,6 +381,11 @@ func TestIsSoftInterface(t *testing.T) {
 		{
 			name:     "Teredo interface should be detected",
 			ifname:   "Teredo Tunneling Pseudo-Interface",
+			expected: true,
+		},
+		{
+			name:     "GlobalProtect interface should be detected",
+			ifname:   "PANGP Virtual Ethernet Adapter",
 			expected: true,
 		},
 		{
