@@ -615,7 +615,7 @@ func (s *DefaultServer) applyHostConfig() {
 	s.registerFallback(config)
 }
 
-// registerFallback registers original nameservers as low-priority fallback handlers
+// registerFallback registers original nameservers as low-priority fallback handlers.
 func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
 	if !ok {
@@ -624,6 +624,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	originalNameservers := hostMgrWithNS.getOriginalNameservers()
 	if len(originalNameservers) == 0 {
+		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
 		return
 	}
 
