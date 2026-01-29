@@ -69,6 +69,8 @@ type Options struct {
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
+	// BlockInbound blocks all inbound connections from peers
+	BlockInbound bool
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -137,6 +139,7 @@ func New(opts Options) (*Client, error) {
 		PreSharedKey:        &opts.PreSharedKey,
 		DisableServerRoutes: &t,
 		DisableClientRoutes: &opts.DisableClientRoutes,
+		BlockInbound:        &opts.BlockInbound,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)

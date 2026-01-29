@@ -14,6 +14,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
@@ -37,6 +38,11 @@ func New() *NetworkMonitor {
 
 // Listen begins monitoring network changes. When a change is detected, this function will return without error.
 func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
+	if netstack.IsEnabled() {
+		log.Debugf("Network monitor: skipping in netstack mode")
+		return nil
+	}
+
 	nw.mu.Lock()
 	if nw.cancel != nil {
 		nw.mu.Unlock()
