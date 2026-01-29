@@ -170,7 +170,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Finally, start the reverse proxy.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   s.auth.Protect(accessLog.Middleware(s.proxy)),
+		Handler:   accessLog.Middleware(s.auth.Protect(s.proxy)),
 		TLSConfig: tlsConfig,
 	}
 	return s.https.ListenAndServeTLS("", "")

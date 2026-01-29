@@ -39,6 +39,14 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set the accountId in the context for later retrieval.
 	ctx = withAccountId(ctx, accountID)
 
+	// Also populate captured data if it exists (allows middleware to read after handler completes).
+	// This solves the problem of passing data UP the middleware chain: we put a mutable struct
+	// pointer in the context, and mutate the struct here so outer middleware can read it.
+	if capturedData := CapturedDataFromContext(ctx); capturedData != nil {
+		capturedData.SetServiceId(serviceId)
+		capturedData.SetAccountId(accountID)
+	}
+
 	// Set up a reverse proxy using the transport and then use it to serve the request.
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = p.transport

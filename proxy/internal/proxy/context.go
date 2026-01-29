@@ -28,11 +28,25 @@ func (c *CapturedData) SetServiceId(serviceId string) {
 	c.ServiceId = serviceId
 }
 
+// GetServiceId safely gets the service ID
+func (c *CapturedData) GetServiceId() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ServiceId
+}
+
 // SetAccountId safely sets the account ID
 func (c *CapturedData) SetAccountId(accountId string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.AccountId = accountId
+}
+
+// GetAccountId safely gets the account ID
+func (c *CapturedData) GetAccountId() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AccountId
 }
 
 // WithCapturedData adds a CapturedData struct to the context
