@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/netbirdio/netbird/client/embed"
 )
@@ -72,5 +73,19 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !exists {
 		return nil, fmt.Errorf("no peer connection found for host: %s", req.Host)
 	}
-	return client.NewHTTPClient().Do(req)
+
+	// Create a new transport using the client dialer and perform the roundtrip.
+	// We do this instead of using the client HTTPClient to avoid issues around
+	// client request validation that do not work with the reverse proxied
+	// requests.
+	// Other values are simply copied from the http.DefaultTransport which the
+	// standard reverse proxy implementation would have used.
+	// TODO: tune this transport for our needs.
+	return (&http.Transport{
+		DialContext:           client.DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}).RoundTrip(req)
 }
