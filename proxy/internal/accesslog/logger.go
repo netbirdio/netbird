@@ -48,7 +48,7 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	// allow for resolving that on the server.
 	now := timestamppb.Now() // Grab the timestamp before launching the goroutine to try to prevent weird timing issues. This is probably unnecessary.
 	go func() {
-		if _, err := l.client.SendAccessLog(ctx, &proto.SendAccessLogRequest{
+		if _, err := l.client.SendAccessLog(context.Background(), &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				Timestamp:     now,
 				ServiceId:     entry.ServiceId,
