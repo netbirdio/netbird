@@ -223,7 +223,7 @@ install_netbird() {
     case "$PACKAGE_MANAGER" in
     apt)
         add_apt_repo
-        ${SUDO} apt-get install netbird -y
+        ${SUDO} apt-get install resolvconf netbird -y
 
         if ! $SKIP_UI_APP; then
             ${SUDO} apt-get install netbird-ui -y
