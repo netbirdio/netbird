@@ -7,25 +7,25 @@ import (
 )
 
 const (
-	pinUserId = "pin-user"
-	pinFormId = "pin"
+	passwordUserId = "password-user"
+	passwordFormId = "password"
 )
 
-type Pin struct {
+type Password struct {
 	id, accountId string
 	client        authenticator
 }
 
-func NewPin(client authenticator, id, accountId string) Pin {
-	return Pin{
+func NewPassword(client authenticator, id, accountId string) Password {
+	return Password{
 		id:        id,
 		accountId: accountId,
 		client:    client,
 	}
 }
 
-func (Pin) Type() Method {
-	return MethodPIN
+func (Password) Type() Method {
+	return MethodPassword
 }
 
 // Authenticate attempts to authenticate the request using a form
@@ -33,30 +33,30 @@ func (Pin) Type() Method {
 // If authentication fails, the required HTTP form ID is returned
 // so that it can be injected into a request from the UI so that
 // authentication may be successful.
-func (p Pin) Authenticate(r *http.Request) (string, bool, any) {
-	pin := r.FormValue(pinFormId)
+func (p Password) Authenticate(r *http.Request) (string, bool, any) {
+	password := r.FormValue(passwordFormId)
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
 		Id:        p.id,
 		AccountId: p.accountId,
-		Request: &proto.AuthenticateRequest_Pin{
-			Pin: &proto.PinRequest{
-				Pin: pin,
+		Request: &proto.AuthenticateRequest_Password{
+			Password: &proto.PasswordRequest{
+				Password: password,
 			},
 		},
 	})
 	if err != nil {
 		// TODO: log error here
-		return "", false, pinFormId
+		return "", false, passwordFormId
 	}
 
 	if res.GetSuccess() {
-		return pinUserId, true, nil
+		return passwordUserId, true, nil
 	}
 
-	return "", false, pinFormId
+	return "", false, passwordFormId
 }
 
-func (p Pin) Middleware(next http.Handler) http.Handler {
+func (p Password) Middleware(next http.Handler) http.Handler {
 	return next
 }

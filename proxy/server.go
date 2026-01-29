@@ -287,15 +287,17 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	// the auth and proxy mappings.
 	// Note: this does require the management server to always send a
 	// full mapping rather than deltas during a modification.
+	mgmtClient := proto.NewProxyServiceClient(s.mgmtConn)
 	var schemes []auth.Scheme
-	if mapping.GetAuth().GetPin().GetEnabled() {
-		schemes = append(schemes, auth.NewPin(
-			mapping.GetAuth().GetPin().GetPin(),
-		))
+	if mapping.GetAuth().GetPassword() {
+		schemes = append(schemes, auth.NewPassword(mgmtClient, mapping.GetId(), mapping.GetAccountId()))
 	}
-	if mapping.GetAuth().GetOidc().GetEnabled() {
+	if mapping.GetAuth().GetPin() {
+		schemes = append(schemes, auth.NewPin(mgmtClient, mapping.GetId(), mapping.GetAccountId()))
+	}
+	if mapping.GetAuth().GetOidc() != nil {
 		oidc := mapping.GetAuth().GetOidc()
-		scheme, err := auth.NewOIDC(ctx, auth.OIDCConfig{
+		scheme, err := auth.NewOIDC(ctx, mapping.GetId(), mapping.GetAccountId(), auth.OIDCConfig{
 			OIDCProviderURL:  oidc.GetOidcProviderUrl(),
 			OIDCClientID:     oidc.GetOidcClientId(),
 			OIDCClientSecret: oidc.GetOidcClientSecret(),
@@ -307,6 +309,9 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		} else {
 			schemes = append(schemes, scheme)
 		}
+	}
+	if mapping.GetAuth().GetLink() {
+		schemes = append(schemes, auth.NewLink(mgmtClient, mapping.GetId(), mapping.GetAccountId()))
 	}
 	s.auth.AddDomain(mapping.GetDomain(), schemes)
 	s.proxy.AddMapping(s.protoToMapping(mapping))

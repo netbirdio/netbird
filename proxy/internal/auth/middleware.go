@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
@@ -8,6 +9,10 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc"
+
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 //go:embed auth.gohtml
@@ -16,9 +21,10 @@ var authTemplate string
 type Method string
 
 var (
-	MethodBasicAuth Method = "basic"
-	MethodPIN       Method = "pin"
-	MethodBearer    Method = "bearer"
+	MethodPassword Method = "password"
+	MethodPIN      Method = "pin"
+	MethodOIDC     Method = "oidc"
+	MethodLink     Method = "link"
 )
 
 func (m Method) String() string {
@@ -34,6 +40,10 @@ type session struct {
 	UserID    string
 	Method    Method
 	CreatedAt time.Time
+}
+
+type authenticator interface {
+	Authenticate(ctx context.Context, in *proto.AuthenticateRequest, opts ...grpc.CallOption) (*proto.AuthenticateResponse, error)
 }
 
 type Scheme interface {

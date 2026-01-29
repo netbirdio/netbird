@@ -35,14 +35,15 @@ type oidcState struct {
 
 // OIDC implements the Scheme interface for JWT/OIDC authentication
 type OIDC struct {
-	verifier    *oidc.IDTokenVerifier
-	oauthConfig *oauth2.Config
-	states      map[string]*oidcState
-	statesMux   sync.RWMutex
+	id, accountId string
+	verifier      *oidc.IDTokenVerifier
+	oauthConfig   *oauth2.Config
+	states        map[string]*oidcState
+	statesMux     sync.RWMutex
 }
 
 // NewOIDC creates a new OIDC authentication scheme
-func NewOIDC(ctx context.Context, cfg OIDCConfig) (*OIDC, error) {
+func NewOIDC(ctx context.Context, id, accountId string, cfg OIDCConfig) (*OIDC, error) {
 	if cfg.OIDCProviderURL == "" || cfg.OIDCClientID == "" {
 		return nil, fmt.Errorf("OIDC provider URL and client ID are required")
 	}
@@ -58,6 +59,8 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig) (*OIDC, error) {
 	}
 
 	o := &OIDC{
+		id:        id,
+		accountId: accountId,
 		verifier: provider.Verifier(&oidc.Config{
 			ClientID: cfg.OIDCClientID,
 		}),
@@ -77,7 +80,7 @@ func NewOIDC(ctx context.Context, cfg OIDCConfig) (*OIDC, error) {
 }
 
 func (*OIDC) Type() Method {
-	return MethodBearer
+	return MethodOIDC
 }
 
 func (o *OIDC) Authenticate(r *http.Request) (string, bool, any) {

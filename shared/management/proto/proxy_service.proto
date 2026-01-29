@@ -12,6 +12,8 @@ service ProxyService {
   rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
 
   rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
+
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -40,35 +42,18 @@ message PathMapping {
 }
 
 message Authentication {
-  Password password = 1;
-  Pin pin = 2;
-  OIDC oidc = 3;
-  Link link = 4;
-}
-
-message Password {
-  bool enabled = 1;
-  string password = 2;
-}
-
-message Pin {
-  bool enabled = 1;
-  string pin = 2;
-}
-
-message Link {
-  bool enabled = 1;
-  string link_url = 2;
+  bool password = 1;
+  bool pin = 2;
+  optional OIDC oidc = 3;
+  bool link = 4;
 }
 
 message OIDC {
-  bool enabled = 1;
-  string oidc_provider_url = 2;
-  string oidc_client_id = 3;
-  string oidc_client_secret = 4;
-  string oidc_redirect_url = 5;
-  repeated string oidc_scopes = 6;
-  string session_cookie_name = 7;
+  string oidc_provider_url = 1;
+  string oidc_client_id = 2;
+  string oidc_client_secret = 3;
+  string oidc_redirect_url = 4;
+  repeated string oidc_scopes = 5;
 }
 
 message ProxyMapping {
@@ -103,4 +88,31 @@ message AccessLog {
   string auth_mechanism = 11;
   string user_id = 12;
   bool auth_success = 13;
+}
+
+message AuthenticateRequest {
+  string id = 1;
+  string account_id = 2;
+  oneof request {
+    PasswordRequest password = 3;
+    PinRequest pin = 4;
+    LinkRequest link = 5;
+  }
+}
+
+message PasswordRequest {
+  string password = 1;
+}
+
+message PinRequest {
+  string pin = 1;
+}
+
+message LinkRequest {
+  string email = 1;
+  string redirect = 2;
+}
+
+message AuthenticateResponse {
+  bool success = 1;
 }

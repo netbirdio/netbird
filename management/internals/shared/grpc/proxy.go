@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"sync"
 	"time"
@@ -245,4 +246,34 @@ func (s *ProxyServiceServer) GetConnectedProxies() []string {
 		return true
 	})
 	return proxies
+}
+
+func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
+	proxy, err := s.reverseProxyStore.GetReverseProxyByID(ctx, store.LockingStrengthNone, req.GetAccountId(), req.GetId())
+	if err != nil {
+		// TODO: log the error
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
+	}
+	var authenticated bool
+	switch v := req.GetRequest().(type) {
+	case *proto.AuthenticateRequest_Pin:
+		auth := proxy.Auth.PinAuth
+		if auth == nil || !auth.Enabled {
+			// TODO: log
+			// Break here and use the default authenticated == false.
+			break
+		}
+		authenticated = subtle.ConstantTimeCompare([]byte(auth.Pin), []byte(v.Pin.GetPin())) == 1
+	case *proto.AuthenticateRequest_Password:
+		auth := proxy.Auth.PasswordAuth
+		if auth == nil || !auth.Enabled {
+			// TODO: log
+			// Break here and use the default authenticated == false.
+			break
+		}
+		authenticated = subtle.ConstantTimeCompare([]byte(auth.Password), []byte(v.Password.GetPassword())) == 1
+	}
+	return &proto.AuthenticateResponse{
+		Success: authenticated,
+	}, nil
 }

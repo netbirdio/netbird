@@ -162,23 +162,25 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 	auth := &proto.Authentication{}
 
 	if r.Auth.PasswordAuth != nil && r.Auth.PasswordAuth.Enabled {
-		auth.Password = &proto.Password{
-			Enabled:  true,
-			Password: r.Auth.PasswordAuth.Password,
-		}
+		auth.Password = true
 	}
 
 	if r.Auth.PinAuth != nil && r.Auth.PinAuth.Enabled {
-		auth.Pin = &proto.Pin{
-			Enabled: true,
-			Pin:     r.Auth.PinAuth.Pin,
-		}
+		auth.Pin = true
 	}
 
 	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
 		auth.Oidc = &proto.OIDC{
-			Enabled: true,
+			OidcProviderUrl:  "",  // TODO:
+			OidcClientId:     "",  // TODO:
+			OidcClientSecret: "",  // TODO:
+			OidcRedirectUrl:  "",  // TODO:
+			OidcScopes:       nil, // TODO:
 		}
+	}
+
+	if r.Auth.LinkAuth != nil && r.Auth.LinkAuth.Enabled {
+		auth.Link = true
 	}
 
 	return &proto.ProxyMapping{

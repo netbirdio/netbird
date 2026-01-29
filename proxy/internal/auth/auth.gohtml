@@ -1,4 +1,14 @@
 <!doctype html>
 {{ range . }}
-<p>{{ . }}</p>
+{{ if eq .Key "pin" }}
+<form>
+    <input name={{ . }} />
+    <button type=submit></button>
+</form>
+{{ else if eq .Key "password" }}
+<form>
+    <input name={{ . }} />
+    <button type=submit></button>
+</form>
+{{ end }}
 {{ end }}
