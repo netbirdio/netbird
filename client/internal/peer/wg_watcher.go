@@ -95,6 +95,9 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			if lastHandshake.IsZero() {
 				elapsed := calcElapsed(enabledTime, *handshake)
 				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
+				if onHandshakeSuccessFn != nil {
+					onHandshakeSuccessFn(*handshake)
+				}
 			}
 
 			lastHandshake = *handshake
