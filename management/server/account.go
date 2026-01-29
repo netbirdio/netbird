@@ -26,6 +26,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -231,7 +232,7 @@ func BuildManager(
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
 	am.singleAccountMode = singleAccountModeDomain != "" && accountsCounter <= 1
 	if am.singleAccountMode {
-		if !isDomainValid(singleAccountModeDomain) {
+		if !nbdomain.IsValidDomainNoWildcard(singleAccountModeDomain) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
@@ -402,7 +403,7 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+	if newSettings.DNSDomain != "" && !nbdomain.IsValidDomainNoWildcard(newSettings.DNSDomain) {
 		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
 
@@ -1691,10 +1692,12 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	return nil
 }
 
-var invalidDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+// isDomainValid validates public/IDP domains using stricter rules than internal DNS domains.
+// Requires at least 2-char alphabetic TLD and no single-label domains.
+var publicDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 
 func isDomainValid(domain string) bool {
-	return invalidDomainRegexp.MatchString(domain)
+	return publicDomainRegexp.MatchString(domain)
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string, peerIDs []string) {
