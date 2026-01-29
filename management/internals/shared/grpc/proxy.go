@@ -157,10 +157,11 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 				// We don't care about disabled reverse proxy targets for snapshots.
 				continue
 			}
-			// todo: review this fix
+
+			// Default to a top level path (routes all paths) if no path is defined.
 			path := "/"
 			if t.Path != nil {
-				path = "/"
+				path = *t.Path
 			}
 
 			paths = append(paths, &proto.PathMapping{
