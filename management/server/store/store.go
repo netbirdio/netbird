@@ -91,6 +91,8 @@ type Store interface {
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
+	AddUserToGroup(ctx context.Context, accountID, userID, groupID string) error
+	RemoveUserFromGroup(ctx context.Context, userID, groupID string) error
 
 	SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error
 	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error)
@@ -384,6 +386,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedIDs[types.User, types.Group](ctx, db, "auto_groups")
+		},
 	}
 }
 
@@ -422,6 +427,15 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateJsonToTable[types.User](ctx, db, "auto_groups", func(accountID, id, value string) any {
+				return &types.GroupUser{
+					AccountID: accountID,
+					GroupID:   value,
+					UserID:    id,
+				}
+			})
 		},
 	}
 }

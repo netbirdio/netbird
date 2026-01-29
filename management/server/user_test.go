@@ -345,6 +345,9 @@ func TestUser_Copy(t *testing.T) {
 		IsServiceUser:   true,
 		ServiceUserName: "servicename",
 		AutoGroups:      []string{"group1", "group2"},
+		Groups: []*types.GroupUser{
+			{AccountID: "accountId", GroupID: "groupId", UserID: "userId"},
+		},
 		PATs: map[string]*types.PersonalAccessToken{
 			"pat1": {
 				ID:             "pat1",
@@ -413,6 +416,14 @@ func TestUser_CreateServiceUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -460,6 +471,14 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -539,6 +558,14 @@ func TestUser_InviteNewUser(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	account.Groups["group1"] = &types.Group{
+		ID:   "group1",
+		Name: "group1",
+	}
+	account.Groups["group2"] = &types.Group{
+		ID:   "group2",
+		Name: "group2",
+	}
 
 	err = store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -1657,6 +1684,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 			},
@@ -1676,6 +1704,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.Admin),
 			},
@@ -1695,6 +1724,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 				Restricted:  true,
@@ -1716,6 +1746,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					LastLogin:            time.Time{},
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
+					AutoGroups:           []string{},
 				},
 				Permissions: mergeRolePermissions(roles.User),
 				Restricted:  false,

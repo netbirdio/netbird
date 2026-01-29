@@ -1418,9 +1418,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return fmt.Errorf("error saving groups: %w", err)
 		}
 
-		addNewGroups = util.Difference(updatedAutoGroups, user.AutoGroups)
-		removeOldGroups = util.Difference(user.AutoGroups, updatedAutoGroups)
-
 		user.AutoGroups = updatedAutoGroups
 		if err = transaction.SaveUser(ctx, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
