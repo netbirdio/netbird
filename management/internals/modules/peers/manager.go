@@ -108,7 +108,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 			if err != nil {
-				if e, ok := status.FromError(err); ok && e.ErrorType == status.NotFound {
+				if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
 					log.WithContext(ctx).Tracef("DeletePeers: peer %s not found, skipping", peerID)
 					return nil
 				}
