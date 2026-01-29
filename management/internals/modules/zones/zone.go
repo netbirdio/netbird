@@ -6,7 +6,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
-	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -73,7 +73,7 @@ func (z *Zone) Validate() error {
 		return errors.New("zone name exceeds maximum length of 255 characters")
 	}
 
-	if !util.IsValidDomain(z.Domain) {
+	if !domain.IsValidDomainNoWildcard(z.Domain) {
 		return errors.New("invalid zone domain format")
 	}
 
