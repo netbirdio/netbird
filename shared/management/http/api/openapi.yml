@@ -2699,6 +2699,75 @@ components:
         - page_size
         - total_records
         - total_pages
+    ProxyAccessLog:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Unique identifier for the access log entry"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        proxy_id:
+          type: string
+          description: "ID of the reverse proxy that handled the request"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Timestamp when the request was made"
+          example: "2024-01-31T15:30:00Z"
+        method:
+          type: string
+          description: "HTTP method of the request"
+          example: "GET"
+        host:
+          type: string
+          description: "Host header of the request"
+          example: "example.com"
+        path:
+          type: string
+          description: "Path of the request"
+          example: "/api/users"
+        duration_ms:
+          type: integer
+          description: "Duration of the request in milliseconds"
+          example: 150
+        status_code:
+          type: integer
+          description: "HTTP status code returned"
+          example: 200
+        source_ip:
+          type: string
+          description: "Source IP address of the request"
+          example: "192.168.1.100"
+        reason:
+          type: string
+          description: "Reason for the request result (e.g., authentication failure)"
+          example: "Authentication failed"
+        user_id:
+          type: string
+          description: "ID of the authenticated user, if applicable"
+          example: "user-123"
+        auth_method_used:
+          type: string
+          description: "Authentication method used (e.g., password, pin, oidc)"
+          example: "oidc"
+        country_code:
+          type: string
+          description: "Country code from geolocation"
+          example: "US"
+        city_name:
+          type: string
+          description: "City name from geolocation"
+          example: "San Francisco"
+      required:
+        - id
+        - proxy_id
+        - timestamp
+        - method
+        - host
+        - path
+        - duration_ms
+        - status_code
     IdentityProviderType:
       type: string
       description: Type of identity provider
@@ -6191,6 +6260,26 @@ paths:
                 $ref: "#/components/schemas/NetworkTrafficEventsResponse"
         '400':
           "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/events/proxy:
+    get:
+      summary: List all Reverse Proxy Access Logs
+      description: Returns a list of all reverse proxy access log entries
+      tags: [ Events ]
+      responses:
+        "200":
+          description: List of reverse proxy access logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProxyAccessLog"
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':

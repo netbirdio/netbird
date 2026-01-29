@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 )
@@ -31,8 +33,10 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			host = r.Host
 		}
 
-		l.log(r.Context(), logEntry{
+		entry := logEntry{
+			ID:            xid.New().String(),
 			ServiceId:     proxy.ServiceIdFromContext(r.Context()),
+			AccountID:     proxy.AccountIdFromContext(r.Context()),
 			Host:          host,
 			Path:          r.URL.Path,
 			DurationMs:    duration.Milliseconds(),
@@ -42,6 +46,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			AuthMechanism: auth.MethodFromContext(r.Context()).String(),
 			UserId:        auth.UserFromContext(r.Context()),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
-		})
+		}
+		l.log(r.Context(), entry)
 	})
 }

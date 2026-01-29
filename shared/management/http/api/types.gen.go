@@ -1892,6 +1892,51 @@ type ProcessCheck struct {
 	Processes []Process `json:"processes"`
 }
 
+// ProxyAccessLog defines model for ProxyAccessLog.
+type ProxyAccessLog struct {
+	// AuthMethodUsed Authentication method used (e.g., password, pin, oidc)
+	AuthMethodUsed *string `json:"auth_method_used,omitempty"`
+
+	// CityName City name from geolocation
+	CityName *string `json:"city_name,omitempty"`
+
+	// CountryCode Country code from geolocation
+	CountryCode *string `json:"country_code,omitempty"`
+
+	// DurationMs Duration of the request in milliseconds
+	DurationMs int `json:"duration_ms"`
+
+	// Host Host header of the request
+	Host string `json:"host"`
+
+	// Id Unique identifier for the access log entry
+	Id string `json:"id"`
+
+	// Method HTTP method of the request
+	Method string `json:"method"`
+
+	// Path Path of the request
+	Path string `json:"path"`
+
+	// ProxyId ID of the reverse proxy that handled the request
+	ProxyId string `json:"proxy_id"`
+
+	// Reason Reason for the request result (e.g., authentication failure)
+	Reason *string `json:"reason,omitempty"`
+
+	// SourceIp Source IP address of the request
+	SourceIp *string `json:"source_ip,omitempty"`
+
+	// StatusCode HTTP status code returned
+	StatusCode int `json:"status_code"`
+
+	// Timestamp Timestamp when the request was made
+	Timestamp time.Time `json:"timestamp"`
+
+	// UserId ID of the authenticated user, if applicable
+	UserId *string `json:"user_id,omitempty"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -2665,14 +2710,14 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
-// PostApiReverseProxyJSONRequestBody defines body for PostApiReverseProxy for application/json ContentType.
-type PostApiReverseProxyJSONRequestBody = ReverseProxyRequest
+// PostApiReverseProxiesJSONRequestBody defines body for PostApiReverseProxies for application/json ContentType.
+type PostApiReverseProxiesJSONRequestBody = ReverseProxyRequest
 
-// PostApiReverseProxyDomainsJSONRequestBody defines body for PostApiReverseProxyDomains for application/json ContentType.
-type PostApiReverseProxyDomainsJSONRequestBody = ReverseProxyDomainRequest
+// PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
+type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest
 
-// PutApiReverseProxyProxyIdJSONRequestBody defines body for PutApiReverseProxyProxyId for application/json ContentType.
-type PutApiReverseProxyProxyIdJSONRequestBody = ReverseProxyRequest
+// PutApiReverseProxiesProxyIdJSONRequestBody defines body for PutApiReverseProxiesProxyId for application/json ContentType.
+type PutApiReverseProxiesProxyIdJSONRequestBody = ReverseProxyRequest
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

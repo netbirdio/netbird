@@ -25,6 +25,8 @@ func NewLogger(client gRPCClient) *Logger {
 }
 
 type logEntry struct {
+	ID            string
+	AccountID     string
 	ServiceId     string
 	Host          string
 	Path          string
@@ -50,6 +52,8 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	go func() {
 		if _, err := l.client.SendAccessLog(context.Background(), &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
+				LogId:         entry.ID,
+				AccountId:     entry.AccountID,
 				Timestamp:     now,
 				ServiceId:     entry.ServiceId,
 				Host:          entry.Host,

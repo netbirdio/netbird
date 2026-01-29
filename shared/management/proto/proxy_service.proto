@@ -43,6 +43,7 @@ message Authentication {
   Password password = 1;
   Pin pin = 2;
   OIDC oidc = 3;
+  Link link = 4;
 }
 
 message Password {
@@ -73,10 +74,11 @@ message OIDC {
 message ProxyMapping {
   ProxyMappingUpdateType type = 1;
   string id = 2;
-  string domain = 3;
-  repeated PathMapping path = 4;
-  string setup_key = 5;
-  Authentication auth = 6;
+  string account_id = 3;
+  string domain = 4;
+  repeated PathMapping path = 5;
+  string setup_key = 6;
+  Authentication auth = 7;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -89,14 +91,16 @@ message SendAccessLogResponse {}
 
 message AccessLog {
   google.protobuf.Timestamp timestamp = 1;
-  string service_id = 2;
-  string host = 3;
-  string path = 4;
-  int64 duration_ms = 5;
-  string method = 6;
-  int32 response_code = 7;
-  string source_ip = 8;
-  string auth_mechanism = 9;
-  string user_id = 10;
-  bool auth_success = 11;
+  string log_id = 2;
+  string account_id = 3;
+  string service_id = 4;
+  string host = 5;
+  string path = 6;
+  int64 duration_ms = 7;
+  string method = 8;
+  int32 response_code = 9;
+  string source_ip = 10;
+  string auth_mechanism = 11;
+  string user_id = 12;
+  bool auth_success = 13;
 }

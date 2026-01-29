@@ -29,6 +29,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -130,6 +131,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{}, &domain.Domain{},
+		&accesslogs.AccessLogEntry{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -4781,4 +4783,41 @@ func (s *SqlStore) DeleteCustomDomain(ctx context.Context, accountID string, dom
 	}
 
 	return nil
+}
+
+// CreateAccessLog creates a new access log entry in the database
+func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
+	result := s.db.Create(logEntry)
+	if result.Error != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"proxy_id": logEntry.ProxyID,
+			"method":   logEntry.Method,
+			"host":     logEntry.Host,
+			"path":     logEntry.Path,
+		}).Errorf("failed to create access log entry in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create access log entry in store")
+	}
+	return nil
+}
+
+// GetAccountAccessLogs retrieves all access logs for a given account
+func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*accesslogs.AccessLogEntry, error) {
+	var logs []*accesslogs.AccessLogEntry
+
+	query := s.db.WithContext(ctx).
+		Where(accountIDCondition, accountID).
+		Order("timestamp DESC").
+		Limit(1000)
+
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	result := query.Find(&logs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get access logs from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get access logs from store")
+	}
+
+	return logs, nil
 }

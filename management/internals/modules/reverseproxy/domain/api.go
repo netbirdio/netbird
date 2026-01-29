@@ -76,7 +76,7 @@ func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PostApiReverseProxyDomainsJSONRequestBody
+	var req api.PostApiReverseProxiesDomainsJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return

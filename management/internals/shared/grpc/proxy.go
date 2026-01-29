@@ -6,13 +6,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/activity"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/management/server/activity"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -21,6 +23,7 @@ import (
 type reverseProxyStore interface {
 	GetReverseProxies(ctx context.Context, lockStrength store.LockingStrength) ([]*reverseproxy.ReverseProxy, error)
 	GetAccountReverseProxies(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error)
+	GetReverseProxyByID(ctx context.Context, lockStrength store.LockingStrength, accountID string, serviceID string) (*reverseproxy.ReverseProxy, error)
 }
 
 type keyStore interface {
@@ -43,6 +46,9 @@ type ProxyServiceServer struct {
 
 	// Store for client setup keys
 	keyStore keyStore
+
+	// Manager for access logs
+	accessLogManager accesslogs.Manager
 }
 
 // proxyConnection represents a connected proxy
@@ -56,11 +62,12 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore, keys keyStore) *ProxyServiceServer {
+func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr accesslogs.Manager) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
 		reverseProxyStore: store,
 		keyStore:          keys,
+		accessLogManager:  accessLogMgr,
 	}
 }
 
@@ -186,21 +193,30 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 
 // SendAccessLog processes access log from proxy
 func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendAccessLogRequest) (*proto.SendAccessLogResponse, error) {
-	log.WithFields(log.Fields{
-		"proxy_id":         "", // TODO: get proxy id, probably from context or maybe from request message.
-		"reverse_proxy_id": req.GetLog().GetServiceId(),
-		"host":             req.GetLog().GetHost(),
-		"path":             req.GetLog().GetPath(),
-		"method":           req.GetLog().GetMethod(),
-		"response_code":    req.GetLog().GetResponseCode(),
-		"duration_ms":      req.GetLog().GetDurationMs(),
-		"source_ip":        req.GetLog().GetSourceIp(),
-		"auth_mechanism":   req.GetLog().GetAuthMechanism(),
-		"user_id":          req.GetLog().GetUserId(),
-		"auth_success":     req.GetLog().GetAuthSuccess(),
-	}).Info("Access log from proxy")
+	accessLog := req.GetLog()
 
-	// TODO: Store access log in database/metrics system
+	log.WithFields(log.Fields{
+		"reverse_proxy_id": accessLog.GetServiceId(),
+		"account_id":       accessLog.GetAccountId(),
+		"host":             accessLog.GetHost(),
+		"path":             accessLog.GetPath(),
+		"method":           accessLog.GetMethod(),
+		"response_code":    accessLog.GetResponseCode(),
+		"duration_ms":      accessLog.GetDurationMs(),
+		"source_ip":        accessLog.GetSourceIp(),
+		"auth_mechanism":   accessLog.GetAuthMechanism(),
+		"user_id":          accessLog.GetUserId(),
+		"auth_success":     accessLog.GetAuthSuccess(),
+	}).Debug("Access log from proxy")
+
+	logEntry := &accesslogs.AccessLogEntry{}
+	logEntry.FromProto(accessLog)
+
+	if err := s.accessLogManager.SaveAccessLog(ctx, logEntry); err != nil {
+		log.WithContext(ctx).Errorf("failed to save access log: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to save access log: %v", err)
+	}
+
 	return &proto.SendAccessLogResponse{}, nil
 }
 

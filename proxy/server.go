@@ -334,6 +334,7 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 			// TODO: Should we warn management about this so it can be bubbled up to a user to reconfigure?
 			log.WithFields(log.Fields{
 				"service_id": mapping.GetId(),
+				"account_id": mapping.GetAccountId(),
 				"domain":     mapping.GetDomain(),
 				"path":       pathMapping.GetPath(),
 				"target":     pathMapping.GetTarget(),
@@ -343,8 +344,9 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		paths[pathMapping.GetPath()] = targetURL
 	}
 	return proxy.Mapping{
-		ID:    mapping.GetId(),
-		Host:  mapping.GetDomain(),
-		Paths: paths,
+		ID:        mapping.GetId(),
+		AccountID: mapping.AccountId,
+		Host:      mapping.GetDomain(),
+		Paths:     paths,
 	}
 }

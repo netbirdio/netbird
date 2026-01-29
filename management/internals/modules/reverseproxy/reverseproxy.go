@@ -182,12 +182,13 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 	}
 
 	return &proto.ProxyMapping{
-		Type:     operationToProtoType(operation),
-		Id:       r.ID,
-		Domain:   r.Domain,
-		Path:     pathMappings,
-		SetupKey: setupKey,
-		Auth:     auth,
+		Type:      operationToProtoType(operation),
+		Id:        r.ID,
+		Domain:    r.Domain,
+		Path:      pathMappings,
+		SetupKey:  setupKey,
+		Auth:      auth,
+		AccountId: r.AccountID,
 	}
 }
 

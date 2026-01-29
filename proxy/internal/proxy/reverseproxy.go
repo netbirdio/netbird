@@ -26,7 +26,7 @@ func NewReverseProxy(transport http.RoundTripper) *ReverseProxy {
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	target, serviceId, exists := p.findTargetForRequest(r)
+	target, serviceId, accountID, exists := p.findTargetForRequest(r)
 	if !exists {
 		// No mapping found so return an error here.
 		// TODO: prettier error page.
@@ -36,6 +36,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Set the serviceId in the context for later retrieval.
 	ctx := withServiceId(r.Context(), serviceId)
+	// Set the accountId in the context for later retrieval.
+	ctx = withAccountId(ctx, accountID)
 
 	// Set up a reverse proxy using the transport and then use it to serve the request.
 	proxy := httputil.NewSingleHostReverseProxy(target)

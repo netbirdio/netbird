@@ -3,12 +3,14 @@ package roundtrip
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/embed"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/embed"
 )
 
 const deviceNamePrefix = "ingress-"
@@ -34,6 +36,7 @@ func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
 		DeviceName:    deviceNamePrefix + domain,
 		ManagementURL: n.mgmtAddr,
 		SetupKey:      key,
+		LogOutput:     io.Discard,
 	})
 	if err != nil {
 		return fmt.Errorf("create netbird client: %w", err)

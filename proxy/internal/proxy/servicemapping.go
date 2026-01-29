@@ -8,12 +8,13 @@ import (
 )
 
 type Mapping struct {
-	ID    string
-	Host  string
-	Paths map[string]*url.URL
+	ID        string
+	AccountID string
+	Host      string
+	Paths     map[string]*url.URL
 }
 
-func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string, bool) {
+func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string, string, bool) {
 	p.mappingsMux.RLock()
 	if p.mappings == nil {
 		p.mappingsMux.RUnlock()
@@ -21,12 +22,12 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string
 		defer p.mappingsMux.Unlock()
 		p.mappings = make(map[string]Mapping)
 		// There cannot be any loaded Mappings as we have only just initialized.
-		return nil, "", false
+		return nil, "", "", false
 	}
 	defer p.mappingsMux.RUnlock()
 	m, exists := p.mappings[req.Host]
 	if !exists {
-		return nil, "", false
+		return nil, "", "", false
 	}
 
 	// Sort paths by length (longest first) in a naive attempt to match the most specific route first.
@@ -40,10 +41,10 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string
 
 	for _, path := range paths {
 		if strings.HasPrefix(req.URL.Path, path) {
-			return m.Paths[path], m.ID, true
+			return m.Paths[path], m.ID, m.AccountID, true
 		}
 	}
-	return nil, "", false
+	return nil, "", "", false
 }
 
 func (p *ReverseProxy) AddMapping(m Mapping) {

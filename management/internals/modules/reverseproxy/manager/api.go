@@ -7,6 +7,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -18,7 +20,7 @@ type handler struct {
 	manager reverseproxy.Manager
 }
 
-func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, router *mux.Router) {
+func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
@@ -26,6 +28,8 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 	// Hang domain endpoints off the main router here.
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
 	domain.RegisterEndpoints(domainRouter, domainManager)
+
+	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
 
 	router.HandleFunc("/reverse-proxies", h.getAllReverseProxies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies", h.createReverseProxy).Methods("POST", "OPTIONS")
@@ -62,7 +66,7 @@ func (h *handler) createReverseProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PostApiReverseProxyJSONRequestBody
+	var req api.ReverseProxyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -120,7 +124,7 @@ func (h *handler) updateReverseProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiReverseProxyProxyIdJSONRequestBody
+	var req api.ReverseProxyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
