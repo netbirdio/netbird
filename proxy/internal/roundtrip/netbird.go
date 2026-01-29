@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/embed"
+	log "github.com/sirupsen/logrus"
 )
 
 const deviceNamePrefix = "ingress-"
@@ -73,6 +74,13 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !exists {
 		return nil, fmt.Errorf("no peer connection found for host: %s", req.Host)
 	}
+
+	log.WithFields(log.Fields{
+		"host":       req.Host,
+		"url":        req.URL.String(),
+		"requestURI": req.RequestURI,
+		"method":     req.Method,
+	}).Debug("running roundtrip for peer connection")
 
 	// Create a new transport using the client dialer and perform the roundtrip.
 	// We do this instead of using the client HTTPClient to avoid issues around
