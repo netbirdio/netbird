@@ -57,3 +57,8 @@ func (jc *Channel) Event(ctx context.Context) (*Event, error) {
 		return job, nil
 	}
 }
+
+// EventChan returns the underlying events channel for use in select statements.
+func (jc *Channel) EventChan() <-chan *Event {
+	return jc.events
+}
