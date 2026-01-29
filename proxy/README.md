@@ -40,11 +40,14 @@ When using ACME, the proxy server will store generated certificates in the speci
 
 NetBird Proxy deployment configuration is via flags or environment variables, with flags taking precedence over the environment.
 The following deployment configuration is available:
-| Flag | Env | Purpose | Default |
-+------+-----+---------+---------+
-| `-mgmt` | `NB_PROXY_MANAGEMENT_ADDRESS` | The address of the management server for the proxy to get configuration from. | `"https://api.netbird.io:443"` |
-| `-addr` | `NB_PROXY_ADDRESS` | The address that the reverse proxy will listen on. | `":443` |
-| `-cert-dir` | `NB_PROXY_CERTIFICATE_DIRECTORY` | The location that certficates are stored in. | `"./certs"` |
-| `-acme-certs` | `NB_PROXY_ACME_CERTIFICATES` | Whether to use ACME to generate certificates. | `false` |
-| `-acme-addr` | `NB_PROXY_ACME_ADDRESS` | The HTTP address the proxy will listen on to respond to HTTP-01 ACME challenges | `":80"` |
-| `-acme-dir` | `NB_PROXY_ACME_DIRECTORY` | The directory URL of the ACME server to be used | `"https://acme-v02.api.letsencrypt.org/directory"` |
+
+| Flag          | Env                              | Purpose                                                                                                                            | Default                                            |
+|---------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------|
+| `-debug`      | `NB_PROXY_DEBUG_LOGS`            | Enable debug logging                                                                                                               | `false`                                            |
+| `-mgmt`       | `NB_PROXY_MANAGEMENT_ADDRESS`    | The address of the management server for the proxy to get configuration from.                                                      | `"https://api.netbird.io:443"`                     |
+| `-addr`       | `NB_PROXY_ADDRESS`               | The address that the reverse proxy will listen on.                                                                                 | `":443`                                            |
+| `-url`        | `NB_PROXY_URL`                   | The URL that the proxy will be reached at (where endpoints will be CNAMEd to). If unset, this will fall back to the proxy address. | `""`                                               |
+| `-cert-dir`   | `NB_PROXY_CERTIFICATE_DIRECTORY` | The location that certficates are stored in.                                                                                       | `"./certs"`                                        |
+| `-acme-certs` | `NB_PROXY_ACME_CERTIFICATES`     | Whether to use ACME to generate certificates.                                                                                      | `false`                                            |
+| `-acme-addr`  | `NB_PROXY_ACME_ADDRESS`          | The HTTP address the proxy will listen on to respond to HTTP-01 ACME challenges                                                    | `":80"`                                            |
+| `-acme-dir`   | `NB_PROXY_ACME_DIRECTORY`        | The directory URL of the ACME server to be used                                                                                    | `"https://acme-v02.api.letsencrypt.org/directory"` |

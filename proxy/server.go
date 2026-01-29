@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -50,6 +51,7 @@ type Server struct {
 
 	ID                       string
 	Version                  string
+	ProxyURL                 string
 	ManagementAddress        string
 	CertificateDirectory     string
 	GenerateACMECertificates bool
@@ -129,6 +131,20 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			}
 		}()
 		tlsConfig = s.acme.TLSConfig()
+
+		// If the ProxyURL is not set, then fallback to the server address.
+		// Hopefully that should give at least something that we can use.
+		// If it doesn't, then autocert probably won't work correctly.
+		if s.ProxyURL == "" {
+			s.ProxyURL, _, _ = net.SplitHostPort(addr)
+		}
+		// ServerName needs to be set to allow for ACME to work correctly
+		// when using CNAME URLs to access the proxy.
+		tlsConfig.ServerName = s.ProxyURL
+
+		log.WithFields(log.Fields{
+			"ServerName": s.ProxyURL,
+		}).Debug("started ACME challenge server")
 	} else {
 		log.Debug("ACME certificates disabled, using static certificates")
 		// Otherwise pull some certificates from expected locations.
