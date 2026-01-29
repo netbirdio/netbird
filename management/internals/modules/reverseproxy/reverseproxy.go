@@ -2,7 +2,9 @@ package reverseproxy
 
 import (
 	"errors"
-	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -137,19 +139,23 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 			continue
 		}
 
-		targetURL := target.Protocol + "://" + target.Host
-		if target.Port > 0 {
-			targetURL += ":" + fmt.Sprintf("%d", target.Port)
-		}
-
 		path := "/"
 		if target.Path != nil {
 			path = *target.Path
 		}
 
+		targetURL := url.URL{
+			Scheme: target.Protocol,
+			Host:   target.Host,
+			Path:   path,
+		}
+		if target.Port > 0 {
+			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.Itoa(target.Port))
+		}
+
 		pathMappings = append(pathMappings, &proto.PathMapping{
 			Path:   path,
-			Target: targetURL,
+			Target: targetURL.String(),
 		})
 	}
 

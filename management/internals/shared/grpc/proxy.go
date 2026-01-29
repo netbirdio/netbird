@@ -129,47 +129,6 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
-		// Fill auth values.
-		// TODO: This will be removed soon as the management server should be handling authentication rather than the proxy, so probably not much use in fleshing this out too much.
-		auth := &proto.Authentication{}
-		if rp.Auth.BearerAuth != nil && rp.Auth.BearerAuth.Enabled {
-			auth.Oidc = &proto.OIDC{
-				Enabled: true,
-				// TODO: fill other OIDC fields from account OIDC settings.
-			}
-		}
-		if rp.Auth.PasswordAuth != nil && rp.Auth.PasswordAuth.Password != "" {
-			auth.Password = &proto.Password{
-				Enabled:  true,
-				Password: rp.Auth.PasswordAuth.Password,
-			}
-		}
-		if rp.Auth.PinAuth != nil && rp.Auth.PinAuth.Pin != "" {
-			auth.Pin = &proto.Pin{
-				Enabled: true,
-				Pin:     rp.Auth.PinAuth.Pin,
-			}
-		}
-
-		var paths []*proto.PathMapping
-		for _, t := range rp.Targets {
-			if !t.Enabled {
-				// We don't care about disabled reverse proxy targets for snapshots.
-				continue
-			}
-
-			// Default to a top level path (routes all paths) if no path is defined.
-			path := "/"
-			if t.Path != nil {
-				path = *t.Path
-			}
-
-			paths = append(paths, &proto.PathMapping{
-				Path:   path,
-				Target: t.Host,
-			})
-		}
-
 		group, err := s.keyStore.GetGroupByName(ctx, rp.Name, rp.AccountID)
 		if err != nil {
 			// TODO: log this?
@@ -195,14 +154,10 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping: []*proto.ProxyMapping{
-				{
-					Type:     proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, // Initial snapshot, all records are "new" for the proxy.
-					Id:       rp.ID,
-					Domain:   rp.Domain,
-					Path:     paths,
-					SetupKey: key.Key,
-					Auth:     auth,
-				},
+				rp.ToProtoMapping(
+					reverseproxy.Create, // Initial snapshot, all records are "new" for the proxy.
+					key.Key,
+				),
 			},
 		}); err != nil {
 			// TODO: log the error, maybe retry?
