@@ -44,20 +44,49 @@ tags:
 
   - name: Usage
     description: Retrieve current usage statistics for the account.
+    x-cloud-only: true
   - name: Subscription
     description: Manage and view information about account subscriptions.
+    x-cloud-only: true
   - name: Plans
     description: Retrieve available plans and products.
+    x-cloud-only: true
   - name: Checkout
     description: Manage checkout sessions for plan subscriptions.
+    x-cloud-only: true
   - name: AWS Marketplace
     description: Manage AWS Marketplace subscriptions.
+    x-cloud-only: true
   - name: Portal
     description: Access customer portal for subscription management.
+    x-cloud-only: true
+  - name: Invoice
+    description: Manage and retrieve account invoices.
+    x-cloud-only: true
   - name: MSP
     description: MSP portal for Tenant management.
+    x-cloud-only: true
   - name: IDP
     description: Manage identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: EDR Intune Integrations
+    description: Manage Microsoft Intune EDR integrations.
+    x-cloud-only: true
+  - name: EDR SentinelOne Integrations
+    description: Manage SentinelOne EDR integrations.
+    x-cloud-only: true
+  - name: EDR Falcon Integrations
+    description: Manage CrowdStrike Falcon EDR integrations.
+    x-cloud-only: true
+  - name: EDR Huntress Integrations
+    description: Manage Huntress EDR integrations.
+    x-cloud-only: true
+  - name: EDR Peers
+    description: Manage EDR compliance bypass for peers.
+    x-cloud-only: true
+  - name: Event Streaming Integrations
+    description: Manage event streaming integrations.
+    x-cloud-only: true
 
 components:
   schemas:
