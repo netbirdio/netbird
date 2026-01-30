@@ -68,6 +68,11 @@ func (m *Manager) Start(ctx context.Context, wgPort uint16) {
 		return
 	}
 
+	if wgPort == 0 {
+		log.Warnf("invalid WireGuard port 0; NAT mapping disabled")
+		return
+	}
+
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.wgPort = wgPort
 
@@ -75,20 +80,6 @@ func (m *Manager) Start(ctx context.Context, wgPort uint16) {
 
 	m.wg.Add(1)
 	go m.run()
-}
-
-func isDisabledByEnv() bool {
-	val := os.Getenv(envDisableNATMapper)
-	if val == "" {
-		return false
-	}
-
-	disabled, err := strconv.ParseBool(val)
-	if err != nil {
-		log.Warnf("failed to parse %s: %v", envDisableNATMapper, err)
-		return false
-	}
-	return disabled
 }
 
 func (m *Manager) run() {
@@ -194,10 +185,16 @@ func (m *Manager) createMapping() error {
 	return m.persistStateLocked()
 }
 
+// Stop cancels the manager and attempts to delete the port mapping.
+// After Stop returns, the manager cannot be restarted.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	cancel := m.cancel
+	gateway := m.gateway
+	mapping := m.mapping
 	m.cancel = nil
+	m.gateway = nil
+	m.mapping = nil
 	m.mu.Unlock()
 
 	if cancel != nil {
@@ -206,25 +203,21 @@ func (m *Manager) Stop() {
 
 	m.wg.Wait()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.gateway == nil || m.mapping == nil {
+	if gateway == nil || mapping == nil {
 		return
 	}
 
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer ctxCancel()
 
-	if err := m.gateway.DeletePortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort)); err != nil {
+	if err := gateway.DeletePortMapping(ctx, mapping.Protocol, int(mapping.InternalPort)); err != nil {
 		log.Debugf("delete port mapping on stop: %v", err)
 		return
 	}
 
-	log.Infof("deleted port mapping for port %d", m.mapping.InternalPort)
-	m.mapping = nil
+	log.Infof("deleted port mapping for port %d", mapping.InternalPort)
 
-	if err := m.persistStateLocked(); err != nil {
+	if err := m.stateManager.UpdateState(&State{}); err != nil {
 		log.Debugf("clear state on stop: %v", err)
 	}
 }
@@ -304,4 +297,18 @@ func (m *Manager) persistStateLocked() error {
 	}
 
 	return m.stateManager.UpdateState(state)
+}
+
+func isDisabledByEnv() bool {
+	val := os.Getenv(envDisableNATMapper)
+	if val == "" {
+		return false
+	}
+
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", envDisableNATMapper, err)
+		return false
+	}
+	return disabled
 }
