@@ -2688,7 +2688,7 @@ type TenantResponse struct {
 	// DnsChallenge The DNS challenge to set in a TXT record
 	DnsChallenge string `json:"dns_challenge"`
 
-	// Domain The Price ID for checkout.
+	// Domain The tenant account domain
 	Domain string `json:"domain"`
 
 	// Groups MSP users Groups that can access the Tenant and Roles to assume

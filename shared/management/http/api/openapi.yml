@@ -3132,7 +3132,7 @@ components:
           example: "My new tenant"
         domain:
           type: string
-          description: The Price ID for checkout.
+          description: The tenant account domain
           example: "tenant.com"
         groups:
           description: MSP users Groups that can access the Tenant and Roles to assume
