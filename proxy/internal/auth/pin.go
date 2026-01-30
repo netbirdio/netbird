@@ -33,7 +33,7 @@ func (Pin) Type() Method {
 // If authentication fails, the required HTTP form ID is returned
 // so that it can be injected into a request from the UI so that
 // authentication may be successful.
-func (p Pin) Authenticate(r *http.Request) (string, bool, any) {
+func (p Pin) Authenticate(r *http.Request) (string, string) {
 	pin := r.FormValue(pinFormId)
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
@@ -47,14 +47,14 @@ func (p Pin) Authenticate(r *http.Request) (string, bool, any) {
 	})
 	if err != nil {
 		// TODO: log error here
-		return "", false, pinFormId
+		return "", pinFormId
 	}
 
 	if res.GetSuccess() {
-		return pinUserId, true, nil
+		return pinUserId, ""
 	}
 
-	return "", false, pinFormId
+	return "", pinFormId
 }
 
 func (p Pin) Middleware(next http.Handler) http.Handler {

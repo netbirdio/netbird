@@ -83,18 +83,18 @@ func (*OIDC) Type() Method {
 	return MethodOIDC
 }
 
-func (o *OIDC) Authenticate(r *http.Request) (string, bool, any) {
+func (o *OIDC) Authenticate(r *http.Request) (string, string) {
 	// Try Authorization: Bearer <token> header
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		if userID := o.validateToken(r.Context(), strings.TrimPrefix(auth, "Bearer ")); userID != "" {
-			return userID, false, nil
+			return userID, ""
 		}
 	}
 
 	// Try _auth_token query parameter (from OIDC callback redirect)
 	if token := r.URL.Query().Get("_auth_token"); token != "" {
 		if userID := o.validateToken(r.Context(), token); userID != "" {
-			return userID, true, nil // Redirect needed to clean up URL
+			return userID, ""
 		}
 	}
 
@@ -109,7 +109,7 @@ func (o *OIDC) Authenticate(r *http.Request) (string, bool, any) {
 	o.states[state] = &oidcState{OriginalURL: fmt.Sprintf("https://%s%s", r.Host, r.URL), CreatedAt: time.Now()}
 	o.statesMux.Unlock()
 
-	return "", false, o.oauthConfig.AuthCodeURL(state)
+	return "", o.oauthConfig.AuthCodeURL(state)
 }
 
 // Middleware returns an http.Handler that handles OIDC callback and flow initiation.

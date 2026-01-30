@@ -1,13 +1,15 @@
 <!doctype html>
-{{ range . }}
-{{ if eq .Key "pin" }}
+{{ range $method, $value := .Methods }}
+{{ if eq $method "pin" }}
 <form>
-    <input name={{ . }} />
+    <label for={{ $value }}>PIN:</label>
+    <input name={{ $value }} id={{ $value }} />
     <button type=submit></button>
 </form>
-{{ else if eq .Key "password" }}
+{{ else if eq $method "password" }}
 <form>
-    <input name={{ . }} />
+    <label for={{ $value }}>Password:</label>
+    <input name={{ $value }} id={{ $value }}/>
     <button type=submit></button>
 </form>
 {{ end }}

@@ -53,10 +53,8 @@ type Scheme interface {
 	// an empty string should indicate an unauthenticated request which
 	// will be rejected; optionally, it can also return any data that should
 	// be included in a UI template when prompting the user to authenticate.
-	// If the request is authenticated, then a user id should be returned
-	// along with a boolean indicating whether a redirect is needed to clean
-	// up authentication artifacts from the URLs query.
-	Authenticate(*http.Request) (userid string, needsRedirect bool, promptData any)
+	// If the request is authenticated, then a user id should be returned.
+	Authenticate(*http.Request) (userid string, promptData string)
 	// Middleware is applied within the outer auth middleware, but they will
 	// be applied after authentication if no scheme has authenticated a
 	// request.
@@ -119,32 +117,30 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		}
 
 		// Try to authenticate with each scheme.
-		methods := make(map[Method]any)
+		methods := make(map[string]string)
 		for _, s := range schemes {
-			userid, needsRedirect, promptData := s.Authenticate(r)
+			userid, promptData := s.Authenticate(r)
 			if userid != "" {
 				mw.createSession(w, r, userid, s.Type())
-				if needsRedirect {
-					// Clean the path and redirect to the naked URL.
-					// This is intended to prevent leaking potentially
-					// sensitive query parameters for some authentication
-					// methods such as OIDC.
-					http.Redirect(w, r, r.URL.Path, http.StatusFound)
-					return
-				}
-				ctx := withAuthMethod(r.Context(), s.Type())
-				ctx = withAuthUser(ctx, userid)
-				next.ServeHTTP(w, r.WithContext(ctx))
+				// Clean the path and redirect to the naked URL.
+				// This is intended to prevent leaking potentially
+				// sensitive query parameters for authentication
+				// methods.
+				http.Redirect(w, r, r.URL.Path, http.StatusFound)
 				return
 			}
-			methods[s.Type()] = promptData
+			methods[s.Type().String()] = promptData
 		}
 
 		// The handler is passed through the scheme middlewares,
 		// if none of them intercept the request, then this handler will
 		// be called and present the user with the authentication page.
 		handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := tmpl.Execute(w, methods); err != nil {
+			if err := tmpl.Execute(w, struct {
+				Methods map[string]string
+			}{
+				Methods: methods,
+			}); err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)
 			}
 		}))

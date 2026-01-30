@@ -25,7 +25,7 @@ func (Link) Type() Method {
 	return MethodLink
 }
 
-func (l Link) Authenticate(r *http.Request) (string, bool, any) {
+func (l Link) Authenticate(r *http.Request) (string, string) {
 	email := r.FormValue(linkFormId)
 
 	res, err := l.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
@@ -40,15 +40,15 @@ func (l Link) Authenticate(r *http.Request) (string, bool, any) {
 	})
 	if err != nil {
 		// TODO: log error here
-		return "", false, linkFormId
+		return "", linkFormId
 	}
 
 	if res.GetSuccess() {
 		// Use the email address as the user identifier.
-		return email, true, nil
+		return email, ""
 	}
 
-	return "", false, linkFormId
+	return "", linkFormId
 }
 
 func (l Link) Middleware(next http.Handler) http.Handler {
