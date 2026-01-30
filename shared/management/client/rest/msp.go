@@ -63,6 +63,19 @@ func (a *MSPAPI) UpdateTenant(ctx context.Context, tenantID string, request api.
 	return &ret, err
 }
 
+// DeleteTenant deletes an MSP tenant
+// See more: https://docs.netbird.io/api/resources/msp#delete-a-tenant
+func (a *MSPAPI) DeleteTenant(ctx context.Context, tenantID string) error {
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/integrations/msp/tenants/"+tenantID, nil, nil)
+	if err != nil {
+		return err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	return nil
+}
+
 // UnlinkTenant unlinks a tenant from the MSP account
 // See more: https://docs.netbird.io/api/resources/msp#unlink-a-tenant
 func (a *MSPAPI) UnlinkTenant(ctx context.Context, tenantID, owner string) error {

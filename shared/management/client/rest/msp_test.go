@@ -146,6 +146,31 @@ func TestMSP_UpdateTenant_Err(t *testing.T) {
 	})
 }
 
+func TestMSP_DeleteTenant_200(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/integrations/msp/tenants/tenant-1", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "DELETE", r.Method)
+			w.WriteHeader(200)
+		})
+		err := c.MSP.DeleteTenant(context.Background(), "tenant-1")
+		require.NoError(t, err)
+	})
+}
+
+func TestMSP_DeleteTenant_Err(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/integrations/msp/tenants/tenant-1", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "Not found", Code: 404})
+			w.WriteHeader(404)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		err := c.MSP.DeleteTenant(context.Background(), "tenant-1")
+		assert.Error(t, err)
+		assert.Equal(t, "Not found", err.Error())
+	})
+}
+
 func TestMSP_UnlinkTenant_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/integrations/msp/tenants/tenant-1/unlink", func(w http.ResponseWriter, r *http.Request) {
