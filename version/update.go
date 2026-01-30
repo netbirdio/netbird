@@ -7,6 +7,7 @@ import (
 	"time"
 
 	goversion "github.com/hashicorp/go-version"
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -140,7 +141,8 @@ func (u *Update) fetchVersion() bool {
 
 	req.Header.Set("User-Agent", u.httpAgent)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := util.NewHTTPClient()
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Errorf("failed to fetch version info: %s", err)
 		return false
