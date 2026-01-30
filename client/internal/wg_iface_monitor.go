@@ -9,6 +9,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
 // WGIfaceMonitor monitors the WireGuard interface lifecycle and restarts the engine
@@ -33,6 +35,11 @@ func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRes
 	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
 		log.Debugf("Interface monitor: skipped on %s platform", runtime.GOOS)
 		return false, errors.New("not supported on mobile platforms")
+	}
+
+	if netstack.IsEnabled() {
+		log.Debugf("Interface monitor: skipped in netstack mode")
+		return false, nil
 	}
 
 	if ifaceName == "" {
