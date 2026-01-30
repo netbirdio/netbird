@@ -63,15 +63,11 @@ func (a *MSPAPI) UpdateTenant(ctx context.Context, tenantID string, request api.
 	return &ret, err
 }
 
-// UnlinkTenantRequest represents the request to unlink a tenant
-type UnlinkTenantRequest struct {
-	Owner string `json:"owner"`
-}
-
 // UnlinkTenant unlinks a tenant from the MSP account
 // See more: https://docs.netbird.io/api/resources/msp#unlink-a-tenant
-func (a *MSPAPI) UnlinkTenant(ctx context.Context, tenantID string, request UnlinkTenantRequest) error {
-	requestBytes, err := json.Marshal(request)
+func (a *MSPAPI) UnlinkTenant(ctx context.Context, tenantID, owner string) error {
+	params := map[string]string{"owner": owner}
+	requestBytes, err := json.Marshal(params)
 	if err != nil {
 		return err
 	}

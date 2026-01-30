@@ -15,7 +15,6 @@ type EventStreamingAPI struct {
 }
 
 // List retrieves all event streaming integrations
-
 // See more: https://docs.netbird.io/api/resources/event-streaming#list-all-event-streaming-integrations
 func (a *EventStreamingAPI) List(ctx context.Context) ([]api.IntegrationResponse, error) {
 	resp, err := a.c.NewRequest(ctx, "GET", "/api/event-streaming", nil, nil)
