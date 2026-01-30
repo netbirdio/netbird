@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"os"
 
 	"github.com/netbirdio/netbird/util"
@@ -39,7 +40,10 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	}
 
 	return Create(s, func() geolocation.Geolocation {
-		httpClient := util.NewHTTPClient()
+		transport := util.NewTransport()
+		httpClient := &http.Client{
+			Transport: transport,
+		}
 
 		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate, httpClient)
 		if err != nil {
