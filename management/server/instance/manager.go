@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -88,10 +89,9 @@ func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) 
 		store:              store,
 		embeddedIdpManager: embeddedIdp,
 		setupRequired:      false,
-		httpClient: &http.Client{
-			Timeout: httpTimeout,
-		},
+		httpClient:         util.NewHTTPClient(),
 	}
+	m.httpClient.Timeout = httpTimeout
 
 	if embeddedIdp != nil {
 		err := m.loadSetupRequired(ctx)
