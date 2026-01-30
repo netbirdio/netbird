@@ -2,6 +2,7 @@ package roundtrip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,14 +20,19 @@ const deviceNamePrefix = "ingress-"
 // backed by underlying NetBird connections.
 type NetBird struct {
 	mgmtAddr string
+	logger   *log.Logger
 
 	clientsMux sync.RWMutex
 	clients    map[string]*embed.Client
 }
 
-func NewNetBird(mgmtAddr string) *NetBird {
+func NewNetBird(mgmtAddr string, logger *log.Logger) *NetBird {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	return &NetBird{
 		mgmtAddr: mgmtAddr,
+		logger:   logger,
 		clients:  make(map[string]*embed.Client),
 	}
 }
@@ -37,13 +43,29 @@ func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
 		ManagementURL: n.mgmtAddr,
 		SetupKey:      key,
 		LogOutput:     io.Discard,
+		BlockInbound:  true,
 	})
 	if err != nil {
 		return fmt.Errorf("create netbird client: %w", err)
 	}
-	if err := client.Start(ctx); err != nil {
-		return fmt.Errorf("start netbird client: %w", err)
-	}
+
+	// Attempt to start the client in the background, if this fails
+	// then it is not ideal, but it isn't the end of the world because
+	// we will try to start the client again before we use it.
+	go func() {
+		startCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		err = client.Start(startCtx)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			n.logger.Debug("netbird client timed out")
+			// This is not ideal, but we will try again later.
+			return
+		case err != nil:
+			n.logger.WithField("domain", domain).WithError(err).Error("Unable to start netbird client, will try again later.")
+		}
+	}()
+
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
 	n.clients[domain] = client
@@ -78,7 +100,20 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("no peer connection found for host: %s", req.Host)
 	}
 
-	log.WithFields(log.Fields{
+	// Attempt to start the client, if the client is already running then
+	// it will return an error that we ignore, if this hits a timeout then
+	// this request is unprocessable.
+	startCtx, cancel := context.WithTimeout(req.Context(), 3*time.Second)
+	defer cancel()
+	err := client.Start(startCtx)
+	switch {
+	case errors.Is(err, embed.ErrClientAlreadyStarted):
+		break
+	case err != nil:
+		return nil, fmt.Errorf("start netbird client: %w", err)
+	}
+
+	n.logger.WithFields(log.Fields{
 		"host":       req.Host,
 		"url":        req.URL.String(),
 		"requestURI": req.RequestURI,

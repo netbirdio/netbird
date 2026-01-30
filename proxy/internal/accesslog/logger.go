@@ -16,11 +16,16 @@ type gRPCClient interface {
 
 type Logger struct {
 	client gRPCClient
+	logger *log.Logger
 }
 
-func NewLogger(client gRPCClient) *Logger {
+func NewLogger(client gRPCClient, logger *log.Logger) *Logger {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	return &Logger{
 		client: client,
+		logger: logger,
 	}
 }
 
@@ -68,7 +73,7 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 			},
 		}); err != nil {
 			// If it fails to send on the gRPC connection, then at least log it to the error log.
-			log.WithFields(log.Fields{
+			l.logger.WithFields(log.Fields{
 				"service_id":     entry.ServiceId,
 				"host":           entry.Host,
 				"path":           entry.Path,

@@ -74,12 +74,14 @@ func main() {
 	if debug {
 		level = "debug"
 	}
+	logger := log.New()
 
-	_ = util.InitLog(level, util.LogConsole)
+	_ = util.InitLogger(logger, level, util.LogConsole)
 
 	log.Infof("configured log level: %s", level)
 
 	srv := proxy.Server{
+		Logger:                   logger,
 		Version:                  Version,
 		ManagementAddress:        mgmtAddr,
 		ProxyURL:                 url,

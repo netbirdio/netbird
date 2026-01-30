@@ -139,7 +139,10 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 
 		group, err := s.keyStore.GetGroupByName(ctx, rp.Name, rp.AccountID)
 		if err != nil {
-			// TODO: log this?
+			log.WithFields(log.Fields{
+				"proxy":   rp.Name,
+				"account": rp.AccountID,
+			}).WithError(err).Error("Failed to get group by name")
 			continue
 		}
 
@@ -156,7 +159,11 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			false,
 		)
 		if err != nil {
-			// TODO: how to handle this?
+			log.WithFields(log.Fields{
+				"proxy":   rp.Name,
+				"account": rp.AccountID,
+				"group":   group.ID,
+			}).WithError(err).Error("Failed to create setup key")
 			continue
 		}
 
@@ -168,7 +175,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 				),
 			},
 		}); err != nil {
-			// TODO: log the error, maybe retry?
+			log.WithError(err).Error("Failed to send proxy mapping")
 			continue
 		}
 	}
