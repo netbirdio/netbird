@@ -152,35 +152,45 @@ func (m *Manager) cleanupResidual(state *State) error {
 
 func (m *Manager) createMapping() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	gateway := m.gateway
+	wgPort := m.wgPort
+	m.mu.Unlock()
 
-	if m.gateway == nil {
+	if gateway == nil {
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
 
-	externalPort, err := m.gateway.AddPortMapping(ctx, "udp", int(m.wgPort), mappingDescription, defaultMappingTTL)
+	externalPort, err := gateway.AddPortMapping(ctx, "udp", int(wgPort), mappingDescription, defaultMappingTTL)
 	if err != nil {
 		return err
 	}
 
-	externalIP, err := m.gateway.GetExternalAddress()
+	externalIP, err := gateway.GetExternalAddress()
 	if err != nil {
 		log.Debugf("failed to get external address: %v", err)
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.gateway != gateway {
+		log.Debugf("gateway changed during mapping creation, discarding result")
+		return nil
+	}
+
 	m.mapping = &Mapping{
 		Protocol:     "udp",
-		InternalPort: m.wgPort,
+		InternalPort: wgPort,
 		ExternalPort: uint16(externalPort),
 		ExternalIP:   externalIP,
-		NATType:      m.gateway.Type(),
+		NATType:      gateway.Type(),
 	}
 
 	log.Infof("created port mapping: %d -> %d via %s (external IP: %s)",
-		m.wgPort, externalPort, m.gateway.Type(), externalIP)
+		wgPort, externalPort, gateway.Type(), externalIP)
 
 	return m.persistStateLocked()
 }
@@ -261,18 +271,28 @@ func (m *Manager) renewLoop() {
 
 func (m *Manager) renewMapping() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	gateway := m.gateway
+	mapping := m.mapping
+	m.mu.Unlock()
 
-	if m.mapping == nil || m.gateway == nil {
+	if mapping == nil || gateway == nil {
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
 
-	externalPort, err := m.gateway.AddPortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort), mappingDescription, defaultMappingTTL)
+	externalPort, err := gateway.AddPortMapping(ctx, mapping.Protocol, int(mapping.InternalPort), mappingDescription, defaultMappingTTL)
 	if err != nil {
 		return fmt.Errorf("add port mapping: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.gateway != gateway || m.mapping == nil {
+		log.Debugf("state changed during mapping renewal, discarding result")
+		return nil
 	}
 
 	if uint16(externalPort) != m.mapping.ExternalPort {
