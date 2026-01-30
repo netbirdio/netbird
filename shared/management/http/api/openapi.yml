@@ -7832,7 +7832,7 @@ paths:
                 - value
       responses:
         "200":
-          description: Successfull response
+          description: Successful response
         "400":
           $ref: "#/components/responses/bad_request"
         "403":
