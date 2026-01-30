@@ -14,16 +14,19 @@ import (
 	"github.com/libp2p/go-nat"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 const (
-	defaultMappingTTL  = 2 * time.Hour
-	renewalInterval    = defaultMappingTTL / 2
-	discoveryTimeout   = 10 * time.Second
-	mappingDescription = "NetBird"
+	defaultMappingTTL   = 2 * time.Hour
+	renewalInterval     = defaultMappingTTL / 2
+	healthCheckInterval = 1 * time.Minute
+	discoveryTimeout    = 10 * time.Second
+	mappingDescription  = "NetBird"
 
-	envDisableNATMapper = "NB_DISABLE_NAT_MAPPER"
+	envDisableNATMapper      = "NB_DISABLE_NAT_MAPPER"
+	envDisablePCPHealthCheck = "NB_DISABLE_PCP_HEALTH_CHECK"
 )
 
 type Mapping struct {
@@ -99,7 +102,7 @@ func (m *Manager) run() {
 	discoverCtx, discoverCancel := context.WithTimeout(m.ctx, discoveryTimeout)
 	defer discoverCancel()
 
-	gateway, err := nat.DiscoverGateway(discoverCtx)
+	gateway, err := discoverGateway(discoverCtx)
 	if err != nil {
 		log.Infof("NAT gateway discovery failed: %v (port forwarding disabled)", err)
 		return
@@ -163,7 +166,7 @@ func (m *Manager) createMapping() error {
 
 	externalPort, err := m.gateway.AddPortMapping(ctx, "udp", int(m.wgPort), mappingDescription, defaultMappingTTL)
 	if err != nil {
-		return err
+		return fmt.Errorf("add port mapping: %w", err)
 	}
 
 	externalIP, err := m.gateway.GetExternalAddress()
@@ -244,70 +247,127 @@ func (m *Manager) IsAvailable() bool {
 }
 
 func (m *Manager) renewLoop() {
-	ticker := time.NewTicker(renewalInterval)
-	defer ticker.Stop()
+	renewTicker := time.NewTicker(renewalInterval)
+	healthTicker := time.NewTicker(healthCheckInterval)
+	defer renewTicker.Stop()
+	defer healthTicker.Stop()
 
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-renewTicker.C:
 			if err := m.renewMapping(); err != nil {
 				log.Warnf("failed to renew port mapping: %v", err)
+			}
+		case <-healthTicker.C:
+			if m.checkHealthAndRecreate() {
+				renewTicker.Reset(renewalInterval)
 			}
 		}
 	}
 }
 
-func (m *Manager) renewMapping() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manager) checkHealthAndRecreate() bool {
+	if isHealthCheckDisabled() {
+		return false
+	}
 
+	m.mu.RLock()
+	gateway := m.gateway
+	hasMapping := m.mapping != nil
+	m.mu.RUnlock()
+
+	if gateway == nil || !hasMapping {
+		return false
+	}
+
+	pcpNAT, ok := gateway.(*pcp.NAT)
+	if !ok {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer cancel()
+
+	epoch, serverRestarted, err := pcpNAT.CheckServerHealth(ctx)
+	if err != nil {
+		log.Debugf("PCP health check failed: %v", err)
+		return false
+	}
+
+	if serverRestarted {
+		log.Warnf("PCP server restart detected (epoch=%d), recreating port mapping", epoch)
+		if err := m.renewMapping(); err != nil {
+			log.Errorf("failed to recreate port mapping after server restart: %v", err)
+			return false
+		}
+		return true
+	}
+
+	return false
+}
+
+func (m *Manager) renewMapping() error {
+	m.mu.RLock()
 	if m.mapping == nil || m.gateway == nil {
+		m.mu.RUnlock()
 		return nil
 	}
+	protocol := m.mapping.Protocol
+	internalPort := m.mapping.InternalPort
+	prevExternalPort := m.mapping.ExternalPort
+	gateway := m.gateway
+	m.mu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
 	defer cancel()
 
-	externalPort, err := m.gateway.AddPortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort), mappingDescription, defaultMappingTTL)
+	externalPort, err := gateway.AddPortMapping(ctx, protocol, int(internalPort), mappingDescription, defaultMappingTTL)
 	if err != nil {
 		return fmt.Errorf("add port mapping: %w", err)
 	}
 
-	if uint16(externalPort) != m.mapping.ExternalPort {
+	if uint16(externalPort) != prevExternalPort {
 		log.Warnf("external port changed on renewal: %d -> %d (candidate may be stale)",
-			m.mapping.ExternalPort, externalPort)
-		m.mapping.ExternalPort = uint16(externalPort)
+			prevExternalPort, externalPort)
+		m.mu.Lock()
+		if m.mapping != nil {
+			m.mapping.ExternalPort = uint16(externalPort)
+		}
+		m.mu.Unlock()
 	}
 
-	log.Debugf("renewed port mapping: %d -> %d", m.mapping.InternalPort, m.mapping.ExternalPort)
+	log.Debugf("renewed port mapping: %d -> %d", internalPort, externalPort)
 	return nil
 }
 
 func (m *Manager) persistStateLocked() error {
-	var state *State
+	state := &State{}
 	if m.mapping != nil {
-		state = &State{
-			InternalPort: m.mapping.InternalPort,
-			Protocol:     m.mapping.Protocol,
-		}
-	} else {
-		state = &State{}
+		state.InternalPort = m.mapping.InternalPort
+		state.Protocol = m.mapping.Protocol
 	}
-
 	return m.stateManager.UpdateState(state)
 }
 
 func isDisabledByEnv() bool {
-	val := os.Getenv(envDisableNATMapper)
+	return parseBoolEnv(envDisableNATMapper)
+}
+
+func isHealthCheckDisabled() bool {
+	return parseBoolEnv(envDisablePCPHealthCheck)
+}
+
+func parseBoolEnv(key string) bool {
+	val := os.Getenv(key)
 	if val == "" {
 		return false
 	}
 
 	disabled, err := strconv.ParseBool(val)
 	if err != nil {
-		log.Warnf("failed to parse %s: %v", envDisableNATMapper, err)
+		log.Warnf("failed to parse %s: %v", key, err)
 		return false
 	}
 	return disabled
