@@ -89,9 +89,11 @@ func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) 
 		store:              store,
 		embeddedIdpManager: embeddedIdp,
 		setupRequired:      false,
-		httpClient:         util.NewHTTPClient(),
+		httpClient: &http.Client{
+			Timeout:   httpTimeout,
+			Transport: util.NewTransport(),
+		},
 	}
-	m.httpClient.Timeout = httpTimeout
 
 	if embeddedIdp != nil {
 		err := m.loadSetupRequired(ctx)
