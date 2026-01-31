@@ -486,4 +486,118 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "preserved@example.com", lookedUp.Email)
 	})
+
+	t.Run("CreateUser fails when local auth is disabled", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		dbFile := filepath.Join(tmpDir, "dex.db")
+
+		// First, create a manager and add an external connector
+		config1 := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager1, err := NewEmbeddedIdPManager(ctx, config1, nil)
+		require.NoError(t, err)
+
+		_, err = manager1.CreateConnector(ctx, &dex.ConnectorConfig{
+			ID:           "google-test",
+			Name:         "Google Test",
+			Type:         "google",
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+		})
+		require.NoError(t, err)
+
+		err = manager1.Stop(ctx)
+		require.NoError(t, err)
+
+		// Create manager with local auth disabled
+		config2 := &EmbeddedIdPConfig{
+			Enabled:           true,
+			Issuer:            "http://localhost:5556/dex",
+			LocalAuthDisabled: true,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager2, err := NewEmbeddedIdPManager(ctx, config2, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager2.Stop(ctx) }()
+
+		// Try to create a user - should fail
+		_, err = manager2.CreateUser(ctx, "newuser@example.com", "New User", "account1", "admin@example.com")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "local user creation is disabled")
+	})
+
+	t.Run("CreateUserWithPassword fails when local auth is disabled", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		dbFile := filepath.Join(tmpDir, "dex.db")
+
+		// First, create a manager and add an external connector
+		config1 := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager1, err := NewEmbeddedIdPManager(ctx, config1, nil)
+		require.NoError(t, err)
+
+		_, err = manager1.CreateConnector(ctx, &dex.ConnectorConfig{
+			ID:           "google-test",
+			Name:         "Google Test",
+			Type:         "google",
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+		})
+		require.NoError(t, err)
+
+		err = manager1.Stop(ctx)
+		require.NoError(t, err)
+
+		// Create manager with local auth disabled
+		config2 := &EmbeddedIdPConfig{
+			Enabled:           true,
+			Issuer:            "http://localhost:5556/dex",
+			LocalAuthDisabled: true,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager2, err := NewEmbeddedIdPManager(ctx, config2, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager2.Stop(ctx) }()
+
+		// Try to create a user with password - should fail
+		_, err = manager2.CreateUserWithPassword(ctx, "newuser@example.com", "SecurePass123!", "New User")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "local user creation is disabled")
+	})
 }

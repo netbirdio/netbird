@@ -321,6 +321,10 @@ func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*
 
 // CreateUser creates a new user in the embedded IdP.
 func (m *EmbeddedIdPManager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
+	if m.config.LocalAuthDisabled {
+		return nil, fmt.Errorf("local user creation is disabled")
+	}
+
 	if m.appMetrics != nil {
 		m.appMetrics.IDPMetrics().CountCreateUser()
 	}
@@ -390,6 +394,10 @@ func (m *EmbeddedIdPManager) GetUserByEmail(ctx context.Context, email string) (
 // Unlike CreateUser which auto-generates a password, this method uses the provided password.
 // This is useful for instance setup where the user provides their own password.
 func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, password, name string) (*UserData, error) {
+	if m.config.LocalAuthDisabled {
+		return nil, fmt.Errorf("local user creation is disabled")
+	}
+
 	if m.appMetrics != nil {
 		m.appMetrics.IDPMetrics().CountCreateUser()
 	}
