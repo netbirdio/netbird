@@ -421,10 +421,8 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no other identity providers configured")
 
-		// Verify local auth is still enabled
-		enabled, err := manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.True(t, enabled)
+		// Verify local auth is still enabled (config unchanged)
+		assert.False(t, manager.IsLocalAuthDisabled())
 	})
 
 	t.Run("disable and re-enable local auth preserves users", func(t *testing.T) {
@@ -471,19 +469,9 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		err = manager.DisableLocalAuth(ctx)
 		require.NoError(t, err)
 
-		// Verify local auth is disabled
-		enabled, err := manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.False(t, enabled)
-
 		// Re-enable local auth
 		err = manager.EnableLocalAuth(ctx)
 		require.NoError(t, err)
-
-		// Verify local auth is enabled again
-		enabled, err = manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.True(t, enabled)
 
 		// Verify the user still exists
 		lookedUp, err := manager.GetUserDataByID(ctx, userID, AppMetadata{})
@@ -549,10 +537,8 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = manager2.Stop(ctx) }()
 
-		// Verify local auth is disabled
-		enabled, err := manager2.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.False(t, enabled)
+		// Verify local auth is disabled via config
+		assert.True(t, manager2.IsLocalAuthDisabled())
 
 		// Verify the user still exists in storage (just can't login via local)
 		lookedUp, err := manager2.GetUserDataByID(ctx, userID, AppMetadata{})
@@ -597,11 +583,6 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		// Disable again - should not error
 		err = manager.DisableLocalAuth(ctx)
 		require.NoError(t, err)
-
-		// Verify still disabled
-		enabled, err := manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.False(t, enabled)
 	})
 
 	t.Run("enabling already enabled local auth is idempotent", func(t *testing.T) {
@@ -624,18 +605,14 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = manager.Stop(ctx) }()
 
-		// Verify local auth is enabled by default
-		enabled, err := manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.True(t, enabled)
+		// Verify local auth is enabled by default (config)
+		assert.False(t, manager.IsLocalAuthDisabled())
 
 		// Enable again - should not error
 		err = manager.EnableLocalAuth(ctx)
 		require.NoError(t, err)
 
-		// Verify still enabled
-		enabled, err = manager.IsLocalAuthEnabled(ctx)
-		require.NoError(t, err)
-		assert.True(t, enabled)
+		// Verify still enabled (config unchanged)
+		assert.False(t, manager.IsLocalAuthDisabled())
 	})
 }

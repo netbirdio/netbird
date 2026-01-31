@@ -580,9 +580,9 @@ func (m *EmbeddedIdPManager) GetUserIDClaim() string {
 	return defaultUserIDClaim
 }
 
-// IsLocalAuthEnabled checks if the local (password) authentication is currently enabled.
-func (m *EmbeddedIdPManager) IsLocalAuthEnabled(ctx context.Context) (bool, error) {
-	return m.provider.IsLocalAuthEnabled(ctx)
+// IsLocalAuthDisabled returns whether local authentication is disabled based on configuration.
+func (m *EmbeddedIdPManager) IsLocalAuthDisabled() bool {
+	return m.config.LocalAuthDisabled
 }
 
 // HasNonLocalConnectors checks if there are any identity provider connectors other than local.

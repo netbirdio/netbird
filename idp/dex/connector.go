@@ -346,18 +346,6 @@ func (p *Provider) HasNonLocalConnectors(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// IsLocalAuthEnabled checks if the local (password) connector is currently enabled.
-func (p *Provider) IsLocalAuthEnabled(ctx context.Context) (bool, error) {
-	_, err := p.storage.GetConnector(ctx, "local")
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, storage.ErrNotFound) {
-		return false, nil
-	}
-	return false, fmt.Errorf("failed to check local connector: %w", err)
-}
-
 // DisableLocalAuth removes the local (password) connector.
 // Returns an error if no other connectors are configured.
 func (p *Provider) DisableLocalAuth(ctx context.Context) error {
