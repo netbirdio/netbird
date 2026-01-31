@@ -43,6 +43,11 @@ type EmbeddedIdPConfig struct {
 	Owner *OwnerConfig
 	// SignKeyRefreshEnabled enables automatic key rotation for signing keys
 	SignKeyRefreshEnabled bool
+	// LocalAuthDisabled disables the local (email/password) authentication connector.
+	// When true, users cannot authenticate via email/password, only via external identity providers.
+	// Existing local users are preserved and will be able to login again if re-enabled.
+	// Cannot be enabled if no external identity provider connectors are configured.
+	LocalAuthDisabled bool
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -105,6 +110,8 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 			Issuer: "NetBird",
 			Theme:  "light",
 		},
+		// Always enable password DB initially - we disable the local connector after startup if needed.
+		// This ensures Dex has at least one connector during initialization.
 		EnablePasswordDB: true,
 		StaticClients: []storage.Client{
 			{
@@ -195,6 +202,25 @@ func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMe
 	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedded IdP provider: %w", err)
+	}
+
+	// If local auth is disabled, validate that other connectors exist
+	if config.LocalAuthDisabled {
+		hasOthers, err := provider.HasNonLocalConnectors(ctx)
+		if err != nil {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("failed to check connectors: %w", err)
+		}
+		if !hasOthers {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("cannot disable local authentication: no other identity providers configured")
+		}
+		// Ensure local connector is removed (it might exist from a previous run)
+		if err := provider.DisableLocalAuth(ctx); err != nil {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("failed to disable local auth: %w", err)
+		}
+		log.WithContext(ctx).Info("local authentication disabled - only external identity providers can be used")
 	}
 
 	log.WithContext(ctx).Infof("embedded Dex IDP initialized with issuer: %s", yamlConfig.Issuer)
@@ -552,4 +578,27 @@ func (m *EmbeddedIdPManager) GetClientIDs() []string {
 // GetUserIDClaim returns the JWT claim name used for user identification.
 func (m *EmbeddedIdPManager) GetUserIDClaim() string {
 	return defaultUserIDClaim
+}
+
+// IsLocalAuthEnabled checks if the local (password) authentication is currently enabled.
+func (m *EmbeddedIdPManager) IsLocalAuthEnabled(ctx context.Context) (bool, error) {
+	return m.provider.IsLocalAuthEnabled(ctx)
+}
+
+// HasNonLocalConnectors checks if there are any identity provider connectors other than local.
+func (m *EmbeddedIdPManager) HasNonLocalConnectors(ctx context.Context) (bool, error) {
+	return m.provider.HasNonLocalConnectors(ctx)
+}
+
+// DisableLocalAuth disables local (email/password) authentication.
+// Returns an error if no other identity providers are configured.
+// Existing local users are preserved and will be able to login again if re-enabled.
+func (m *EmbeddedIdPManager) DisableLocalAuth(ctx context.Context) error {
+	return m.provider.DisableLocalAuth(ctx)
+}
+
+// EnableLocalAuth enables local (email/password) authentication.
+// Existing local users will be able to login again.
+func (m *EmbeddedIdPManager) EnableLocalAuth(ctx context.Context) error {
+	return m.provider.EnableLocalAuth(ctx)
 }

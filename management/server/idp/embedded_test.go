@@ -370,3 +370,272 @@ func TestEmbeddedIdPManager_GetLocalKeysLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("cannot disable local auth without other connectors", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		config := &EmbeddedIdPConfig{
+			Enabled:           true,
+			Issuer:            "http://localhost:5556/dex",
+			LocalAuthDisabled: true,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(tmpDir, "dex.db"),
+				},
+			},
+		}
+
+		_, err = NewEmbeddedIdPManager(ctx, config, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no other identity providers configured")
+	})
+
+	t.Run("disable local auth at runtime without other connectors fails", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		config := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(tmpDir, "dex.db"),
+				},
+			},
+		}
+
+		manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager.Stop(ctx) }()
+
+		// Try to disable local auth - should fail
+		err = manager.DisableLocalAuth(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no other identity providers configured")
+
+		// Verify local auth is still enabled
+		enabled, err := manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.True(t, enabled)
+	})
+
+	t.Run("disable and re-enable local auth preserves users", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		config := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(tmpDir, "dex.db"),
+				},
+			},
+		}
+
+		manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager.Stop(ctx) }()
+
+		// Create a user
+		userData, err := manager.CreateUser(ctx, "test@example.com", "Test User", "account1", "admin@example.com")
+		require.NoError(t, err)
+		userID := userData.ID
+
+		// Add an external connector so we can disable local auth
+		_, err = manager.CreateConnector(ctx, &dex.ConnectorConfig{
+			ID:           "google-test",
+			Name:         "Google Test",
+			Type:         "google",
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+		})
+		require.NoError(t, err)
+
+		// Verify we have a non-local connector
+		hasOthers, err := manager.HasNonLocalConnectors(ctx)
+		require.NoError(t, err)
+		assert.True(t, hasOthers)
+
+		// Disable local auth
+		err = manager.DisableLocalAuth(ctx)
+		require.NoError(t, err)
+
+		// Verify local auth is disabled
+		enabled, err := manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.False(t, enabled)
+
+		// Re-enable local auth
+		err = manager.EnableLocalAuth(ctx)
+		require.NoError(t, err)
+
+		// Verify local auth is enabled again
+		enabled, err = manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.True(t, enabled)
+
+		// Verify the user still exists
+		lookedUp, err := manager.GetUserDataByID(ctx, userID, AppMetadata{})
+		require.NoError(t, err)
+		assert.Equal(t, "test@example.com", lookedUp.Email)
+	})
+
+	t.Run("start with local auth disabled when connector exists", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		dbFile := filepath.Join(tmpDir, "dex.db")
+
+		// First, create a manager with local auth enabled and add a connector
+		config1 := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager1, err := NewEmbeddedIdPManager(ctx, config1, nil)
+		require.NoError(t, err)
+
+		// Create a user
+		userData, err := manager1.CreateUser(ctx, "preserved@example.com", "Preserved User", "account1", "admin@example.com")
+		require.NoError(t, err)
+		userID := userData.ID
+
+		// Add an external connector (Google doesn't require OIDC discovery)
+		_, err = manager1.CreateConnector(ctx, &dex.ConnectorConfig{
+			ID:           "google-test",
+			Name:         "Google Test",
+			Type:         "google",
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+		})
+		require.NoError(t, err)
+
+		// Stop the first manager
+		err = manager1.Stop(ctx)
+		require.NoError(t, err)
+
+		// Now create a new manager with local auth disabled
+		config2 := &EmbeddedIdPConfig{
+			Enabled:           true,
+			Issuer:            "http://localhost:5556/dex",
+			LocalAuthDisabled: true,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: dbFile,
+				},
+			},
+		}
+
+		manager2, err := NewEmbeddedIdPManager(ctx, config2, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager2.Stop(ctx) }()
+
+		// Verify local auth is disabled
+		enabled, err := manager2.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.False(t, enabled)
+
+		// Verify the user still exists in storage (just can't login via local)
+		lookedUp, err := manager2.GetUserDataByID(ctx, userID, AppMetadata{})
+		require.NoError(t, err)
+		assert.Equal(t, "preserved@example.com", lookedUp.Email)
+	})
+
+	t.Run("disabling already disabled local auth is idempotent", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		config := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(tmpDir, "dex.db"),
+				},
+			},
+		}
+
+		manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager.Stop(ctx) }()
+
+		// Add an external connector
+		_, err = manager.CreateConnector(ctx, &dex.ConnectorConfig{
+			ID:           "google-test",
+			Name:         "Google Test",
+			Type:         "google",
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+		})
+		require.NoError(t, err)
+
+		// Disable local auth
+		err = manager.DisableLocalAuth(ctx)
+		require.NoError(t, err)
+
+		// Disable again - should not error
+		err = manager.DisableLocalAuth(ctx)
+		require.NoError(t, err)
+
+		// Verify still disabled
+		enabled, err := manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("enabling already enabled local auth is idempotent", func(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "embedded-idp-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		config := &EmbeddedIdPConfig{
+			Enabled: true,
+			Issuer:  "http://localhost:5556/dex",
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(tmpDir, "dex.db"),
+				},
+			},
+		}
+
+		manager, err := NewEmbeddedIdPManager(ctx, config, nil)
+		require.NoError(t, err)
+		defer func() { _ = manager.Stop(ctx) }()
+
+		// Verify local auth is enabled by default
+		enabled, err := manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.True(t, enabled)
+
+		// Enable again - should not error
+		err = manager.EnableLocalAuth(ctx)
+		require.NoError(t, err)
+
+		// Verify still enabled
+		enabled, err = manager.IsLocalAuthEnabled(ctx)
+		require.NoError(t, err)
+		assert.True(t, enabled)
+	})
+}
