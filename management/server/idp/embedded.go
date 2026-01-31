@@ -589,16 +589,3 @@ func (m *EmbeddedIdPManager) IsLocalAuthDisabled() bool {
 func (m *EmbeddedIdPManager) HasNonLocalConnectors(ctx context.Context) (bool, error) {
 	return m.provider.HasNonLocalConnectors(ctx)
 }
-
-// DisableLocalAuth disables local (email/password) authentication.
-// Returns an error if no other identity providers are configured.
-// Existing local users are preserved and will be able to login again if re-enabled.
-func (m *EmbeddedIdPManager) DisableLocalAuth(ctx context.Context) error {
-	return m.provider.DisableLocalAuth(ctx)
-}
-
-// EnableLocalAuth enables local (email/password) authentication.
-// Existing local users will be able to login again.
-func (m *EmbeddedIdPManager) EnableLocalAuth(ctx context.Context) error {
-	return m.provider.EnableLocalAuth(ctx)
-}
