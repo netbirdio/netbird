@@ -309,6 +309,8 @@ func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 
+	log.WithContext(ctx).Debugf("retrieved %d users from embedded IdP", len(users))
+
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range users {
 		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], &UserData{
