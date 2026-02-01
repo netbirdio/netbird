@@ -54,6 +54,7 @@ func (s *BaseServer) ProxyController() port_forwarding.Controller {
 
 func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 	return Create(s, func() grpc.SecretsManager {
+		log.Debugf("Initializing secrets manager")
 		secretsManager, err := grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager())
 		if err != nil {
 			log.Fatalf("failed to create secrets manager: %v", err)

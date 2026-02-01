@@ -95,6 +95,7 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 
 // GetWGKey returns WireGuard private key used to generate peer keys
 func (m *TimeBasedAuthSecretsManager) GetWGKey() (wgtypes.Key, error) {
+	log.Debug("returning wg key from secrets manager")
 	return m.wgKey, nil
 }
 
