@@ -199,6 +199,8 @@ func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMe
 		return nil, err
 	}
 
+	log.WithContext(ctx).Debugf("initializing embedded Dex IDP with config: %+v")
+
 	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedded IdP provider: %w", err)
@@ -315,6 +317,8 @@ func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*
 			ID:    user.UserID,
 		})
 	}
+
+	log.WithContext(ctx).Debugf("retrieved %d users from embedded IdP", len(indexedUsers[UnsetAccountID]))
 
 	return indexedUsers, nil
 }
