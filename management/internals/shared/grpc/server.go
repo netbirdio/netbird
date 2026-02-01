@@ -490,14 +490,7 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
-	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
-	}
-	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
-	s.secretsManager.CancelRefresh(peer.ID)
-
-	log.WithContext(ctx).Debugf("peer %s has been disconnected", peer.Key)
+	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
 }
 
 func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer) {
