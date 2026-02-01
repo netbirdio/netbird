@@ -26,7 +26,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -49,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -793,6 +793,19 @@ func IsEmbeddedIdp(i idp.Manager) bool {
 	}
 	_, ok := i.(*idp.EmbeddedIdPManager)
 	return ok
+}
+
+// IsLocalAuthDisabled checks if local (email/password) authentication is disabled.
+// Returns true only when using embedded IDP with local auth disabled in config.
+func IsLocalAuthDisabled(ctx context.Context, i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	embeddedIdp, ok := i.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return false
+	}
+	return embeddedIdp.IsLocalAuthDisabled()
 }
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager

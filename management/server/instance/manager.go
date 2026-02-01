@@ -104,13 +104,22 @@ func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) 
 }
 
 func (m *DefaultManager) loadSetupRequired(ctx context.Context) error {
+	// Check if there are any accounts in the NetBird store
+	numAccounts, err := m.store.GetAccountsCounter(ctx)
+	if err != nil {
+		return err
+	}
+	hasAccounts := numAccounts > 0
+
+	// Check if there are any users in the embedded IdP (Dex)
 	users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
 	if err != nil {
 		return err
 	}
+	hasLocalUsers := len(users) > 0
 
 	m.setupMu.Lock()
-	m.setupRequired = len(users) == 0
+	m.setupRequired = !(hasAccounts || hasLocalUsers)
 	m.setupMu.Unlock()
 
 	return nil

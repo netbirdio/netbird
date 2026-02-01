@@ -129,14 +129,14 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	// Check if embedded IdP is enabled
+	// Check if embedded IdP is enabled for instance manager
 	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
 	instanceManager, err := nbinstance.NewManager(ctx, accountManager.GetStore(), embeddedIdP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, embeddedIdpEnabled, router)
+	accounts.AddEndpoints(accountManager, settingsManager, router)
 	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
 	users.AddInvitesEndpoints(accountManager, router)
