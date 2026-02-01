@@ -77,8 +77,9 @@ type Server struct {
 
 	oAuthConfigProvider idp.OAuthConfigProvider
 
-	syncSem atomic.Int32
-	syncLim int32
+	syncSem        atomic.Int32
+	syncLimEnabled bool
+	syncLim        int32
 }
 
 // NewServer creates a new Management server
@@ -108,6 +109,7 @@ func NewServer(
 	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
 
 	syncLim := int32(defaultSyncLim)
+	syncLimEnabled := true
 	if syncLimStr := os.Getenv(envConcurrentSyncs); syncLimStr != "" {
 		syncLimParsed, err := strconv.Atoi(syncLimStr)
 		if err != nil {
@@ -115,6 +117,9 @@ func NewServer(
 		} else {
 			//nolint:gosec
 			syncLim = int32(syncLimParsed)
+			if syncLim == -1 {
+				syncLimEnabled = false
+			}
 		}
 	}
 
@@ -134,7 +139,8 @@ func NewServer(
 
 		loginFilter: newLoginFilter(),
 
-		syncLim: syncLim,
+		syncLim:        syncLim,
+		syncLimEnabled: syncLimEnabled,
 	}, nil
 }
 
@@ -212,7 +218,7 @@ func (s *Server) Job(srv proto.ManagementService_JobServer) error {
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	if s.syncSem.Load() >= s.syncLim {
+	if s.syncLimEnabled && s.syncSem.Load() >= s.syncLim {
 		return status.Errorf(codes.ResourceExhausted, "too many concurrent sync requests, please try again later")
 	}
 	s.syncSem.Add(1)
