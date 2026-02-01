@@ -46,7 +46,7 @@ func (h *handler) getInstanceStatus(w http.ResponseWriter, r *http.Request) {
 		util.WriteErrorResponse("failed to check instance status", http.StatusInternalServerError, w)
 		return
 	}
-	log.WithContext(r.Context()).Infof("instance setup status ->>>>>>: %v", setupRequired)
+	log.WithContext(r.Context()).Infof("instance setup status: %v", setupRequired)
 	util.WriteJSONObject(r.Context(), w, api.InstanceStatus{
 		SetupRequired: setupRequired,
 	})
