@@ -199,7 +199,7 @@ func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMe
 		return nil, err
 	}
 
-	log.WithContext(ctx).Debugf("initializing embedded Dex IDP with config: %+v")
+	log.WithContext(ctx).Debugf("initializing embedded Dex IDP with config: %+v", config)
 
 	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
