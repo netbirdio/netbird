@@ -117,7 +117,7 @@ func NewServer(
 		} else {
 			//nolint:gosec
 			syncLim = int32(syncLimParsed)
-			if syncLim == -1 {
+			if syncLim < 0 {
 				syncLimEnabled = false
 			}
 		}
