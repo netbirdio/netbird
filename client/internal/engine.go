@@ -44,10 +44,12 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -140,6 +142,11 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+
+	// ProxyConfig contains system proxy settings for macOS
+	ProxyEnabled bool
+	ProxyHost    string
+	ProxyPort    int
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -223,6 +230,9 @@ type Engine struct {
 
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
+
+	// proxyManager manages system-wide browser proxy settings on macOS
+	proxyManager *proxy.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -311,6 +321,12 @@ func (e *Engine) Stop() error {
 
 	if e.updateManager != nil {
 		e.updateManager.Stop()
+	}
+
+	if e.proxyManager != nil {
+		if err := e.proxyManager.DisableWebProxy(); err != nil {
+			log.Warnf("failed to disable system proxy: %v", err)
+		}
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -447,6 +463,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		}
 	}
 	e.stateManager.Start()
+
+	// Initialize proxy manager and register state for cleanup
+	proxy.RegisterState(e.stateManager)
+	e.proxyManager = proxy.NewManager(e.stateManager)
 
 	initialRoutes, dnsConfig, dnsFeatureFlag, err := e.readInitialSettings()
 	if err != nil {
@@ -1311,6 +1331,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// Test received (upstream) servers for availability right away instead of upon usage.
 	// If no server of a server group responds this will disable the respective handler and retry later.
 	e.dnsServer.ProbeAvailability()
+
+	// Update system proxy state based on routes after network map is fully applied
+	e.updateSystemProxy(clientRoutes)
 
 	return nil
 }
@@ -2301,6 +2324,38 @@ func createFile(path string) error {
 		return err
 	}
 	return file.Close()
+}
+
+// containsExitNodeRoute checks if the routes contain an exit node (0.0.0.0/0).
+func containsExitNodeRoute(clientRoutes route.HAMap) bool {
+	for _, routes := range clientRoutes {
+		for _, r := range routes {
+			if r.Network.String() == vars.ExitNodeCIDR {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// updateSystemProxy triggers a proxy enable/disable cycle after the network map is updated.
+func (e *Engine) updateSystemProxy(clientRoutes route.HAMap) {
+	if runtime.GOOS != "darwin" || e.proxyManager == nil {
+		log.Errorf("not updating proxy")
+		return
+	}
+
+	if err := e.proxyManager.EnableWebProxy(e.config.ProxyHost, e.config.ProxyPort); err != nil {
+		log.Error("enable system proxy: %v", err)
+		return
+	}
+	log.Error("system proxy enabled after network map update")
+
+	if err := e.proxyManager.DisableWebProxy(); err != nil {
+		log.Error("disable system proxy: %v", err)
+		return
+	}
+	log.Error("system proxy disabled after network map update")
 }
 
 func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
