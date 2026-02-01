@@ -311,7 +311,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
 		return err
 	}
 
@@ -319,7 +319,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
 		return err
 	}
 
@@ -490,6 +490,10 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
+	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
+}
+
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
