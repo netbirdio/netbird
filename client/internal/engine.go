@@ -49,7 +49,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
-	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -2326,18 +2325,6 @@ func createFile(path string) error {
 	return file.Close()
 }
 
-// containsExitNodeRoute checks if the routes contain an exit node (0.0.0.0/0).
-func containsExitNodeRoute(clientRoutes route.HAMap) bool {
-	for _, routes := range clientRoutes {
-		for _, r := range routes {
-			if r.Network.String() == vars.ExitNodeCIDR {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // updateSystemProxy triggers a proxy enable/disable cycle after the network map is updated.
 func (e *Engine) updateSystemProxy(clientRoutes route.HAMap) {
 	if runtime.GOOS != "darwin" || e.proxyManager == nil {
@@ -2346,13 +2333,13 @@ func (e *Engine) updateSystemProxy(clientRoutes route.HAMap) {
 	}
 
 	if err := e.proxyManager.EnableWebProxy(e.config.ProxyHost, e.config.ProxyPort); err != nil {
-		log.Error("enable system proxy: %v", err)
+		log.Errorf("enable system proxy: %v", err)
 		return
 	}
 	log.Error("system proxy enabled after network map update")
 
 	if err := e.proxyManager.DisableWebProxy(); err != nil {
-		log.Error("disable system proxy: %v", err)
+		log.Errorf("disable system proxy: %v", err)
 		return
 	}
 	log.Error("system proxy disabled after network map update")
