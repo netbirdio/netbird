@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
@@ -102,11 +103,7 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, domainName string)
 	// because the user may not yet have configured their DNS records, or the DNS update
 	// has not yet reached the servers that are queried by the validation resolver.
 	var validated bool
-	var reverseProxyAddresses []string
-	if m.proxyURLProvider != nil {
-		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
-	}
-	if m.validator.IsValid(ctx, domainName, reverseProxyAddresses) {
+	if m.validator.IsValid(ctx, domainName, m.proxyURLAllowList()) {
 		validated = true
 	}
 
@@ -135,11 +132,8 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		}).WithError(err).Error("get custom domain from store")
 		return
 	}
-	var reverseProxyAddresses []string
-	if m.proxyURLProvider != nil {
-		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
-	}
-	if m.validator.IsValid(context.Background(), d.Domain, reverseProxyAddresses) {
+
+	if m.validator.IsValid(context.Background(), d.Domain, m.proxyURLAllowList()) {
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
@@ -155,4 +149,30 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 			return
 		}
 	}
+}
+
+// proxyURLAllowList retrieves a list of currently connected proxies and
+// their URLs (as reported by the proxy servers). It performs some clean
+// up on those URLs to attempt to retrieve domain names as we would
+// expect to see them in a validation check.
+func (m Manager) proxyURLAllowList() []string {
+	var reverseProxyAddresses []string
+	if m.proxyURLProvider != nil {
+		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
+	}
+	var allowedProxyURLs []string
+	for _, addr := range reverseProxyAddresses {
+		proxyUrl, err := url.Parse(addr)
+		if err != nil {
+			// TODO: log?
+			continue
+		}
+		host, _, err := net.SplitHostPort(proxyUrl.Host)
+		if err != nil {
+			// TODO: log?
+			host = proxyUrl.Host
+		}
+		allowedProxyURLs = append(allowedProxyURLs, host)
+	}
+	return allowedProxyURLs
 }
