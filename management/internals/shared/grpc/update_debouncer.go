@@ -8,12 +8,14 @@ import (
 
 // UpdateDebouncer implements a backpressure mechanism that:
 // - Sends the first update immediately
-// - Coalesces rapid subsequent updates
-// - Ensures the last update is always sent after a quiet period
+// - Coalesces rapid subsequent network map updates (only latest matters)
+// - Queues control/config updates (all must be delivered)
+// - Preserves the order of messages (important for control configs between network maps)
+// - Ensures pending updates are sent after a quiet period
 type UpdateDebouncer struct {
 	debounceInterval time.Duration
 	timer            *time.Timer
-	pendingUpdate    *network_map.UpdateMessage
+	pendingUpdates   []*network_map.UpdateMessage // Queue that preserves order
 	timerC           <-chan time.Time
 }
 
@@ -33,8 +35,17 @@ func (d *UpdateDebouncer) ProcessUpdate(update *network_map.UpdateMessage) bool 
 		return true
 	}
 
-	// Already in debounce period, accumulate this update (dropping previous pending)
-	d.pendingUpdate = update
+	// Already in debounce period, accumulate this update preserving order
+	// Check if we should coalesce with the last pending update
+	if len(d.pendingUpdates) > 0 &&
+		update.MessageType == network_map.MessageTypeNetworkMap &&
+		d.pendingUpdates[len(d.pendingUpdates)-1].MessageType == network_map.MessageTypeNetworkMap {
+		// Replace the last network map with this one (coalesce consecutive network maps)
+		d.pendingUpdates[len(d.pendingUpdates)-1] = update
+	} else {
+		// Append to the queue (preserves order for control configs and non-consecutive network maps)
+		d.pendingUpdates = append(d.pendingUpdates, update)
+	}
 	d.resetTimer()
 	return false
 }
@@ -47,26 +58,28 @@ func (d *UpdateDebouncer) TimerChannel() <-chan time.Time {
 	return d.timerC
 }
 
-// GetPendingUpdate returns and clears the pending update after timer expiration
-// If there was a pending update, it restarts the timer to continue debouncing.
-// If there was no pending update, it clears the timer (true quiet period).
-func (d *UpdateDebouncer) GetPendingUpdate() *network_map.UpdateMessage {
-	update := d.pendingUpdate
-	d.pendingUpdate = nil
+// GetPendingUpdates returns and clears all pending updates after timer expiration.
+// Updates are returned in the order they were received, with consecutive network maps
+// already coalesced to only the latest one.
+// If there were pending updates, it restarts the timer to continue debouncing.
+// If there were no pending updates, it clears the timer (true quiet period).
+func (d *UpdateDebouncer) GetPendingUpdates() []*network_map.UpdateMessage {
+	updates := d.pendingUpdates
+	d.pendingUpdates = nil
 
-	if update != nil {
-		// There was a pending update, so updates are still coming rapidly
+	if len(updates) > 0 {
+		// There were pending updates, so updates are still coming rapidly
 		// Restart the timer to continue debouncing mode
 		if d.timer != nil {
 			d.timer.Reset(d.debounceInterval)
 		}
 	} else {
-		// No pending update means true quiet period - return to immediate mode
+		// No pending updates means true quiet period - return to immediate mode
 		d.timer = nil
 		d.timerC = nil
 	}
 
-	return update
+	return updates
 }
 
 // Stop stops the debouncer and cleans up resources
@@ -76,6 +89,7 @@ func (d *UpdateDebouncer) Stop() {
 		d.timer = nil
 		d.timerC = nil
 	}
+	d.pendingUpdates = nil
 }
 
 func (d *UpdateDebouncer) startTimer() {

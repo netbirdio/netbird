@@ -433,16 +433,18 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				}
 			}
 
-		// Timer expired - quiet period reached, send pending update if any
+		// Timer expired - quiet period reached, send pending updates if any
 		case <-debouncer.TimerChannel():
-			pendingUpdate := debouncer.GetPendingUpdate()
-			if pendingUpdate == nil {
+			pendingUpdates := debouncer.GetPendingUpdates()
+			if len(pendingUpdates) == 0 {
 				continue
 			}
-			log.WithContext(ctx).Debugf("sending debounced update for peer %s", peerKey.String())
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv); err != nil {
-				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-				return err
+			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
+			for _, pendingUpdate := range pendingUpdates {
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv); err != nil {
+					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+					return err
+				}
 			}
 
 		// condition when client <-> server connection has been terminated

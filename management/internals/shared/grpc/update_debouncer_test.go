@@ -12,7 +12,10 @@ func TestUpdateDebouncer_FirstUpdateSentImmediately(t *testing.T) {
 	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	shouldSend := debouncer.ProcessUpdate(update)
 
@@ -29,9 +32,18 @@ func TestUpdateDebouncer_RapidUpdatesCoalesced(t *testing.T) {
 	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update3 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update3 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// First update should be sent immediately
 	if !debouncer.ProcessUpdate(update1) {
@@ -50,8 +62,11 @@ func TestUpdateDebouncer_RapidUpdatesCoalesced(t *testing.T) {
 	// Wait for debounce period
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate != update3 {
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) != 1 {
+			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+		}
+		if pendingUpdates[0] != update3 {
 			t.Error("Should get the last update (update3)")
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -63,8 +78,14 @@ func TestUpdateDebouncer_LastUpdateAlwaysSent(t *testing.T) {
 	debouncer := NewUpdateDebouncer(30 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// Send first update
 	debouncer.ProcessUpdate(update1)
@@ -75,11 +96,14 @@ func TestUpdateDebouncer_LastUpdateAlwaysSent(t *testing.T) {
 	// Wait for timer
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate != update2 {
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) != 1 {
+			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+		}
+		if pendingUpdates[0] != update2 {
 			t.Error("Should get the last update")
 		}
-		if pendingUpdate == update1 {
+		if pendingUpdates[0] == update1 {
 			t.Error("Should not get the first update")
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -91,9 +115,18 @@ func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
 	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update3 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update3 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// Send first update
 	debouncer.ProcessUpdate(update1)
@@ -113,8 +146,11 @@ func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
 	// Now wait for the timer (should fire after last update's reset)
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate != update3 {
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) != 1 {
+			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+		}
+		if pendingUpdates[0] != update3 {
 			t.Error("Should get the last update (update3)")
 		}
 		// Timer should be restarted since there was a pending update
@@ -130,9 +166,18 @@ func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T)
 	debouncer := NewUpdateDebouncer(30 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update3 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update3 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// First update sent immediately
 	debouncer.ProcessUpdate(update1)
@@ -142,9 +187,9 @@ func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T)
 
 	// Wait for timer to expire
 	<-debouncer.TimerChannel()
-	pendingUpdate := debouncer.GetPendingUpdate()
+	pendingUpdates := debouncer.GetPendingUpdates()
 
-	if pendingUpdate == nil {
+	if len(pendingUpdates) == 0 {
 		t.Fatal("Should have pending update")
 	}
 
@@ -155,8 +200,8 @@ func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T)
 
 	// Wait for the restarted timer and verify update3 is pending
 	<-debouncer.TimerChannel()
-	finalUpdate := debouncer.GetPendingUpdate()
-	if finalUpdate != update3 {
+	finalUpdates := debouncer.GetPendingUpdates()
+	if len(finalUpdates) != 1 || finalUpdates[0] != update3 {
 		t.Error("Should get update3 as pending")
 	}
 }
@@ -164,7 +209,10 @@ func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T)
 func TestUpdateDebouncer_StopCleansUp(t *testing.T) {
 	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
 
-	update := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// Send update to start timer
 	debouncer.ProcessUpdate(update)
@@ -190,6 +238,7 @@ func TestUpdateDebouncer_HighFrequencyUpdates(t *testing.T) {
 					Serial: uint64(i),
 				},
 			},
+			MessageType: network_map.MessageTypeNetworkMap,
 		}
 		lastUpdate = update
 		if debouncer.ProcessUpdate(update) {
@@ -206,12 +255,15 @@ func TestUpdateDebouncer_HighFrequencyUpdates(t *testing.T) {
 	// Wait for debounce period
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate != lastUpdate {
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) != 1 {
+			t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+		}
+		if pendingUpdates[0] != lastUpdate {
 			t.Error("Should get the very last update")
 		}
-		if pendingUpdate.Update.NetworkMap.Serial != 99 {
-			t.Errorf("Expected serial 99, got %d", pendingUpdate.Update.NetworkMap.Serial)
+		if pendingUpdates[0].Update.NetworkMap.Serial != 99 {
+			t.Errorf("Expected serial 99, got %d", pendingUpdates[0].Update.NetworkMap.Serial)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Error("Timer should have fired")
@@ -222,7 +274,10 @@ func TestUpdateDebouncer_NoUpdatesAfterFirst(t *testing.T) {
 	debouncer := NewUpdateDebouncer(30 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// Send first update
 	if !debouncer.ProcessUpdate(update) {
@@ -232,9 +287,9 @@ func TestUpdateDebouncer_NoUpdatesAfterFirst(t *testing.T) {
 	// Wait for timer to expire with no additional updates (true quiet period)
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate != nil {
-			t.Error("Should have no pending update")
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) != 0 {
+			t.Error("Should have no pending updates")
 		}
 		// After true quiet period, timer should be cleared
 		if debouncer.TimerChannel() != nil {
@@ -257,6 +312,7 @@ func TestUpdateDebouncer_IntermediateUpdatesDropped(t *testing.T) {
 					Serial: uint64(i),
 				},
 			},
+			MessageType: network_map.MessageTypeNetworkMap,
 		}
 	}
 
@@ -271,10 +327,13 @@ func TestUpdateDebouncer_IntermediateUpdatesDropped(t *testing.T) {
 
 	// Wait for debounce
 	<-debouncer.TimerChannel()
-	pendingUpdate := debouncer.GetPendingUpdate()
+	pendingUpdates := debouncer.GetPendingUpdates()
 
-	if pendingUpdate.Update.NetworkMap.Serial != 4 {
-		t.Errorf("Expected only the last update (serial 4), got serial %d", pendingUpdate.Update.NetworkMap.Serial)
+	if len(pendingUpdates) != 1 {
+		t.Errorf("Should get exactly 1 pending update, got %d", len(pendingUpdates))
+	}
+	if pendingUpdates[0].Update.NetworkMap.Serial != 4 {
+		t.Errorf("Expected only the last update (serial 4), got serial %d", pendingUpdates[0].Update.NetworkMap.Serial)
 	}
 }
 
@@ -282,8 +341,14 @@ func TestUpdateDebouncer_TrueQuietPeriodResetsToImmediateMode(t *testing.T) {
 	debouncer := NewUpdateDebouncer(30 * time.Millisecond)
 	defer debouncer.Stop()
 
-	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
-	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{}}
+	update1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	update2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
 
 	// First update sent immediately
 	if !debouncer.ProcessUpdate(update1) {
@@ -292,10 +357,10 @@ func TestUpdateDebouncer_TrueQuietPeriodResetsToImmediateMode(t *testing.T) {
 
 	// Wait for timer without sending any more updates (true quiet period)
 	<-debouncer.TimerChannel()
-	pendingUpdate := debouncer.GetPendingUpdate()
+	pendingUpdates := debouncer.GetPendingUpdates()
 
-	if pendingUpdate != nil {
-		t.Error("Should have no pending update during quiet period")
+	if len(pendingUpdates) != 0 {
+		t.Error("Should have no pending updates during quiet period")
 	}
 
 	// After true quiet period, next update should be sent immediately
@@ -316,6 +381,7 @@ func TestUpdateDebouncer_ContinuousHighFrequencyStaysInDebounceMode(t *testing.T
 					Serial: uint64(i),
 				},
 			},
+			MessageType: network_map.MessageTypeNetworkMap,
 		}
 
 		if i == 0 {
@@ -337,12 +403,175 @@ func TestUpdateDebouncer_ContinuousHighFrequencyStaysInDebounceMode(t *testing.T
 	// Now wait for final debounce
 	select {
 	case <-debouncer.TimerChannel():
-		pendingUpdate := debouncer.GetPendingUpdate()
-		if pendingUpdate == nil {
+		pendingUpdates := debouncer.GetPendingUpdates()
+		if len(pendingUpdates) == 0 {
 			t.Fatal("Should have the last update pending")
 		}
-		if pendingUpdate.Update.NetworkMap.Serial != 9 {
-			t.Errorf("Expected serial 9, got %d", pendingUpdate.Update.NetworkMap.Serial)
+		if pendingUpdates[0].Update.NetworkMap.Serial != 9 {
+			t.Errorf("Expected serial 9, got %d", pendingUpdates[0].Update.NetworkMap.Serial)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("Timer should have fired")
+	}
+}
+
+func TestUpdateDebouncer_ControlConfigMessagesQueued(t *testing.T) {
+	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+	defer debouncer.Stop()
+
+	netmapUpdate := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: 1}},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	tokenUpdate1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetbirdConfig: &proto.NetbirdConfig{}},
+		MessageType: network_map.MessageTypeControlConfig,
+	}
+	tokenUpdate2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetbirdConfig: &proto.NetbirdConfig{}},
+		MessageType: network_map.MessageTypeControlConfig,
+	}
+
+	// First update sent immediately
+	debouncer.ProcessUpdate(netmapUpdate)
+
+	// Send multiple control config updates - they should all be queued
+	debouncer.ProcessUpdate(tokenUpdate1)
+	debouncer.ProcessUpdate(tokenUpdate2)
+
+	// Wait for debounce period
+	select {
+	case <-debouncer.TimerChannel():
+		pendingUpdates := debouncer.GetPendingUpdates()
+		// Should get both control config updates
+		if len(pendingUpdates) != 2 {
+			t.Errorf("Expected 2 control config updates, got %d", len(pendingUpdates))
+		}
+		// Control configs should come first
+		if pendingUpdates[0] != tokenUpdate1 {
+			t.Error("First pending update should be tokenUpdate1")
+		}
+		if pendingUpdates[1] != tokenUpdate2 {
+			t.Error("Second pending update should be tokenUpdate2")
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("Timer should have fired")
+	}
+}
+
+func TestUpdateDebouncer_MixedMessageTypes(t *testing.T) {
+	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+	defer debouncer.Stop()
+
+	netmapUpdate1 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: 1}},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	netmapUpdate2 := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: 2}},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	tokenUpdate := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetbirdConfig: &proto.NetbirdConfig{}},
+		MessageType: network_map.MessageTypeControlConfig,
+	}
+
+	// First update sent immediately
+	debouncer.ProcessUpdate(netmapUpdate1)
+
+	// Send token update and network map update
+	debouncer.ProcessUpdate(tokenUpdate)
+	debouncer.ProcessUpdate(netmapUpdate2)
+
+	// Wait for debounce period
+	select {
+	case <-debouncer.TimerChannel():
+		pendingUpdates := debouncer.GetPendingUpdates()
+		// Should get 2 updates in order: token, then network map
+		if len(pendingUpdates) != 2 {
+			t.Errorf("Expected 2 pending updates, got %d", len(pendingUpdates))
+		}
+		// Token update should come first (preserves order)
+		if pendingUpdates[0] != tokenUpdate {
+			t.Error("First pending update should be tokenUpdate")
+		}
+		// Network map update should come second
+		if pendingUpdates[1] != netmapUpdate2 {
+			t.Error("Second pending update should be netmapUpdate2")
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("Timer should have fired")
+	}
+}
+
+func TestUpdateDebouncer_OrderPreservation(t *testing.T) {
+	debouncer := NewUpdateDebouncer(50 * time.Millisecond)
+	defer debouncer.Stop()
+
+	// Simulate: 50 network maps -> 1 control config -> 50 network maps
+	// Expected result: 3 messages (netmap, controlConfig, netmap)
+
+	// Send first network map immediately
+	firstNetmap := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: 0}},
+		MessageType: network_map.MessageTypeNetworkMap,
+	}
+	if !debouncer.ProcessUpdate(firstNetmap) {
+		t.Error("First update should be sent immediately")
+	}
+
+	// Send 49 more network maps (will be coalesced to last one)
+	var lastNetmapBatch1 *network_map.UpdateMessage
+	for i := 1; i < 50; i++ {
+		lastNetmapBatch1 = &network_map.UpdateMessage{
+			Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: uint64(i)}},
+			MessageType: network_map.MessageTypeNetworkMap,
+		}
+		debouncer.ProcessUpdate(lastNetmapBatch1)
+	}
+
+	// Send 1 control config
+	controlConfig := &network_map.UpdateMessage{
+		Update:      &proto.SyncResponse{NetbirdConfig: &proto.NetbirdConfig{}},
+		MessageType: network_map.MessageTypeControlConfig,
+	}
+	debouncer.ProcessUpdate(controlConfig)
+
+	// Send 50 more network maps (will be coalesced to last one)
+	var lastNetmapBatch2 *network_map.UpdateMessage
+	for i := 50; i < 100; i++ {
+		lastNetmapBatch2 = &network_map.UpdateMessage{
+			Update:      &proto.SyncResponse{NetworkMap: &proto.NetworkMap{Serial: uint64(i)}},
+			MessageType: network_map.MessageTypeNetworkMap,
+		}
+		debouncer.ProcessUpdate(lastNetmapBatch2)
+	}
+
+	// Wait for debounce period
+	select {
+	case <-debouncer.TimerChannel():
+		pendingUpdates := debouncer.GetPendingUpdates()
+		// Should get exactly 3 updates: netmap, controlConfig, netmap
+		if len(pendingUpdates) != 3 {
+			t.Errorf("Expected 3 pending updates, got %d", len(pendingUpdates))
+		}
+		// First should be the last netmap from batch 1
+		if pendingUpdates[0] != lastNetmapBatch1 {
+			t.Error("First pending update should be last netmap from batch 1")
+		}
+		if pendingUpdates[0].Update.NetworkMap.Serial != 49 {
+			t.Errorf("Expected serial 49, got %d", pendingUpdates[0].Update.NetworkMap.Serial)
+		}
+		// Second should be the control config
+		if pendingUpdates[1] != controlConfig {
+			t.Error("Second pending update should be control config")
+		}
+		// Third should be the last netmap from batch 2
+		if pendingUpdates[2] != lastNetmapBatch2 {
+			t.Error("Third pending update should be last netmap from batch 2")
+		}
+		if pendingUpdates[2].Update.NetworkMap.Serial != 99 {
+			t.Errorf("Expected serial 99, got %d", pendingUpdates[2].Update.NetworkMap.Serial)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Error("Timer should have fired")
