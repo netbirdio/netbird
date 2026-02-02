@@ -42,6 +42,8 @@ const (
 	dnsPolicyConfigConfigOptionsKey     = "ConfigOptions"
 	dnsPolicyConfigConfigOptionsValue   = 0x8
 
+	nrptMaxDomainsPerRule = 50
+
 	interfaceConfigPath          = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
 	interfaceConfigNameServerKey = "NameServer"
 	interfaceConfigSearchListKey = "SearchList"
@@ -239,23 +241,31 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) (int, error) {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
-	for i, domain := range domains {
-		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
-		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
 
-		singleDomain := []string{domain}
+	// We need to batch domains into chunks and create one NRPT rule per batch.
+	ruleIndex := 0
+	for i := 0; i < len(domains); i += nrptMaxDomainsPerRule {
+		end := i + nrptMaxDomainsPerRule
+		if end > len(domains) {
+			end = len(domains)
+		}
+		batchDomains := domains[i:end]
 
-		if err := r.configureDNSPolicy(localPath, singleDomain, ip); err != nil {
-			return i, fmt.Errorf("configure DNS Local policy for domain %s: %w", domain, err)
+		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, ruleIndex)
+		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, ruleIndex)
+
+		if err := r.configureDNSPolicy(localPath, batchDomains, ip); err != nil {
+			return ruleIndex, fmt.Errorf("configure DNS Local policy for rule %d: %w", ruleIndex, err)
 		}
 
 		if r.gpo {
-			if err := r.configureDNSPolicy(gpoPath, singleDomain, ip); err != nil {
-				return i, fmt.Errorf("configure gpo DNS policy: %w", err)
+			if err := r.configureDNSPolicy(gpoPath, batchDomains, ip); err != nil {
+				return ruleIndex, fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex, err)
 			}
 		}
 
-		log.Debugf("added NRPT entry for domain: %s", domain)
+		log.Debugf("added NRPT rule %d with %d domains", ruleIndex, len(batchDomains))
+		ruleIndex++
 	}
 
 	if r.gpo {
@@ -264,8 +274,8 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		}
 	}
 
-	log.Infof("added %d separate NRPT entries. Domain list: %s", len(domains), domains)
-	return len(domains), nil
+	log.Infof("added %d NRPT rules for %d domains. Domain list: %s", ruleIndex, len(domains), domains)
+	return ruleIndex, nil
 }
 
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
