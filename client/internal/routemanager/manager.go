@@ -337,6 +337,13 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	var merr *multierror.Error
+
+	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
+	if m.dnsServer != nil {
+		m.dnsServer.BeginBatch()
+		defer m.dnsServer.EndBatch()
+	}
+
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
