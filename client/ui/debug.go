@@ -18,9 +18,7 @@ import (
 	"github.com/skratchdot/open-golang/open"
 
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	uptypes "github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -291,18 +289,17 @@ func (s *serviceClient) handleRunForDuration(
 		return
 	}
 
-	statusOutput, err := s.collectDebugData(conn, initialState, params, progressUI)
-	if err != nil {
+	defer s.restoreServiceState(conn, initialState)
+
+	if err := s.collectDebugData(conn, initialState, params, progressUI); err != nil {
 		handleError(progressUI, err.Error())
 		return
 	}
 
-	if err := s.createDebugBundleFromCollection(conn, params, statusOutput, progressUI); err != nil {
+	if err := s.createDebugBundleFromCollection(conn, params, progressUI); err != nil {
 		handleError(progressUI, err.Error())
 		return
 	}
-
-	s.restoreServiceState(conn, initialState)
 
 	progressUI.statusLabel.SetText("Bundle created successfully")
 }
@@ -409,6 +406,10 @@ func (s *serviceClient) configureServiceForDebug(
 	}
 	time.Sleep(time.Second * 3)
 
+	if _, err := conn.StartCPUProfile(s.ctx, &proto.StartCPUProfileRequest{}); err != nil {
+		log.Warnf("failed to start CPU profiling: %v", err)
+	}
+
 	return nil
 }
 
@@ -417,68 +418,37 @@ func (s *serviceClient) collectDebugData(
 	state *debugInitialState,
 	params *debugCollectionParams,
 	progress *progressUI,
-) (string, error) {
+) error {
 	ctx, cancel := context.WithTimeout(s.ctx, params.duration)
 	defer cancel()
 	var wg sync.WaitGroup
 	startProgressTracker(ctx, &wg, params.duration, progress)
 
 	if err := s.configureServiceForDebug(conn, state, params.enablePersistence); err != nil {
-		return "", err
+		return err
 	}
-
-	pm := profilemanager.NewProfileManager()
-	var profName string
-	if activeProf, err := pm.GetActiveProfile(); err == nil {
-		profName = activeProf.Name
-	}
-
-	postUpStatus, err := conn.Status(s.ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-	if err != nil {
-		log.Warnf("Failed to get post-up status: %v", err)
-	}
-
-	var postUpStatusOutput string
-	if postUpStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil, "", profName)
-		postUpStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
-	}
-	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
-	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, postUpStatusOutput)
 
 	wg.Wait()
 	progress.progressBar.Hide()
 	progress.statusLabel.SetText("Collecting debug data...")
 
-	preDownStatus, err := conn.Status(s.ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-	if err != nil {
-		log.Warnf("Failed to get pre-down status: %v", err)
+	if _, err := conn.StopCPUProfile(s.ctx, &proto.StopCPUProfileRequest{}); err != nil {
+		log.Warnf("failed to stop CPU profiling: %v", err)
 	}
 
-	var preDownStatusOutput string
-	if preDownStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil, "", profName)
-		preDownStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
-	}
-	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s",
-		time.Now().Format(time.RFC3339), params.duration)
-	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, preDownStatusOutput)
-
-	return statusOutput, nil
+	return nil
 }
 
 // Create the debug bundle with collected data
 func (s *serviceClient) createDebugBundleFromCollection(
 	conn proto.DaemonServiceClient,
 	params *debugCollectionParams,
-	statusOutput string,
 	progress *progressUI,
 ) error {
 	progress.statusLabel.SetText("Creating debug bundle with collected logs...")
 
 	request := &proto.DebugBundleRequest{
 		Anonymize:  params.anonymize,
-		Status:     statusOutput,
 		SystemInfo: params.systemInfo,
 	}
 
@@ -581,26 +551,8 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 		return nil, fmt.Errorf("get client: %v", err)
 	}
 
-	pm := profilemanager.NewProfileManager()
-	var profName string
-	if activeProf, err := pm.GetActiveProfile(); err == nil {
-		profName = activeProf.Name
-	}
-
-	statusResp, err := conn.Status(s.ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-	if err != nil {
-		log.Warnf("failed to get status for debug bundle: %v", err)
-	}
-
-	var statusOutput string
-	if statusResp != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", profName)
-		statusOutput = nbstatus.ParseToFullDetailSummary(overview)
-	}
-
 	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymize,
-		Status:     statusOutput,
 		SystemInfo: systemInfo,
 	}
 

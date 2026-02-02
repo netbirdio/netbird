@@ -3,17 +3,21 @@ package dns
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 )
 
 const (
 	PriorityMgmtCache = 150
-	PriorityLocal     = 100
-	PriorityDNSRoute  = 75
+	PriorityDNSRoute  = 100
+	PriorityLocal     = 75
 	PriorityUpstream  = 50
 	PriorityDefault   = 1
 	PriorityFallback  = -100
@@ -43,7 +47,23 @@ type HandlerChain struct {
 type ResponseWriterChain struct {
 	dns.ResponseWriter
 	origPattern    string
+	requestID      string
 	shouldContinue bool
+	response       *dns.Msg
+	meta           map[string]string
+}
+
+// RequestID returns the request ID for tracing
+func (w *ResponseWriterChain) RequestID() string {
+	return w.requestID
+}
+
+// SetMeta sets a metadata key-value pair for logging
+func (w *ResponseWriterChain) SetMeta(key, value string) {
+	if w.meta == nil {
+		w.meta = make(map[string]string)
+	}
+	w.meta[key] = value
 }
 
 func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
@@ -52,6 +72,7 @@ func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
 		w.shouldContinue = true
 		return nil
 	}
+	w.response = m
 	return w.ResponseWriter.WriteMsg(m)
 }
 
@@ -101,6 +122,8 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 
 	pos := c.findHandlerPosition(entry)
 	c.handlers = append(c.handlers[:pos], append([]HandlerEntry{entry}, c.handlers[pos:]...)...)
+
+	c.logHandlers()
 }
 
 // findHandlerPosition determines where to insert a new handler based on priority and specificity
@@ -140,10 +163,29 @@ func (c *HandlerChain) removeEntry(pattern string, priority int) {
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
 		if strings.EqualFold(entry.OrigPattern, pattern) && entry.Priority == priority {
+			log.Debugf("removing handler pattern: domain=%s priority=%d", entry.OrigPattern, priority)
 			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
+			c.logHandlers()
 			break
 		}
 	}
+}
+
+// logHandlers logs the current handler chain state. Caller must hold the lock.
+func (c *HandlerChain) logHandlers() {
+	if !log.IsLevelEnabled(log.TraceLevel) {
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("handler chain (" + strconv.Itoa(len(c.handlers)) + "):\n")
+	for _, h := range c.handlers {
+		b.WriteString("  - pattern: domain=" + h.Pattern + " original: domain=" + h.OrigPattern +
+			" wildcard=" + strconv.FormatBool(h.IsWildcard) +
+			" match_subdomain=" + strconv.FormatBool(h.MatchSubdomains) +
+			" priority=" + strconv.Itoa(h.Priority) + "\n")
+	}
+	log.Trace(strings.TrimSuffix(b.String(), "\n"))
 }
 
 func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
@@ -151,55 +193,77 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	qname := strings.ToLower(r.Question[0].Name)
+	startTime := time.Now()
+	requestID := resutil.GenerateRequestID()
+	logger := log.WithFields(log.Fields{
+		"request_id": requestID,
+		"dns_id":     fmt.Sprintf("%04x", r.Id),
+	})
+
+	question := r.Question[0]
+	qname := strings.ToLower(question.Name)
 
 	c.mu.RLock()
 	handlers := slices.Clone(c.handlers)
 	c.mu.RUnlock()
 
-	if log.IsLevelEnabled(log.TraceLevel) {
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("DNS request domain=%s, handlers (%d):\n", qname, len(handlers)))
-		for _, h := range handlers {
-			b.WriteString(fmt.Sprintf("  - pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d\n",
-				h.Pattern, h.OrigPattern, h.IsWildcard, h.MatchSubdomains, h.Priority))
-		}
-		log.Trace(strings.TrimSuffix(b.String(), "\n"))
-	}
-
 	// Try handlers in priority order
 	for _, entry := range handlers {
-		matched := c.isHandlerMatch(qname, entry)
-
-		if matched {
-			log.Tracef("handler matched: domain=%s -> pattern=%s wildcard=%v match_subdomain=%v priority=%d",
-				qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
-
-			chainWriter := &ResponseWriterChain{
-				ResponseWriter: w,
-				origPattern:    entry.OrigPattern,
-			}
-			entry.Handler.ServeDNS(chainWriter, r)
-
-			// If handler wants to continue, try next handler
-			if chainWriter.shouldContinue {
-				// Only log continue for non-management cache handlers to reduce noise
-				if entry.Priority != PriorityMgmtCache {
-					log.Tracef("handler requested continue to next handler for domain=%s", qname)
-				}
-				continue
-			}
-			return
+		if !c.isHandlerMatch(qname, entry) {
+			continue
 		}
+
+		handlerName := entry.OrigPattern
+		if s, ok := entry.Handler.(interface{ String() string }); ok {
+			handlerName = s.String()
+		}
+
+		logger.Tracef("question: domain=%s type=%s class=%s -> handler=%s pattern=%s wildcard=%v match_subdomain=%v priority=%d",
+			qname, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass],
+			handlerName, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
+
+		chainWriter := &ResponseWriterChain{
+			ResponseWriter: w,
+			origPattern:    entry.OrigPattern,
+			requestID:      requestID,
+		}
+		entry.Handler.ServeDNS(chainWriter, r)
+
+		// If handler wants to continue, try next handler
+		if chainWriter.shouldContinue {
+			if entry.Priority != PriorityMgmtCache {
+				logger.Tracef("handler requested continue for domain=%s", qname)
+			}
+			continue
+		}
+
+		c.logResponse(logger, chainWriter, qname, startTime)
+		return
 	}
 
 	// No handler matched or all handlers passed
-	log.Tracef("no handler found for domain=%s", qname)
+	logger.Tracef("no handler found for domain=%s type=%s class=%s",
+		qname, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass])
 	resp := &dns.Msg{}
 	resp.SetRcode(r, dns.RcodeRefused)
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed to write DNS response: %v", err)
+		logger.Errorf("failed to write DNS response: %v", err)
 	}
+}
+
+func (c *HandlerChain) logResponse(logger *log.Entry, cw *ResponseWriterChain, qname string, startTime time.Time) {
+	if cw.response == nil {
+		return
+	}
+
+	var meta string
+	for k, v := range cw.meta {
+		meta += " " + k + "=" + v
+	}
+
+	logger.Tracef("response: domain=%s rcode=%s answers=%s%s took=%s",
+		qname, dns.RcodeToString[cw.response.Rcode], resutil.FormatAnswers(cw.response.Answer),
+		meta, time.Since(startTime))
 }
 
 func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {

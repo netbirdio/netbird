@@ -7,7 +7,6 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -81,6 +80,7 @@ var loginCmd = &cobra.Command{
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
@@ -206,6 +206,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 func switchProfile(ctx context.Context, profileName string, username string) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
@@ -275,18 +276,19 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 }
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey, profileName string) error {
+	authClient, err := auth.NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
+	if err != nil {
+		return fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
 	needsLogin := false
 
-	err := WithBackOff(func() error {
-		err := internal.Login(ctx, config, "", "")
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			needsLogin = true
-			return nil
-		}
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+	err, isAuthError := authClient.Login(ctx, "", "")
+	if isAuthError {
+		needsLogin = true
+	} else if err != nil {
+		return fmt.Errorf("login check failed: %v", err)
 	}
 
 	jwtToken := ""
@@ -298,23 +300,9 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
-	var lastError error
-
-	err = WithBackOff(func() error {
-		err := internal.Login(ctx, config, setupKey, jwtToken)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			lastError = err
-			return nil
-		}
-		return err
-	})
-
-	if lastError != nil {
-		return fmt.Errorf("login failed: %v", lastError)
-	}
-
+	err, _ = authClient.Login(ctx, setupKey, jwtToken)
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
 
 	return nil
@@ -342,11 +330,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 
 	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser)
 
-	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout)
-	defer c()
-
-	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+	tokenInfo, err := oAuthFlow.WaitToken(context.TODO(), flowInfo)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}

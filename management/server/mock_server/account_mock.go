@@ -74,6 +74,7 @@ type MockAccountManager struct {
 	SaveOrAddUsersFunc                    func(ctx context.Context, accountID, initiatorUserID string, update []*types.User, addIfNotExists bool) ([]*types.UserInfo, error)
 	DeleteUserFunc                        func(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsersFunc                func(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
+	UpdateUserPasswordFunc                func(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error
 	CreatePATFunc                         func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                         func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                            func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) (*types.PersonalAccessToken, error)
@@ -135,6 +136,35 @@ type MockAccountManager struct {
 	CreateIdentityProviderFunc func(ctx context.Context, accountID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
 	UpdateIdentityProviderFunc func(ctx context.Context, accountID, idpID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)
 	DeleteIdentityProviderFunc func(ctx context.Context, accountID, idpID, userID string) error
+	CreatePeerJobFunc          func(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobsFunc         func(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByIDFunc         func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
+	CreateUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error)
+	AcceptUserInviteFunc       func(ctx context.Context, token, password string) error
+	RegenerateUserInviteFunc   func(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error)
+	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
+	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
+	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
+}
+
+func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
+	if am.CreatePeerJobFunc != nil {
+		return am.CreatePeerJobFunc(ctx, accountID, peerID, userID, job)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreatePeerJob is not implemented")
+}
+
+func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+	if am.GetAllPeerJobsFunc != nil {
+		return am.GetAllPeerJobsFunc(ctx, accountID, userID, peerID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllPeerJobs is not implemented")
+}
+func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+	if am.GetPeerJobByIDFunc != nil {
+		return am.GetPeerJobByIDFunc(ctx, accountID, userID, peerID, jobID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerJobByID is not implemented")
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
@@ -612,6 +642,14 @@ func (am *MockAccountManager) DeleteRegularUsers(ctx context.Context, accountID,
 	return status.Errorf(codes.Unimplemented, "method DeleteRegularUsers is not implemented")
 }
 
+// UpdateUserPassword mocks UpdateUserPassword of the AccountManager interface
+func (am *MockAccountManager) UpdateUserPassword(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	if am.UpdateUserPasswordFunc != nil {
+		return am.UpdateUserPasswordFunc(ctx, accountID, currentUserID, targetUserID, oldPassword, newPassword)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateUserPassword is not implemented")
+}
+
 func (am *MockAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
 	if am.InviteUserFunc != nil {
 		return am.InviteUserFunc(ctx, accountID, initiatorUserID, targetUserID)
@@ -679,6 +717,48 @@ func (am *MockAccountManager) CreateUser(ctx context.Context, accountID, userID 
 		return am.CreateUserFunc(ctx, accountID, userID, invite)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser is not implemented")
+}
+
+func (am *MockAccountManager) CreateUserInvite(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
+	if am.CreateUserInviteFunc != nil {
+		return am.CreateUserInviteFunc(ctx, accountID, initiatorUserID, invite, expiresIn)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method CreateUserInvite is not implemented")
+}
+
+func (am *MockAccountManager) AcceptUserInvite(ctx context.Context, token, password string) error {
+	if am.AcceptUserInviteFunc != nil {
+		return am.AcceptUserInviteFunc(ctx, token, password)
+	}
+	return status.Errorf(codes.Unimplemented, "method AcceptUserInvite is not implemented")
+}
+
+func (am *MockAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+	if am.RegenerateUserInviteFunc != nil {
+		return am.RegenerateUserInviteFunc(ctx, accountID, initiatorUserID, inviteID, expiresIn)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method RegenerateUserInvite is not implemented")
+}
+
+func (am *MockAccountManager) GetUserInviteInfo(ctx context.Context, token string) (*types.UserInviteInfo, error) {
+	if am.GetUserInviteInfoFunc != nil {
+		return am.GetUserInviteInfoFunc(ctx, token)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserInviteInfo is not implemented")
+}
+
+func (am *MockAccountManager) ListUserInvites(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error) {
+	if am.ListUserInvitesFunc != nil {
+		return am.ListUserInvitesFunc(ctx, accountID, initiatorUserID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListUserInvites is not implemented")
+}
+
+func (am *MockAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
+	if am.DeleteUserInviteFunc != nil {
+		return am.DeleteUserInviteFunc(ctx, accountID, initiatorUserID, inviteID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteUserInvite is not implemented")
 }
 
 func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error) {

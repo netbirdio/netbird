@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -16,16 +17,18 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-	"github.com/netbirdio/netbird/shared/management/client/common"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/shared/management/client/common"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/job"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -57,6 +60,7 @@ type Server struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
 	proto.UnimplementedManagementServiceServer
+	jobManager     *job.Manager
 	config         *nbconfig.Config
 	secretsManager SecretsManager
 	appMetrics     telemetry.AppMetrics
@@ -73,8 +77,9 @@ type Server struct {
 
 	oAuthConfigProvider idp.OAuthConfigProvider
 
-	syncSem atomic.Int32
-	syncLim int32
+	syncSem        atomic.Int32
+	syncLimEnabled bool
+	syncLim        int32
 }
 
 // NewServer creates a new Management server
@@ -82,6 +87,7 @@ func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
 	settingsManager settings.Manager,
+	jobManager *job.Manager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	authManager auth.Manager,
@@ -103,6 +109,7 @@ func NewServer(
 	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
 
 	syncLim := int32(defaultSyncLim)
+	syncLimEnabled := true
 	if syncLimStr := os.Getenv(envConcurrentSyncs); syncLimStr != "" {
 		syncLimParsed, err := strconv.Atoi(syncLimStr)
 		if err != nil {
@@ -110,10 +117,14 @@ func NewServer(
 		} else {
 			//nolint:gosec
 			syncLim = int32(syncLimParsed)
+			if syncLim < 0 {
+				syncLimEnabled = false
+			}
 		}
 	}
 
 	return &Server{
+		jobManager:               jobManager,
 		accountManager:           accountManager,
 		settingsManager:          settingsManager,
 		config:                   config,
@@ -128,7 +139,8 @@ func NewServer(
 
 		loginFilter: newLoginFilter(),
 
-		syncLim: syncLim,
+		syncLim:        syncLim,
+		syncLimEnabled: syncLimEnabled,
 	}, nil
 }
 
@@ -169,10 +181,44 @@ func getRealIP(ctx context.Context) net.IP {
 	return nil
 }
 
+func (s *Server) Job(srv proto.ManagementService_JobServer) error {
+	reqStart := time.Now()
+	ctx := srv.Context()
+
+	peerKey, err := s.handleHandshake(ctx, srv)
+	if err != nil {
+		return err
+	}
+
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
+	if err != nil {
+		// nolint:staticcheck
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
+		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
+		return err
+	}
+	// nolint:staticcheck
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "peer is not registered")
+	}
+
+	s.startResponseReceiver(ctx, srv)
+
+	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
+	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
+
+	return s.sendJobsLoop(ctx, accountID, peerKey, peer, updates, srv)
+}
+
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	if s.syncSem.Load() >= s.syncLim {
+	if s.syncLimEnabled && s.syncSem.Load() >= s.syncLim {
 		return status.Errorf(codes.ResourceExhausted, "too many concurrent sync requests, please try again later")
 	}
 	s.syncSem.Add(1)
@@ -193,6 +239,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
 		s.syncSem.Add(-1)
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
 		return mapError(ctx, err)
 	}
 
@@ -262,6 +311,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
 		return err
 	}
 
@@ -269,7 +319,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
 		return err
 	}
 
@@ -289,6 +339,70 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 
+func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
+	hello, err := srv.Recv()
+	if err != nil {
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "missing hello: %v", err)
+	}
+
+	jobReq := &proto.JobRequest{}
+	peerKey, err := s.parseRequest(ctx, hello, jobReq)
+	if err != nil {
+		return wgtypes.Key{}, err
+	}
+
+	return peerKey, nil
+}
+
+func (s *Server) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
+	go func() {
+		for {
+			msg, err := srv.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+					return
+				}
+				log.WithContext(ctx).Warnf("recv job response error: %v", err)
+				return
+			}
+
+			jobResp := &proto.JobResponse{}
+			if _, err := s.parseRequest(ctx, msg, jobResp); err != nil {
+				log.WithContext(ctx).Warnf("invalid job response: %v", err)
+				continue
+			}
+
+			if err := s.jobManager.HandleResponse(ctx, jobResp, msg.WgPubKey); err != nil {
+				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
+			}
+		}
+	}()
+}
+
+func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *job.Channel, srv proto.ManagementService_JobServer) error {
+	// todo figure out better error handling strategy
+	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
+
+	for {
+		event, err := updates.Event(ctx)
+		if err != nil {
+			if errors.Is(err, job.ErrJobChannelClosed) {
+				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
+				return nil
+			}
+
+			// happens when connection drops, e.g. client disconnects
+			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
+			return ctx.Err()
+		}
+
+		if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
+			log.WithContext(ctx).Warnf("send job failed: %v", err)
+			return nil
+		}
+	}
+}
+
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
 func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
@@ -306,7 +420,6 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
-
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 				return err
@@ -336,7 +449,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
-	err = srv.SendMsg(&proto.EncryptedMessage{
+	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
@@ -348,10 +461,39 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 	return nil
 }
 
+// sendJob encrypts the update message using the peer key and the server's wireguard key,
+// then sends the encrypted message to the connected peer via the sync server.
+func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Event, srv proto.ManagementService_JobServer) error {
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wg key for peer %s: %v", peerKey.String(), err)
+		return status.Errorf(codes.Internal, "failed processing job message")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, wgKey, job.Request)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
+		return status.Errorf(codes.Internal, "failed processing job message")
+	}
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed sending job message")
+	}
+	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
+	return nil
+}
+
 func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
+	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
+}
+
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
@@ -690,8 +832,8 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
 	var err error
-
 	var turnToken *Token
+
 	if s.config.TURNConfig != nil && s.config.TURNConfig.TimeBasedCredentials {
 		turnToken, err = s.secretsManager.GenerateTurnToken()
 		if err != nil {

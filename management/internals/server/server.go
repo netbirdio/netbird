@@ -130,6 +130,11 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		if s.Config.IdpManagerConfig != nil && s.Config.IdpManagerConfig.ManagerType != "" {
 			idpManager = s.Config.IdpManagerConfig.ManagerType
 		}
+
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpManager = metrics.EmbeddedType
+		}
+
 		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
 		go metricsWorker.Run(srvCtx)
 	}

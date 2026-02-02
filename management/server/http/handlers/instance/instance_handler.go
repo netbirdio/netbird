@@ -28,6 +28,15 @@ func AddEndpoints(instanceManager nbinstance.Manager, router *mux.Router) {
 	router.HandleFunc("/setup", h.setup).Methods("POST", "OPTIONS")
 }
 
+// AddVersionEndpoint registers the authenticated version endpoint.
+func AddVersionEndpoint(instanceManager nbinstance.Manager, router *mux.Router) {
+	h := &handler{
+		instanceManager: instanceManager,
+	}
+
+	router.HandleFunc("/instance/version", h.getVersionInfo).Methods("GET", "OPTIONS")
+}
+
 // getInstanceStatus returns the instance status including whether setup is required.
 // This endpoint is unauthenticated.
 func (h *handler) getInstanceStatus(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +46,7 @@ func (h *handler) getInstanceStatus(w http.ResponseWriter, r *http.Request) {
 		util.WriteErrorResponse("failed to check instance status", http.StatusInternalServerError, w)
 		return
 	}
-
+	log.WithContext(r.Context()).Infof("instance setup status: %v", setupRequired)
 	util.WriteJSONObject(r.Context(), w, api.InstanceStatus{
 		SetupRequired: setupRequired,
 	})
@@ -64,4 +73,30 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 		UserId: userData.ID,
 		Email:  userData.Email,
 	})
+}
+
+// getVersionInfo returns version information for NetBird components.
+// This endpoint requires authentication.
+func (h *handler) getVersionInfo(w http.ResponseWriter, r *http.Request) {
+	versionInfo, err := h.instanceManager.GetVersionInfo(r.Context())
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("failed to get version info: %v", err)
+		util.WriteErrorResponse("failed to get version info", http.StatusInternalServerError, w)
+		return
+	}
+
+	resp := api.InstanceVersionInfo{
+		ManagementCurrentVersion:  versionInfo.CurrentVersion,
+		ManagementUpdateAvailable: versionInfo.ManagementUpdateAvailable,
+	}
+
+	if versionInfo.DashboardVersion != "" {
+		resp.DashboardAvailableVersion = &versionInfo.DashboardVersion
+	}
+
+	if versionInfo.ManagementVersion != "" {
+		resp.ManagementAvailableVersion = &versionInfo.ManagementVersion
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
 }

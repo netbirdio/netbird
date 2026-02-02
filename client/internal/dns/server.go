@@ -485,7 +485,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		}
 	}
 
-	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -498,8 +498,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 
-	// register local records
-	s.localResolver.Update(localRecords)
+	s.localResolver.Update(localZones)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
@@ -616,7 +615,7 @@ func (s *DefaultServer) applyHostConfig() {
 	s.registerFallback(config)
 }
 
-// registerFallback registers original nameservers as low-priority fallback handlers
+// registerFallback registers original nameservers as low-priority fallback handlers.
 func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
 	if !ok {
@@ -625,6 +624,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	originalNameservers := hostMgrWithNS.getOriginalNameservers()
 	if len(originalNameservers) == 0 {
+		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
 		return
 	}
 
@@ -632,9 +632,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,
@@ -659,9 +657,9 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
 	var muxUpdates []handlerWrapper
-	var localRecords []nbdns.SimpleRecord
+	var zones []nbdns.CustomZone
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -675,17 +673,20 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityLocal,
 		})
 
+		// zone records contain the fqdn, so we can just flatten them
+		var localRecords []nbdns.SimpleRecord
 		for _, record := range customZone.Records {
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-			// zone records contain the fqdn, so we can just flatten them
 			localRecords = append(localRecords, record)
 		}
+		customZone.Records = localRecords
+		zones = append(zones, customZone)
 	}
 
-	return muxUpdates, localRecords, nil
+	return muxUpdates, zones, nil
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
@@ -741,9 +742,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		log.Debugf("creating handler for domain=%s with priority=%d", domainGroup.domain, priority)
 		handler, err := newUpstreamResolver(
 			s.ctx,
-			s.wgInterface.Name(),
-			s.wgInterface.Address().IP,
-			s.wgInterface.Address().Network,
+			s.wgInterface,
 			s.statusRecorder,
 			s.hostsDNSHolder,
 			domainGroup.domain,
@@ -924,9 +923,7 @@ func (s *DefaultServer) addHostRootZone() {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,

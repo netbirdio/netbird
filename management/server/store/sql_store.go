@@ -27,6 +27,8 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -41,14 +43,15 @@ import (
 )
 
 const (
-	storeSqliteFileName         = "store.db"
-	idQueryCondition            = "id = ?"
-	keyQueryCondition           = "key = ?"
-	mysqlKeyQueryCondition      = "`key` = ?"
-	accountAndIDQueryCondition  = "account_id = ? and id = ?"
-	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
-	accountIDCondition          = "account_id = ?"
-	peerNotFoundFMT             = "peer %s not found"
+	storeSqliteFileName            = "store.db"
+	idQueryCondition               = "id = ?"
+	keyQueryCondition              = "key = ?"
+	mysqlKeyQueryCondition         = "`key` = ?"
+	accountAndIDQueryCondition     = "account_id = ? and id = ?"
+	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
+	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
+	accountIDCondition             = "account_id = ?"
+	peerNotFoundFMT                = "peer %s not found"
 
 	pgMaxConnections    = 30
 	pgMinConnections    = 1
@@ -123,6 +126,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -139,6 +143,97 @@ func GetKeyQueryCondition(s *SqlStore) string {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
+}
+
+// SaveJob persists a job in DB
+func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.Create(job)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create job in store")
+	}
+	return nil
+}
+
+func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.
+		Model(&types.Job{}).
+		Where(idQueryCondition, job.ID).
+		Updates(job)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to update job in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+" AND id = ?"+" AND status = ?", accountID, peerID, jobID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+" AND status = ?", accountID, peerID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
+}
+
+// GetJobByID fetches job by ID
+func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error) {
+	var job types.Job
+	err := s.db.
+		Where(accountAndIDQueryCondition, accountID, jobID).
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, status.Errorf(status.NotFound, "job %s not found", jobID)
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch job from store: %s", err)
+		return nil, err
+	}
+	return &job, nil
+}
+
+// get all jobs
+func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error) {
+	var jobs []*types.Job
+	err := s.db.
+		Where(accountAndPeerIDQueryCondition, accountID, peerID).
+		Order("created_at DESC").
+		Find(&jobs).Error
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch jobs from store: %s", err)
+		return nil, err
+	}
+
+	return jobs, nil
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
@@ -718,6 +813,130 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 	}
 
 	return &user, nil
+}
+
+// SaveUserInvite saves a user invite to the database
+func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error {
+	inviteCopy := invite.Copy()
+	if err := inviteCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt invite: %w", err)
+	}
+
+	result := s.db.Save(inviteCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save user invite to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save user invite to store")
+	}
+	return nil
+}
+
+// GetUserInviteByID retrieves a user invite by its ID and account ID
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInviteRecord
+	result := tx.Where("account_id = ?", accountID).Take(&invite, idQueryCondition, inviteID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// GetUserInviteByHashedToken retrieves a user invite by its hashed token
+func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInviteRecord
+	result := tx.Take(&invite, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// GetUserInviteByEmail retrieves a user invite by account ID and email.
+// Since email is encrypted with random IVs, we fetch all invites for the account
+// and compare emails in memory after decryption.
+func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invites []*types.UserInviteRecord
+	result := tx.Find(&invites, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
+		}
+		if strings.EqualFold(invite.Email, email) {
+			return invite, nil
+		}
+	}
+
+	return nil, status.Errorf(status.NotFound, "user invite not found for email")
+}
+
+// GetAccountUserInvites retrieves all user invites for an account
+func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invites []*types.UserInviteRecord
+	result := tx.Find(&invites, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
+		}
+	}
+
+	return invites, nil
+}
+
+// DeleteUserInvite deletes a user invite by its ID
+func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
+	result := s.db.Delete(&types.UserInviteRecord{}, idQueryCondition, inviteID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete user invite from store")
+	}
+	return nil
 }
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
@@ -3029,8 +3248,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	return &SqlStore{
-		db:          tx,
-		storeEngine: s.storeEngine,
+		db:           tx,
+		storeEngine:  s.storeEngine,
+		fieldEncrypt: s.fieldEncrypt,
 	}
 }
 
@@ -4173,8 +4393,212 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 		Take(&userID, GetKeyQueryCondition(s), peerKey)
 
 	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "peer not found: index lookup failed")
+		}
 		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
 	}
 
 	return userID, nil
+}
+
+func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Create(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Select("*").Save(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteZone(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&zones.Zone{}, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewZoneNotFoundError(zoneID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zone *zones.Zone
+	result := tx.Preload("Records").Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(zoneID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error) {
+	var zone *zones.Zone
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&zone)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone by domain from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zones []*zones.Zone
+	result := tx.Preload("Records").Find(&zones, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zones from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zones from store")
+	}
+
+	return zones, nil
+}
+
+func (s *SqlStore) CreateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Create(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Select("*").Save(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete dns record from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete dns record from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewDNSRecordNotFoundError(recordID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var record *records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID).Take(&record)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewDNSRecordNotFoundError(recordID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get dns record from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get dns record from store")
+	}
+
+	return record, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ?", accountID, zoneID).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND name = ?", accountID, zoneID, name).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records by name from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records by name from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ?", accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone dns records from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone dns records from store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		Where(GetKeyQueryCondition(s), key).
+		Limit(1).
+		Scan(&peerID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peer ID by key: %s", result.Error)
+		return "", status.Errorf(status.Internal, "failed to get peer ID by key")
+	}
+
+	return peerID, nil
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -790,13 +791,14 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
+	peersManager := peers.NewManager(store, permissionsManager)
 
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
 
-	return BuildManager(context.Background(), nil, store, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -899,80 +901,51 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	return account, nil
 }
 
+// TestValidateDomain tests nameserver-specific domain validation.
+// Core domain validation is tested in shared/management/domain/validate_test.go.
+// This test only covers nameserver-specific behavior: wildcard rejection and unicode support.
 func TestValidateDomain(t *testing.T) {
 	testCases := []struct {
 		name    string
 		domain  string
 		errFunc require.ErrorAssertionFunc
 	}{
+		// Nameserver-specific: wildcards not allowed
 		{
-			name:    "Valid domain name with multiple labels",
-			domain:  "123.example.com",
+			name:    "Wildcard prefix rejected",
+			domain:  "*.example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Wildcard in middle rejected",
+			domain:  "a.*.example.com",
+			errFunc: require.Error,
+		},
+		// Nameserver-specific: unicode converted to punycode
+		{
+			name:    "Unicode domain converted to punycode",
+			domain:  "münchen.de",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with hyphen",
-			domain:  "test-example.com",
+			name:    "Unicode domain all labels",
+			domain:  "中国.中国",
+			errFunc: require.NoError,
+		},
+		// Basic validation still works (delegates to shared validation)
+		{
+			name:    "Valid multi-label domain",
+			domain:  "example.com",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with only one label",
-			domain:  "example",
+			name:    "Valid single label",
+			domain:  "internal",
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with trailing dot",
-			domain:  "example.",
-			errFunc: require.NoError,
-		},
-		{
-			name:    "Invalid wildcard domain name",
-			domain:  "*.example",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with leading dot",
-			domain:  ".com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with dot only",
-			domain:  ".",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name with a label exceeding 63 characters",
-			domain:  "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name starting with a hyphen",
+			name:    "Invalid leading hyphen",
 			domain:  "-example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain name ending with a hyphen",
-			domain:  "example.com-",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with unicode",
-			domain:  "example?,.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with space before top-level domain",
-			domain:  "space .example.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid domain with trailing space",
-			domain:  "example.com ",
 			errFunc: require.Error,
 		},
 	}

@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -38,6 +40,9 @@ const (
 type systemConfigurator struct {
 	createdKeys       map[string]struct{}
 	systemDNSSettings SystemDNSSettings
+
+	mu              sync.RWMutex
+	origNameservers []netip.Addr
 }
 
 func newHostManager() (*systemConfigurator, error) {
@@ -218,6 +223,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	}
 
 	var dnsSettings SystemDNSSettings
+	var serverAddresses []netip.Addr
 	inSearchDomainsArray := false
 	inServerAddressesArray := false
 
@@ -244,9 +250,12 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
 		} else if inServerAddressesArray {
 			address := strings.Split(line, " : ")[1]
-			if ip, err := netip.ParseAddr(address); err == nil && ip.Is4() {
-				dnsSettings.ServerIP = ip.Unmap()
-				inServerAddressesArray = false // Stop reading after finding the first IPv4 address
+			if ip, err := netip.ParseAddr(address); err == nil && !ip.IsUnspecified() {
+				ip = ip.Unmap()
+				serverAddresses = append(serverAddresses, ip)
+				if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
+					dnsSettings.ServerIP = ip
+				}
 			}
 		}
 	}
@@ -258,7 +267,17 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	// default to 53 port
 	dnsSettings.ServerPort = DefaultPort
 
+	s.mu.Lock()
+	s.origNameservers = serverAddresses
+	s.mu.Unlock()
+
 	return dnsSettings, nil
+}
+
+func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Clone(s.origNameservers)
 }
 
 func (s *systemConfigurator) addSearchDomains(key, domains string, ip netip.Addr, port int) error {

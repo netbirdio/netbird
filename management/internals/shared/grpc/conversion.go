@@ -374,8 +374,10 @@ func shouldUsePortRange(rule *proto.FirewallRule) bool {
 // Helper function to convert nbdns.CustomZone to proto.CustomZone
 func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
 	protoZone := &proto.CustomZone{
-		Domain:  zone.Domain,
-		Records: make([]*proto.SimpleRecord, 0, len(zone.Records)),
+		Domain:               zone.Domain,
+		Records:              make([]*proto.SimpleRecord, 0, len(zone.Records)),
+		SearchDomainDisabled: zone.SearchDomainDisabled,
+		NonAuthoritative:     zone.NonAuthoritative,
 	}
 	for _, record := range zone.Records {
 		protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
@@ -428,9 +430,20 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
 	}
 
+	audience := config.AuthAudience
+	if config.CLIAuthAudience != "" {
+		audience = config.CLIAuthAudience
+	}
+
+	audiences := []string{config.AuthAudience}
+	if config.CLIAuthAudience != "" && config.CLIAuthAudience != config.AuthAudience {
+		audiences = append(audiences, config.CLIAuthAudience)
+	}
+
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     config.AuthAudience,
+		Audience:     audience,
+		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}
 }

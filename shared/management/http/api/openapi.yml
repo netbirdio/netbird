@@ -25,6 +25,8 @@ tags:
     description: Interact with and view information about routes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
+  - name: DNS Zones
+    description: Interact with and view information about custom DNS zones.
   - name: Events
     description: View information about the account and network events.
   - name: Accounts
@@ -36,8 +38,142 @@ tags:
     description: Interact with and view information about identity providers.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
 components:
   schemas:
+    PasswordChangeRequest:
+      type: object
+      properties:
+        old_password:
+          description: The current password
+          type: string
+          example: "currentPassword123"
+        new_password:
+          description: The new password to set
+          type: string
+          example: "newSecurePassword456"
+      required:
+        - old_password
+        - new_password
+    WorkloadType:
+      type: string
+      description: |
+         Identifies the type of workload the job will execute.
+         Currently only `"bundle"` is supported.
+      enum:
+        - bundle
+      example: "bundle"
+    BundleParameters:
+      type: object
+      description: These parameters control what gets included in the bundle and how it is processed.
+      properties:
+        bundle_for:
+          type: boolean
+          description: Whether to generate a bundle for the given timeframe.
+          example: true
+        bundle_for_time:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Time period in minutes for which to generate the bundle.
+          example: 2
+        log_file_count:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of log files to include in the bundle.
+          example: 100
+        anonymize:
+          type: boolean
+          description: Whether sensitive data should be anonymized in the bundle.
+          example: false
+      required:
+        - bundle_for
+        - bundle_for_time
+        - log_file_count
+        - anonymize
+    BundleResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+          example: "upload_key_123"
+          nullable: true
+    BundleWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+      required:
+      - type
+      - parameters
+    BundleWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+        result:
+          $ref: '#/components/schemas/BundleResult'
+      required:
+        - type
+        - parameters
+        - result
+    WorkloadRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadRequest'
+    WorkloadResponse:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadResponse'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadResponse'
+    JobRequest:
+      type: object
+      properties:
+        workload:
+          $ref: '#/components/schemas/WorkloadRequest'
+      required:
+        - workload
+    JobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        triggered_by:
+          type: string
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        failed_reason:
+          type: string
+          nullable: true
+        workload:
+          $ref: '#/components/schemas/WorkloadResponse'
+      required:
+        - id
+        - created_at
+        - status
+        - triggered_by
+        - workload
     Account:
       type: object
       properties:
@@ -155,6 +291,11 @@ components:
           example: "0.51.2"
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
+          type: boolean
+          readOnly: true
+          example: false
+        local_auth_disabled:
+          description: Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
           type: boolean
           readOnly: true
           example: false
@@ -352,6 +493,171 @@ components:
         - role
         - auto_groups
         - is_service_user
+    UserInviteCreateRequest:
+      type: object
+      description: Request to create a user invite link
+      properties:
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        role:
+          description: User's NetBird account role
+          type: string
+          example: user
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        expires_in:
+          description: Invite expiration time in seconds (default 72 hours)
+          type: integer
+          example: 259200
+      required:
+        - email
+        - name
+        - role
+        - auto_groups
+    UserInvite:
+      type: object
+      description: A user invite
+      properties:
+        id:
+          description: Invite ID
+          type: string
+          example: d5p7eedra0h0lt6f59hg
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        role:
+          description: User's NetBird account role
+          type: string
+          example: user
+        auto_groups:
+          description: Group IDs to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+        expires_at:
+          description: Invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-25T10:00:00Z"
+        created_at:
+          description: Invite creation time
+          type: string
+          format: date-time
+          example: "2024-01-22T10:00:00Z"
+        expired:
+          description: Whether the invite has expired
+          type: boolean
+          example: false
+        invite_token:
+          description: The invite link to be shared with the user. Only returned when the invite is created or regenerated.
+          type: string
+          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
+      required:
+        - id
+        - email
+        - name
+        - role
+        - auto_groups
+        - expires_at
+        - created_at
+        - expired
+    UserInviteInfo:
+      type: object
+      description: Public information about an invite
+      properties:
+        email:
+          description: User's email address
+          type: string
+          example: user@example.com
+        name:
+          description: User's full name
+          type: string
+          example: John Doe
+        expires_at:
+          description: Invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-25T10:00:00Z"
+        valid:
+          description: Whether the invite is still valid (not expired)
+          type: boolean
+          example: true
+        invited_by:
+          description: Name of the user who sent the invite
+          type: string
+          example: Admin User
+      required:
+        - email
+        - name
+        - expires_at
+        - valid
+        - invited_by
+    UserInviteAcceptRequest:
+      type: object
+      description: Request to accept an invite and set password
+      properties:
+        password:
+          description: >-
+            The password the user wants to set. Must be at least 8 characters long
+            and contain at least one uppercase letter, one digit, and one special
+            character (any character that is not a letter or digit, including spaces).
+          type: string
+          format: password
+          minLength: 8
+          pattern: '^(?=.*[0-9])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$'
+          example: SecurePass123!
+      required:
+        - password
+    UserInviteAcceptResponse:
+      type: object
+      description: Response after accepting an invite
+      properties:
+        success:
+          description: Whether the invite was accepted successfully
+          type: boolean
+          example: true
+      required:
+        - success
+    UserInviteRegenerateRequest:
+      type: object
+      description: Request to regenerate an invite link
+      properties:
+        expires_in:
+          description: Invite expiration time in seconds (default 72 hours)
+          type: integer
+          example: 259200
+    UserInviteRegenerateResponse:
+      type: object
+      description: Response after regenerating an invite
+      properties:
+        invite_token:
+          description: The new invite token
+          type: string
+          example: nbi_Xk5Lz9mP2vQwRtYu1aN3bC4dE5fGh0ABC123
+        invite_expires_at:
+          description: New invite expiration time
+          type: string
+          format: date-time
+          example: "2024-01-28T10:00:00Z"
+      required:
+        - invite_token
+        - invite_expires_at
     PeerMinimum:
       type: object
       properties:
@@ -1779,6 +2085,100 @@ components:
             example: ch8i4ug6lnn4g9hqv7m0
       required:
         - disabled_management_groups
+    ZoneRequest:
+      type: object
+      properties:
+        name:
+          description: Zone name identifier
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: Office Zone
+        domain:
+          description: Zone domain (FQDN)
+          type: string
+          example: example.com
+        enabled:
+          description: Zone status
+          type: boolean
+          default: true
+        enable_search_domain:
+          description: Enable this zone as a search domain
+          type: boolean
+          example: false
+        distribution_groups:
+          description: Group IDs that defines groups of peers that will resolve this zone
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
+      required:
+        - name
+        - domain
+        - enable_search_domain
+        - distribution_groups
+    Zone:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Zone ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+            records:
+              description: DNS records associated with this zone
+              type: array
+              items:
+                $ref: '#/components/schemas/DNSRecord'
+          required:
+            - id
+            - enabled
+            - records
+        - $ref: '#/components/schemas/ZoneRequest'
+    DNSRecordType:
+      type: string
+      description: DNS record type
+      enum:
+        - A
+        - AAAA
+        - CNAME
+      example: A
+    DNSRecordRequest:
+      type: object
+      properties:
+        name:
+          description: FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
+          type: string
+          example: www.example.com
+        type:
+          $ref: '#/components/schemas/DNSRecordType'
+        content:
+          description: DNS record content (IP address for A/AAAA, domain for CNAME)
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: 192.168.1.1
+        ttl:
+          description: Time to live in seconds
+          type: integer
+          minimum: 0
+          example: 300
+      required:
+        - name
+        - type
+        - content
+        - ttl
+    DNSRecord:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: DNS record ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+          required:
+            - id
+        - $ref: '#/components/schemas/DNSRecordRequest'
     Event:
       type: object
       properties:
@@ -1798,18 +2198,52 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
-                  "user.role.update", "user.block", "user.unblock", "user.peer.login",
-                  "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
-                  "setupkey.group.delete", "setupkey.group.add",
-                  "rule.add", "rule.delete", "rule.update",
-                  "policy.add", "policy.delete", "policy.update",
-                  "group.add", "group.update", "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
-                  "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
-                  "route.add", "route.delete", "route.update",
-                  "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable", "peer.login.expire",
-                  "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
+          enum: [
+            "peer.user.add", "peer.setupkey.add", "user.join", "user.invite", "account.create", "account.delete",
+            "user.peer.delete", "rule.add", "rule.update", "rule.delete",
+            "policy.add", "policy.update", "policy.delete",
+            "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse", "setupkey.delete",
+            "group.add", "group.update", "group.delete",
+            "peer.group.add", "peer.group.delete",
+            "user.group.add", "user.group.delete", "user.role.update",
+            "setupkey.group.add", "setupkey.group.delete",
+            "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
+            "route.add", "route.delete", "route.update",
+            "peer.ssh.enable", "peer.ssh.disable", "peer.rename",
+            "peer.login.expiration.enable", "peer.login.expiration.disable",
+            "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
+            "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.enable", "account.setting.peer.login.expiration.disable",
+            "personal.access.token.create", "personal.access.token.delete",
+            "service.user.create", "service.user.delete",
+            "user.block", "user.unblock", "user.delete",
+            "user.peer.login", "peer.login.expire",
+            "dashboard.login",
+            "integration.create", "integration.update", "integration.delete",
+            "account.setting.peer.approval.enable", "account.setting.peer.approval.disable",
+            "peer.approve", "peer.approval.revoke",
+            "transferred.owner.role",
+            "posture.check.create", "posture.check.update", "posture.check.delete",
+            "peer.inactivity.expiration.enable", "peer.inactivity.expiration.disable",
+            "account.peer.inactivity.expiration.enable", "account.peer.inactivity.expiration.disable", "account.peer.inactivity.expiration.update",
+            "account.setting.group.propagation.enable", "account.setting.group.propagation.disable",
+            "account.setting.routing.peer.dns.resolution.enable", "account.setting.routing.peer.dns.resolution.disable",
+            "network.create", "network.update", "network.delete",
+            "network.resource.create", "network.resource.update", "network.resource.delete",
+            "network.router.create", "network.router.update", "network.router.delete",
+            "resource.group.add", "resource.group.delete",
+            "account.dns.domain.update",
+            "account.setting.lazy.connection.enable", "account.setting.lazy.connection.disable",
+            "account.network.range.update",
+            "peer.ip.update",
+            "user.approve", "user.reject", "user.create",
+            "account.settings.auto.version.update",
+            "identityprovider.create", "identityprovider.update", "identityprovider.delete",
+            "dns.zone.create", "dns.zone.update", "dns.zone.delete",
+            "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete",
+            "peer.job.create",
+            "user.password.change",
+            "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete"
+          ]
           example: route.add
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -2379,6 +2813,29 @@ components:
       required:
         - user_id
         - email
+    InstanceVersionInfo:
+      type: object
+      description: Version information for NetBird components
+      properties:
+        management_current_version:
+          description: The current running version of the management server
+          type: string
+          example: "0.35.0"
+        dashboard_available_version:
+          description: The latest available version of the dashboard (from GitHub releases)
+          type: string
+          example: "2.10.0"
+        management_available_version:
+          description: The latest available version of the management server (from GitHub releases)
+          type: string
+          example: "0.35.0"
+        management_update_available:
+          description: Indicates if a newer management version is available
+          type: boolean
+          example: true
+      required:
+        - management_current_version
+        - management_update_available
   responses:
     not_found:
       description: Resource not found
@@ -2431,6 +2888,27 @@ paths:
                 $ref: '#/components/schemas/InstanceStatus'
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/instance/version:
+    get:
+      summary: Get Version Info
+      description: Returns version information for NetBird components including the current management server version and latest available versions from GitHub.
+      tags: [ Instance ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceVersionInfo'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/setup:
     post:
       summary: Setup Instance
@@ -2456,6 +2934,110 @@ paths:
         '412':
           description: Setup already completed
           content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs:
+    get:
+      summary: List Jobs
+      description: Retrieve all jobs for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create Job
+      description: Create a new job for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          description: The unique identifier of a peer
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Create job request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs/{jobId}:
+    get:
+      summary: Get Job
+      description: Retrieve details of a specific job
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          description: The unique identifier of a peer
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          description: The unique identifier of a job
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Job object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/accounts:
@@ -2885,6 +3467,43 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/password:
+    put:
+      summary: Change user password
+      description: Change the password for a user. Only available when embedded IdP is enabled. Users can only change their own password.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      requestBody:
+        description: Password change request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '200':
+          description: Password changed successfully
+          content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/users/current:
     get:
       summary: Retrieve current user
@@ -2906,6 +3525,210 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites:
+    get:
+      summary: List user invites
+      description: Lists all pending invites for the account. Only available when embedded IdP is enabled.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: List of invites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserInvite'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a user invite
+      description: Creates an invite link for a new user. Only available when embedded IdP is enabled. The user is not created until they accept the invite.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: User invite information
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteCreateRequest'
+      responses:
+        '200':
+          description: Invite created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInvite'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '409':
+          description: User or invite already exists
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{inviteId}:
+    delete:
+      summary: Delete a user invite
+      description: Deletes a pending invite. Only available when embedded IdP is enabled.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: inviteId
+          required: true
+          schema:
+            type: string
+          description: The ID of the invite to delete
+      responses:
+        '200':
+          description: Invite deleted successfully
+          content: { }
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          description: Invite not found
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{inviteId}/regenerate:
+    post:
+      summary: Regenerate a user invite
+      description: Regenerates an invite link for an existing invite. Invalidates the previous token and creates a new one.
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: inviteId
+          required: true
+          schema:
+            type: string
+          description: The ID of the invite to regenerate
+      requestBody:
+        description: Regenerate options
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteRegenerateRequest'
+      responses:
+        '200':
+          description: Invite regenerated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteRegenerateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          description: Invite not found
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled
+          content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{token}:
+    get:
+      summary: Get invite information
+      description: Retrieves public information about an invite. This endpoint is unauthenticated and protected by the token itself.
+      tags: [ Users ]
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+          description: The invite token
+      responses:
+        '200':
+          description: Invite information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteInfo'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '404':
+          description: Invite not found or invalid token
+          content: { }
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/invites/{token}/accept:
+    post:
+      summary: Accept an invite
+      description: Accepts an invite and creates the user with the provided password. This endpoint is unauthenticated and protected by the token itself.
+      tags: [ Users ]
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+          description: The invite token
+      requestBody:
+        description: Password to set for the new user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteAcceptRequest'
+      responses:
+        '200':
+          description: Invite accepted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInviteAcceptResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '404':
+          description: Invite not found or invalid token
+          content: { }
+        '412':
+          description: Precondition failed - embedded IdP is not enabled or invite expired
+          content: { }
+        '422':
+          "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/peers:
@@ -4731,6 +5554,347 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones:
+    get:
+      summary: List all DNS Zones
+      description: Returns a list of all custom DNS zones
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of DNS Zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Zone
+      description: Creates a new custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}:
+    get:
+      summary: Retrieve a DNS Zone
+      description: Returns information about a specific DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Object of a DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Zone
+      description: Updates a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS zone object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/ZoneRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Zone
+      description: Deletes a custom DNS zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: Zone deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records:
+    get:
+      summary: List all DNS Records
+      description: Returns a list of all DNS records in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Array of DNS Records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DNSRecord'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Record
+      description: Creates a new DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records/{recordId}:
+    get:
+      summary: Retrieve a DNS Record
+      description: Returns information about a specific DNS record
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: A JSON Object of a DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Record
+      description: Updates a DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Record
+      description: Deletes a DNS record from a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: Record deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/events/audit:

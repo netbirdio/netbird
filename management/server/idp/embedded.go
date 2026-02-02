@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/dexidp/dex/storage"
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ const (
 	staticClientCLI        = "netbird-cli"
 	defaultCLIRedirectURL1 = "http://localhost:53000/"
 	defaultCLIRedirectURL2 = "http://localhost:54000/"
-	defaultScopes          = "openid profile email offline_access"
+	defaultScopes          = "openid profile email groups"
 	defaultUserIDClaim     = "sub"
 )
 
@@ -27,8 +28,11 @@ const (
 type EmbeddedIdPConfig struct {
 	// Enabled indicates whether the embedded IDP is enabled
 	Enabled bool
-	// Issuer is the OIDC issuer URL (e.g., "http://localhost:3002/oauth2")
+	// Issuer is the OIDC issuer URL (e.g., "https://management.netbird.io/oauth2")
 	Issuer string
+	// LocalAddress is the management server's local listen address (e.g., ":8080" or "localhost:8080")
+	// Used for internal JWT validation to avoid external network calls
+	LocalAddress string
 	// Storage configuration for the IdP database
 	Storage EmbeddedStorageConfig
 	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
@@ -39,6 +43,11 @@ type EmbeddedIdPConfig struct {
 	Owner *OwnerConfig
 	// SignKeyRefreshEnabled enables automatic key rotation for signing keys
 	SignKeyRefreshEnabled bool
+	// LocalAuthDisabled disables the local (email/password) authentication connector.
+	// When true, users cannot authenticate via email/password, only via external identity providers.
+	// Existing local users are preserved and will be able to login again if re-enabled.
+	// Cannot be enabled if no external identity provider connectors are configured.
+	LocalAuthDisabled bool
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -101,6 +110,8 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 			Issuer: "NetBird",
 			Theme:  "light",
 		},
+		// Always enable password DB initially - we disable the local connector after startup if needed.
+		// This ensures Dex has at least one connector during initialization.
 		EnablePasswordDB: true,
 		StaticClients: []storage.Client{
 			{
@@ -146,7 +157,12 @@ var _ OAuthConfigProvider = (*EmbeddedIdPManager)(nil)
 // OAuthConfigProvider defines the interface for OAuth configuration needed by auth flows.
 type OAuthConfigProvider interface {
 	GetIssuer() string
+	// GetKeysLocation returns the public JWKS endpoint URL (uses external issuer URL)
 	GetKeysLocation() string
+	// GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal use.
+	// Management server has embedded Dex and can validate tokens via localhost,
+	// avoiding external network calls and DNS resolution issues during startup.
+	GetLocalKeysLocation() string
 	GetClientIDs() []string
 	GetUserIDClaim() string
 	GetTokenEndpoint() string
@@ -183,9 +199,30 @@ func NewEmbeddedIdPManager(ctx context.Context, config *EmbeddedIdPConfig, appMe
 		return nil, err
 	}
 
+	log.WithContext(ctx).Debugf("initializing embedded Dex IDP with config: %+v", config)
+
 	provider, err := dex.NewProviderFromYAML(ctx, yamlConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedded IdP provider: %w", err)
+	}
+
+	// If local auth is disabled, validate that other connectors exist
+	if config.LocalAuthDisabled {
+		hasOthers, err := provider.HasNonLocalConnectors(ctx)
+		if err != nil {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("failed to check connectors: %w", err)
+		}
+		if !hasOthers {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("cannot disable local authentication: no other identity providers configured")
+		}
+		// Ensure local connector is removed (it might exist from a previous run)
+		if err := provider.DisableLocalAuth(ctx); err != nil {
+			_ = provider.Stop(ctx)
+			return nil, fmt.Errorf("failed to disable local auth: %w", err)
+		}
+		log.WithContext(ctx).Info("local authentication disabled - only external identity providers can be used")
 	}
 
 	log.WithContext(ctx).Infof("embedded Dex IDP initialized with issuer: %s", yamlConfig.Issuer)
@@ -272,6 +309,8 @@ func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 
+	log.WithContext(ctx).Debugf("retrieved %d users from embedded IdP", len(users))
+
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range users {
 		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], &UserData{
@@ -281,11 +320,17 @@ func (m *EmbeddedIdPManager) GetAllAccounts(ctx context.Context) (map[string][]*
 		})
 	}
 
+	log.WithContext(ctx).Debugf("retrieved %d users from embedded IdP", len(indexedUsers[UnsetAccountID]))
+
 	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in the embedded IdP.
 func (m *EmbeddedIdPManager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
+	if m.config.LocalAuthDisabled {
+		return nil, fmt.Errorf("local user creation is disabled")
+	}
+
 	if m.appMetrics != nil {
 		m.appMetrics.IDPMetrics().CountCreateUser()
 	}
@@ -355,6 +400,10 @@ func (m *EmbeddedIdPManager) GetUserByEmail(ctx context.Context, email string) (
 // Unlike CreateUser which auto-generates a password, this method uses the provided password.
 // This is useful for instance setup where the user provides their own password.
 func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, password, name string) (*UserData, error) {
+	if m.config.LocalAuthDisabled {
+		return nil, fmt.Errorf("local user creation is disabled")
+	}
+
 	if m.appMetrics != nil {
 		m.appMetrics.IDPMetrics().CountCreateUser()
 	}
@@ -391,7 +440,6 @@ func (m *EmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, 
 
 // InviteUserByID resends an invitation to a user.
 func (m *EmbeddedIdPManager) InviteUserByID(ctx context.Context, userID string) error {
-	// TODO: implement
 	return fmt.Errorf("not implemented")
 }
 
@@ -423,6 +471,33 @@ func (m *EmbeddedIdPManager) DeleteUser(ctx context.Context, userID string) erro
 	return nil
 }
 
+// UpdateUserPassword updates the password for a user in the embedded IdP.
+// It verifies that the current user is changing their own password and
+// validates the current password before updating to the new password.
+func (m *EmbeddedIdPManager) UpdateUserPassword(ctx context.Context, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+	// Verify the user is changing their own password
+	if currentUserID != targetUserID {
+		return fmt.Errorf("users can only change their own password")
+	}
+
+	// Verify the new password is different from the old password
+	if oldPassword == newPassword {
+		return fmt.Errorf("new password must be different from current password")
+	}
+
+	err := m.provider.UpdateUserPassword(ctx, targetUserID, oldPassword, newPassword)
+	if err != nil {
+		if m.appMetrics != nil {
+			m.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	log.WithContext(ctx).Debugf("updated password for user %s in embedded IdP", targetUserID)
+
+	return nil
+}
+
 // CreateConnector creates a new identity provider connector in Dex.
 // Returns the created connector config with the redirect URL populated.
 func (m *EmbeddedIdPManager) CreateConnector(ctx context.Context, cfg *dex.ConnectorConfig) (*dex.ConnectorConfig, error) {
@@ -440,15 +515,8 @@ func (m *EmbeddedIdPManager) ListConnectors(ctx context.Context) ([]*dex.Connect
 }
 
 // UpdateConnector updates an existing identity provider connector.
+// Field preservation for partial updates is handled by Provider.UpdateConnector.
 func (m *EmbeddedIdPManager) UpdateConnector(ctx context.Context, cfg *dex.ConnectorConfig) error {
-	// Preserve existing secret if not provided in update
-	if cfg.ClientSecret == "" {
-		existing, err := m.provider.GetConnector(ctx, cfg.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get existing connector: %w", err)
-		}
-		cfg.ClientSecret = existing.ClientSecret
-	}
 	return m.provider.UpdateConnector(ctx, cfg)
 }
 
@@ -500,6 +568,22 @@ func (m *EmbeddedIdPManager) GetKeysLocation() string {
 	return m.provider.GetKeysLocation()
 }
 
+// GetLocalKeysLocation returns the localhost JWKS endpoint URL for internal token validation.
+// Uses the LocalAddress from config (management server's listen address) since embedded Dex
+// is served by the management HTTP server, not a standalone Dex server.
+func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
+	addr := m.config.LocalAddress
+	if addr == "" {
+		return ""
+	}
+	// Construct localhost URL from listen address
+	// addr is in format ":port" or "host:port" or "localhost:port"
+	if strings.HasPrefix(addr, ":") {
+		return fmt.Sprintf("http://localhost%s/oauth2/keys", addr)
+	}
+	return fmt.Sprintf("http://%s/oauth2/keys", addr)
+}
+
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.
 func (m *EmbeddedIdPManager) GetClientIDs() []string {
 	return []string{staticClientDashboard, staticClientCLI}
@@ -508,4 +592,14 @@ func (m *EmbeddedIdPManager) GetClientIDs() []string {
 // GetUserIDClaim returns the JWT claim name used for user identification.
 func (m *EmbeddedIdPManager) GetUserIDClaim() string {
 	return defaultUserIDClaim
+}
+
+// IsLocalAuthDisabled returns whether local authentication is disabled based on configuration.
+func (m *EmbeddedIdPManager) IsLocalAuthDisabled() bool {
+	return m.config.LocalAuthDisabled
+}
+
+// HasNonLocalConnectors checks if there are any identity provider connectors other than local.
+func (m *EmbeddedIdPManager) HasNonLocalConnectors(ctx context.Context) (bool, error) {
+	return m.provider.HasNonLocalConnectors(ctx)
 }

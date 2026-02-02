@@ -16,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
@@ -98,7 +97,6 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
 		Anonymize:    anonymizeFlag,
-		Status:       getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
 	}
@@ -136,6 +134,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	level := server.ParseLogLevel(args[0])
 	if level == proto.LogLevel_UNKNOWN {
+		//nolint
 		return fmt.Errorf("unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
 	}
 
@@ -220,21 +219,37 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(3 * time.Second)
 
-	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
-	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, getStatusOutput(cmd, anonymizeFlag))
+	cpuProfilingStarted := false
+	if _, err := client.StartCPUProfile(cmd.Context(), &proto.StartCPUProfileRequest{}); err != nil {
+		cmd.PrintErrf("Failed to start CPU profiling: %v\n", err)
+	} else {
+		cpuProfilingStarted = true
+		defer func() {
+			if cpuProfilingStarted {
+				if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+					cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+				}
+			}
+		}()
+	}
 
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
 		return waitErr
 	}
 	cmd.Println("\nDuration completed")
 
+	if cpuProfilingStarted {
+		if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+			cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+		} else {
+			cpuProfilingStarted = false
+		}
+	}
+
 	cmd.Println("Creating debug bundle...")
 
-	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
-	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
 	request := &proto.DebugBundleRequest{
 		Anonymize:    anonymizeFlag,
-		Status:       statusOutput,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
 	}
@@ -301,25 +316,6 @@ func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getStatusOutput(cmd *cobra.Command, anon bool) string {
-	var statusOutputString string
-	statusResp, err := getStatus(cmd.Context(), true)
-	if err != nil {
-		cmd.PrintErrf("Failed to get status: %v\n", err)
-	} else {
-		pm := profilemanager.NewProfileManager()
-		var profName string
-		if activeProf, err := pm.GetActiveProfile(); err == nil {
-			profName = activeProf.Name
-		}
-
-		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
-		)
-	}
-	return statusOutputString
-}
-
 func waitForDurationOrCancel(ctx context.Context, duration time.Duration, cmd *cobra.Command) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -378,7 +374,8 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			InternalConfig: config,
 			StatusRecorder: recorder,
 			SyncResponse:   syncResponse,
-			LogFile:        logFilePath,
+			LogPath:        logFilePath,
+			CPUProfile:     nil,
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,

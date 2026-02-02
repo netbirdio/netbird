@@ -856,3 +856,118 @@ func TestRejectUserEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestChangePasswordEndpoint(t *testing.T) {
+	tt := []struct {
+		name                string
+		expectedStatus      int
+		requestBody         string
+		targetUserID        string
+		currentUserID       string
+		mockError           error
+		expectMockNotCalled bool
+	}{
+		{
+			name:           "successful password change",
+			expectedStatus: http.StatusOK,
+			requestBody:    `{"old_password": "OldPass123!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      nil,
+		},
+		{
+			name:           "missing old password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "old password is required"),
+		},
+		{
+			name:           "missing new password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"old_password": "OldPass123!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "new password is required"),
+		},
+		{
+			name:           "wrong old password",
+			expectedStatus: http.StatusUnprocessableEntity,
+			requestBody:    `{"old_password": "WrongPass!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.InvalidArgument, "invalid password"),
+		},
+		{
+			name:           "embedded IDP not enabled",
+			expectedStatus: http.StatusPreconditionFailed,
+			requestBody:    `{"old_password": "OldPass123!", "new_password": "NewPass456!"}`,
+			targetUserID:   existingUserID,
+			currentUserID:  existingUserID,
+			mockError:      status.Errorf(status.PreconditionFailed, "password change is only available with embedded identity provider"),
+		},
+		{
+			name:                "invalid JSON request",
+			expectedStatus:      http.StatusBadRequest,
+			requestBody:         `{invalid json}`,
+			targetUserID:        existingUserID,
+			currentUserID:       existingUserID,
+			expectMockNotCalled: true,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			mockCalled := false
+			am := &mock_server.MockAccountManager{}
+			am.UpdateUserPasswordFunc = func(ctx context.Context, accountID, currentUserID, targetUserID string, oldPassword, newPassword string) error {
+				mockCalled = true
+				return tc.mockError
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/password", handler.changePassword).Methods("PUT")
+
+			reqPath := "/users/" + tc.targetUserID + "/password"
+			req, err := http.NewRequest("PUT", reqPath, bytes.NewBufferString(tc.requestBody))
+			require.NoError(t, err)
+
+			userAuth := auth.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.currentUserID,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectMockNotCalled {
+				assert.False(t, mockCalled, "mock should not have been called")
+			}
+		})
+	}
+}
+
+func TestChangePasswordEndpoint_WrongMethod(t *testing.T) {
+	am := &mock_server.MockAccountManager{}
+	handler := newHandler(am)
+
+	req, err := http.NewRequest("POST", "/users/test-user/password", bytes.NewBufferString(`{}`))
+	require.NoError(t, err)
+
+	userAuth := auth.UserAuth{
+		AccountId: existingAccountID,
+		UserId:    existingUserID,
+	}
+	req = nbcontext.SetUserAuthInRequest(req, userAuth)
+
+	rr := httptest.NewRecorder()
+	handler.changePassword(rr, req)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+}

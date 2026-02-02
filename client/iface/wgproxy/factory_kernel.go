@@ -54,6 +54,14 @@ func (w *KernelFactory) GetProxy() Proxy {
 	return ebpf.NewProxyWrapper(w.ebpfProxy)
 }
 
+// GetProxyPort returns the eBPF proxy port, or 0 if eBPF is not active.
+func (w *KernelFactory) GetProxyPort() uint16 {
+	if w.ebpfProxy == nil {
+		return 0
+	}
+	return w.ebpfProxy.GetProxyPort()
+}
+
 func (w *KernelFactory) Free() error {
 	if w.ebpfProxy == nil {
 		return nil

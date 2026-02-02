@@ -22,17 +22,16 @@ import (
 )
 
 const (
-	privateKey                  = "private_key"
-	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
-	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
-	ipcKeyTxBytes               = "tx_bytes"
-	ipcKeyRxBytes               = "rx_bytes"
-	allowedIP                   = "allowed_ip"
-	endpoint                    = "endpoint"
-	fwmark                      = "fwmark"
-	listenPort                  = "listen_port"
-	publicKey                   = "public_key"
-	presharedKey                = "preshared_key"
+	privateKey                 = "private_key"
+	ipcKeyLastHandshakeTimeSec = "last_handshake_time_sec"
+	ipcKeyTxBytes              = "tx_bytes"
+	ipcKeyRxBytes              = "rx_bytes"
+	allowedIP                  = "allowed_ip"
+	endpoint                   = "endpoint"
+	fwmark                     = "fwmark"
+	listenPort                 = "listen_port"
+	publicKey                  = "public_key"
+	presharedKey               = "preshared_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -70,6 +69,18 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 	}
 
 	return c.device.IpcSet(toWgUserspaceString(config))
+}
+
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
+func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
+	return c.device.IpcSet(toWgUserspaceString(cfg))
 }
 
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
@@ -422,21 +433,17 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		hexKey := hex.EncodeToString(p.PublicKey[:])
 		sb.WriteString(fmt.Sprintf("public_key=%s\n", hexKey))
 
+		if p.Remove {
+			sb.WriteString("remove=true\n")
+		}
+
+		if p.UpdateOnly {
+			sb.WriteString("update_only=true\n")
+		}
+
 		if p.PresharedKey != nil {
 			preSharedHexKey := hex.EncodeToString(p.PresharedKey[:])
 			sb.WriteString(fmt.Sprintf("preshared_key=%s\n", preSharedHexKey))
-		}
-
-		if p.Remove {
-			sb.WriteString("remove=true")
-		}
-
-		if p.ReplaceAllowedIPs {
-			sb.WriteString("replace_allowed_ips=true\n")
-		}
-
-		for _, aip := range p.AllowedIPs {
-			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 
 		if p.Endpoint != nil {
@@ -445,6 +452,14 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 
 		if p.PersistentKeepaliveInterval != nil {
 			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", int(p.PersistentKeepaliveInterval.Seconds())))
+		}
+
+		if p.ReplaceAllowedIPs {
+			sb.WriteString("replace_allowed_ips=true\n")
+		}
+
+		for _, aip := range p.AllowedIPs {
+			sb.WriteString(fmt.Sprintf("allowed_ip=%s\n", aip.String()))
 		}
 	}
 	return sb.String()
@@ -543,7 +558,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 
-			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			host, portStr, err := net.SplitHostPort(val)
 			if err != nil {
 				log.Errorf("failed to parse endpoint: %v", err)
 				continue
@@ -599,7 +614,9 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 			if val != "" && val != "0000000000000000000000000000000000000000000000000000000000000000" {
-				currentPeer.PresharedKey = true
+				if pskKey, err := hexToWireguardKey(val); err == nil {
+					currentPeer.PresharedKey = [32]byte(pskKey)
+				}
 			}
 		}
 	}

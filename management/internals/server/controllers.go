@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -16,11 +17,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 )
 
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
 	return Create(s, func() network_map.PeersUpdateManager {
 		return update_channel.NewPeersUpdateManager(s.Metrics())
+	})
+}
+
+func (s *BaseServer) JobManager() *job.Manager {
+	return Create(s, func() *job.Manager {
+		return job.NewJobManager(s.Metrics(), s.Store(), s.PeersManager())
 	})
 }
 
@@ -68,7 +76,8 @@ func (s *BaseServer) AuthManager() auth.Manager {
 		if len(audiences) > 0 {
 			audience = audiences[0] // Use the first client ID as the primary audience
 		}
-		keysLocation = oauthProvider.GetKeysLocation()
+		// Use localhost keys location for internal validation (management has embedded Dex)
+		keysLocation = oauthProvider.GetLocalKeysLocation()
 		signingKeyRefreshEnabled = true
 		issuer = oauthProvider.GetIssuer()
 		userIDClaim = oauthProvider.GetUserIDClaim()

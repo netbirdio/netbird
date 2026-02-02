@@ -14,7 +14,6 @@ import (
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
@@ -27,8 +26,8 @@ type receiverCreator struct {
 	iceBind *ICEBind
 }
 
-func (rc receiverCreator) CreateIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
-	return rc.iceBind.createIPv4ReceiverFn(pc, conn, rxOffload, msgPool)
+func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
+	return rc.iceBind.createReceiverFn(pc, conn, rxOffload, msgPool)
 }
 
 // ICEBind is a bind implementation with two main features:
@@ -58,6 +57,8 @@ type ICEBind struct {
 
 	muUDPMux sync.Mutex
 	udpMux   *udpmux.UniversalUDPMuxDefault
+	ipv4Conn *net.UDPConn
+	ipv6Conn *net.UDPConn
 }
 
 func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
@@ -102,6 +103,12 @@ func (s *ICEBind) Close() error {
 	s.closed = true
 
 	close(s.closedChan)
+
+	s.muUDPMux.Lock()
+	s.ipv4Conn = nil
+	s.ipv6Conn = nil
+	s.udpMux = nil
+	s.muUDPMux.Unlock()
 
 	return s.StdNetBind.Close()
 }
@@ -160,19 +167,18 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	return nil
 }
 
-func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
+func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
-	s.udpMux = udpmux.NewUniversalUDPMuxDefault(
-		udpmux.UniversalUDPMuxParams{
-			UDPConn:   nbnet.WrapPacketConn(conn),
-			Net:       s.transportNet,
-			FilterFn:  s.filterFn,
-			WGAddress: s.address,
-			MTU:       s.mtu,
-		},
-	)
+	// Detect IPv4 vs IPv6 from connection's local address
+	if localAddr := conn.LocalAddr().(*net.UDPAddr); localAddr.IP.To4() != nil {
+		s.ipv4Conn = conn
+	} else {
+		s.ipv6Conn = conn
+	}
+	s.createOrUpdateMux()
+
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
 		msgs := getMessages(msgsPool)
 		for i := range bufs {
@@ -180,12 +186,13 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 			(*msgs)[i].OOB = (*msgs)[i].OOB[:cap((*msgs)[i].OOB)]
 		}
 		defer putMessages(msgs, msgsPool)
+
 		var numMsgs int
 		if runtime.GOOS == "linux" || runtime.GOOS == "android" {
 			if rxOffload {
 				readAt := len(*msgs) - (wgConn.IdealBatchSize / wgConn.UdpSegmentMaxDatagrams)
-				//nolint
-				numMsgs, err = pc.ReadBatch((*msgs)[readAt:], 0)
+				//nolint:staticcheck
+				_, err = pc.ReadBatch((*msgs)[readAt:], 0)
 				if err != nil {
 					return 0, err
 				}
@@ -207,12 +214,12 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 			}
 			numMsgs = 1
 		}
+
 		for i := 0; i < numMsgs; i++ {
 			msg := &(*msgs)[i]
 
 			// todo: handle err
-			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
-			if ok {
+			if ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr); ok {
 				continue
 			}
 			sizes[i] = msg.N
@@ -233,6 +240,38 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 	}
 }
 
+// createOrUpdateMux creates or updates the UDP mux with the available connections.
+// Must be called with muUDPMux held.
+func (s *ICEBind) createOrUpdateMux() {
+	var muxConn net.PacketConn
+
+	switch {
+	case s.ipv4Conn != nil && s.ipv6Conn != nil:
+		muxConn = NewDualStackPacketConn(
+			nbnet.WrapPacketConn(s.ipv4Conn),
+			nbnet.WrapPacketConn(s.ipv6Conn),
+		)
+	case s.ipv4Conn != nil:
+		muxConn = nbnet.WrapPacketConn(s.ipv4Conn)
+	case s.ipv6Conn != nil:
+		muxConn = nbnet.WrapPacketConn(s.ipv6Conn)
+	default:
+		return
+	}
+
+	// Don't close the old mux - it doesn't own the underlying connections.
+	// The sockets are managed by WireGuard's StdNetBind, not by us.
+	s.udpMux = udpmux.NewUniversalUDPMuxDefault(
+		udpmux.UniversalUDPMuxParams{
+			UDPConn:   muxConn,
+			Net:       s.transportNet,
+			FilterFn:  s.filterFn,
+			WGAddress: s.address,
+			MTU:       s.mtu,
+		},
+	)
+}
+
 func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
 	for i := range buffers {
 		if !stun.IsMessage(buffers[i]) {
@@ -245,9 +284,14 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 			return true, err
 		}
 
-		muxErr := s.udpMux.HandleSTUNMessage(msg, addr)
-		if muxErr != nil {
-			log.Warnf("failed to handle STUN packet")
+		s.muUDPMux.Lock()
+		mux := s.udpMux
+		s.muUDPMux.Unlock()
+
+		if mux != nil {
+			if muxErr := mux.HandleSTUNMessage(msg, addr); muxErr != nil {
+				log.Warnf("failed to handle STUN packet: %v", muxErr)
+			}
 		}
 
 		buffers[i] = []byte{}

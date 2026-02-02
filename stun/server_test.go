@@ -187,27 +187,28 @@ func TestServer_MultipleRequests(t *testing.T) {
 
 	// Create multiple clients and send requests
 	for i := 0; i < 5; i++ {
-		clientConn, err := net.DialUDP("udp", nil, serverAddr)
-		require.NoError(t, err)
+		func() {
+			clientConn, err := net.DialUDP("udp", nil, serverAddr)
+			require.NoError(t, err)
+			defer clientConn.Close()
 
-		msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
-		require.NoError(t, err)
+			msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
+			require.NoError(t, err)
 
-		_, err = clientConn.Write(msg.Raw)
-		require.NoError(t, err)
+			_, err = clientConn.Write(msg.Raw)
+			require.NoError(t, err)
 
-		buf := make([]byte, 1500)
-		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		n, err := clientConn.Read(buf)
-		require.NoError(t, err)
+			buf := make([]byte, 1500)
+			_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, err := clientConn.Read(buf)
+			require.NoError(t, err)
 
-		response := &stun.Message{Raw: buf[:n]}
-		err = response.Decode()
-		require.NoError(t, err)
+			response := &stun.Message{Raw: buf[:n]}
+			err = response.Decode()
+			require.NoError(t, err)
 
-		assert.Equal(t, stun.BindingSuccess, response.Type)
-
-		clientConn.Close()
+			assert.Equal(t, stun.BindingSuccess, response.Type)
+		}()
 	}
 
 	// Close listener first to unblock readLoop, then shutdown
@@ -373,34 +374,35 @@ func TestServer_MultiplePorts(t *testing.T) {
 
 	// Test requests on both ports
 	for _, serverAddr := range []*net.UDPAddr{addr1, addr2} {
-		clientConn, err := net.DialUDP("udp", nil, serverAddr)
-		require.NoError(t, err)
+		func() {
+			clientConn, err := net.DialUDP("udp", nil, serverAddr)
+			require.NoError(t, err)
+			defer clientConn.Close()
 
-		msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
-		require.NoError(t, err)
+			msg, err := stun.Build(stun.TransactionID, stun.BindingRequest)
+			require.NoError(t, err)
 
-		_, err = clientConn.Write(msg.Raw)
-		require.NoError(t, err)
+			_, err = clientConn.Write(msg.Raw)
+			require.NoError(t, err)
 
-		buf := make([]byte, 1500)
-		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		n, err := clientConn.Read(buf)
-		require.NoError(t, err)
+			buf := make([]byte, 1500)
+			_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, err := clientConn.Read(buf)
+			require.NoError(t, err)
 
-		response := &stun.Message{Raw: buf[:n]}
-		err = response.Decode()
-		require.NoError(t, err)
+			response := &stun.Message{Raw: buf[:n]}
+			err = response.Decode()
+			require.NoError(t, err)
 
-		assert.Equal(t, stun.BindingSuccess, response.Type)
+			assert.Equal(t, stun.BindingSuccess, response.Type)
 
-		var xorAddr stun.XORMappedAddress
-		err = xorAddr.GetFrom(response)
-		require.NoError(t, err)
+			var xorAddr stun.XORMappedAddress
+			err = xorAddr.GetFrom(response)
+			require.NoError(t, err)
 
-		clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
-		assert.Equal(t, clientAddr.Port, xorAddr.Port)
-
-		clientConn.Close()
+			clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+			assert.Equal(t, clientAddr.Port, xorAddr.Port)
+		}()
 	}
 
 	// Close listeners first to unblock readLoops, then shutdown

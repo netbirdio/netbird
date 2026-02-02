@@ -893,6 +893,7 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 			peer := &peer2.Peer{
 				ID:        strconv.Itoa(i),
 				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
 				DNSLabel:  "peer" + strconv.Itoa(i),
 				IP:        uint32ToIP(uint32(i)),
 			}
