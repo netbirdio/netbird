@@ -239,6 +239,9 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithReturnConnectionError(),
+		grpc.WithDisableRetry(),
+		grpc.FailOnNonTempDialError(true),
 	)
 }
 

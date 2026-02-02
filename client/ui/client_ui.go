@@ -1002,6 +1002,9 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithReturnConnectionError(),
+		grpc.WithDisableRetry(),
+		grpc.FailOnNonTempDialError(true),
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
 	)
 	if err != nil {
