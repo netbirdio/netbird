@@ -7,7 +7,8 @@ import (
 )
 
 type ShutdownState struct {
-	CreatedKeys []string
+	InterfaceName string   `json:"interface_name,omitempty"`
+	CreatedKeys   []string `json:"created_keys,omitempty"`
 }
 
 func (s *ShutdownState) Name() string {
@@ -15,7 +16,7 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	manager, err := newHostManager()
+	manager, err := newHostManager(s.InterfaceName)
 	if err != nil {
 		return fmt.Errorf("create host manager: %w", err)
 	}
