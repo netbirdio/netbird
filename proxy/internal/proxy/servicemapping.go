@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -25,7 +26,12 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string
 		return nil, "", "", false
 	}
 	defer p.mappingsMux.RUnlock()
-	m, exists := p.mappings[req.Host]
+
+	host, _, err := net.SplitHostPort(req.Host)
+	if err != nil {
+		host = req.Host
+	}
+	m, exists := p.mappings[host]
 	if !exists {
 		return nil, "", "", false
 	}

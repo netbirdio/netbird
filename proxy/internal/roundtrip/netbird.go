@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -90,14 +91,18 @@ func (n *NetBird) RemovePeer(ctx context.Context, domain string) error {
 }
 
 func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
+	host, _, err := net.SplitHostPort(req.Host)
+	if err != nil {
+		host = req.Host
+	}
 	n.clientsMux.RLock()
-	client, exists := n.clients[req.Host]
+	client, exists := n.clients[host]
 	// Immediately unlock after retrieval here rather than defer to avoid
 	// the call to client.Do blocking other clients being used whilst one
 	// is in use.
 	n.clientsMux.RUnlock()
 	if !exists {
-		return nil, fmt.Errorf("no peer connection found for host: %s", req.Host)
+		return nil, fmt.Errorf("no peer connection found for host: %s", host)
 	}
 
 	// Attempt to start the client, if the client is already running then
@@ -105,7 +110,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	// this request is unprocessable.
 	startCtx, cancel := context.WithTimeout(req.Context(), 3*time.Second)
 	defer cancel()
-	err := client.Start(startCtx)
+	err = client.Start(startCtx)
 	switch {
 	case errors.Is(err, embed.ErrClientAlreadyStarted):
 		break
@@ -114,7 +119,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	n.logger.WithFields(log.Fields{
-		"host":       req.Host,
+		"host":       host,
 		"url":        req.URL.String(),
 		"requestURI": req.RequestURI,
 		"method":     req.Method,

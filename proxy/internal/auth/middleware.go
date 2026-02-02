@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"html/template"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -92,8 +93,12 @@ func NewMiddleware() *Middleware {
 func (mw *Middleware) Protect(next http.Handler) http.Handler {
 	tmpl := template.Must(template.New("auth").Parse(authTemplate))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
 		mw.domainsMux.RLock()
-		schemes, exists := mw.domains[r.Host]
+		schemes, exists := mw.domains[host]
 		mw.domainsMux.RUnlock()
 
 		// Domains that are not configured here or have no authentication schemes applied should simply pass through.
