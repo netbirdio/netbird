@@ -93,6 +93,18 @@ type Client struct {
 	// EventStreaming NetBird Event Streaming integration APIs
 	// see more: https://docs.netbird.io/api/resources/event-streaming
 	EventStreaming *EventStreamingAPI
+
+	// IdentityProviders NetBird Identity Providers APIs
+	// see more: https://docs.netbird.io/api/resources/identity-providers
+	IdentityProviders *IdentityProvidersAPI
+
+	// Ingress NetBird Ingress Peers APIs
+	// see more: https://docs.netbird.io/api/resources/ingress-ports
+	Ingress *IngressAPI
+
+	// Instance NetBird Instance API
+	// see more: https://docs.netbird.io/api/resources/instance
+	Instance *InstanceAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -145,6 +157,9 @@ func (c *Client) initialize() {
 	c.EDR = &EDRAPI{c}
 	c.SCIM = &SCIMAPI{c}
 	c.EventStreaming = &EventStreamingAPI{c}
+	c.IdentityProviders = &IdentityProvidersAPI{c}
+	c.Ingress = &IngressAPI{c}
+	c.Instance = &InstanceAPI{c}
 }
 
 // NewRequest creates and executes new management API request
