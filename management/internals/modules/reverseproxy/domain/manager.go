@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/management/server/types"
+	log "github.com/sirupsen/logrus"
 )
 
 type domainType string
@@ -128,7 +129,10 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) e
 func (m Manager) ValidateDomain(accountID, domainID string) {
 	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
 	if err != nil {
-		// TODO: something? Log?
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+		}).WithError(err).Error("get custom domain from store")
 		return
 	}
 	var reverseProxyAddresses []string
@@ -136,9 +140,18 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
 	}
 	if m.validator.IsValid(context.Background(), d.Domain, reverseProxyAddresses) {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+			"domain":    d.Domain,
+		}).Debug("domain validated successfully")
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
-			// TODO: something? Log?
+			log.WithFields(log.Fields{
+				"accountID": accountID,
+				"domainID":  domainID,
+				"domain":    d.Domain,
+			}).WithError(err).Error("update custom domain in store")
 			return
 		}
 	}
