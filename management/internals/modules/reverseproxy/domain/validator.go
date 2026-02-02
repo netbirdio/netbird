@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type resolver interface {
@@ -36,6 +38,9 @@ func (v *Validator) IsValid(ctx context.Context, domain string, accept []string)
 
 	cname, err := v.resolver.LookupCNAME(ctx, domain)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"domain": domain,
+		}).WithError(err).Error("Error resolving CNAME from resolver")
 		return false
 	}
 
