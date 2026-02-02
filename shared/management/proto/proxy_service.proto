@@ -21,6 +21,7 @@ message GetMappingUpdateRequest {
   string proxy_id = 1;
   string version = 2;
   google.protobuf.Timestamp started_at = 3;
+  string address = 4;
 }
 
 // GetMappingUpdateResponse contains zero or more ProxyMappings.

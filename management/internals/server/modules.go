@@ -186,6 +186,6 @@ func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
 
 func (s *BaseServer) ReverseProxyDomainManager() domain.Manager {
 	return Create(s, func() domain.Manager {
-		return domain.NewManager(s.Store())
+		return domain.NewManager(s.Store(), s.ReverseProxyGRPCServer())
 	})
 }

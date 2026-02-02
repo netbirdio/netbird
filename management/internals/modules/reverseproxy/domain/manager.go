@@ -34,14 +34,20 @@ type store interface {
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 }
 
-type Manager struct {
-	store     store
-	validator Validator
+type proxyURLProvider interface {
+	GetConnectedProxyURLs() []string
 }
 
-func NewManager(store store) Manager {
+type Manager struct {
+	store            store
+	validator        Validator
+	proxyURLProvider proxyURLProvider
+}
+
+func NewManager(store store, proxyURLProvider proxyURLProvider) Manager {
 	return Manager{
-		store: store,
+		store:            store,
+		proxyURLProvider: proxyURLProvider,
 		validator: Validator{
 			resolver: net.DefaultResolver,
 		},
@@ -95,8 +101,10 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, domainName string)
 	// because the user may not yet have configured their DNS records, or the DNS update
 	// has not yet reached the servers that are queried by the validation resolver.
 	var validated bool
-	// TODO: retrieve in use reverse proxy addresses from somewhere!
 	var reverseProxyAddresses []string
+	if m.proxyURLProvider != nil {
+		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
+	}
 	if m.validator.IsValid(ctx, domainName, reverseProxyAddresses) {
 		validated = true
 	}
@@ -123,8 +131,10 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		// TODO: something? Log?
 		return
 	}
-	// TODO: retrieve in use reverse proxy addresses from somewhere!
 	var reverseProxyAddresses []string
+	if m.proxyURLProvider != nil {
+		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
+	}
 	if m.validator.IsValid(context.Background(), d.Domain, reverseProxyAddresses) {
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {

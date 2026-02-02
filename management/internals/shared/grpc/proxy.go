@@ -55,6 +55,7 @@ type ProxyServiceServer struct {
 // proxyConnection represents a connected proxy
 type proxyConnection struct {
 	proxyID  string
+	address  string
 	stream   proto.ProxyService_GetMappingUpdateServer
 	sendChan chan *proto.ProxyMapping
 	ctx      context.Context
@@ -94,6 +95,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	connCtx, cancel := context.WithCancel(ctx)
 	conn := &proxyConnection{
 		proxyID:  proxyID,
+		address:  req.GetAddress(),
 		stream:   stream,
 		sendChan: make(chan *proto.ProxyMapping, 100),
 		ctx:      connCtx,
@@ -253,6 +255,21 @@ func (s *ProxyServiceServer) GetConnectedProxies() []string {
 		return true
 	})
 	return proxies
+}
+
+// GetConnectedProxyURLs returns a deduplicated list of URLs from all connected proxies.
+func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
+	seenUrls := make(map[string]struct{})
+	var urls []string
+	s.connectedProxies.Range(func(key, value interface{}) bool {
+		conn := value.(*proxyConnection)
+		if _, seen := seenUrls[conn.address]; conn.address != "" && !seen {
+			seenUrls[conn.address] = struct{}{}
+			urls = append(urls, conn.address)
+		}
+		return true
+	})
+	return urls
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {

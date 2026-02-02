@@ -190,6 +190,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			ProxyId:   s.ID,
 			Version:   s.Version,
 			StartedAt: timestamppb.New(s.startTime),
+			Address:   s.ProxyURL,
 		})
 		if err != nil {
 			s.Logger.WithError(err).Warn("Could not get mapping updates, will retry")
