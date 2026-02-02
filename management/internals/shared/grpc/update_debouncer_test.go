@@ -162,7 +162,7 @@ func TestUpdateDebouncer_TimerResetOnNewUpdate(t *testing.T) {
 	}
 }
 
-func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T) {
+func TestUpdateDebouncer_TimerRestartsAfterPendingUpdateSent(t *testing.T) {
 	debouncer := NewUpdateDebouncer(30 * time.Millisecond)
 	defer debouncer.Stop()
 
@@ -186,23 +186,31 @@ func TestUpdateDebouncer_AfterQuietPeriodNextUpdateSentImmediately(t *testing.T)
 	debouncer.ProcessUpdate(update2)
 
 	// Wait for timer to expire
-	<-debouncer.TimerChannel()
-	pendingUpdates := debouncer.GetPendingUpdates()
+	select {
+	case <-debouncer.TimerChannel():
+		pendingUpdates := debouncer.GetPendingUpdates()
 
-	if len(pendingUpdates) == 0 {
-		t.Fatal("Should have pending update")
-	}
+		if len(pendingUpdates) == 0 {
+			t.Fatal("Should have pending update")
+		}
 
-	// After sending pending update, timer is restarted, so next update is NOT immediate
-	if debouncer.ProcessUpdate(update3) {
-		t.Error("Update after debounced send should not be sent immediately (timer restarted)")
-	}
+		// After sending pending update, timer is restarted, so next update is NOT immediate
+		if debouncer.ProcessUpdate(update3) {
+			t.Error("Update after debounced send should not be sent immediately (timer restarted)")
+		}
 
-	// Wait for the restarted timer and verify update3 is pending
-	<-debouncer.TimerChannel()
-	finalUpdates := debouncer.GetPendingUpdates()
-	if len(finalUpdates) != 1 || finalUpdates[0] != update3 {
-		t.Error("Should get update3 as pending")
+		// Wait for the restarted timer and verify update3 is pending
+		select {
+		case <-debouncer.TimerChannel():
+			finalUpdates := debouncer.GetPendingUpdates()
+			if len(finalUpdates) != 1 || finalUpdates[0] != update3 {
+				t.Error("Should get update3 as pending")
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Error("Timer should have fired for restarted timer")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Timer should have fired")
 	}
 }
 
