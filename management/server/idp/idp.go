@@ -103,7 +103,7 @@ type AppMetadata struct {
 
 // JWTToken a JWT object that holds information of a token
 type JWTToken struct {
-	AccessToken   string `json:"access_token"`
+	AccessToken   string `json:"access_token,omitempty"` // Sensitive token, only included when explicitly needed
 	ExpiresIn     int    `json:"expires_in"`
 	expiresInTime time.Time
 	Scope         string `json:"scope"`

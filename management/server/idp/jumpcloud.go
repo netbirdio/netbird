@@ -19,7 +19,7 @@ const (
 // JumpCloudManager JumpCloud manager client instance.
 type JumpCloudManager struct {
 	client      *v1.APIClient
-	apiToken    string
+	apiToken    string `json:"-"` // API token excluded from JSON serialization for security
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
@@ -28,7 +28,7 @@ type JumpCloudManager struct {
 
 // JumpCloudClientConfig JumpCloud manager client configurations.
 type JumpCloudClientConfig struct {
-	APIToken string
+	APIToken string `json:"-"` // API token excluded from JSON serialization for security
 }
 
 // JumpCloudCredentials JumpCloud authentication information.

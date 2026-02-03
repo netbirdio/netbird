@@ -14,7 +14,7 @@ import (
 
 type PocketIdManager struct {
 	managementEndpoint string
-	apiToken           string
+	apiToken           string `json:"-"` // API token excluded from JSON serialization for security
 	httpClient         ManagerHTTPClient
 	credentials        ManagerCredentials
 	helper             ManagerHelper

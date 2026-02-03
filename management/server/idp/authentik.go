@@ -32,7 +32,7 @@ type AuthentikClientConfig struct {
 	Issuer        string
 	ClientID      string
 	Username      string
-	Password      string
+	Password      string `json:"-"` // Password excluded from JSON serialization for security
 	TokenEndpoint string
 	GrantType     string
 }
@@ -42,7 +42,7 @@ type AuthentikCredentials struct {
 	clientConfig AuthentikClientConfig
 	helper       ManagerHelper
 	httpClient   ManagerHTTPClient
-	jwtToken     JWTToken
+	jwtToken     JWTToken `json:"-"` // JWT token excluded from JSON serialization for security
 	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
 }

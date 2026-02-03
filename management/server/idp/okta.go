@@ -24,7 +24,7 @@ type OktaManager struct {
 
 // OktaClientConfig okta manager client configurations.
 type OktaClientConfig struct {
-	APIToken      string
+	APIToken      string `json:"-"` // API token excluded from JSON serialization for security
 	Issuer        string
 	TokenEndpoint string
 	GrantType     string
