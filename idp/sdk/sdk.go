@@ -95,8 +95,8 @@ func (d *DexIdP) Stop(ctx context.Context) error {
 }
 
 // EnsureDefaultClients creates the default NetBird OAuth clients
-func (d *DexIdP) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliURIs []string) error {
-	return d.provider.EnsureDefaultClients(ctx, dashboardURIs, cliURIs)
+func (d *DexIdP) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliURIs, proxyURIs []string) error {
+	return d.provider.EnsureDefaultClients(ctx, dashboardURIs, cliURIs, proxyURIs)
 }
 
 // Storage exposes Dex storage for direct user/client/connector management

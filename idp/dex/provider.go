@@ -398,7 +398,7 @@ func (p *Provider) Stop(ctx context.Context) error {
 
 // EnsureDefaultClients creates dashboard and CLI OAuth clients
 // Uses Dex's storage.Client directly - no custom wrappers
-func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliURIs []string) error {
+func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliURIs, proxyURIs []string) error {
 	clients := []storage.Client{
 		{
 			ID:           "netbird-dashboard",
@@ -410,6 +410,12 @@ func (p *Provider) EnsureDefaultClients(ctx context.Context, dashboardURIs, cliU
 			ID:           "netbird-cli",
 			Name:         "NetBird CLI",
 			RedirectURIs: cliURIs,
+			Public:       true,
+		},
+		{
+			ID:           "netbird-proxy",
+			Name:         "NetBird Proxy",
+			RedirectURIs: proxyURIs,
 			Public:       true,
 		},
 	}
