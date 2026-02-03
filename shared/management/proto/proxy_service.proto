@@ -14,6 +14,8 @@ service ProxyService {
   rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
 
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+
+  rpc SendStatusUpdate(SendStatusUpdateRequest) returns (SendStatusUpdateResponse);
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -113,3 +115,24 @@ message LinkRequest {
 message AuthenticateResponse {
   bool success = 1;
 }
+
+enum ProxyStatus {
+  PROXY_STATUS_PENDING = 0;
+  PROXY_STATUS_ACTIVE = 1;
+  PROXY_STATUS_TUNNEL_NOT_CREATED = 2;
+  PROXY_STATUS_CERTIFICATE_PENDING = 3;
+  PROXY_STATUS_CERTIFICATE_FAILED = 4;
+  PROXY_STATUS_ERROR = 5;
+}
+
+// SendStatusUpdateRequest is sent by the proxy to update its status
+message SendStatusUpdateRequest {
+  string reverse_proxy_id = 1;
+  string account_id = 2;
+  ProxyStatus status = 3;
+  bool certificate_issued = 4;
+  optional string error_message = 5;
+}
+
+// SendStatusUpdateResponse is intentionally empty to allow for future expansion
+message SendStatusUpdateResponse {}

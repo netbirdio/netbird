@@ -17,6 +17,10 @@ import (
 
 const deviceNamePrefix = "ingress-"
 
+type statusNotifier interface {
+	NotifyStatus(ctx context.Context, accountID, reverseProxyID, domain string, connected bool) error
+}
+
 // NetBird provides an http.RoundTripper implementation
 // backed by underlying NetBird connections.
 type NetBird struct {
@@ -25,20 +29,23 @@ type NetBird struct {
 
 	clientsMux sync.RWMutex
 	clients    map[string]*embed.Client
+
+	statusNotifier statusNotifier
 }
 
-func NewNetBird(mgmtAddr string, logger *log.Logger) *NetBird {
+func NewNetBird(mgmtAddr string, logger *log.Logger, notifier statusNotifier) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
-		mgmtAddr: mgmtAddr,
-		logger:   logger,
-		clients:  make(map[string]*embed.Client),
+		mgmtAddr:       mgmtAddr,
+		logger:         logger,
+		clients:        make(map[string]*embed.Client),
+		statusNotifier: notifier,
 	}
 }
 
-func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
+func (n *NetBird) AddPeer(ctx context.Context, domain, key, accountID, reverseProxyID string) error {
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + domain,
 		ManagementURL: n.mgmtAddr,
@@ -64,6 +71,16 @@ func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
 			return
 		case err != nil:
 			n.logger.WithField("domain", domain).WithError(err).Error("Unable to start netbird client, will try again later.")
+			return
+		}
+
+		// Notify management that tunnel is now active
+		if n.statusNotifier != nil {
+			if err := n.statusNotifier.NotifyStatus(ctx, accountID, reverseProxyID, domain, true); err != nil {
+				n.logger.WithField("domain", domain).WithError(err).Warn("Failed to notify management about tunnel connection")
+			} else {
+				n.logger.WithField("domain", domain).Info("Successfully notified management about tunnel connection")
+			}
 		}
 	}()
 
@@ -73,7 +90,7 @@ func (n *NetBird) AddPeer(ctx context.Context, domain, key string) error {
 	return nil
 }
 
-func (n *NetBird) RemovePeer(ctx context.Context, domain string) error {
+func (n *NetBird) RemovePeer(ctx context.Context, domain, accountID, reverseProxyID string) error {
 	n.clientsMux.RLock()
 	client, exists := n.clients[domain]
 	n.clientsMux.RUnlock()
@@ -84,6 +101,16 @@ func (n *NetBird) RemovePeer(ctx context.Context, domain string) error {
 	if err := client.Stop(ctx); err != nil {
 		return fmt.Errorf("stop netbird client: %w", err)
 	}
+
+	// Notify management that tunnel is disconnected
+	if n.statusNotifier != nil {
+		if err := n.statusNotifier.NotifyStatus(ctx, accountID, reverseProxyID, domain, false); err != nil {
+			n.logger.WithField("domain", domain).WithError(err).Warn("Failed to notify management about tunnel disconnection")
+		} else {
+			n.logger.WithField("domain", domain).Info("Successfully notified management about tunnel disconnection")
+		}
+	}
+
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
 	delete(n.clients, domain)

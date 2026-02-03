@@ -21,6 +21,7 @@ type ProxyServiceClient interface {
 	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error)
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
+	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -81,6 +82,15 @@ func (c *proxyServiceClient) Authenticate(ctx context.Context, in *AuthenticateR
 	return out, nil
 }
 
+func (c *proxyServiceClient) SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error) {
+	out := new(SendStatusUpdateResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/SendStatusUpdate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -88,6 +98,7 @@ type ProxyServiceServer interface {
 	GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
+	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -103,6 +114,9 @@ func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAcces
 }
 func (UnimplementedProxyServiceServer) Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Authenticate not implemented")
+}
+func (UnimplementedProxyServiceServer) SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendStatusUpdate not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -174,6 +188,24 @@ func _ProxyService_Authenticate_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_SendStatusUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendStatusUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).SendStatusUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/SendStatusUpdate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).SendStatusUpdate(ctx, req.(*SendStatusUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -188,6 +220,10 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Authenticate",
 			Handler:    _ProxyService_Authenticate_Handler,
+		},
+		{
+			MethodName: "SendStatusUpdate",
+			Handler:    _ProxyService_SendStatusUpdate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

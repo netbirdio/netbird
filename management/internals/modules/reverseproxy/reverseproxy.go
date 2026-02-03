@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -19,6 +20,17 @@ const (
 	Create Operation = "create"
 	Update Operation = "update"
 	Delete Operation = "delete"
+)
+
+type ProxyStatus string
+
+const (
+	StatusPending            ProxyStatus = "pending"
+	StatusActive             ProxyStatus = "active"
+	StatusTunnelNotCreated   ProxyStatus = "tunnel_not_created"
+	StatusCertificatePending ProxyStatus = "certificate_pending"
+	StatusCertificateFailed  ProxyStatus = "certificate_failed"
+	StatusError              ProxyStatus = "error"
 )
 
 type Target struct {
@@ -57,6 +69,12 @@ type AuthConfig struct {
 	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty" gorm:"serializer:json"`
 }
 
+type ReverseProxyMeta struct {
+	CreatedAt           time.Time
+	CertificateIssuedAt time.Time
+	Status              string
+}
+
 type ReverseProxy struct {
 	ID        string `gorm:"primaryKey"`
 	AccountID string `gorm:"index"`
@@ -64,7 +82,8 @@ type ReverseProxy struct {
 	Domain    string   `gorm:"index"`
 	Targets   []Target `gorm:"serializer:json"`
 	Enabled   bool
-	Auth      AuthConfig `gorm:"serializer:json"`
+	Auth      AuthConfig       `gorm:"serializer:json"`
+	Meta      ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
 }
 
 func NewReverseProxy(accountID, name, domain string, targets []Target, enabled bool) *ReverseProxy {
@@ -75,6 +94,10 @@ func NewReverseProxy(accountID, name, domain string, targets []Target, enabled b
 		Domain:    domain,
 		Targets:   targets,
 		Enabled:   enabled,
+		Meta: ReverseProxyMeta{
+			CreatedAt: time.Now(),
+			Status:    string(StatusPending),
+		},
 	}
 }
 
