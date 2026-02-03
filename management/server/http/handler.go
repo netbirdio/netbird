@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	idpmanager "github.com/netbirdio/netbird/management/server/idp"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
+
+	idpmanager "github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -137,7 +138,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	}
 
 	accounts.AddEndpoints(accountManager, settingsManager, router)
-	peers.AddEndpoints(accountManager, router, networkMapController)
+	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
 	users.AddEndpoints(accountManager, router)
 	users.AddInvitesEndpoints(accountManager, router)
 	users.AddPublicInvitesEndpoints(accountManager, router)
