@@ -139,6 +139,14 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		go metricsWorker.Run(srvCtx)
 	}
 
+	// Run afterInit hooks before starting any servers
+	// This allows registering additional gRPC services (e.g., Signal) before Serve() is called
+	for _, fn := range s.afterInit {
+		if fn != nil {
+			fn(s)
+		}
+	}
+
 	var compatListener net.Listener
 	if s.mgmtPort != ManagementLegacyPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
@@ -176,12 +184,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
-		}
-	}
-
-	for _, fn := range s.afterInit {
-		if fn != nil {
-			fn(s)
 		}
 	}
 
@@ -261,16 +263,6 @@ func (s *BaseServer) SetContainer(key string, container any) {
 func (s *BaseServer) SetHandlerFunc(handler http.Handler) {
 	s.container["customHandler"] = handler
 	log.Tracef("custom handler set successfully")
-}
-
-// HTTPHandler returns the HTTP API handler
-func (s *BaseServer) HTTPHandler() http.Handler {
-	if h, ok := s.GetContainer("apiHandler"); ok {
-		if handler, ok := h.(http.Handler); ok {
-			return handler
-		}
-	}
-	return nil
 }
 
 func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
