@@ -27,9 +27,10 @@ type reverseProxyStore interface {
 	GetReverseProxyByID(ctx context.Context, lockStrength store.LockingStrength, accountID string, serviceID string) (*reverseproxy.ReverseProxy, error)
 }
 
-type keyStore interface {
+type accountStore interface {
 	GetGroupByName(ctx context.Context, groupName string, accountID string) (*types.Group, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
+	GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
@@ -45,8 +46,8 @@ type ProxyServiceServer struct {
 	// Store of reverse proxies
 	reverseProxyStore reverseProxyStore
 
-	// Store for client setup keys
-	keyStore keyStore
+	// Store for accounts and authentication information
+	accountStore accountStore
 
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
@@ -64,11 +65,11 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr accesslogs.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(store reverseProxyStore, keys accountStore, accessLogMgr accesslogs.Manager) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
 		reverseProxyStore: store,
-		keyStore:          keys,
+		accountStore:      keys,
 		accessLogManager:  accessLogMgr,
 	}
 }
@@ -139,7 +140,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
-		group, err := s.keyStore.GetGroupByName(ctx, rp.Name, rp.AccountID)
+		group, err := s.accountStore.GetGroupByName(ctx, rp.Name, rp.AccountID)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"proxy":   rp.Name,
@@ -149,7 +150,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		}
 
 		// TODO: should this even be here? We're running in a loop, and on each proxy, this will create a LOT of setup key entries that we currently have no way to remove.
-		key, err := s.keyStore.CreateSetupKey(ctx,
+		key, err := s.accountStore.CreateSetupKey(ctx,
 			rp.AccountID,
 			rp.Name,
 			types.SetupKeyReusable,
@@ -169,11 +170,25 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
+		var idp *types.IdentityProvider
+		if rp.Auth.BearerAuth != nil && rp.Auth.BearerAuth.Enabled && rp.Auth.BearerAuth.IdentityProviderID != "" {
+			idp, err = s.accountStore.GetIdentityProvider(ctx, rp.AccountID, rp.Auth.BearerAuth.IdentityProviderID, activity.SystemInitiator)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"proxy":   rp.Name,
+					"account": rp.AccountID,
+					"idp_id":  rp.Auth.BearerAuth.IdentityProviderID,
+				}).WithError(err).Warn("Failed to get identity provider for reverse proxy, but bearer auth is enabled. Bearer auth will be disabled")
+				rp.Auth.BearerAuth.Enabled = false
+			}
+		}
+
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping: []*proto.ProxyMapping{
 				rp.ToProtoMapping(
 					reverseproxy.Create, // Initial snapshot, all records are "new" for the proxy.
 					key.Key,
+					idp,
 				),
 			},
 		}); err != nil {

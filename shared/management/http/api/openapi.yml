@@ -2962,6 +2962,9 @@ components:
         enabled:
           type: boolean
           description: Whether bearer auth is enabled
+        identity_provider_id:
+          type: string
+          description: ID of the identity provider to use for OIDC authentication
         distribution_groups:
           type: array
           items:

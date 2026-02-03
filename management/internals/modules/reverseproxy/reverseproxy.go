@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -43,6 +45,7 @@ type PINAuthConfig struct {
 
 type BearerAuthConfig struct {
 	Enabled            bool     `json:"enabled"`
+	IdentityProviderID string   `json:"identity_provider_id,omitempty"`
 	DistributionGroups []string `json:"distribution_groups,omitempty" gorm:"serializer:json"`
 }
 
@@ -99,6 +102,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		authConfig.BearerAuth = &api.BearerAuthConfig{
 			Enabled:            r.Auth.BearerAuth.Enabled,
 			DistributionGroups: &r.Auth.BearerAuth.DistributionGroups,
+			IdentityProviderId: &r.Auth.BearerAuth.IdentityProviderID,
 		}
 	}
 
@@ -132,7 +136,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 }
 
-func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *proto.ProxyMapping {
+func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, idp *types.IdentityProvider) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if !target.Enabled {
@@ -169,12 +173,12 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 		auth.Pin = true
 	}
 
-	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
+	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled && idp != nil {
 		auth.Oidc = &proto.OIDC{
-			OidcProviderUrl:    "",  // TODO:
-			OidcClientId:       "",  // TODO:
-			OidcClientSecret:   "",  // TODO:
-			OidcScopes:         nil, // TODO:
+			OidcProviderUrl:    idp.Issuer,
+			OidcClientId:       idp.ClientID,
+			OidcClientSecret:   idp.ClientSecret,
+			OidcScopes:         []string{oidc.ScopeOpenID, "profile", "email"},
 			DistributionGroups: r.Auth.BearerAuth.DistributionGroups,
 		}
 	}
@@ -246,6 +250,9 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 	if req.Auth.BearerAuth != nil {
 		bearerAuth := &BearerAuthConfig{
 			Enabled: req.Auth.BearerAuth.Enabled,
+		}
+		if req.Auth.BearerAuth.IdentityProviderId != nil {
+			bearerAuth.IdentityProviderID = *req.Auth.BearerAuth.IdentityProviderId
 		}
 		if req.Auth.BearerAuth.DistributionGroups != nil {
 			bearerAuth.DistributionGroups = *req.Auth.BearerAuth.DistributionGroups
