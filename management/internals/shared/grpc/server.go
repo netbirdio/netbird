@@ -307,7 +307,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
-	streamStartTime := peer.Status.LastSeen
+	streamStartTime := time.Now().UTC()
 
 	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort)
 	if err != nil {
