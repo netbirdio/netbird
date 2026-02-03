@@ -58,6 +58,10 @@ type Server struct {
 	GenerateACMECertificates bool
 	ACMEChallengeAddress     string
 	ACMEDirectory            string
+	OIDCClientId             string
+	OIDCClientSecret         string
+	OIDCEndpoint             string
+	OIDCScopes               []string
 }
 
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
@@ -305,11 +309,11 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	}
 	if mapping.GetAuth().GetOidc() != nil {
 		oidc := mapping.GetAuth().GetOidc()
-		scheme, err := auth.NewOIDC(ctx, mapping.GetId(), mapping.GetAccountId(), auth.OIDCConfig{
-			OIDCProviderURL:    oidc.GetOidcProviderUrl(),
-			OIDCClientID:       oidc.GetOidcClientId(),
-			OIDCClientSecret:   oidc.GetOidcClientSecret(),
-			OIDCScopes:         oidc.GetOidcScopes(),
+		scheme, err := auth.NewOIDC(ctx, mapping.GetId(), mapping.GetAccountId(), s.ProxyURL, auth.OIDCConfig{
+			OIDCProviderURL:    s.OIDCEndpoint,
+			OIDCClientID:       s.OIDCClientId,
+			OIDCClientSecret:   s.OIDCClientSecret,
+			OIDCScopes:         s.OIDCScopes,
 			DistributionGroups: oidc.GetDistributionGroups(),
 		})
 		if err != nil {

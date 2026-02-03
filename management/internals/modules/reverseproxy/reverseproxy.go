@@ -171,10 +171,6 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 
 	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
 		auth.Oidc = &proto.OIDC{
-			OidcProviderUrl:    "",  // TODO:
-			OidcClientId:       "",  // TODO:
-			OidcClientSecret:   "",  // TODO:
-			OidcScopes:         nil, // TODO:
 			DistributionGroups: r.Auth.BearerAuth.DistributionGroups,
 		}
 	}

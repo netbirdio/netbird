@@ -50,11 +50,7 @@ message Authentication {
 }
 
 message OIDC {
-  string oidc_provider_url = 1;
-  string oidc_client_id = 2;
-  string oidc_client_secret = 3;
-  repeated string oidc_scopes = 4;
-  repeated string distribution_groups = 5;
+  repeated string distribution_groups = 1;
 }
 
 message ProxyMapping {

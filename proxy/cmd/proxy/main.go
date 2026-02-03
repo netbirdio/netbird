@@ -49,19 +49,26 @@ func envStringOrDefault(key string, def string) string {
 
 func main() {
 	var (
-		version, debug, acmeCerts                       bool
-		mgmtAddr, addr, url, certDir, acmeAddr, acmeDir string
+		version, debug                               bool
+		mgmtAddr, addr, url, certDir                 string
+		acmeCerts                                    bool
+		acmeAddr, acmeDir                            string
+		oidcId, oidcSecret, oidcEndpoint, oidcScopes string
 	)
 
 	flag.BoolVar(&version, "v", false, "Print version and exit")
 	flag.BoolVar(&debug, "debug", envBoolOrDefault("NB_PROXY_DEBUG_LOGS", false), "Enable debug logs")
 	flag.StringVar(&mgmtAddr, "mgmt", envStringOrDefault("NB_PROXY_MANAGEMENT_ADDRESS", DefaultManagementURL), "Management address to connect to.")
 	flag.StringVar(&addr, "addr", envStringOrDefault("NB_PROXY_ADDRESS", ":443"), "Reverse proxy address to listen on.")
-	flag.StringVar(&url, "url", envStringOrDefault("NB_PROXY_URL", ""), "The URL at which this proxy will be reached, where CNAME records for proxied endpoints will be directed.")
+	flag.StringVar(&url, "url", envStringOrDefault("NB_PROXY_URL", "proxy.netbird.io"), "The URL at which this proxy will be reached, where CNAME records for proxied endpoints will be directed.")
 	flag.StringVar(&certDir, "cert-dir", envStringOrDefault("NB_PROXY_CERTIFICATE_DIRECTORY", "./certs"), "Directory to store ")
 	flag.BoolVar(&acmeCerts, "acme-certs", envBoolOrDefault("NB_PROXY_ACME_CERTIFICATES", false), "Generate ACME certificates using HTTP-01 challenges.")
 	flag.StringVar(&acmeAddr, "acme-addr", envStringOrDefault("NB_PROXY_ACME_ADDRESS", ":80"), "HTTP address to listen on, used for ACME HTTP-01 certificate generation.")
 	flag.StringVar(&acmeDir, "acme-dir", envStringOrDefault("NB_PROXY_ACME_DIRECTORY", acme.LetsEncryptURL), "URL of ACME challenge directory.")
+	flag.StringVar(&oidcId, "oidc-id", envStringOrDefault("NB_PROXY_OIDC_CLIENT_ID", "netbird-proxy"), "The OAuth2 Client ID for OIDC User Authentication")
+	flag.StringVar(&oidcSecret, "oidc-secret", envStringOrDefault("NB_PROXY_OIDC_CLIENT_SECRET", ""), "The OAuth2 Client Secret for OIDC User Authentication")
+	flag.StringVar(&oidcEndpoint, "oidc-endpoint", envStringOrDefault("NB_PROXY_OIDC_ENDPOINT", ""), "The OIDC Endpoint for OIDC User Authentication")
+	flag.StringVar(&oidcScopes, "oidc-scopes", envStringOrDefault("NB_PROXY_OIDC_SCOPES", "openid,profile,email"), "The OAuth2 scopes for OIDC User Authentication, comma separated")
 	flag.Parse()
 
 	if version {
@@ -89,6 +96,10 @@ func main() {
 		GenerateACMECertificates: acmeCerts,
 		ACMEChallengeAddress:     acmeAddr,
 		ACMEDirectory:            acmeDir,
+		OIDCClientId:             oidcId,
+		OIDCClientSecret:         oidcSecret,
+		OIDCEndpoint:             oidcEndpoint,
+		OIDCScopes:               strings.Split(oidcScopes, ","),
 	}
 
 	if err := srv.ListenAndServe(context.TODO(), addr); err != nil {

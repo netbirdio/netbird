@@ -36,16 +36,16 @@ type oidcState struct {
 
 // OIDC implements the Scheme interface for JWT/OIDC authentication
 type OIDC struct {
-	id, accountId      string
-	verifier           *oidc.IDTokenVerifier
-	oauthConfig        *oauth2.Config
-	states             map[string]*oidcState
-	statesMux          sync.RWMutex
-	distributionGroups []string
+	id, accountId, proxyURL string
+	verifier                *oidc.IDTokenVerifier
+	oauthConfig             *oauth2.Config
+	states                  map[string]*oidcState
+	statesMux               sync.RWMutex
+	distributionGroups      []string
 }
 
 // NewOIDC creates a new OIDC authentication scheme
-func NewOIDC(ctx context.Context, id, accountId string, cfg OIDCConfig) (*OIDC, error) {
+func NewOIDC(ctx context.Context, id, accountId, proxyURL string, cfg OIDCConfig) (*OIDC, error) {
 	if cfg.OIDCProviderURL == "" || cfg.OIDCClientID == "" {
 		return nil, fmt.Errorf("OIDC provider URL and client ID are required")
 	}
@@ -63,6 +63,7 @@ func NewOIDC(ctx context.Context, id, accountId string, cfg OIDCConfig) (*OIDC, 
 	o := &OIDC{
 		id:        id,
 		accountId: accountId,
+		proxyURL:  proxyURL,
 		verifier: provider.Verifier(&oidc.Config{
 			ClientID: cfg.OIDCClientID,
 		}),
@@ -111,20 +112,11 @@ func (o *OIDC) Authenticate(r *http.Request) (string, string) {
 	o.states[state] = &oidcState{OriginalURL: fmt.Sprintf("https://%s%s", r.Host, r.URL), CreatedAt: time.Now()}
 	o.statesMux.Unlock()
 
-	// Construct the redirect URL as the currently requested URL with the defined callback path added.
-	// The expectation is that the requested URL should reach back to the proxy and so the OAuth redirect
-	// will end up back here to be handled by the middleware.
-	redirectURL := &url.URL{
-		Scheme: r.URL.Scheme,
-		Host:   r.Host,
-		Path:   callbackPath,
-	}
-
 	return "", (&oauth2.Config{
 		ClientID:     o.oauthConfig.ClientID,
 		ClientSecret: o.oauthConfig.ClientSecret,
 		Endpoint:     o.oauthConfig.Endpoint,
-		RedirectURL:  redirectURL.String(),
+		RedirectURL:  o.proxyURL + callbackPath,
 		Scopes:       o.oauthConfig.Scopes,
 	}).AuthCodeURL(state)
 }
