@@ -204,7 +204,10 @@ func (c *GrpcClient) handleJobStream(
 				}
 			} else {
 				// non-gRPC error
-				c.notifyDisconnected(err)
+				if !errors.Is(err, io.EOF) {
+					c.notifyDisconnected(err)
+				}
+
 				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 				return err
 			}
