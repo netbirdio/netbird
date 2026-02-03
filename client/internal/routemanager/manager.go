@@ -173,12 +173,21 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
+	var once sync.Once
+	var wgIface *net.Interface
+	toInterface := func() *net.Interface {
+		once.Do(func() {
+			wgIface = m.wgInterface.ToInterface()
+		})
+		return wgIface
+	}
+
 	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			return struct{}{}, m.sysOps.AddVPNRoute(prefix, m.wgInterface.ToInterface())
+			return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
-			return m.sysOps.RemoveVPNRoute(prefix, m.wgInterface.ToInterface())
+			return m.sysOps.RemoveVPNRoute(prefix, toInterface())
 		},
 	)
 
