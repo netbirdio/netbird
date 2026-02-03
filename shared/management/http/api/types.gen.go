@@ -474,9 +474,6 @@ type BearerAuthConfig struct {
 
 	// Enabled Whether bearer auth is enabled
 	Enabled bool `json:"enabled"`
-
-	// IdentityProviderId ID of the identity provider to use for OIDC authentication
-	IdentityProviderId *string `json:"identity_provider_id,omitempty"`
 }
 
 // BundleParameters These parameters control what gets included in the bundle and how it is processed.

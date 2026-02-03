@@ -145,12 +145,7 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		return nil, fmt.Errorf("failed to create setup key for reverse proxy: %w", err)
 	}
 
-	idp, err := m.getIdentityProvider(ctx, accountID, userID, reverseProxy.Auth.BearerAuth)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get identity provider: %w", err)
-	}
-
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key, idp))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key))
 
 	return reverseProxy, nil
 }
@@ -196,12 +191,7 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
-	idp, err := m.getIdentityProvider(ctx, accountID, userID, reverseProxy.Auth.BearerAuth)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get identity provider: %w", err)
-	}
-
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Update, "", idp))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Update, ""))
 
 	return reverseProxy, nil
 }
@@ -235,14 +225,7 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxyID, accountID, activity.ReverseProxyDeleted, reverseProxy.EventMeta())
 
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", nil))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, ""))
 
 	return nil
-}
-
-func (m *managerImpl) getIdentityProvider(ctx context.Context, accountID, userID string, bearerAuth *reverseproxy.BearerAuthConfig) (*types.IdentityProvider, error) {
-	if bearerAuth == nil || !bearerAuth.Enabled || bearerAuth.IdentityProviderID == "" {
-		return nil, nil
-	}
-	return m.accountManager.GetIdentityProvider(ctx, accountID, bearerAuth.IdentityProviderID, userID)
 }
