@@ -17,13 +17,15 @@ import (
 
 const stateExpiration = 10 * time.Minute
 
+const callbackPath = "/oauth/callback"
+
 // OIDCConfig holds configuration for OIDC authentication
 type OIDCConfig struct {
-	OIDCProviderURL  string
-	OIDCClientID     string
-	OIDCClientSecret string
-	OIDCRedirectURL  string
-	OIDCScopes       []string
+	OIDCProviderURL    string
+	OIDCClientID       string
+	OIDCClientSecret   string
+	OIDCScopes         []string
+	DistributionGroups []string
 }
 
 // oidcState stores CSRF state with expiration
@@ -34,11 +36,12 @@ type oidcState struct {
 
 // OIDC implements the Scheme interface for JWT/OIDC authentication
 type OIDC struct {
-	id, accountId string
-	verifier      *oidc.IDTokenVerifier
-	oauthConfig   *oauth2.Config
-	states        map[string]*oidcState
-	statesMux     sync.RWMutex
+	id, accountId      string
+	verifier           *oidc.IDTokenVerifier
+	oauthConfig        *oauth2.Config
+	states             map[string]*oidcState
+	statesMux          sync.RWMutex
+	distributionGroups []string
 }
 
 // NewOIDC creates a new OIDC authentication scheme
@@ -66,11 +69,11 @@ func NewOIDC(ctx context.Context, id, accountId string, cfg OIDCConfig) (*OIDC, 
 		oauthConfig: &oauth2.Config{
 			ClientID:     cfg.OIDCClientID,
 			ClientSecret: cfg.OIDCClientSecret,
-			RedirectURL:  cfg.OIDCRedirectURL,
-			Scopes:       scopes,
 			Endpoint:     provider.Endpoint(),
+			Scopes:       scopes,
 		},
-		states: make(map[string]*oidcState),
+		states:             make(map[string]*oidcState),
+		distributionGroups: cfg.DistributionGroups,
 	}
 
 	go o.cleanupStates()
@@ -108,14 +111,29 @@ func (o *OIDC) Authenticate(r *http.Request) (string, string) {
 	o.states[state] = &oidcState{OriginalURL: fmt.Sprintf("https://%s%s", r.Host, r.URL), CreatedAt: time.Now()}
 	o.statesMux.Unlock()
 
-	return "", o.oauthConfig.AuthCodeURL(state)
+	// Construct the redirect URL as the currently requested URL with the defined callback path added.
+	// The expectation is that the requested URL should reach back to the proxy and so the OAuth redirect
+	// will end up back here to be handled by the middleware.
+	redirectURL := &url.URL{
+		Scheme: r.URL.Scheme,
+		Host:   r.Host,
+		Path:   callbackPath,
+	}
+
+	return "", (&oauth2.Config{
+		ClientID:     o.oauthConfig.ClientID,
+		ClientSecret: o.oauthConfig.ClientSecret,
+		Endpoint:     o.oauthConfig.Endpoint,
+		RedirectURL:  redirectURL.String(),
+		Scopes:       o.oauthConfig.Scopes,
+	}).AuthCodeURL(state)
 }
 
 // Middleware returns an http.Handler that handles OIDC callback and flow initiation.
 func (o *OIDC) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Handle OIDC callback
-		if r.URL.Path == "/oauth/callback" {
+		if r.URL.Path == callbackPath {
 			o.handleCallback(w, r)
 			return
 		}
@@ -125,6 +143,8 @@ func (o *OIDC) Middleware(next http.Handler) http.Handler {
 }
 
 // validateToken validates a JWT ID token and returns the user ID (subject)
+// Returns empty string if token is invalid or user's groups don't appear
+// in the distributionGroups.
 func (o *OIDC) validateToken(ctx context.Context, token string) string {
 	if o.verifier == nil {
 		return ""
@@ -132,10 +152,34 @@ func (o *OIDC) validateToken(ctx context.Context, token string) string {
 
 	idToken, err := o.verifier.Verify(ctx, token)
 	if err != nil {
+		// TODO: log or return?
 		return ""
 	}
 
-	return idToken.Subject
+	// If distribution groups are configured, check if user has access
+	if len(o.distributionGroups) > 0 {
+		var claims struct {
+			Groups []string `json:"groups"`
+		}
+		if err := idToken.Claims(&claims); err != nil {
+			// TODO: log or return?
+			return ""
+		}
+
+		allowed := make(map[string]struct{}, len(o.distributionGroups))
+		for _, g := range o.distributionGroups {
+			allowed[g] = struct{}{}
+		}
+
+		for _, g := range claims.Groups {
+			if _, ok := allowed[g]; ok {
+				return idToken.Subject
+			}
+		}
+	}
+
+	// Default deny
+	return ""
 }
 
 // handleCallback processes the OIDC callback

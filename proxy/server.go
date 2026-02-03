@@ -306,11 +306,11 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetOidc() != nil {
 		oidc := mapping.GetAuth().GetOidc()
 		scheme, err := auth.NewOIDC(ctx, mapping.GetId(), mapping.GetAccountId(), auth.OIDCConfig{
-			OIDCProviderURL:  oidc.GetOidcProviderUrl(),
-			OIDCClientID:     oidc.GetOidcClientId(),
-			OIDCClientSecret: oidc.GetOidcClientSecret(),
-			OIDCRedirectURL:  oidc.GetOidcRedirectUrl(),
-			OIDCScopes:       oidc.GetOidcScopes(),
+			OIDCProviderURL:    oidc.GetOidcProviderUrl(),
+			OIDCClientID:       oidc.GetOidcClientId(),
+			OIDCClientSecret:   oidc.GetOidcClientSecret(),
+			OIDCScopes:         oidc.GetOidcScopes(),
+			DistributionGroups: oidc.GetDistributionGroups(),
 		})
 		if err != nil {
 			s.Logger.WithError(err).Error("Failed to create OIDC scheme")
