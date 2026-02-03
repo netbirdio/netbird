@@ -2855,6 +2855,8 @@ components:
           description: Whether the reverse proxy is enabled
         auth:
           $ref: '#/components/schemas/ReverseProxyAuthConfig'
+        meta:
+          $ref: '#/components/schemas/ReverseProxyMeta'
       required:
         - id
         - name
@@ -2862,6 +2864,34 @@ components:
         - targets
         - enabled
         - auth
+        - meta
+    ReverseProxyMeta:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the reverse proxy was created
+          example: "2024-02-03T10:30:00Z"
+        certificate_issued_at:
+          type: string
+          format: date-time
+          description: Timestamp when the certificate was issued (empty if not yet issued)
+          example: "2024-02-03T10:35:00Z"
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - tunnel_not_created
+            - certificate_pending
+            - certificate_failed
+            - error
+          description: Current status of the reverse proxy
+          example: "active"
+      required:
+        - created_at
+        - status
     ReverseProxyRequest:
       type: object
       properties:

@@ -145,6 +145,15 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		})
 	}
 
+	meta := api.ReverseProxyMeta{
+		CreatedAt: r.Meta.CreatedAt,
+		Status:    api.ReverseProxyMetaStatus(r.Meta.Status),
+	}
+
+	if !r.Meta.CertificateIssuedAt.IsZero() {
+		meta.CertificateIssuedAt = &r.Meta.CertificateIssuedAt
+	}
+
 	return &api.ReverseProxy{
 		Id:      r.ID,
 		Name:    r.Name,
@@ -152,6 +161,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		Targets: apiTargets,
 		Enabled: r.Enabled,
 		Auth:    authConfig,
+		Meta:    meta,
 	}
 }
 

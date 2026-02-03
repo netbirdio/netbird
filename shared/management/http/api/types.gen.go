@@ -275,6 +275,16 @@ const (
 	ReverseProxyDomainTypeFree   ReverseProxyDomainType = "free"
 )
 
+// Defines values for ReverseProxyMetaStatus.
+const (
+	ReverseProxyMetaStatusActive             ReverseProxyMetaStatus = "active"
+	ReverseProxyMetaStatusCertificateFailed  ReverseProxyMetaStatus = "certificate_failed"
+	ReverseProxyMetaStatusCertificatePending ReverseProxyMetaStatus = "certificate_pending"
+	ReverseProxyMetaStatusError              ReverseProxyMetaStatus = "error"
+	ReverseProxyMetaStatusPending            ReverseProxyMetaStatus = "pending"
+	ReverseProxyMetaStatusTunnelNotCreated   ReverseProxyMetaStatus = "tunnel_not_created"
+)
+
 // Defines values for ReverseProxyTargetProtocol.
 const (
 	ReverseProxyTargetProtocolHttp  ReverseProxyTargetProtocol = "http"
@@ -1958,7 +1968,8 @@ type ReverseProxy struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Reverse proxy ID
-	Id string `json:"id"`
+	Id   string           `json:"id"`
+	Meta ReverseProxyMeta `json:"meta"`
 
 	// Name Reverse proxy name
 	Name string `json:"name"`
@@ -1998,6 +2009,21 @@ type ReverseProxyDomainRequest struct {
 
 // ReverseProxyDomainType Type of Reverse Proxy Domain
 type ReverseProxyDomainType string
+
+// ReverseProxyMeta defines model for ReverseProxyMeta.
+type ReverseProxyMeta struct {
+	// CertificateIssuedAt Timestamp when the certificate was issued (empty if not yet issued)
+	CertificateIssuedAt *time.Time `json:"certificate_issued_at,omitempty"`
+
+	// CreatedAt Timestamp when the reverse proxy was created
+	CreatedAt time.Time `json:"created_at"`
+
+	// Status Current status of the reverse proxy
+	Status ReverseProxyMetaStatus `json:"status"`
+}
+
+// ReverseProxyMetaStatus Current status of the reverse proxy
+type ReverseProxyMetaStatus string
 
 // ReverseProxyRequest defines model for ReverseProxyRequest.
 type ReverseProxyRequest struct {
