@@ -211,6 +211,13 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	startTime := time.Now()
+	defer func() {
+		if elapsed := time.Since(startTime); elapsed > 5*time.Millisecond {
+			log.Warnf("[TIMING] addToRouteTable(%s): %v", prefix, elapsed)
+		}
+	}()
+
 	log.Debugf("Adding route to %s via %s", prefix, nexthop)
 	// if we don't have an interface but a zone, extract the interface index from the zone
 	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
@@ -266,16 +273,25 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
 		}
 	}()
 
+	setupStart := time.Now()
 	route, setupErr := setupRouteEntry(prefix, nexthop)
 	if setupErr != nil {
 		return fmt.Errorf("setup route entry: %w", setupErr)
 	}
+	setupDuration := time.Since(setupStart)
 
 	route.Metric = 1
 	route.ValidLifetime = InfiniteLifetime
 	route.PreferredLifetime = InfiniteLifetime
 
-	return createIPForwardEntry2(route)
+	apiStart := time.Now()
+	err = createIPForwardEntry2(route)
+	apiDuration := time.Since(apiStart)
+
+	if setupDuration > 1*time.Millisecond || apiDuration > 1*time.Millisecond {
+		log.Warnf("[TIMING] addRoute(%s): setup=%v api=%v", prefix, setupDuration, apiDuration)
+	}
+	return err
 }
 
 // deleteRoute deletes a route using Windows iphelper APIs
@@ -561,11 +577,14 @@ func cancelMibChangeNotify2(handle windows.Handle) error {
 // GetRoutesFromTable returns the current routing table from with prefixes only.
 // It caches the result for 2 seconds to avoid blocking the caller.
 func GetRoutesFromTable() ([]netip.Prefix, error) {
+	startTime := time.Now()
+
 	mux.Lock()
 	defer mux.Unlock()
 
 	// If many routes are added at the same time this might block for a long time (seconds to minutes), so we cache the result
 	if !isCacheDisabled() && time.Since(lastUpdate) < 2*time.Second {
+		log.Warnf("[TIMING] GetRoutesFromTable: cache hit, returning %d routes in %v", len(prefixList), time.Since(startTime))
 		return prefixList, nil
 	}
 
@@ -580,17 +599,20 @@ func GetRoutesFromTable() ([]netip.Prefix, error) {
 	}
 
 	lastUpdate = time.Now()
+	log.Warnf("[TIMING] GetRoutesFromTable: fetched %d routes in %v", len(prefixList), time.Since(startTime))
 	return prefixList, nil
 }
 
 // GetRoutes retrieves the current routing table using WMI.
 func GetRoutes() ([]Route, error) {
+	startTime := time.Now()
 	var entries []MSFT_NetRoute
 
 	query := `SELECT DestinationPrefix, Nexthop, InterfaceIndex, InterfaceAlias, AddressFamily FROM MSFT_NetRoute`
 	if err := wmi.QueryNamespace(query, &entries, `ROOT\StandardCimv2`); err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
+	log.Warnf("[TIMING] GetRoutes WMI query: fetched %d entries in %v", len(entries), time.Since(startTime))
 
 	var routes []Route
 	for _, entry := range entries {
@@ -903,6 +925,13 @@ func sortRouteCandidates(candidates []candidateRoute) {
 // 2. Lowest route metric
 // 3. Lowest interface metric
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
+	startTime := time.Now()
+	defer func() {
+		if elapsed := time.Since(startTime); elapsed > 10*time.Millisecond {
+			log.Warnf("[TIMING] GetBestInterface(%s): %v", dest, elapsed)
+		}
+	}()
+
 	var skipInterfaceIndex int
 	if vpnIntf != "" {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
@@ -913,11 +942,15 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 		}
 	}
 
+	tableStart := time.Now()
 	table, err := getWindowsRoutingTable()
 	if err != nil {
 		return nil, fmt.Errorf("get routing table: %w", err)
 	}
 	defer freeWindowsRoutingTable(table)
+	if elapsed := time.Since(tableStart); elapsed > 5*time.Millisecond {
+		log.Warnf("[TIMING] GetBestInterface: getWindowsRoutingTable took %v", elapsed)
+	}
 
 	candidates := parseCandidatesFromTable(table, dest, skipInterfaceIndex)
 

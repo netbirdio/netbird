@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -110,7 +111,11 @@ func (rm *Counter[Key, I, O]) increment(key Key, in I) (Ref[O], error) {
 	// Call AddFunc only if it's a new key
 	if ref.Count == 0 {
 		logCallerF("Calling add for key %v", key)
+		startTime := time.Now()
 		out, err := rm.add(key, in)
+		if elapsed := time.Since(startTime); elapsed > 10*time.Millisecond {
+			log.Warnf("[TIMING] refcounter.add(%v): %v", key, elapsed)
+		}
 
 		if errors.Is(err, ErrIgnore) {
 			return ref, nil

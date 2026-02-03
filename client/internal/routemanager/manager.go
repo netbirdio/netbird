@@ -319,6 +319,8 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
 func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
+	startTotal := time.Now()
+
 	toAdd := make(map[route.HAUniqueID]*route.Route)
 	toRemove := make(map[route.HAUniqueID]client.RouteHandler)
 
@@ -337,13 +339,20 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	var merr *multierror.Error
+
+	startRemove := time.Now()
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
 		}
 		delete(m.activeRoutes, id)
 	}
+	if len(toRemove) > 0 {
+		log.Warnf("[TIMING] updateSystemRoutes: removed %d routes in %v", len(toRemove), time.Since(startRemove))
+	}
 
+	startAdd := time.Now()
+	addedCount := 0
 	for id, route := range toAdd {
 		params := common.HandlerParams{
 			Route:                route,
@@ -365,7 +374,14 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			continue
 		}
 		m.activeRoutes[id] = handler
+		addedCount++
 	}
+	if len(toAdd) > 0 {
+		log.Warnf("[TIMING] updateSystemRoutes: added %d routes in %v (%.2f routes/sec)",
+			addedCount, time.Since(startAdd), float64(addedCount)/time.Since(startAdd).Seconds())
+	}
+
+	log.Warnf("[TIMING] updateSystemRoutes: total %d routes processed in %v", len(toAdd)+len(toRemove), time.Since(startTotal))
 
 	return nberrors.FormatErrorOrNil(merr)
 }

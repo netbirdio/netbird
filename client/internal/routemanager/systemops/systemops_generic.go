@@ -208,6 +208,11 @@ func (r *SysOps) refreshLocalSubnetsCache() {
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
 // in two /1 prefixes to avoid replacing the existing default route
 func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	startTime := time.Now()
+	defer func() {
+		log.Warnf("[TIMING] genericAddVPNRoute(%s): total %v", prefix, time.Since(startTime))
+	}()
+
 	nextHop := Nexthop{netip.Addr{}, intf}
 
 	switch prefix {
@@ -339,6 +344,13 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 }
 
 func GetNextHop(ip netip.Addr) (Nexthop, error) {
+	startTime := time.Now()
+	defer func() {
+		if elapsed := time.Since(startTime); elapsed > 10*time.Millisecond {
+			log.Warnf("[TIMING] GetNextHop(%s): %v", ip, elapsed)
+		}
+	}()
+
 	r, err := netroute.New()
 	if err != nil {
 		return Nexthop{}, fmt.Errorf("new netroute: %w", err)

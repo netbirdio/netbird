@@ -828,8 +828,16 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	started := time.Now()
+	defer func() {
+		log.Warnf("sync with lock finished in %s", time.Since(started))
+	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+	started2 := time.Now()
+	defer func() {
+		log.Warnf("sync finished in %s", time.Since(started2))
+	}()
 
 	// Check context INSIDE lock to ensure atomicity with shutdown
 	if e.ctx.Err() != nil {
