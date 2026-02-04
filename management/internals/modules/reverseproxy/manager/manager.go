@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/rs/xid"
-
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -17,7 +14,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -26,14 +22,16 @@ type managerImpl struct {
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
 	proxyGRPCServer    *nbgrpc.ProxyServiceServer
+	tokenStore         *nbgrpc.OneTimeTokenStore
 }
 
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer) reverseproxy.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, tokenStore *nbgrpc.OneTimeTokenStore) reverseproxy.Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyGRPCServer:    proxyGRPCServer,
+		tokenStore:         tokenStore,
 	}
 }
 
@@ -106,56 +104,14 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		return nil, err
 	}
 
+	token, err := m.tokenStore.GenerateToken(accountID, reverseProxy.ID, 5*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate authentication token: %w", err)
+	}
+
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
-	// TODO: refactor to avoid policy and group creation here
-	group := &types.Group{
-		ID:     xid.New().String(),
-		Name:   reverseProxy.Name,
-		Issued: types.GroupIssuedAPI,
-	}
-	err = m.accountManager.CreateGroup(ctx, accountID, activity.SystemInitiator, group)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create default group for reverse proxy: %w", err)
-	}
-
-	for _, target := range reverseProxy.Targets {
-		policyID := uuid.New().String()
-		// TODO: support other resource types in the future
-		targetType := types.ResourceTypePeer
-		if target.TargetType == "resource" {
-			targetType = types.ResourceTypeHost
-		}
-		policyRule := &types.PolicyRule{
-			ID:                  policyID,
-			PolicyID:            policyID,
-			Name:                reverseProxy.Name,
-			Enabled:             true,
-			Action:              types.PolicyTrafficActionAccept,
-			Protocol:            types.PolicyRuleProtocolALL,
-			Sources:             []string{group.ID},
-			DestinationResource: types.Resource{Type: targetType, ID: target.TargetId},
-			Bidirectional:       false,
-		}
-
-		policy := &types.Policy{
-			AccountID: accountID,
-			Name:      reverseProxy.Name,
-			Enabled:   true,
-			Rules:     []*types.PolicyRule{policyRule},
-		}
-		_, err = m.accountManager.SavePolicy(ctx, accountID, activity.SystemInitiator, policy, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create default policy for reverse proxy: %w", err)
-		}
-	}
-
-	key, err := m.accountManager.CreateSetupKey(ctx, accountID, reverseProxy.Name, types.SetupKeyReusable, 0, []string{group.ID}, 0, activity.SystemInitiator, true, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create setup key for reverse proxy: %w", err)
-	}
-
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key, m.proxyGRPCServer.GetOIDCValidationConfig()))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()))
 
 	return reverseProxy, nil
 }

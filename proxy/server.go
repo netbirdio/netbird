@@ -162,7 +162,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.Logger, s)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.Logger, s, s.mgmtClient)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
@@ -401,8 +401,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	d := domain.Domain(mapping.GetDomain())
 	accountID := types.AccountID(mapping.GetAccountId())
 	reverseProxyID := mapping.GetId()
+	authToken := mapping.GetAuthToken()
 
-	if err := s.netbird.AddPeer(ctx, accountID, d, mapping.GetSetupKey(), reverseProxyID); err != nil {
+	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, reverseProxyID); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
 	if s.acme != nil {

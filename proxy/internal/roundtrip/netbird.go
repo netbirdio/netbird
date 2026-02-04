@@ -11,11 +11,14 @@ import (
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
 
-	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/embed"
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -42,13 +45,18 @@ type statusNotifier interface {
 	NotifyStatus(ctx context.Context, accountID, reverseProxyID, domain string, connected bool) error
 }
 
+type managementClient interface {
+	CreateProxyPeer(ctx context.Context, req *proto.CreateProxyPeerRequest, opts ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error)
+}
+
 // NetBird provides an http.RoundTripper implementation
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple domains to share the same connection.
 type NetBird struct {
-	mgmtAddr string
-	proxyID  string
-	logger   *log.Logger
+	mgmtAddr   string
+	proxyID    string
+	logger     *log.Logger
+	mgmtClient managementClient
 
 	clientsMux     sync.RWMutex
 	clients        map[types.AccountID]*clientEntry
@@ -69,8 +77,9 @@ type ClientDebugInfo struct {
 type accountIDContextKey struct{}
 
 // AddPeer registers a domain for an account. If the account doesn't have a client yet,
-// one is created using the provided setup key. Multiple domains can share the same client.
-func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d domain.Domain, key, reverseProxyID string) error {
+// one is created by authenticating with the management server using the provided token.
+// Multiple domains can share the same client.
+func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d domain.Domain, authToken, reverseProxyID string) error {
 	n.clientsMux.Lock()
 
 	entry, exists := n.clients[accountID]
@@ -97,17 +106,63 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 		return nil
 	}
 
+	n.logger.WithFields(log.Fields{
+		"account_id":       accountID,
+		"reverse_proxy_id": reverseProxyID,
+	}).Debug("generating WireGuard keypair for new peer")
+
+	privateKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		n.clientsMux.Unlock()
+		return fmt.Errorf("generate wireguard private key: %w", err)
+	}
+	publicKey := privateKey.PublicKey()
+
+	n.logger.WithFields(log.Fields{
+		"account_id":       accountID,
+		"reverse_proxy_id": reverseProxyID,
+		"public_key":       publicKey.String(),
+	}).Debug("authenticating new proxy peer with management")
+
+	// Authenticate with management using the one-time token and send public key
+	resp, err := n.mgmtClient.CreateProxyPeer(ctx, &proto.CreateProxyPeerRequest{
+		ReverseProxyId:     reverseProxyID,
+		AccountId:          string(accountID),
+		Token:              authToken,
+		WireguardPublicKey: publicKey.String(),
+	})
+	if err != nil {
+		n.clientsMux.Unlock()
+		return fmt.Errorf("authenticate proxy peer with management: %w", err)
+	}
+	if resp != nil && !resp.GetSuccess() {
+		n.clientsMux.Unlock()
+		errMsg := "unknown error"
+		if resp.ErrorMessage != nil {
+			errMsg = *resp.ErrorMessage
+		}
+		return fmt.Errorf("proxy peer authentication failed: %s", errMsg)
+	}
+
+	n.logger.WithFields(log.Fields{
+		"account_id":       accountID,
+		"reverse_proxy_id": reverseProxyID,
+		"public_key":       publicKey.String(),
+	}).Info("proxy peer authenticated successfully with management")
+
 	n.initLogOnce.Do(func() {
 		if err := util.InitLog(log.WarnLevel.String(), util.LogConsole); err != nil {
 			n.logger.WithField("account_id", accountID).Warnf("failed to initialize embedded client logging: %v", err)
 		}
 	})
 
+	// Create embedded NetBird client with the generated private key
+	// The peer has already been created via CreateProxyPeer RPC with the public key
 	wgPort := 0
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + n.proxyID,
 		ManagementURL: n.mgmtAddr,
-		SetupKey:      key,
+		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  true,
 		WireguardPort: &wgPort,
@@ -414,7 +469,7 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 }
 
 // NewNetBird creates a new NetBird transport.
-func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNotifier) *NetBird {
+func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -424,6 +479,7 @@ func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNot
 		logger:         logger,
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,
+		mgmtClient:     mgmtClient,
 	}
 }
 

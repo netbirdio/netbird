@@ -32,6 +32,9 @@ const (
 	StatusCertificatePending ProxyStatus = "certificate_pending"
 	StatusCertificateFailed  ProxyStatus = "certificate_failed"
 	StatusError              ProxyStatus = "error"
+
+	TargetTypePeer     = "peer"
+	TargetTypeResource = "resource"
 )
 
 type Target struct {
@@ -164,7 +167,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 }
 
-func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if !target.Enabled {
@@ -213,7 +216,7 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, oidc
 		Id:        r.ID,
 		Domain:    r.Domain,
 		Path:      pathMappings,
-		SetupKey:  setupKey,
+		AuthToken: authToken,
 		Auth:      auth,
 		AccountId: r.AccountID,
 	}

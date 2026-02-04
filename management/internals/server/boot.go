@@ -162,7 +162,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccountManager(), s.AccessLogsManager(), s.proxyOIDCConfig())
+		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccessLogsManager(), s.ProxyTokenStore(), s.proxyOIDCConfig(), s.PeersManager())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetProxyManager(s.ReverseProxyManager())
 		})
@@ -188,6 +188,14 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 			Audience:     s.Config.HttpConfig.AuthAudience,
 			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
 		}
+	})
+}
+
+func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
+	return Create(s, func() *nbgrpc.OneTimeTokenStore {
+		tokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
+		log.Info("One-time token store initialized for proxy authentication")
+		return tokenStore
 	})
 }
 

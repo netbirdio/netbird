@@ -1099,6 +1099,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkRouters").
 		Preload("NetworkResources").
 		Preload("Onboarding").
+		Preload("ReverseProxies").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
@@ -1274,6 +1275,17 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 			return
 		}
 		account.PostureChecks = checks
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		proxies, err := s.getProxies(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.ReverseProxies = proxies
 	}()
 
 	wg.Add(1)
@@ -1677,7 +1689,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
 	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
-	location_geo_name_id FROM peers WHERE account_id = $1`
+	location_geo_name_id, proxy_embedded FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1690,7 +1702,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			lastLogin, createdAt                                                                            sql.NullTime
 			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 			peerStatusLastSeen                                                                              sql.NullTime
-			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval                         sql.NullBool
+			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
 			ip, extraDNS, netAddr, env, flags, files, connIP                                                []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
@@ -1705,7 +1717,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
 			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID)
+			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1788,6 +1800,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if locationGeoNameID.Valid {
 				p.Location.GeoNameID = uint(locationGeoNameID.Int64)
+			}
+			if proxyEmbedded.Valid {
+				p.ProxyEmbedded = proxyEmbedded.Bool
 			}
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)
@@ -2042,6 +2057,52 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 		return nil, err
 	}
 	return checks, nil
+}
+
+func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
+	const query = `SELECT id, account_id, name, domain, targets, enabled, auth,
+		meta_created_at, meta_certificate_issued_at, meta_status
+		FROM reverse_proxies WHERE account_id = $1`
+	rows, err := s.pool.Query(ctx, query, accountID)
+	if err != nil {
+		return nil, err
+	}
+	proxies, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*reverseproxy.ReverseProxy, error) {
+		var p reverseproxy.ReverseProxy
+		var auth []byte
+		var targets []byte
+		err := row.Scan(
+			&p.ID,
+			&p.AccountID,
+			&p.Name,
+			&p.Domain,
+			&targets,
+			&p.Enabled,
+			&auth,
+			&p.Meta.CreatedAt,
+			&p.Meta.CertificateIssuedAt,
+			&p.Meta.Status,
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Unmarshal JSON fields
+		if auth != nil {
+			if err := json.Unmarshal(auth, &p.Auth); err != nil {
+				return nil, err
+			}
+		}
+		if targets != nil {
+			if err := json.Unmarshal(targets, &p.Targets); err != nil {
+				return nil, err
+			}
+		}
+		return &p, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return proxies, nil
 }
 
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {

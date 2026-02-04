@@ -11,6 +11,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
@@ -103,7 +105,12 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
-	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, nil, domain.Manager{}, nil, nil)
+	// Create empty managers for reverse proxy functionality (not used in channel tests)
+	var reverseProxyManager reverseproxy.Manager
+	reverseProxyDomainManager := domain.NewManager(store, nil)
+	var accessLogsManager accesslogs.Manager
+
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, reverseProxyManager, reverseProxyDomainManager, accessLogsManager)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

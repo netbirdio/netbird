@@ -17,6 +17,8 @@ service ProxyService {
 
   rpc SendStatusUpdate(SendStatusUpdateRequest) returns (SendStatusUpdateResponse);
 
+  rpc CreateProxyPeer(CreateProxyPeerRequest) returns (CreateProxyPeerResponse);
+
   rpc GetOIDCURL(GetOIDCURLRequest) returns (GetOIDCURLResponse);
 }
 
@@ -60,7 +62,7 @@ message ProxyMapping {
   string account_id = 3;
   string domain = 4;
   repeated PathMapping path = 5;
-  string setup_key = 6;
+  string auth_token = 6;
   Authentication auth = 7;
 }
 
@@ -130,6 +132,21 @@ message SendStatusUpdateRequest {
 
 // SendStatusUpdateResponse is intentionally empty to allow for future expansion
 message SendStatusUpdateResponse {}
+
+// CreateProxyPeerRequest is sent by the proxy to create a peer connection
+// The token is a one-time authentication token sent via ProxyMapping
+message CreateProxyPeerRequest {
+  string reverse_proxy_id = 1;
+  string account_id = 2;
+  string token = 3;
+  string wireguard_public_key = 4;
+}
+
+// CreateProxyPeerResponse contains the result of peer creation
+message CreateProxyPeerResponse {
+  bool success = 1;
+  optional string error_message = 2;
+}
 
 message GetOIDCURLRequest {
   string id = 1;
