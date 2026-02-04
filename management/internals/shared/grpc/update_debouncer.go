@@ -98,12 +98,6 @@ func (d *UpdateDebouncer) startTimer() {
 }
 
 func (d *UpdateDebouncer) resetTimer() {
-	if !d.timer.Stop() {
-		// Timer already fired, drain the channel
-		select {
-		case <-d.timerC:
-		default:
-		}
-	}
+	d.timer.Stop()
 	d.timer.Reset(d.debounceInterval)
 }
