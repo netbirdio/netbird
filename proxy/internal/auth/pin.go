@@ -36,6 +36,11 @@ func (Pin) Type() Method {
 func (p Pin) Authenticate(r *http.Request) (string, string) {
 	pin := r.FormValue(pinFormId)
 
+	if pin == "" {
+		// This cannot be authenticated so not worth wasting time sending the request.
+		return "", pinFormId
+	}
+
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
 		Id:        p.id,
 		AccountId: p.accountId,
@@ -55,8 +60,4 @@ func (p Pin) Authenticate(r *http.Request) (string, string) {
 	}
 
 	return "", pinFormId
-}
-
-func (p Pin) Middleware(next http.Handler) http.Handler {
-	return next
 }

@@ -16,6 +16,8 @@ service ProxyService {
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
 
   rpc SendStatusUpdate(SendStatusUpdateRequest) returns (SendStatusUpdateResponse);
+
+  rpc GetOIDCURL(GetOIDCURLRequest) returns (GetOIDCURLResponse);
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -52,7 +54,10 @@ message Authentication {
 }
 
 message OIDC {
-  repeated string distribution_groups = 1;
+  string issuer = 1;
+  repeated string audiences = 2;
+  string keys_location = 3;
+  int64 max_token_age = 4;
 }
 
 message ProxyMapping {
@@ -136,3 +141,13 @@ message SendStatusUpdateRequest {
 
 // SendStatusUpdateResponse is intentionally empty to allow for future expansion
 message SendStatusUpdateResponse {}
+
+message GetOIDCURLRequest {
+  string id = 1;
+  string account_id = 2;
+  string redirect_url = 3;
+}
+
+message GetOIDCURLResponse {
+  string url = 1;
+}

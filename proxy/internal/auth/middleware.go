@@ -52,12 +52,6 @@ type Scheme interface {
 	// be included in a UI template when prompting the user to authenticate.
 	// If the request is authenticated, then a user id should be returned.
 	Authenticate(*http.Request) (userid string, promptData string)
-	// Middleware is applied within the outer auth middleware, but they will
-	// be applied after authentication if no scheme has authenticated a
-	// request.
-	// If no scheme Middleware blocks the request processing, then the auth
-	// middleware will then present the user with the auth UI.
-	Middleware(http.Handler) http.Handler
 }
 
 type Middleware struct {
@@ -132,20 +126,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			methods[s.Type().String()] = promptData
 		}
 
-		// The handler is passed through the scheme middlewares,
-		// if none of them intercept the request, then this handler will
-		// be called and present the user with the authentication page.
-		handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			web.ServeHTTP(w, r, map[string]any{"methods": methods})
-		}))
-
-		// No authentication succeeded. Apply the scheme handlers.
-		for _, s := range schemes {
-			handler = s.Middleware(handler)
-		}
-
-		// Run the unauthenticated request against the scheme handlers and the final UI handler.
-		handler.ServeHTTP(w, r)
+		web.ServeHTTP(w, r, map[string]any{"methods": methods})
 	})
 }
 

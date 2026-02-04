@@ -50,8 +50,3 @@ func (l Link) Authenticate(r *http.Request) (string, string) {
 
 	return "", linkFormId
 }
-
-func (l Link) Middleware(next http.Handler) http.Handler {
-	// TODO: handle magic link redirects, should be similar to OIDC.
-	return next
-}
