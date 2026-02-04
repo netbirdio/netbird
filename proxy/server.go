@@ -314,6 +314,11 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 		s.Logger.Debug("Got mapping updates client from management server")
 
 		err = s.handleMappingStream(ctx, mappingClient, &initialSyncDone)
+
+		if s.healthChecker != nil {
+			s.healthChecker.SetManagementConnected(false)
+		}
+
 		backoffDuration := b.Duration()
 		switch {
 		case errors.Is(err, context.Canceled),
