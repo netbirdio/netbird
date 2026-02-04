@@ -220,6 +220,8 @@ func newDefaultServer(
 // RegisterHandler registers a handler for the given domains with the given priority.
 // Any previously registered handler for the same domain and priority will be replaced.
 func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler, priority int) {
+	log.Warnf("[DNS-ROUTE] DefaultServer.RegisterHandler: domains=%v priority=%d", domains.SafeString(), priority)
+
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -230,10 +232,12 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 		// convert to zone with simple ref counter
 		s.extraDomains[toZone(domain)]++
 	}
+	log.Warnf("[DNS-ROUTE] DefaultServer.RegisterHandler: extraDomains now has %d entries", len(s.extraDomains))
 	s.applyHostConfig()
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
+	log.Warnf("[DNS-ROUTE] registerHandler: domains=%v priority=%d handler=%T", domains, priority, handler)
 	log.Debugf("registering handler %s with priority %d for %v", handler, priority, domains)
 
 	for _, domain := range domains {
@@ -242,6 +246,7 @@ func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, p
 			continue
 		}
 
+		log.Warnf("[DNS-ROUTE] registerHandler: adding to handlerChain domain=%s priority=%d", domain, priority)
 		s.handlerChain.AddHandler(domain, handler, priority)
 	}
 }
@@ -563,6 +568,7 @@ func (s *DefaultServer) enableDNS() error {
 func (s *DefaultServer) applyHostConfig() {
 	// prevent reapplying config if we're shutting down
 	if s.ctx.Err() != nil {
+		log.Warnf("[DNS-ROUTE] applyHostConfig: skipped, context is done")
 		return
 	}
 
@@ -585,6 +591,8 @@ func (s *DefaultServer) applyHostConfig() {
 		}
 	}
 
+	log.Warnf("[DNS-ROUTE] applyHostConfig: routeAll=%v domains=%d extraDomains=%v",
+		config.RouteAll, len(config.Domains), maps.Keys(s.extraDomains))
 	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
 	hash, err := hashstructure.Hash(config, hashstructure.FormatV2, &hashstructure.HashOptions{
@@ -594,18 +602,21 @@ func (s *DefaultServer) applyHostConfig() {
 		UseStringer:     true,
 	})
 	if err != nil {
-		log.Warnf("unable to hash the host dns configuration, will apply config anyway: %s", err)
+		log.Warnf("[DNS-ROUTE] applyHostConfig: hash error, applying anyway: %s", err)
 		// Fall through to apply config anyway (fail-safe approach)
 	} else if s.currentConfigHash == hash {
-		log.Debugf("not applying host config as there are no changes")
+		log.Warnf("[DNS-ROUTE] applyHostConfig: skipped, no changes (hash=%d)", hash)
 		return
 	}
 
+	log.Warnf("[DNS-ROUTE] applyHostConfig: applying new config (oldHash=%d newHash=%d)", s.currentConfigHash, hash)
 	log.Debugf("applying host config as there are changes")
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
+		log.Warnf("[DNS-ROUTE] applyHostConfig: failed to apply: %v", err)
 		log.Errorf("failed to apply DNS host manager update: %v", err)
 		return
 	}
+	log.Warnf("[DNS-ROUTE] applyHostConfig: successfully applied")
 
 	// Only update hash if it was computed successfully and config was applied
 	if err == nil {

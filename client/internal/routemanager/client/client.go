@@ -85,6 +85,8 @@ type Watcher struct {
 func NewWatcher(config WatcherConfig) *Watcher {
 	ctx, cancel := context.WithCancel(config.Context)
 
+	log.Warnf("[DNS-ROUTE] NewWatcher: creating watcher for handler=%s route=%s", config.Handler.String(), config.Route.Network)
+
 	client := &Watcher{
 		ctx:                 ctx,
 		cancel:              cancel,
@@ -283,9 +285,14 @@ func (w *Watcher) startNewPeerStatusWatchers() {
 
 // addAllowedIPs adds the allowed IPs for the current chosen route to the handler.
 func (w *Watcher) addAllowedIPs(route *route.Route) error {
+	log.Warnf("[DNS-ROUTE] Watcher.addAllowedIPs: handler=%s peer=%s network=%s", w.handler.String(), route.Peer, route.Network)
+
 	if err := w.handler.AddAllowedIPs(route.Peer); err != nil {
+		log.Warnf("[DNS-ROUTE] Watcher.addAllowedIPs: failed handler=%s peer=%s: %v", w.handler.String(), route.Peer, err)
 		return fmt.Errorf("add allowed IPs for peer %s: %w", route.Peer, err)
 	}
+
+	log.Warnf("[DNS-ROUTE] Watcher.addAllowedIPs: success handler=%s peer=%s", w.handler.String(), route.Peer)
 
 	if err := w.statusRecorder.AddPeerStateRoute(route.Peer, w.handler.String(), route.GetResourceID()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
@@ -328,14 +335,21 @@ func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus router
 }
 
 func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]routerPeerStatus) error {
+	log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s reason=%d peerStatuses=%d currentChosen=%v",
+		w.handler.String(), rsn, len(routerPeerStatuses), w.currentChosen != nil)
+
 	newChosenID, newStatus := w.getBestRouteFromStatuses(routerPeerStatuses)
+	log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s newChosenID=%s newStatus=%+v",
+		w.handler.String(), newChosenID, newStatus)
 
 	// If no route is chosen, remove the route from the peer
 	if newChosenID == "" {
 		if w.currentChosen == nil {
+			log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s no route chosen and no current, nothing to do", w.handler.String())
 			return nil
 		}
 
+		log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s removing obsolete route", w.handler.String())
 		if err := w.removeAllowedIPs(w.currentChosen, rsn); err != nil {
 			return fmt.Errorf("remove obsolete: %w", err)
 		}
@@ -348,17 +362,21 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 
 	// If we can skip recalculation for the same route without changes, do nothing
 	if w.shouldSkipRecalculation(newChosenID, newStatus) {
+		log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s skipping recalculation, same route", w.handler.String())
 		return nil
 	}
 
 	// If the chosen route was assigned to a different peer, remove the allowed IPs first
 	if isNew := w.currentChosen == nil; !isNew {
+		log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s removing old route for HA switch", w.handler.String())
 		if err := w.removeAllowedIPs(w.currentChosen, reasonHA); err != nil {
 			return fmt.Errorf("remove old: %w", err)
 		}
 	}
 
 	newChosenRoute := w.routes[newChosenID]
+	log.Warnf("[DNS-ROUTE] Watcher.recalculateRoutes: handler=%s adding new route peer=%s network=%s",
+		w.handler.String(), newChosenRoute.Peer, newChosenRoute.Network)
 	if err := w.addAllowedIPs(newChosenRoute); err != nil {
 		return fmt.Errorf("add new: %w", err)
 	}
@@ -517,6 +535,8 @@ func (w *Watcher) Start() {
 }
 
 func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
+	log.Warnf("[DNS-ROUTE] Watcher.handleRouteUpdate: handler=%s serial=%d routes=%d",
+		w.handler.String(), update.UpdateSerial, len(update.Routes))
 	log.Debugf("Received a new client network route update for [%v]", w.handler)
 
 	// hash update somehow
@@ -525,12 +545,15 @@ func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
 	w.updateSerial = update.UpdateSerial
 
 	if isTrueRouteUpdate {
+		log.Warnf("[DNS-ROUTE] Watcher.handleRouteUpdate: handler=%s routes changed, recalculating", w.handler.String())
 		log.Debugf("client network update %v for [%v] contains different routes, recalculating routes", update.UpdateSerial, w.handler)
 		routePeerStatuses := w.getRouterPeerStatuses()
+		log.Warnf("[DNS-ROUTE] Watcher.handleRouteUpdate: handler=%s peerStatuses=%d", w.handler.String(), len(routePeerStatuses))
 		if err := w.recalculateRoutes(reasonRouteUpdate, routePeerStatuses); err != nil {
 			log.Errorf("failed to recalculate routes for network [%v]: %v", w.handler, err)
 		}
 	} else {
+		log.Warnf("[DNS-ROUTE] Watcher.handleRouteUpdate: handler=%s no changes, skipping", w.handler.String())
 		log.Debugf("route update %v for [%v] is not different, skipping route recalculation", update.UpdateSerial, w.handler)
 	}
 
@@ -553,7 +576,20 @@ func (w *Watcher) Stop() {
 }
 
 func HandlerFromRoute(params common.HandlerParams) RouteHandler {
-	switch handlerType(params.Route, params.UseNewDNSRoute) {
+	ht := handlerType(params.Route, params.UseNewDNSRoute)
+	var handlerName string
+	switch ht {
+	case handlerTypeDnsInterceptor:
+		handlerName = "DnsInterceptor"
+	case handlerTypeDynamic:
+		handlerName = "Dynamic"
+	default:
+		handlerName = "Static"
+	}
+	log.Warnf("[DNS-ROUTE] HandlerFromRoute: route=%s isDynamic=%v useNewDNSRoute=%v -> handler=%s",
+		params.Route.Network, params.Route.IsDynamic(), params.UseNewDNSRoute, handlerName)
+
+	switch ht {
 	case handlerTypeDnsInterceptor:
 		return dnsinterceptor.New(params)
 	case handlerTypeDynamic:

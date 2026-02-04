@@ -173,12 +173,23 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
+	i := m.wgInterface.ToInterface()
+	log.Warnf("[DNS-ROUTE] setupRefCounters: wgInterface=%s useNoop=%v", i.Name, useNoop)
+
 	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			return struct{}{}, m.sysOps.AddVPNRoute(prefix, m.wgInterface.ToInterface())
+			log.Warnf("[DNS-ROUTE] routeRefCounter.AddFunc called: prefix=%s interface=%s", prefix, i.Name)
+			err := m.sysOps.AddVPNRoute(prefix, i)
+			if err != nil {
+				log.Warnf("[DNS-ROUTE] routeRefCounter.AddFunc failed: prefix=%s err=%v", prefix, err)
+			} else {
+				log.Warnf("[DNS-ROUTE] routeRefCounter.AddFunc success: prefix=%s", prefix)
+			}
+			return struct{}{}, err
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
-			return m.sysOps.RemoveVPNRoute(prefix, m.wgInterface.ToInterface())
+			log.Warnf("[DNS-ROUTE] routeRefCounter.RemoveFunc called: prefix=%s", prefix)
+			return m.sysOps.RemoveVPNRoute(prefix, i)
 		},
 	)
 
@@ -376,6 +387,18 @@ func (m *DefaultManager) UpdateRoutes(
 	clientRoutes route.HAMap,
 	useNewDNSRoute bool,
 ) error {
+	log.Warnf("[DNS-ROUTE] UpdateRoutes: serial=%d serverRoutes=%d clientRoutes=%d useNewDNSRoute=%v",
+		updateSerial, len(serverRoutes), len(clientRoutes), useNewDNSRoute)
+
+	// Log each client route for debugging
+	for id, routes := range clientRoutes {
+		if len(routes) > 0 {
+			r := routes[0]
+			log.Warnf("[DNS-ROUTE] UpdateRoutes: clientRoute id=%s network=%s isDynamic=%v domains=%v peer=%s",
+				id, r.Network, r.IsDynamic(), r.Domains.SafeString(), r.Peer)
+		}
+	}
+
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
