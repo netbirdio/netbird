@@ -92,6 +92,8 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	log.Warnf("[DNS-ROUTE] HandlerChain.AddHandler: pattern=%s priority=%d handler=%T", pattern, priority, handler)
+
 	pattern = strings.ToLower(dns.Fqdn(pattern))
 	origPattern := pattern
 	isWildcard := strings.HasPrefix(pattern, "*.")
@@ -108,6 +110,8 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 		matchSubdomains = matcher.MatchSubdomains()
 	}
 
+	log.Warnf("[DNS-ROUTE] HandlerChain.AddHandler: processed pattern=%s origPattern=%s wildcard=%v matchSubdomains=%v priority=%d",
+		pattern, origPattern, isWildcard, matchSubdomains, priority)
 	log.Debugf("adding handler pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d",
 		pattern, origPattern, isWildcard, matchSubdomains, priority)
 
@@ -123,6 +127,7 @@ func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority 
 	pos := c.findHandlerPosition(entry)
 	c.handlers = append(c.handlers[:pos], append([]HandlerEntry{entry}, c.handlers[pos:]...)...)
 
+	log.Warnf("[DNS-ROUTE] HandlerChain.AddHandler: total handlers now=%d", len(c.handlers))
 	c.logHandlers()
 }
 
@@ -211,6 +216,11 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	for _, entry := range handlers {
 		if !c.isHandlerMatch(qname, entry) {
 			continue
+		}
+		// Only log for DNS route handlers to reduce noise
+		if entry.Priority == PriorityDNSRoute {
+			log.Warnf("[DNS-ROUTE] HandlerChain.ServeDNS: matched DNS route handler pattern=%s for domain=%s",
+				entry.OrigPattern, qname)
 		}
 
 		handlerName := entry.OrigPattern

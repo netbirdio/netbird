@@ -75,6 +75,7 @@ func (d *DnsInterceptor) String() string {
 }
 
 func (d *DnsInterceptor) AddRoute(context.Context) error {
+	log.Warnf("[DNS-ROUTE] Registering DNS interceptor for domains: %v", d.route.Domains.SafeString())
 	d.dnsServer.RegisterHandler(d.route.Domains, d, nbdns.PriorityDNSRoute)
 	return nil
 }
@@ -151,12 +152,16 @@ func (d *DnsInterceptor) addAllowedIPForPrefix(realPrefix netip.Prefix, peerKey 
 func (d *DnsInterceptor) addRouteAndAllowedIP(realPrefix netip.Prefix, domain domain.Domain) error {
 	// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
 	routePrefix := d.transformRealToFakePrefix(realPrefix)
+	log.Warnf("[DNS-ROUTE] Adding route for domain=%s realIP=%s routePrefix=%s", domain.SafeString(), realPrefix, routePrefix)
 	if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
+		log.Warnf("[DNS-ROUTE] Failed to add route for domain=%s prefix=%s: %v", domain.SafeString(), routePrefix, err)
 		return fmt.Errorf("add route for IP %s: %v", routePrefix, err)
 	}
+	log.Warnf("[DNS-ROUTE] Successfully added route for domain=%s prefix=%s", domain.SafeString(), routePrefix)
 
 	// Add to AllowedIPs if we have a current peer (uses real IPs)
 	if d.currentPeerKey == "" {
+		log.Warnf("[DNS-ROUTE] No current peer key, skipping AllowedIPs for domain=%s", domain.SafeString())
 		return nil
 	}
 
@@ -221,11 +226,17 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	})
 
 	if len(r.Question) == 0 {
+		log.Warnf("[DNS-ROUTE] ServeDNS: empty question list")
 		return
 	}
 
+	qName := r.Question[0].Name
+	qType := r.Question[0].Qtype
+	log.Warnf("[DNS-ROUTE] ServeDNS: received query for domain=%s type=%d", qName, qType)
+
 	// pass if non A/AAAA query
-	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
+	if qType != dns.TypeA && qType != dns.TypeAAAA {
+		log.Warnf("[DNS-ROUTE] ServeDNS: skipping non A/AAAA query for domain=%s type=%d", qName, qType)
 		d.continueToNextHandler(w, r, logger, "non A/AAAA query")
 		return
 	}
@@ -235,9 +246,11 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	d.mu.RUnlock()
 
 	if peerKey == "" {
+		log.Warnf("[DNS-ROUTE] ServeDNS: no current peer key for domain=%s", qName)
 		d.writeDNSError(w, r, logger, "no current peer key")
 		return
 	}
+	log.Warnf("[DNS-ROUTE] ServeDNS: using peer=%s for domain=%s", peerKey, qName)
 
 	upstreamIP, err := d.getUpstreamIP(peerKey)
 	if err != nil {
@@ -307,6 +320,8 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 	r.MsgHdr.Zero = false
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
+		log.Warnf("[DNS-ROUTE] writeMsg: processing %d answers for domain=%s", len(r.Answer), r.Question[0].Name)
+
 		origPattern := ""
 		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
 			origPattern = writer.GetOrigPattern()
@@ -346,12 +361,17 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 			newPrefixes = append(newPrefixes, prefix)
 		}
 
+		log.Warnf("[DNS-ROUTE] writeMsg: extracted %d prefixes for domain=%s: %v", len(newPrefixes), resolvedDomain.SafeString(), newPrefixes)
 		if len(newPrefixes) > 0 {
+			log.Warnf("[DNS-ROUTE] writeMsg: calling updateDomainPrefixes for domain=%s", resolvedDomain.SafeString())
 			if err := d.updateDomainPrefixes(resolvedDomain, originalDomain, newPrefixes, logger); err != nil {
+				log.Warnf("[DNS-ROUTE] writeMsg: updateDomainPrefixes failed for domain=%s: %v", resolvedDomain.SafeString(), err)
 				logger.Errorf("failed to update domain prefixes: %v", err)
 			}
 
 			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
+		} else {
+			log.Warnf("[DNS-ROUTE] writeMsg: no prefixes to add for domain=%s", resolvedDomain.SafeString())
 		}
 	}
 
@@ -382,8 +402,13 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	log.Warnf("[DNS-ROUTE] updateDomainPrefixes: domain=%s (original=%s) newPrefixes=%v currentPeer=%s",
+		resolvedDomain.SafeString(), originalDomain.SafeString(), newPrefixes, d.currentPeerKey)
+
 	oldPrefixes := d.interceptedDomains[resolvedDomain]
 	toAdd, toRemove := determinePrefixChanges(oldPrefixes, newPrefixes)
+	log.Warnf("[DNS-ROUTE] updateDomainPrefixes: domain=%s oldPrefixes=%v toAdd=%v toRemove=%v keepRoute=%v",
+		resolvedDomain.SafeString(), oldPrefixes, toAdd, toRemove, d.route.KeepRoute)
 
 	var merr *multierror.Error
 	var dnatMappings map[netip.Addr]netip.Addr
