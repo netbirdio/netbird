@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
@@ -124,6 +125,11 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) e
 }
 
 func (m Manager) ValidateDomain(accountID, domainID string) {
+	log.WithFields(log.Fields{
+		"accountID": accountID,
+		"domainID":  domainID,
+	}).Info("starting domain validation")
+
 	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -133,12 +139,20 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		return
 	}
 
-	if m.validator.IsValid(context.Background(), d.Domain, m.proxyURLAllowList()) {
+	allowList := m.proxyURLAllowList()
+	log.WithFields(log.Fields{
+		"accountID":      accountID,
+		"domainID":       domainID,
+		"domain":         d.Domain,
+		"proxyAllowList": allowList,
+	}).Info("validating domain against proxy allow list")
+
+	if m.validator.IsValid(context.Background(), d.Domain, allowList) {
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
 			"domain":    d.Domain,
-		}).Debug("domain validated successfully")
+		}).Info("domain validated successfully")
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
 			log.WithFields(log.Fields{
@@ -148,6 +162,13 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 			}).WithError(err).Error("update custom domain in store")
 			return
 		}
+	} else {
+		log.WithFields(log.Fields{
+			"accountID":      accountID,
+			"domainID":       domainID,
+			"domain":         d.Domain,
+			"proxyAllowList": allowList,
+		}).Warn("domain validation failed - CNAME does not match any connected proxy")
 	}
 }
 
@@ -162,18 +183,41 @@ func (m Manager) proxyURLAllowList() []string {
 	}
 	var allowedProxyURLs []string
 	for _, addr := range reverseProxyAddresses {
+		if addr == "" {
+			continue
+		}
+		host := extractHostFromAddress(addr)
+		if host != "" {
+			allowedProxyURLs = append(allowedProxyURLs, host)
+		}
+	}
+	return allowedProxyURLs
+}
+
+// extractHostFromAddress extracts the hostname from an address string.
+// It handles both URL format (https://host:port) and plain hostname (host or host:port).
+func extractHostFromAddress(addr string) string {
+	// If it looks like a URL with a scheme, parse it
+	if strings.Contains(addr, "://") {
 		proxyUrl, err := url.Parse(addr)
 		if err != nil {
 			log.WithError(err).Debugf("failed to parse proxy URL %s", addr)
-			continue
+			return ""
 		}
 		host, _, err := net.SplitHostPort(proxyUrl.Host)
 		if err != nil {
-			host = proxyUrl.Host
+			return proxyUrl.Host
 		}
-		allowedProxyURLs = append(allowedProxyURLs, host)
+		return host
 	}
-	return allowedProxyURLs
+
+	// Otherwise treat as hostname or host:port
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port, use as-is
+		return addr
+	}
+	return host
 }
 
 // DeriveClusterFromDomain determines the proxy cluster for a given domain.

@@ -43,21 +43,47 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 		v.resolver = net.DefaultResolver
 	}
 
-	cname, err := v.resolver.LookupCNAME(ctx, "validation."+domain)
+	lookupDomain := "validation." + domain
+	log.WithFields(log.Fields{
+		"domain":       domain,
+		"lookupDomain": lookupDomain,
+		"acceptList":   accept,
+	}).Debug("looking up CNAME for domain validation")
+
+	cname, err := v.resolver.LookupCNAME(ctx, lookupDomain)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"domain": domain,
-		}).WithError(err).Error("Error resolving CNAME from resolver")
+			"domain":       domain,
+			"lookupDomain": lookupDomain,
+		}).WithError(err).Warn("CNAME lookup failed for domain validation")
 		return "", false
 	}
 
 	nakedCNAME := strings.TrimSuffix(cname, ".")
+	log.WithFields(log.Fields{
+		"domain":     domain,
+		"cname":      cname,
+		"nakedCNAME": nakedCNAME,
+		"acceptList": accept,
+	}).Debug("CNAME lookup result for domain validation")
+
 	for _, acceptDomain := range accept {
 		normalizedAccept := strings.TrimSuffix(acceptDomain, ".")
 		if nakedCNAME == normalizedAccept {
+			log.WithFields(log.Fields{
+				"domain":  domain,
+				"cname":   nakedCNAME,
+				"cluster": acceptDomain,
+			}).Info("domain CNAME matched cluster")
 			return acceptDomain, true
 		}
 	}
+
+	log.WithFields(log.Fields{
+		"domain":     domain,
+		"cname":      nakedCNAME,
+		"acceptList": accept,
+	}).Warn("domain CNAME does not match any accepted cluster")
 	return "", false
 }
 
