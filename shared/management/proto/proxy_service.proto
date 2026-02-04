@@ -47,17 +47,11 @@ message PathMapping {
 }
 
 message Authentication {
-  bool password = 1;
-  bool pin = 2;
-  optional OIDC oidc = 3;
-  bool link = 4;
-}
-
-message OIDC {
-  string issuer = 1;
-  repeated string audiences = 2;
-  string keys_location = 3;
-  int64 max_token_age = 4;
+  string session_key = 1;
+  int64 max_session_age_seconds = 2;
+  bool password = 3;
+  bool pin = 4;
+  bool oidc = 5;
 }
 
 message ProxyMapping {
@@ -100,7 +94,6 @@ message AuthenticateRequest {
   oneof request {
     PasswordRequest password = 3;
     PinRequest pin = 4;
-    LinkRequest link = 5;
   }
 }
 
@@ -112,13 +105,9 @@ message PinRequest {
   string pin = 1;
 }
 
-message LinkRequest {
-  string email = 1;
-  string redirect = 2;
-}
-
 message AuthenticateResponse {
   bool success = 1;
+  string session_token = 2;
 }
 
 enum ProxyStatus {

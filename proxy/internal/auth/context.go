@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+
+	"github.com/netbirdio/netbird/proxy/auth"
 )
 
 type requestContextKey string
@@ -11,13 +13,13 @@ const (
 	authUserKey   requestContextKey = "authUser"
 )
 
-func withAuthMethod(ctx context.Context, method Method) context.Context {
+func withAuthMethod(ctx context.Context, method auth.Method) context.Context {
 	return context.WithValue(ctx, authMethodKey, method)
 }
 
-func MethodFromContext(ctx context.Context) Method {
+func MethodFromContext(ctx context.Context) auth.Method {
 	v := ctx.Value(authMethodKey)
-	method, ok := v.(Method)
+	method, ok := v.(auth.Method)
 	if !ok {
 		return ""
 	}

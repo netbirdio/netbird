@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/netbirdio/netbird/util/crypt"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -58,15 +59,10 @@ type BearerAuthConfig struct {
 	DistributionGroups []string `json:"distribution_groups,omitempty" gorm:"serializer:json"`
 }
 
-type LinkAuthConfig struct {
-	Enabled bool `json:"enabled"`
-}
-
 type AuthConfig struct {
 	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty" gorm:"serializer:json"`
 	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty" gorm:"serializer:json"`
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty" gorm:"serializer:json"`
-	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty" gorm:"serializer:json"`
 }
 
 type OIDCValidationConfig struct {
@@ -83,14 +79,16 @@ type ReverseProxyMeta struct {
 }
 
 type ReverseProxy struct {
-	ID        string `gorm:"primaryKey"`
-	AccountID string `gorm:"index"`
-	Name      string
-	Domain    string   `gorm:"index"`
-	Targets   []Target `gorm:"serializer:json"`
-	Enabled   bool
-	Auth      AuthConfig       `gorm:"serializer:json"`
-	Meta      ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	ID                string `gorm:"primaryKey"`
+	AccountID         string `gorm:"index"`
+	Name              string
+	Domain            string   `gorm:"index"`
+	Targets           []Target `gorm:"serializer:json"`
+	Enabled           bool
+	Auth              AuthConfig       `gorm:"serializer:json"`
+	Meta              ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string           `gorm:"column:session_private_key"`
+	SessionPublicKey  string           `gorm:"column:session_public_key"`
 }
 
 func NewReverseProxy(accountID, name, domain string, targets []Target, enabled bool) *ReverseProxy {
@@ -129,12 +127,6 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		authConfig.BearerAuth = &api.BearerAuthConfig{
 			Enabled:            r.Auth.BearerAuth.Enabled,
 			DistributionGroups: &r.Auth.BearerAuth.DistributionGroups,
-		}
-	}
-
-	if r.Auth.LinkAuth != nil {
-		authConfig.LinkAuth = &api.LinkAuthConfig{
-			Enabled: r.Auth.LinkAuth.Enabled,
 		}
 	}
 
@@ -199,7 +191,10 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, oidc
 		})
 	}
 
-	auth := &proto.Authentication{}
+	auth := &proto.Authentication{
+		SessionKey:           r.SessionPublicKey,
+		MaxSessionAgeSeconds: int64((time.Hour * 24).Seconds()),
+	}
 
 	if r.Auth.PasswordAuth != nil && r.Auth.PasswordAuth.Enabled {
 		auth.Password = true
@@ -210,16 +205,7 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, oidc
 	}
 
 	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
-		auth.Oidc = &proto.OIDC{
-			Issuer:       oidcConfig.Issuer,
-			Audiences:    oidcConfig.Audiences,
-			KeysLocation: oidcConfig.KeysLocation,
-			MaxTokenAge:  oidcConfig.MaxTokenAgeSeconds,
-		}
-	}
-
-	if r.Auth.LinkAuth != nil && r.Auth.LinkAuth.Enabled {
-		auth.Link = true
+		auth.Oidc = true
 	}
 
 	return &proto.ProxyMapping{
@@ -291,13 +277,6 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 		}
 		r.Auth.BearerAuth = bearerAuth
 	}
-
-	if req.Auth.LinkAuth != nil {
-		r.Auth.LinkAuth = &LinkAuthConfig{
-			Enabled: req.Auth.LinkAuth.Enabled,
-		}
-	}
-
 }
 
 func (r *ReverseProxy) Validate() error {
@@ -321,4 +300,54 @@ func (r *ReverseProxy) Validate() error {
 
 func (r *ReverseProxy) EventMeta() map[string]any {
 	return map[string]any{"name": r.Name, "domain": r.Domain}
+}
+
+func (r *ReverseProxy) Copy() *ReverseProxy {
+	targets := make([]Target, len(r.Targets))
+	copy(targets, r.Targets)
+
+	return &ReverseProxy{
+		ID:                r.ID,
+		AccountID:         r.AccountID,
+		Name:              r.Name,
+		Domain:            r.Domain,
+		Targets:           targets,
+		Enabled:           r.Enabled,
+		Auth:              r.Auth,
+		Meta:              r.Meta,
+		SessionPrivateKey: r.SessionPrivateKey,
+		SessionPublicKey:  r.SessionPublicKey,
+	}
+}
+
+func (r *ReverseProxy) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	if r.SessionPrivateKey != "" {
+		var err error
+		r.SessionPrivateKey, err = enc.Encrypt(r.SessionPrivateKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *ReverseProxy) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
+	if enc == nil {
+		return nil
+	}
+
+	if r.SessionPrivateKey != "" {
+		var err error
+		r.SessionPrivateKey, err = enc.Decrypt(r.SessionPrivateKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

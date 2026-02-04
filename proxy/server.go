@@ -386,7 +386,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			}
 			s.Logger.Debug("Processing mapping update completed")
 
-			// After the first mapping sync, mark initial sync complete.
+			// After the first mapping sync, mark the initial sync complete.
 			// Client health is checked directly in the startup probe.
 			if !*initialSyncDone && s.healthChecker != nil {
 				s.healthChecker.SetInitialSyncComplete()
@@ -429,19 +429,12 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetPin() {
 		schemes = append(schemes, auth.NewPin(s.mgmtClient, mapping.GetId(), mapping.GetAccountId()))
 	}
-	if mapping.GetAuth().GetOidc() != nil {
-		oidc := mapping.GetAuth().GetOidc()
-		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, mapping.GetId(), mapping.GetAccountId(), auth.OIDCConfig{
-			Issuer:             oidc.GetIssuer(),
-			Audiences:          oidc.GetAudiences(),
-			KeysLocation:       oidc.GetKeysLocation(),
-			MaxTokenAgeSeconds: oidc.GetMaxTokenAge(),
-		}))
+	if mapping.GetAuth().GetOidc() {
+		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, mapping.GetId(), mapping.GetAccountId()))
 	}
-	if mapping.GetAuth().GetLink() {
-		schemes = append(schemes, auth.NewLink(s.mgmtClient, mapping.GetId(), mapping.GetAccountId()))
-	}
-	s.auth.AddDomain(mapping.GetDomain(), schemes)
+
+	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
+	s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge)
 	s.proxy.AddMapping(s.protoToMapping(mapping))
 }
 

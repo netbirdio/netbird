@@ -3,13 +3,11 @@ package auth
 import (
 	"net/http"
 
+	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const (
-	pinUserId = "pin-user"
-	pinFormId = "pin"
-)
+const pinFormId = "pin"
 
 type Pin struct {
 	id, accountId string
@@ -24,8 +22,8 @@ func NewPin(client authenticator, id, accountId string) Pin {
 	}
 }
 
-func (Pin) Type() Method {
-	return MethodPIN
+func (Pin) Type() auth.Method {
+	return auth.MethodPIN
 }
 
 // Authenticate attempts to authenticate the request using a form
@@ -37,7 +35,7 @@ func (p Pin) Authenticate(r *http.Request) (string, string) {
 	pin := r.FormValue(pinFormId)
 
 	if pin == "" {
-		// This cannot be authenticated so not worth wasting time sending the request.
+		// This cannot be authenticated, so not worth wasting time sending the request.
 		return "", pinFormId
 	}
 
@@ -56,7 +54,7 @@ func (p Pin) Authenticate(r *http.Request) (string, string) {
 	}
 
 	if res.GetSuccess() {
-		return pinUserId, ""
+		return res.GetSessionToken(), ""
 	}
 
 	return "", pinFormId

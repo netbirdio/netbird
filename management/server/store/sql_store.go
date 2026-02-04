@@ -4609,7 +4609,11 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) CreateReverseProxy(ctx context.Context, proxy *reverseproxy.ReverseProxy) error {
-	result := s.db.Create(proxy)
+	proxyCopy := proxy.Copy()
+	if err := proxyCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt reverse proxy data: %w", err)
+	}
+	result := s.db.Create(proxyCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create reverse proxy to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to create reverse proxy to store")
@@ -4619,7 +4623,11 @@ func (s *SqlStore) CreateReverseProxy(ctx context.Context, proxy *reverseproxy.R
 }
 
 func (s *SqlStore) UpdateReverseProxy(ctx context.Context, proxy *reverseproxy.ReverseProxy) error {
-	result := s.db.Select("*").Save(proxy)
+	proxyCopy := proxy.Copy()
+	if err := proxyCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt reverse proxy data: %w", err)
+	}
+	result := s.db.Select("*").Save(proxyCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update reverse proxy to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to update reverse proxy to store")
@@ -4659,6 +4667,10 @@ func (s *SqlStore) GetReverseProxyByID(ctx context.Context, lockStrength Locking
 		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
 	}
 
+	if err := proxy.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt reverse proxy data: %w", err)
+	}
+
 	return proxy, nil
 }
 
@@ -4672,6 +4684,10 @@ func (s *SqlStore) GetReverseProxyByDomain(ctx context.Context, accountID, domai
 
 		log.WithContext(ctx).Errorf("failed to get reverse proxy by domain from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get reverse proxy by domain from store")
+	}
+
+	if err := proxy.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt reverse proxy data: %w", err)
 	}
 
 	return proxy, nil
@@ -4690,6 +4706,12 @@ func (s *SqlStore) GetReverseProxies(ctx context.Context, lockStrength LockingSt
 		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
 	}
 
+	for _, proxy := range proxyList {
+		if err := proxy.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt reverse proxy data: %w", err)
+		}
+	}
+
 	return proxyList, nil
 }
 
@@ -4704,6 +4726,12 @@ func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength Lo
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get reverse proxy from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get reverse proxy from store")
+	}
+
+	for _, proxy := range proxyList {
+		if err := proxy.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt reverse proxy data: %w", err)
+		}
 	}
 
 	return proxyList, nil

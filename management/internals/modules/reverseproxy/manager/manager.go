@@ -9,6 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -74,6 +75,14 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 	reverseProxy = reverseproxy.NewReverseProxy(accountID, reverseProxy.Name, reverseProxy.Domain, reverseProxy.Targets, reverseProxy.Enabled)
 
 	reverseProxy.Auth = authConfig
+
+	// Generate session JWT signing keys
+	keyPair, err := sessionkey.GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("generate session keys: %w", err)
+	}
+	reverseProxy.SessionPrivateKey = keyPair.PrivateKey
+	reverseProxy.SessionPublicKey = keyPair.PublicKey
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		// Check for duplicate domain

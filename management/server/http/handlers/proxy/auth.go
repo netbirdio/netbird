@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 
@@ -10,6 +11,7 @@ import (
 	"golang.org/x/oauth2"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/proxy/auth"
 )
 
 type AuthCallbackHandler struct {
@@ -65,16 +67,77 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	redirectQuery := redirectURL.Query()
-	redirectQuery.Set("access_token", token.AccessToken)
-	if token.RefreshToken != "" {
-		redirectQuery.Set("refresh_token", token.RefreshToken)
+	// Extract user ID from the OIDC token
+	userID := extractUserIDFromToken(r.Context(), provider, oidcConfig, token)
+	if userID == "" {
+		log.Error("Failed to extract user ID from OIDC token")
+		http.Error(w, "Failed to validate token", http.StatusUnauthorized)
+		return
 	}
-	redirectURL.RawQuery = redirectQuery.Encode()
+
+	// Generate session JWT instead of passing OIDC access_token
+	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
+	if err != nil {
+		log.WithError(err).Error("Failed to create session token")
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
 
 	// Redirect must be HTTPS, regardless of what was originally intended (which should always be HTTPS but better to double-check here).
 	redirectURL.Scheme = "https"
 
-	log.WithField("redirect", redirectURL.String()).Debug("OAuth callback: redirecting user with token")
+	// Pass the session token in the URL query parameter. The proxy middleware will
+	// extract it, validate it, set its own cookie, and redirect to remove the token from the URL.
+	// We cannot set the cookie here because cookies are domain-scoped (RFC 6265) and the
+	// management server cannot set cookies for the proxy's domain.
+	query := redirectURL.Query()
+	query.Set("session_token", sessionToken)
+	redirectURL.RawQuery = query.Encode()
+
+	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user with session token")
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// extractUserIDFromToken extracts the user ID from an OIDC token.
+func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) string {
+	// Try to get ID token from the oauth2 token extras
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		log.Warn("No id_token in OIDC response")
+		return ""
+	}
+
+	verifier := provider.Verifier(&oidc.Config{
+		ClientID: config.ClientID,
+	})
+
+	idToken, err := verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		log.WithError(err).Warn("Failed to verify ID token")
+		return ""
+	}
+
+	// Extract claims
+	var claims struct {
+		Subject string `json:"sub"`
+		Email   string `json:"email"`
+		UserID  string `json:"user_id"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		log.WithError(err).Warn("Failed to extract claims from ID token")
+		return ""
+	}
+
+	// Prefer subject, fall back to user_id or email
+	if claims.Subject != "" {
+		return claims.Subject
+	}
+	if claims.UserID != "" {
+		return claims.UserID
+	}
+	if claims.Email != "" {
+		return claims.Email
+	}
+
+	return ""
 }

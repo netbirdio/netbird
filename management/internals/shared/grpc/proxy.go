@@ -23,9 +23,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -317,7 +319,10 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 		// TODO: log the error
 		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
 	}
+
 	var authenticated bool
+	var userId string
+	var method proxyauth.Method
 	switch v := req.GetRequest().(type) {
 	case *proto.AuthenticateRequest_Pin:
 		auth := proxy.Auth.PinAuth
@@ -327,6 +332,8 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			break
 		}
 		authenticated = subtle.ConstantTimeCompare([]byte(auth.Pin), []byte(v.Pin.GetPin())) == 1
+		userId = "pin-user"
+		method = proxyauth.MethodPIN
 	case *proto.AuthenticateRequest_Password:
 		auth := proxy.Auth.PasswordAuth
 		if auth == nil || !auth.Enabled {
@@ -335,9 +342,28 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			break
 		}
 		authenticated = subtle.ConstantTimeCompare([]byte(auth.Password), []byte(v.Password.GetPassword())) == 1
+		userId = "password-user"
+		method = proxyauth.MethodPassword
 	}
+
+	var token string
+	if authenticated && proxy.SessionPrivateKey != "" {
+		token, err = sessionkey.SignToken(
+			proxy.SessionPrivateKey,
+			userId,
+			proxy.Domain,
+			method,
+			proxyauth.DefaultSessionExpiry,
+		)
+		if err != nil {
+			log.WithError(err).Error("Failed to sign session token")
+			authenticated = false
+		}
+	}
+
 	return &proto.AuthenticateResponse{
-		Success: authenticated,
+		Success:      authenticated,
+		SessionToken: token,
 	}, nil
 }
 
@@ -515,4 +541,36 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	}
 
 	return verifier, redirectURL, nil
+}
+
+// GenerateSessionToken creates a signed session JWT for the given domain and user.
+func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
+	// Find the proxy by domain to get its signing key
+	proxies, err := s.reverseProxyStore.GetReverseProxies(ctx, store.LockingStrengthNone)
+	if err != nil {
+		return "", fmt.Errorf("get reverse proxies: %w", err)
+	}
+
+	var proxy *reverseproxy.ReverseProxy
+	for _, p := range proxies {
+		if p.Domain == domain {
+			proxy = p
+			break
+		}
+	}
+	if proxy == nil {
+		return "", fmt.Errorf("reverse proxy not found for domain: %s", domain)
+	}
+
+	if proxy.SessionPrivateKey == "" {
+		return "", fmt.Errorf("no session key configured for domain: %s", domain)
+	}
+
+	return sessionkey.SignToken(
+		proxy.SessionPrivateKey,
+		userID,
+		domain,
+		method,
+		proxyauth.DefaultSessionExpiry,
+	)
 }
