@@ -2071,6 +2071,8 @@ func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverse
 		var p reverseproxy.ReverseProxy
 		var auth []byte
 		var targets []byte
+		var createdAt, certIssuedAt sql.NullTime
+		var status sql.NullString
 		err := row.Scan(
 			&p.ID,
 			&p.AccountID,
@@ -2079,9 +2081,9 @@ func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverse
 			&targets,
 			&p.Enabled,
 			&auth,
-			&p.Meta.CreatedAt,
-			&p.Meta.CertificateIssuedAt,
-			&p.Meta.Status,
+			&createdAt,
+			&certIssuedAt,
+			&status,
 		)
 		if err != nil {
 			return nil, err
@@ -2097,6 +2099,17 @@ func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverse
 				return nil, err
 			}
 		}
+		p.Meta = reverseproxy.ReverseProxyMeta{}
+		if createdAt.Valid {
+			p.Meta.CreatedAt = createdAt.Time
+		}
+		if certIssuedAt.Valid {
+			p.Meta.CertificateIssuedAt = certIssuedAt.Time
+		}
+		if status.Valid {
+			p.Meta.Status = status.String
+		}
+
 		return &p, nil
 	})
 	if err != nil {
