@@ -9,8 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/proxy/auth"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+
+	"github.com/netbirdio/netbird/proxy/auth"
 
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -66,6 +68,8 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		mw.domainsMux.RLock()
 		config, exists := mw.domains[host]
 		mw.domainsMux.RUnlock()
+
+		log.Tracef("checking authentication for host: %s, exists: %t", host, exists)
 
 		// Domains that are not configured here or have no authentication schemes applied should simply pass through.
 		if !exists || len(config.Schemes) == 0 {

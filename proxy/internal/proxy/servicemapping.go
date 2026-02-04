@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -35,6 +37,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string
 		host = h
 	}
 
+	log.Tracef("looking for mapping for host: %s, path: %s", host, req.URL.Path)
 	m, exists := p.mappings[host]
 	if !exists {
 		return nil, "", "", false
