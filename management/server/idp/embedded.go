@@ -18,7 +18,6 @@ import (
 const (
 	staticClientDashboard  = "netbird-dashboard"
 	staticClientCLI        = "netbird-cli"
-	staticClientProxy      = "netbird-proxy"
 	defaultCLIRedirectURL1 = "http://localhost:53000/"
 	defaultCLIRedirectURL2 = "http://localhost:54000/"
 	defaultScopes          = "openid profile email groups"
@@ -38,10 +37,8 @@ type EmbeddedIdPConfig struct {
 	Storage EmbeddedStorageConfig
 	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
 	DashboardRedirectURIs []string
-	// CLIRedirectURIs are the OAuth2 redirect URIs for the CLI client
+	// DashboardRedirectURIs are the OAuth2 redirect URIs for the dashboard client
 	CLIRedirectURIs []string
-	// ProxyRedirectURIs are the OAuth2 redirect URIs for the Proxy client
-	ProxyRedirectURIs []string
 	// Owner is the initial owner/admin user (optional, can be nil)
 	Owner *OwnerConfig
 	// SignKeyRefreshEnabled enables automatic key rotation for signing keys
@@ -121,12 +118,6 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 				Name:         "NetBird CLI",
 				Public:       true,
 				RedirectURIs: cliRedirectURIs,
-			},
-			{
-				ID:           staticClientProxy,
-				Name:         "NetBird Proxy",
-				Public:       true,
-				RedirectURIs: c.ProxyRedirectURIs,
 			},
 		},
 	}
@@ -555,7 +546,7 @@ func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
 
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.
 func (m *EmbeddedIdPManager) GetClientIDs() []string {
-	return []string{staticClientDashboard, staticClientCLI, staticClientProxy}
+	return []string{staticClientDashboard, staticClientCLI}
 }
 
 // GetUserIDClaim returns the JWT claim name used for user identification.
