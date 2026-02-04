@@ -19,6 +19,5 @@ COPY --from=builder --chown=1000:1000 /tmp/var/lib/netbird /var/lib/netbird
 USER netbird:netbird
 ENV HOME=/var/lib/netbird
 ENV NB_PROXY_ADDRESS=":8443"
-ENV NB_PROXY_HEALTH_ADDRESS=":8080"
 EXPOSE 8443
 ENTRYPOINT ["/usr/bin/netbird-proxy"]
