@@ -276,6 +276,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		Handler:   accessLog.Middleware(s.auth.Protect(s.proxy)),
 		TLSConfig: tlsConfig,
 	}
+	s.Logger.Debugf("starting listening on reverse proxy server address %s", addr)
 	return s.https.ListenAndServeTLS("", "")
 }
 
