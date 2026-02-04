@@ -2845,6 +2845,10 @@ components:
         domain:
           type: string
           description: Domain for the reverse proxy
+        proxy_cluster:
+          type: string
+          description: The proxy cluster handling this reverse proxy (derived from domain)
+          example: "eu.proxy.netbird.io"
         targets:
           type: array
           items:
@@ -3007,6 +3011,21 @@ components:
           description: Whether link auth is enabled
       required:
         - enabled
+    ProxyCluster:
+      type: object
+      description: A proxy cluster represents a group of proxy nodes serving the same address
+      properties:
+        address:
+          type: string
+          description: Cluster address used for CNAME targets
+          example: "eu.proxy.netbird.io"
+        connected_proxies:
+          type: integer
+          description: Number of proxy nodes connected in this cluster
+          example: 3
+      required:
+        - address
+        - connected_proxies
     ReverseProxyDomainType:
       type: string
       description: Type of Reverse Proxy Domain
@@ -6696,6 +6715,29 @@ paths:
                 $ref: '#/components/schemas/ReverseProxy'
         '400':
           "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/clusters:
+    get:
+      summary: List available proxy clusters
+      description: Returns a list of available proxy clusters with their connection status
+      tags: [ Reverse Proxy ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of proxy clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProxyCluster'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':

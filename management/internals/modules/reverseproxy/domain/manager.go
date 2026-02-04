@@ -164,15 +164,40 @@ func (m Manager) proxyURLAllowList() []string {
 	for _, addr := range reverseProxyAddresses {
 		proxyUrl, err := url.Parse(addr)
 		if err != nil {
-			// TODO: log?
+			log.WithError(err).Debugf("failed to parse proxy URL %s", addr)
 			continue
 		}
 		host, _, err := net.SplitHostPort(proxyUrl.Host)
 		if err != nil {
-			// TODO: log?
 			host = proxyUrl.Host
 		}
 		allowedProxyURLs = append(allowedProxyURLs, host)
 	}
 	return allowedProxyURLs
+}
+
+// DeriveClusterFromDomain determines the proxy cluster for a given domain.
+// For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
+// For custom domains, the cluster is determined by looking up the CNAME target.
+func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (string, error) {
+	allowList := m.proxyURLAllowList()
+	if len(allowList) == 0 {
+		return "", fmt.Errorf("no proxy clusters available")
+	}
+
+	if cluster, ok := ExtractClusterFromFreeDomain(domain, allowList); ok {
+		return cluster, nil
+	}
+
+	cluster, valid := m.validator.ValidateWithCluster(ctx, domain, allowList)
+	if valid {
+		return cluster, nil
+	}
+
+	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
+}
+
+// GetAvailableClusters returns a list of available proxy cluster addresses.
+func (m Manager) GetAvailableClusters() []string {
+	return m.proxyURLAllowList()
 }

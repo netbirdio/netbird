@@ -10,22 +10,29 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-type handler struct {
-	manager reverseproxy.Manager
+type clusterProvider interface {
+	GetAvailableClusters() []nbgrpc.ClusterInfo
 }
 
-func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
+type handler struct {
+	manager         reverseproxy.Manager
+	clusterProvider clusterProvider
+}
+
+// RegisterEndpoints registers all reverse proxy HTTP endpoints.
+func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, accessLogsManager accesslogs.Manager, clusterProvider clusterProvider, router *mux.Router) {
 	h := &handler{
-		manager: manager,
+		manager:         manager,
+		clusterProvider: clusterProvider,
 	}
 
-	// Hang domain endpoints off the main router here.
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
 	domain.RegisterEndpoints(domainRouter, domainManager)
 
@@ -33,6 +40,7 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 
 	router.HandleFunc("/reverse-proxies", h.getAllReverseProxies).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies", h.createReverseProxy).Methods("POST", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/clusters", h.getAvailableClusters).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/{proxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
@@ -167,4 +175,23 @@ func (h *handler) deleteReverseProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+func (h *handler) getAvailableClusters(w http.ResponseWriter, r *http.Request) {
+	_, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	clusters := h.clusterProvider.GetAvailableClusters()
+	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
+	for _, c := range clusters {
+		apiClusters = append(apiClusters, api.ProxyCluster{
+			Address:          c.Address,
+			ConnectedProxies: c.ConnectedProxies,
+		})
+	}
+
+	util.WriteJSONObject(r.Context(), w, apiClusters)
 }

@@ -76,24 +76,26 @@ type ReverseProxyMeta struct {
 }
 
 type ReverseProxy struct {
-	ID        string `gorm:"primaryKey"`
-	AccountID string `gorm:"index"`
-	Name      string
-	Domain    string   `gorm:"index"`
-	Targets   []Target `gorm:"serializer:json"`
-	Enabled   bool
-	Auth      AuthConfig       `gorm:"serializer:json"`
-	Meta      ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	ID           string `gorm:"primaryKey"`
+	AccountID    string `gorm:"index"`
+	Name         string
+	Domain       string   `gorm:"index"`
+	ProxyCluster string   `gorm:"index"`
+	Targets      []Target `gorm:"serializer:json"`
+	Enabled      bool
+	Auth         AuthConfig       `gorm:"serializer:json"`
+	Meta         ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
 }
 
-func NewReverseProxy(accountID, name, domain string, targets []Target, enabled bool) *ReverseProxy {
+func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []Target, enabled bool) *ReverseProxy {
 	return &ReverseProxy{
-		ID:        xid.New().String(),
-		AccountID: accountID,
-		Name:      name,
-		Domain:    domain,
-		Targets:   targets,
-		Enabled:   enabled,
+		ID:           xid.New().String(),
+		AccountID:    accountID,
+		Name:         name,
+		Domain:       domain,
+		ProxyCluster: proxyCluster,
+		Targets:      targets,
+		Enabled:      enabled,
 		Meta: ReverseProxyMeta{
 			CreatedAt: time.Now(),
 			Status:    string(StatusPending),
@@ -154,7 +156,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		meta.CertificateIssuedAt = &r.Meta.CertificateIssuedAt
 	}
 
-	return &api.ReverseProxy{
+	resp := &api.ReverseProxy{
 		Id:      r.ID,
 		Name:    r.Name,
 		Domain:  r.Domain,
@@ -163,6 +165,12 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 		Auth:    authConfig,
 		Meta:    meta,
 	}
+
+	if r.ProxyCluster != "" {
+		resp.ProxyCluster = &r.ProxyCluster
+	}
+
+	return resp
 }
 
 func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *proto.ProxyMapping {
@@ -310,5 +318,5 @@ func (r *ReverseProxy) Validate() error {
 }
 
 func (r *ReverseProxy) EventMeta() map[string]any {
-	return map[string]any{"name": r.Name, "domain": r.Domain}
+	return map[string]any{"name": r.Name, "domain": r.Domain, "proxy_cluster": r.ProxyCluster}
 }
