@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/web"
 )
 
 type ReverseProxy struct {
@@ -30,9 +31,14 @@ func NewReverseProxy(transport http.RoundTripper) *ReverseProxy {
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	target, serviceId, accountID, exists := p.findTargetForRequest(r)
 	if !exists {
-		// No mapping found so return an error here.
-		// TODO: prettier error page.
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		web.ServeHTTP(w, r, map[string]any{
+			"page": "error",
+			"error": map[string]any{
+				"code":    404,
+				"title":   "Service Not Found",
+				"message": "The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.",
+			},
+		}, http.StatusNotFound)
 		return
 	}
 
