@@ -107,3 +107,15 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...i
 	}
 	w.Write(buf.Bytes())
 }
+
+// ServeErrorPage renders a user-friendly error page with the given details.
+func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, message string) {
+	ServeHTTP(w, r, map[string]any{
+		"page": "error",
+		"error": map[string]any{
+			"code":    code,
+			"title":   title,
+			"message": message,
+		},
+	}, code)
+}

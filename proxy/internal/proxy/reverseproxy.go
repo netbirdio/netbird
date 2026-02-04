@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"sync"
 
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
@@ -31,14 +34,8 @@ func NewReverseProxy(transport http.RoundTripper) *ReverseProxy {
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	target, serviceId, accountID, exists := p.findTargetForRequest(r)
 	if !exists {
-		web.ServeHTTP(w, r, map[string]any{
-			"page": "error",
-			"error": map[string]any{
-				"code":    404,
-				"title":   "Service Not Found",
-				"message": "The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.",
-			},
-		}, http.StatusNotFound)
+		web.ServeErrorPage(w, r, http.StatusNotFound, "Service Not Found",
+			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
 		return
 	}
 
@@ -60,5 +57,44 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set up a reverse proxy using the transport and then use it to serve the request.
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = p.transport
+	proxy.ErrorHandler = proxyErrorHandler
 	proxy.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// proxyErrorHandler handles errors from the reverse proxy and serves
+// user-friendly error pages instead of raw error responses.
+func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	title, message, code := classifyProxyError(err)
+	web.ServeErrorPage(w, r, code, title, message)
+}
+
+// classifyProxyError determines the appropriate error title, message, and HTTP
+// status code based on the error type.
+func classifyProxyError(err error) (title, message string, code int) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Request Timeout",
+			"The request timed out while trying to reach the service. Please refresh the page and try again.",
+			http.StatusGatewayTimeout
+
+	case errors.Is(err, context.Canceled):
+		return "Request Canceled",
+			"The request was canceled before it could be completed. Please refresh the page and try again.",
+			http.StatusBadGateway
+
+	case errors.Is(err, roundtrip.ErrNoAccountID):
+		return "Configuration Error",
+			"The request could not be processed due to a configuration issue. Please refresh the page and try again.",
+			http.StatusInternalServerError
+
+	case strings.Contains(err.Error(), "connection refused"):
+		return "Service Unavailable",
+			"The connection to the service was refused. Please verify that the service is running and try again.",
+			http.StatusBadGateway
+
+	default:
+		return "Peer Not Connected",
+			"The connection to the peer could not be established. Please ensure the peer is running and connected to the NetBird network.",
+			http.StatusBadGateway
+	}
 }
