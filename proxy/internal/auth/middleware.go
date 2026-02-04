@@ -42,11 +42,16 @@ type DomainConfig struct {
 type Middleware struct {
 	domainsMux sync.RWMutex
 	domains    map[string]DomainConfig
+	logger     *log.Logger
 }
 
-func NewMiddleware() *Middleware {
+func NewMiddleware(logger *log.Logger) *Middleware {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	return &Middleware{
 		domains: make(map[string]DomainConfig),
+		logger:  logger,
 	}
 }
 
@@ -69,7 +74,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		config, exists := mw.domains[host]
 		mw.domainsMux.RUnlock()
 
-		log.Debugf("checking authentication for host: %s, exists: %t", host, exists)
+		mw.logger.Debugf("checking authentication for host: %s, exists: %t", host, exists)
 
 		// Domains that are not configured here or have no authentication schemes applied should simply pass through.
 		if !exists || len(config.Schemes) == 0 {

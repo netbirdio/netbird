@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/web"
 )
@@ -16,6 +18,7 @@ type ReverseProxy struct {
 	transport   http.RoundTripper
 	mappingsMux sync.RWMutex
 	mappings    map[string]Mapping
+	logger      *log.Logger
 }
 
 // NewReverseProxy configures a new NetBird ReverseProxy.
@@ -24,10 +27,14 @@ type ReverseProxy struct {
 // between requested URLs and targets.
 // The internal mappings can be modified using the AddMapping
 // and RemoveMapping functions.
-func NewReverseProxy(transport http.RoundTripper) *ReverseProxy {
+func NewReverseProxy(transport http.RoundTripper, logger *log.Logger) *ReverseProxy {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	return &ReverseProxy{
 		transport: transport,
 		mappings:  make(map[string]Mapping),
+		logger:    logger,
 	}
 }
 
