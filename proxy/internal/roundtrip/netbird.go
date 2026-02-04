@@ -56,19 +56,17 @@ type NetBird struct {
 	statusNotifier statusNotifier
 }
 
-// NewNetBird creates a new NetBird transport.
-func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNotifier) *NetBird {
-	if logger == nil {
-		logger = log.StandardLogger()
-	}
-	return &NetBird{
-		mgmtAddr:       mgmtAddr,
-		proxyID:        proxyID,
-		logger:         logger,
-		clients:        make(map[types.AccountID]*clientEntry),
-		statusNotifier: notifier,
-	}
+// ClientDebugInfo contains debug information about a client.
+type ClientDebugInfo struct {
+	AccountID   types.AccountID
+	DomainCount int
+	Domains     domain.List
+	HasClient   bool
+	CreatedAt   time.Time
 }
+
+// accountIDContextKey is the context key for storing the account ID.
+type accountIDContextKey struct{}
 
 // AddPeer registers a domain for an account. If the account doesn't have a client yet,
 // one is created using the provided setup key. Multiple domains can share the same client.
@@ -379,15 +377,6 @@ func (n *NetBird) GetClient(accountID types.AccountID) (*embed.Client, bool) {
 	return entry.client, true
 }
 
-// ClientDebugInfo contains debug information about a client.
-type ClientDebugInfo struct {
-	AccountID   types.AccountID
-	DomainCount int
-	Domains     domain.List
-	HasClient   bool
-	CreatedAt   time.Time
-}
-
 // ListClientsForDebug returns information about all clients for debug purposes.
 func (n *NetBird) ListClientsForDebug() map[types.AccountID]ClientDebugInfo {
 	n.clientsMux.RLock()
@@ -410,8 +399,33 @@ func (n *NetBird) ListClientsForDebug() map[types.AccountID]ClientDebugInfo {
 	return result
 }
 
-// accountIDContextKey is the context key for storing the account ID.
-type accountIDContextKey struct{}
+// ListClientsForStartup returns all embed.Client instances for health checks.
+func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
+	n.clientsMux.RLock()
+	defer n.clientsMux.RUnlock()
+
+	result := make(map[types.AccountID]*embed.Client)
+	for accountID, entry := range n.clients {
+		if entry.client != nil {
+			result[accountID] = entry.client
+		}
+	}
+	return result
+}
+
+// NewNetBird creates a new NetBird transport.
+func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNotifier) *NetBird {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
+	return &NetBird{
+		mgmtAddr:       mgmtAddr,
+		proxyID:        proxyID,
+		logger:         logger,
+		clients:        make(map[types.AccountID]*clientEntry),
+		statusNotifier: notifier,
+	}
+}
 
 // WithAccountID adds the account ID to the context.
 func WithAccountID(ctx context.Context, accountID types.AccountID) context.Context {

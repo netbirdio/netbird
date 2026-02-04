@@ -46,15 +46,15 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-// ClientProvider provides access to NetBird clients.
-type ClientProvider interface {
+// clientProvider provides access to NetBird clients.
+type clientProvider interface {
 	GetClient(accountID types.AccountID) (*nbembed.Client, bool)
 	ListClientsForDebug() map[types.AccountID]roundtrip.ClientDebugInfo
 }
 
 // Handler provides HTTP debug endpoints.
 type Handler struct {
-	provider   ClientProvider
+	provider   clientProvider
 	logger     *log.Logger
 	startTime  time.Time
 	templates  *template.Template
@@ -62,7 +62,7 @@ type Handler struct {
 }
 
 // NewHandler creates a new debug handler.
-func NewHandler(provider ClientProvider, logger *log.Logger) *Handler {
+func NewHandler(provider clientProvider, logger *log.Logger) *Handler {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
