@@ -72,6 +72,9 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 	}
 	redirectURL.RawQuery = redirectQuery.Encode()
 
-	log.WithField("redirect", redirectURL).Debug("OAuth callback: redirecting user with token")
+	// Redirect must be HTTPS, regardless of what was originally intended (which should always be HTTPS but better to double-check here).
+	redirectURL.Scheme = "https"
+
+	log.WithField("redirect", redirectURL.String()).Debug("OAuth callback: redirecting user with token")
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }

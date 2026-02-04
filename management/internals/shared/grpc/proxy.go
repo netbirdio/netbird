@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -407,6 +408,29 @@ func protoStatusToInternal(protoStatus proto.ProxyStatus) reverseproxy.ProxyStat
 }
 
 func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {
+	redirectURL, err := url.Parse(req.GetRedirectUrl())
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse redirect url: %v", err)
+	}
+	// Validate redirectURL against known proxy endpoints to avoid abuse of OIDC redirection.
+	proxies, err := s.reverseProxyStore.GetAccountReverseProxies(ctx, store.LockingStrengthNone, req.GetAccountId())
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
+	}
+	var found bool
+	for _, proxy := range proxies {
+		if proxy.Domain == redirectURL.Hostname() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "reverse proxy not found in store")
+	}
+
 	provider, err := oidc.NewProvider(ctx, s.oidcConfig.Issuer)
 	if err != nil {
 		// TODO: log
@@ -420,9 +444,8 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 
 	// Using an HMAC here to avoid redirection state being modified.
 	// State format: base64(redirectURL)|hmac
-	redirectURL := req.GetRedirectUrl()
-	hmacSum := s.generateHMAC(redirectURL)
-	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL)), hmacSum)
+	hmacSum := s.generateHMAC(redirectURL.String())
+	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
 	s.pkceVerifiers.Store(state, codeVerifier)
