@@ -1,0 +1,14 @@
+{{define "health"}}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Health</title>
+  <style>{{template "style"}}</style>
+</head>
+<body>
+  <h1>OK</h1>
+  <p>Uptime: {{.Uptime}}</p>
+  <p><a href="/debug">&larr; Back</a></p>
+</body>
+</html>
+{{end}}

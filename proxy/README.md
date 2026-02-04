@@ -40,6 +40,25 @@ Certificate generation can either be via ACME (by default, using Let's Encrypt, 
 When not using ACME, the proxy server attempts to load a certificate and key from the files `tls.crt` and `tls.key` in a specified certificate directory.
 When using ACME, the proxy server will store generated certificates in the specified certificate directory.
 
+
+## Auth UI
+
+The authentication UI is a Vite + React application located in the `web/` directory. It is embedded into the Go binary at build time.
+
+To build the UI:
+```bash
+cd web
+npm install
+npm run build
+```
+
+For UI development with hot reload (served at http://localhost:3031):
+```bash
+npm run dev
+```
+
+The built assets in `web/dist/` are embedded via `//go:embed` and served by the `web.ServeHTTP` handler.
+
 ## Configuration
 
 NetBird Proxy deployment configuration is via flags or environment variables, with flags taking precedence over the environment.

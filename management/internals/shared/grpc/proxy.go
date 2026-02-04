@@ -45,6 +45,11 @@ type reverseProxyStore interface {
 	GetReverseProxyByID(ctx context.Context, lockStrength store.LockingStrength, accountID string, serviceID string) (*reverseproxy.ReverseProxy, error)
 }
 
+type reverseProxyManager interface {
+	SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error
+	SetStatus(ctx context.Context, accountID, reverseProxyID string, status reverseproxy.ProxyStatus) error
+}
+
 type keyStore interface {
 	GetGroupByName(ctx context.Context, groupName string, accountID string) (*types.Group, error)
 	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
@@ -68,6 +73,9 @@ type ProxyServiceServer struct {
 
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
+
+	// Manager for reverse proxy operations
+	reverseProxyManager reverseProxyManager
 
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
@@ -96,6 +104,10 @@ func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr 
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 	}
+}
+
+func (s *ProxyServiceServer) SetProxyManager(manager reverseProxyManager) {
+	s.reverseProxyManager = manager
 }
 
 // GetMappingUpdate handles the control stream with proxy clients
@@ -326,6 +338,72 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	return &proto.AuthenticateResponse{
 		Success: authenticated,
 	}, nil
+}
+
+// SendStatusUpdate handles status updates from proxy clients
+func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.SendStatusUpdateRequest) (*proto.SendStatusUpdateResponse, error) {
+	accountID := req.GetAccountId()
+	reverseProxyID := req.GetReverseProxyId()
+	protoStatus := req.GetStatus()
+	certificateIssued := req.GetCertificateIssued()
+
+	log.WithFields(log.Fields{
+		"reverse_proxy_id":   reverseProxyID,
+		"account_id":         accountID,
+		"status":             protoStatus,
+		"certificate_issued": certificateIssued,
+		"error_message":      req.GetErrorMessage(),
+	}).Debug("Status update from proxy")
+
+	if reverseProxyID == "" || accountID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "reverse_proxy_id and account_id are required")
+	}
+
+	if certificateIssued {
+		if err := s.reverseProxyManager.SetCertificateIssuedAt(ctx, accountID, reverseProxyID); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to set certificate issued timestamp")
+			return nil, status.Errorf(codes.Internal, "failed to update certificate timestamp: %v", err)
+		}
+		log.WithFields(log.Fields{
+			"reverse_proxy_id": reverseProxyID,
+			"account_id":       accountID,
+		}).Info("Certificate issued timestamp updated")
+	}
+
+	internalStatus := protoStatusToInternal(protoStatus)
+
+	if err := s.reverseProxyManager.SetStatus(ctx, accountID, reverseProxyID, internalStatus); err != nil {
+		log.WithContext(ctx).WithError(err).Error("Failed to set proxy status")
+		return nil, status.Errorf(codes.Internal, "failed to update proxy status: %v", err)
+	}
+
+	log.WithFields(log.Fields{
+		"reverse_proxy_id": reverseProxyID,
+		"account_id":       accountID,
+		"status":           internalStatus,
+	}).Info("Proxy status updated")
+
+	return &proto.SendStatusUpdateResponse{}, nil
+}
+
+// protoStatusToInternal maps proto status to internal status
+func protoStatusToInternal(protoStatus proto.ProxyStatus) reverseproxy.ProxyStatus {
+	switch protoStatus {
+	case proto.ProxyStatus_PROXY_STATUS_PENDING:
+		return reverseproxy.StatusPending
+	case proto.ProxyStatus_PROXY_STATUS_ACTIVE:
+		return reverseproxy.StatusActive
+	case proto.ProxyStatus_PROXY_STATUS_TUNNEL_NOT_CREATED:
+		return reverseproxy.StatusTunnelNotCreated
+	case proto.ProxyStatus_PROXY_STATUS_CERTIFICATE_PENDING:
+		return reverseproxy.StatusCertificatePending
+	case proto.ProxyStatus_PROXY_STATUS_CERTIFICATE_FAILED:
+		return reverseproxy.StatusCertificateFailed
+	case proto.ProxyStatus_PROXY_STATUS_ERROR:
+		return reverseproxy.StatusError
+	default:
+		return reverseproxy.StatusError
+	}
 }
 
 func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {

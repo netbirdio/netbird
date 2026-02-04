@@ -21,7 +21,7 @@ type ProxyServiceClient interface {
 	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error)
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
-	GetOIDCURL(ctx context.Context, in *GetOIDCURLRequest, opts ...grpc.CallOption) (*GetOIDCURLResponse, error)
+	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -82,9 +82,9 @@ func (c *proxyServiceClient) Authenticate(ctx context.Context, in *AuthenticateR
 	return out, nil
 }
 
-func (c *proxyServiceClient) GetOIDCURL(ctx context.Context, in *GetOIDCURLRequest, opts ...grpc.CallOption) (*GetOIDCURLResponse, error) {
-	out := new(GetOIDCURLResponse)
-	err := c.cc.Invoke(ctx, "/management.ProxyService/GetOIDCURL", in, out, opts...)
+func (c *proxyServiceClient) SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error) {
+	out := new(SendStatusUpdateResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/SendStatusUpdate", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ type ProxyServiceServer interface {
 	GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
-	GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error)
+	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -115,8 +115,8 @@ func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAcces
 func (UnimplementedProxyServiceServer) Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Authenticate not implemented")
 }
-func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetOIDCURL not implemented")
+func (UnimplementedProxyServiceServer) SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendStatusUpdate not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -188,20 +188,20 @@ func _ProxyService_Authenticate_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ProxyService_GetOIDCURL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetOIDCURLRequest)
+func _ProxyService_SendStatusUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendStatusUpdateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ProxyServiceServer).GetOIDCURL(ctx, in)
+		return srv.(ProxyServiceServer).SendStatusUpdate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/management.ProxyService/GetOIDCURL",
+		FullMethod: "/management.ProxyService/SendStatusUpdate",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ProxyServiceServer).GetOIDCURL(ctx, req.(*GetOIDCURLRequest))
+		return srv.(ProxyServiceServer).SendStatusUpdate(ctx, req.(*SendStatusUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -222,8 +222,8 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProxyService_Authenticate_Handler,
 		},
 		{
-			MethodName: "GetOIDCURL",
-			Handler:    _ProxyService_GetOIDCURL_Handler,
+			MethodName: "SendStatusUpdate",
+			Handler:    _ProxyService_SendStatusUpdate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

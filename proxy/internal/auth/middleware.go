@@ -3,9 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	_ "embed"
 	"encoding/base64"
-	"html/template"
 	"net"
 	"net/http"
 	"sync"
@@ -13,11 +11,9 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
-
-//go:embed auth.gohtml
-var authTemplate string
 
 type Method string
 
@@ -85,7 +81,6 @@ func NewMiddleware() *Middleware {
 // In the event that no authentication schemes are defined for the domain,
 // then the request will also be simply passed through.
 func (mw *Middleware) Protect(next http.Handler) http.Handler {
-	tmpl := template.Must(template.New("auth").Parse(authTemplate))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
@@ -131,13 +126,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			methods[s.Type().String()] = promptData
 		}
 
-		if err := tmpl.Execute(w, struct {
-			Methods map[string]string
-		}{
-			Methods: methods,
-		}); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-		}
+		web.ServeHTTP(w, r, map[string]any{"methods": methods})
 	})
 }
 

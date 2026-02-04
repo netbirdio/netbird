@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/xid"
@@ -228,4 +229,41 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()))
 
 	return nil
+}
+
+// SetCertificateIssuedAt sets the certificate issued timestamp to the current time.
+// Call this when receiving a gRPC notification that the certificate was issued.
+func (m *managerImpl) SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error {
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		proxy, err := transaction.GetReverseProxyByID(ctx, store.LockingStrengthUpdate, accountID, reverseProxyID)
+		if err != nil {
+			return fmt.Errorf("failed to get reverse proxy: %w", err)
+		}
+
+		proxy.Meta.CertificateIssuedAt = time.Now()
+
+		if err = transaction.UpdateReverseProxy(ctx, proxy); err != nil {
+			return fmt.Errorf("failed to update reverse proxy certificate timestamp: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// SetStatus updates the status of the reverse proxy (e.g., "active", "tunnel_not_created", etc.)
+func (m *managerImpl) SetStatus(ctx context.Context, accountID, reverseProxyID string, status reverseproxy.ProxyStatus) error {
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		proxy, err := transaction.GetReverseProxyByID(ctx, store.LockingStrengthUpdate, accountID, reverseProxyID)
+		if err != nil {
+			return fmt.Errorf("failed to get reverse proxy: %w", err)
+		}
+
+		proxy.Meta.Status = string(status)
+
+		if err = transaction.UpdateReverseProxy(ctx, proxy); err != nil {
+			return fmt.Errorf("failed to update reverse proxy status: %w", err)
+		}
+
+		return nil
+	})
 }

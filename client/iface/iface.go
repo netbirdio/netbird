@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
@@ -226,6 +227,10 @@ func (w *WGIface) Close() error {
 
 	if err := w.tun.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
+	}
+
+	if nbnetstack.IsEnabled() {
+		return errors.FormatErrorOrNil(result)
 	}
 
 	if err := w.waitUntilRemoved(); err != nil {

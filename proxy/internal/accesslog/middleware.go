@@ -42,7 +42,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		entry := logEntry{
 			ID:            xid.New().String(),
 			ServiceId:     capturedData.GetServiceId(),
-			AccountID:     capturedData.GetAccountId(),
+			AccountID:     string(capturedData.GetAccountId()),
 			Host:          host,
 			Path:          r.URL.Path,
 			DurationMs:    duration.Milliseconds(),
