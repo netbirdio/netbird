@@ -145,7 +145,7 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		return nil, fmt.Errorf("failed to create setup key for reverse proxy: %w", err)
 	}
 
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key, m.proxyGRPCServer.GetOIDCValidationConfig()))
 
 	return reverseProxy, nil
 }
@@ -191,7 +191,7 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Update, ""))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()))
 
 	return reverseProxy, nil
 }
@@ -225,7 +225,7 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxyID, accountID, activity.ReverseProxyDeleted, reverseProxy.EventMeta())
 
-	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, ""))
+	m.proxyGRPCServer.SendReverseProxyUpdate(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()))
 
 	return nil
 }

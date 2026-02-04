@@ -309,18 +309,12 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	}
 	if mapping.GetAuth().GetOidc() != nil {
 		oidc := mapping.GetAuth().GetOidc()
-		scheme, err := auth.NewOIDC(ctx, mapping.GetId(), mapping.GetAccountId(), s.ProxyURL, auth.OIDCConfig{
-			OIDCProviderURL:    s.OIDCEndpoint,
-			OIDCClientID:       s.OIDCClientId,
-			OIDCClientSecret:   s.OIDCClientSecret,
-			OIDCScopes:         s.OIDCScopes,
-			DistributionGroups: oidc.GetDistributionGroups(),
-		})
-		if err != nil {
-			s.Logger.WithError(err).Error("Failed to create OIDC scheme")
-		} else {
-			schemes = append(schemes, scheme)
-		}
+		schemes = append(schemes, auth.NewOIDC(mgmtClient, mapping.GetId(), mapping.GetAccountId(), auth.OIDCConfig{
+			Issuer:             oidc.GetIssuer(),
+			Audiences:          oidc.GetAudiences(),
+			KeysLocation:       oidc.GetKeysLocation(),
+			MaxTokenAgeSeconds: oidc.GetMaxTokenAge(),
+		}))
 	}
 	if mapping.GetAuth().GetLink() {
 		schemes = append(schemes, auth.NewLink(mgmtClient, mapping.GetId(), mapping.GetAccountId()))

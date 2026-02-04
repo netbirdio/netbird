@@ -36,6 +36,11 @@ func (Password) Type() Method {
 func (p Password) Authenticate(r *http.Request) (string, string) {
 	password := r.FormValue(passwordFormId)
 
+	if password == "" {
+		// This cannot be authenticated so not worth wasting time sending the request.
+		return "", passwordFormId
+	}
+
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
 		Id:        p.id,
 		AccountId: p.accountId,
@@ -55,8 +60,4 @@ func (p Password) Authenticate(r *http.Request) (string, string) {
 	}
 
 	return "", passwordFormId
-}
-
-func (p Password) Middleware(next http.Handler) http.Handler {
-	return next
 }

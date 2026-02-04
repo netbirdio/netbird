@@ -57,6 +57,13 @@ type AuthConfig struct {
 	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty" gorm:"serializer:json"`
 }
 
+type OIDCValidationConfig struct {
+	Issuer             string
+	Audiences          []string
+	KeysLocation       string
+	MaxTokenAgeSeconds int64
+}
+
 type ReverseProxy struct {
 	ID        string `gorm:"primaryKey"`
 	AccountID string `gorm:"index"`
@@ -132,7 +139,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 }
 
-func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *proto.ProxyMapping {
+func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if !target.Enabled {
@@ -171,7 +178,10 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, setupKey string) *pro
 
 	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
 		auth.Oidc = &proto.OIDC{
-			DistributionGroups: r.Auth.BearerAuth.DistributionGroups,
+			Issuer:       oidcConfig.Issuer,
+			Audiences:    oidcConfig.Audiences,
+			KeysLocation: oidcConfig.KeysLocation,
+			MaxTokenAge:  oidcConfig.MaxTokenAgeSeconds,
 		}
 	}
 

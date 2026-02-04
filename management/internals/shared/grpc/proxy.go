@@ -2,24 +2,42 @@ package grpc
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+type ProxyOIDCConfig struct {
+	Issuer      string
+	ClientID    string
+	Scopes      []string
+	CallbackURL string
+	HMACKey     []byte
+
+	Audience     string
+	KeysLocation string
+}
 
 type reverseProxyStore interface {
 	GetReverseProxies(ctx context.Context, lockStrength store.LockingStrength) ([]*reverseproxy.ReverseProxy, error)
@@ -50,6 +68,12 @@ type ProxyServiceServer struct {
 
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
+
+	// OIDC configuration for proxy authentication
+	oidcConfig ProxyOIDCConfig
+
+	// TODO: use database to store these instead?
+	pkceVerifiers sync.Map
 }
 
 // proxyConnection represents a connected proxy
@@ -64,12 +88,13 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr accesslogs.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr accesslogs.Manager, oidcConfig ProxyOIDCConfig) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
 		reverseProxyStore: store,
 		keyStore:          keys,
 		accessLogManager:  accessLogMgr,
+		oidcConfig:        oidcConfig,
 	}
 }
 
@@ -174,6 +199,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 				rp.ToProtoMapping(
 					reverseproxy.Create, // Initial snapshot, all records are "new" for the proxy.
 					key.Key,
+					s.GetOIDCValidationConfig(),
 				),
 			},
 		}); err != nil {
@@ -300,4 +326,92 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	return &proto.AuthenticateResponse{
 		Success: authenticated,
 	}, nil
+}
+
+func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {
+	provider, err := oidc.NewProvider(ctx, s.oidcConfig.Issuer)
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to create OIDC provider: %v", err)
+	}
+
+	scopes := s.oidcConfig.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+	}
+
+	// Using an HMAC here to avoid redirection state being modified.
+	// State format: base64(redirectURL)|hmac
+	redirectURL := req.GetRedirectUrl()
+	hmacSum := s.generateHMAC(redirectURL)
+	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL)), hmacSum)
+
+	codeVerifier := oauth2.GenerateVerifier()
+	s.pkceVerifiers.Store(state, codeVerifier)
+
+	return &proto.GetOIDCURLResponse{
+		Url: (&oauth2.Config{
+			ClientID:    s.oidcConfig.ClientID,
+			Endpoint:    provider.Endpoint(),
+			RedirectURL: s.oidcConfig.CallbackURL,
+			Scopes:      scopes,
+		}).AuthCodeURL(state, oauth2.S256ChallengeOption(codeVerifier)),
+	}, nil
+}
+
+// GetOIDCConfig returns the OIDC configuration for token validation.
+func (s *ProxyServiceServer) GetOIDCConfig() ProxyOIDCConfig {
+	return s.oidcConfig
+}
+
+// GetOIDCValidationConfig returns the OIDC configuration for token validation
+// in the format needed by ToProtoMapping.
+func (s *ProxyServiceServer) GetOIDCValidationConfig() reverseproxy.OIDCValidationConfig {
+	return reverseproxy.OIDCValidationConfig{
+		Issuer:             s.oidcConfig.Issuer,
+		Audiences:          []string{s.oidcConfig.Audience},
+		KeysLocation:       s.oidcConfig.KeysLocation,
+		MaxTokenAgeSeconds: 0, // No max token age by default
+	}
+}
+
+func (s *ProxyServiceServer) generateHMAC(input string) string {
+	mac := hmac.New(sha256.New, s.oidcConfig.HMACKey)
+	mac.Write([]byte(input))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// ValidateState validates the state parameter from an OAuth callback.
+// Returns the original redirect URL if valid, or an error if invalid.
+func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
+	v, ok := s.pkceVerifiers.LoadAndDelete(state)
+	if !ok {
+		return "", "", errors.New("no verifier for state")
+	}
+	verifier, ok = v.(string)
+	if !ok {
+		return "", "", errors.New("invalid verifier for state")
+	}
+
+	parts := strings.Split(state, "|")
+	if len(parts) != 2 {
+		return "", "", errors.New("invalid state format")
+	}
+
+	encodedURL := parts[0]
+	providedHMAC := parts[1]
+
+	redirectURLBytes, err := base64.URLEncoding.DecodeString(encodedURL)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid state encoding: %w", err)
+	}
+	redirectURL = string(redirectURLBytes)
+
+	expectedHMAC := s.generateHMAC(redirectURL)
+
+	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
+		return "", "", fmt.Errorf("invalid state signature")
+	}
+
+	return verifier, redirectURL, nil
 }

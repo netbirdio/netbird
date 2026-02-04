@@ -86,6 +86,11 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	cliRedirectURIs = append(cliRedirectURIs, "/device/callback")
 	cliRedirectURIs = append(cliRedirectURIs, c.Issuer+"/device/callback")
 
+	// Build dashboard redirect URIs including the OAuth callback for proxy authentication
+	dashboardRedirectURIs := c.DashboardRedirectURIs
+	baseURL := strings.TrimSuffix(c.Issuer, "/oauth2")
+	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+"/api/oauth/callback")
+
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
 		Storage: dex.Storage{
@@ -111,7 +116,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 				ID:           staticClientDashboard,
 				Name:         "NetBird Dashboard",
 				Public:       true,
-				RedirectURIs: c.DashboardRedirectURIs,
+				RedirectURIs: dashboardRedirectURIs,
 			},
 			{
 				ID:           staticClientCLI,
