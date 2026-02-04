@@ -69,7 +69,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		config, exists := mw.domains[host]
 		mw.domainsMux.RUnlock()
 
-		log.Tracef("checking authentication for host: %s, exists: %t", host, exists)
+		log.Debugf("checking authentication for host: %s, exists: %t", host, exists)
 
 		// Domains that are not configured here or have no authentication schemes applied should simply pass through.
 		if !exists || len(config.Schemes) == 0 {

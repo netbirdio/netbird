@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
@@ -13,6 +14,7 @@ import (
 
 func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Debugf("access log middleware invoked for %s %s", r.Method, r.URL.Path)
 		// Use a response writer wrapper so we can access the status code later.
 		sw := &statusWriter{
 			w:      w,
