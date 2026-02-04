@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"sync"
+
+	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 )
 
 type ReverseProxy struct {
@@ -36,8 +38,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Set the serviceId in the context for later retrieval.
 	ctx := withServiceId(r.Context(), serviceId)
-	// Set the accountId in the context for later retrieval.
+	// Set the accountId in the context for later retrieval (for middleware).
 	ctx = withAccountId(ctx, accountID)
+	// Set the accountId in the context for the roundtripper to use.
+	ctx = roundtrip.WithAccountID(ctx, accountID)
 
 	// Also populate captured data if it exists (allows middleware to read after handler completes).
 	// This solves the problem of passing data UP the middleware chain: we put a mutable struct

@@ -31,8 +31,11 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
+	"github.com/netbirdio/netbird/proxy/internal/debug"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
@@ -45,6 +48,7 @@ type Server struct {
 	auth       *auth.Middleware
 	http       *http.Server
 	https      *http.Server
+	debug      *http.Server
 
 	// Mostly used for debugging on management.
 	startTime time.Time
@@ -62,6 +66,11 @@ type Server struct {
 	OIDCClientSecret         string
 	OIDCEndpoint             string
 	OIDCScopes               []string
+
+	// DebugEndpointEnabled enables the debug HTTP endpoint.
+	DebugEndpointEnabled bool
+	// DebugEndpointAddress is the address for the debug HTTP endpoint (default: ":8444").
+	DebugEndpointAddress string
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -148,7 +157,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.Logger, s)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.Logger, s)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
@@ -203,6 +212,34 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Configure Access logs to management server.
 	accessLog := accesslog.NewLogger(s.mgmtClient, s.Logger)
+
+	if s.DebugEndpointEnabled {
+		debugAddr := debugEndpointAddr(s.DebugEndpointAddress)
+		debugHandler := debug.NewHandler(s.netbird, s.Logger)
+		s.debug = &http.Server{
+			Addr:    debugAddr,
+			Handler: debugHandler,
+		}
+		go func() {
+			s.Logger.WithField("address", debugAddr).Info("starting debug endpoint")
+			if err := s.debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.Logger.Errorf("debug endpoint error: %v", err)
+			}
+		}()
+		defer func() {
+			if err := s.debug.Close(); err != nil {
+				s.Logger.Debugf("debug endpoint close: %v", err)
+			}
+		}()
+	}
+
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.netbird.StopAll(stopCtx); err != nil {
+			s.Logger.Warnf("failed to stop all netbird clients: %v", err)
+		}
+	}()
 
 	// Finally, start the reverse proxy.
 	s.https = &http.Server{
@@ -306,15 +343,15 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 }
 
 func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	domain := mapping.GetDomain()
-	accountID := mapping.GetAccountId()
+	d := domain.Domain(mapping.GetDomain())
+	accountID := types.AccountID(mapping.GetAccountId())
 	reverseProxyID := mapping.GetId()
 
-	if err := s.netbird.AddPeer(ctx, domain, mapping.GetSetupKey(), accountID, reverseProxyID); err != nil {
-		return fmt.Errorf("create peer for domain %q: %w", domain, err)
+	if err := s.netbird.AddPeer(ctx, accountID, d, mapping.GetSetupKey(), reverseProxyID); err != nil {
+		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
 	if s.acme != nil {
-		s.acme.AddDomain(domain, accountID, reverseProxyID)
+		s.acme.AddDomain(string(d), string(accountID), reverseProxyID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the
@@ -360,10 +397,13 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 }
 
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
-	if err := s.netbird.RemovePeer(ctx, mapping.GetDomain(), mapping.GetAccountId(), mapping.GetId()); err != nil {
+	d := domain.Domain(mapping.GetDomain())
+	accountID := types.AccountID(mapping.GetAccountId())
+	if err := s.netbird.RemovePeer(ctx, accountID, d); err != nil {
 		s.Logger.WithFields(log.Fields{
-			"domain": mapping.GetDomain(),
-			"error":  err,
+			"account_id": accountID,
+			"domain":     d,
+			"error":      err,
 		}).Error("Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist")
 	}
 	if s.acme != nil {
@@ -392,8 +432,17 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 	}
 	return proxy.Mapping{
 		ID:        mapping.GetId(),
-		AccountID: mapping.AccountId,
+		AccountID: types.AccountID(mapping.GetAccountId()),
 		Host:      mapping.GetDomain(),
 		Paths:     paths,
 	}
+}
+
+// debugEndpointAddr returns the address for the debug endpoint.
+// If addr is empty, it defaults to localhost:8444 for security.
+func debugEndpointAddr(addr string) string {
+	if addr == "" {
+		return "localhost:8444"
+	}
+	return addr
 }

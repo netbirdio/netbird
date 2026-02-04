@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"sync"
+
+	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
 type requestContextKey string
@@ -18,7 +20,7 @@ const (
 type CapturedData struct {
 	mu        sync.RWMutex
 	ServiceId string
-	AccountId string
+	AccountId types.AccountID
 }
 
 // SetServiceId safely sets the service ID
@@ -36,14 +38,14 @@ func (c *CapturedData) GetServiceId() string {
 }
 
 // SetAccountId safely sets the account ID
-func (c *CapturedData) SetAccountId(accountId string) {
+func (c *CapturedData) SetAccountId(accountId types.AccountID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.AccountId = accountId
 }
 
 // GetAccountId safely gets the account ID
-func (c *CapturedData) GetAccountId() string {
+func (c *CapturedData) GetAccountId() types.AccountID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.AccountId
@@ -76,13 +78,13 @@ func ServiceIdFromContext(ctx context.Context) string {
 	}
 	return serviceId
 }
-func withAccountId(ctx context.Context, accountId string) context.Context {
+func withAccountId(ctx context.Context, accountId types.AccountID) context.Context {
 	return context.WithValue(ctx, accountIdKey, accountId)
 }
 
-func AccountIdFromContext(ctx context.Context) string {
+func AccountIdFromContext(ctx context.Context) types.AccountID {
 	v := ctx.Value(accountIdKey)
-	accountId, ok := v.(string)
+	accountId, ok := v.(types.AccountID)
 	if !ok {
 		return ""
 	}
