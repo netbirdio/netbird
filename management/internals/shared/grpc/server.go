@@ -307,11 +307,13 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
+	streamStartTime := time.Now().UTC()
+
 	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv, dnsFwdPort)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, streamStartTime)
 		return err
 	}
 
@@ -319,7 +321,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, streamStartTime)
 		return err
 	}
 
@@ -336,7 +338,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv, streamStartTime)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -404,7 +406,7 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
 	for {
 		select {
@@ -416,11 +418,11 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer)
+				s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
 				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 				return err
 			}
@@ -429,7 +431,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer)
+			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 			return srv.Context().Err()
 		}
 	}
@@ -437,16 +439,16 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.Send(&proto.EncryptedMessage{
@@ -454,7 +456,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
@@ -486,15 +488,15 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 	return nil
 }
 
-func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
+func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer)
+	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, streamStartTime)
 }
 
-func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer) {
-	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
+func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
+	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key, streamStartTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}

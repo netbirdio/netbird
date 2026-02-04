@@ -115,7 +115,7 @@ type Manager interface {
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error)
 	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
-	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
+	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
