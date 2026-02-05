@@ -9,6 +9,10 @@ export interface ErrorData {
   code: number
   title: string
   message: string
+  proxy?: boolean
+  peer?: boolean
+  destination?: boolean
+  requestId?: string
 }
 
 // Data injected by Go templates
@@ -25,5 +29,27 @@ declare global {
 }
 
 export function getData(): Data {
-  return window.__DATA__ ?? {}
+  const data = window.__DATA__ ?? {}
+
+  // Dev mode: allow ?page=error query param to preview error page
+  if (import.meta.env.DEV) {
+    const params = new URLSearchParams(window.location.search)
+    const page = params.get('page')
+    if (page === 'error') {
+      return {
+        ...data,
+        page: 'error',
+        error: data.error ?? {
+          code: 503,
+          title: 'Service Unavailable',
+          message: 'The service you are trying to access is temporarily unavailable. Please try again later.',
+          proxy: true,
+          peer: false,
+          destination: false,
+        },
+      }
+    }
+  }
+
+  return data
 }

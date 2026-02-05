@@ -108,14 +108,25 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...i
 	w.Write(buf.Bytes())
 }
 
+// ErrorStatus represents the connection status for each component in the error page.
+type ErrorStatus struct {
+	Proxy       bool
+	Peer        bool
+	Destination bool
+}
+
 // ServeErrorPage renders a user-friendly error page with the given details.
-func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, message string) {
+func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, message, requestID string, status ErrorStatus) {
 	ServeHTTP(w, r, map[string]any{
 		"page": "error",
 		"error": map[string]any{
-			"code":    code,
-			"title":   title,
-			"message": message,
+			"code":        code,
+			"title":       title,
+			"message":     message,
+			"proxy":       status.Proxy,
+			"peer":        status.Peer,
+			"destination": status.Destination,
+			"requestId":   requestID,
 		},
 	}, code)
 }
