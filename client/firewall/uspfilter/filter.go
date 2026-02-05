@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
@@ -89,6 +90,7 @@ type Manager struct {
 	incomingDenyRules map[netip.Addr]RuleSet
 	incomingRules     map[netip.Addr]RuleSet
 	routeRules        RouteRules
+	routeRulesMap     map[nbid.RuleID]*RouteRule
 	decoders          sync.Pool
 	wgIface           common.IFaceMapper
 	nativeFirewall    firewall.Manager
@@ -229,6 +231,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		routeRulesMap:       make(map[nbid.RuleID]*RouteRule),
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
 		netstackServices:    make(map[serviceKey]struct{}),
@@ -480,11 +483,15 @@ func (m *Manager) addRouteFiltering(
 		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
 
-	ruleID := uuid.New().String()
+	ruleKey := nbid.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
+
+	if existingRule, ok := m.routeRulesMap[ruleKey]; ok {
+		return existingRule, nil
+	}
 
 	rule := RouteRule{
 		// TODO: consolidate these IDs
-		id:         ruleID,
+		id:         string(ruleKey),
 		mgmtId:     id,
 		sources:    sources,
 		dstSet:     destination.Set,
@@ -499,6 +506,7 @@ func (m *Manager) addRouteFiltering(
 
 	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
+	m.routeRulesMap[ruleKey] = &rule
 
 	return &rule, nil
 }
@@ -515,15 +523,20 @@ func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 		return m.nativeFirewall.DeleteRouteRule(rule)
 	}
 
-	ruleID := rule.ID()
+	ruleKey := nbid.RuleID(rule.ID())
+	if _, ok := m.routeRulesMap[ruleKey]; !ok {
+		return fmt.Errorf("route rule not found: %s", ruleKey)
+	}
+
 	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
-		return r.id == ruleID
+		return r.id == string(ruleKey)
 	})
 	if idx < 0 {
-		return fmt.Errorf("route rule not found: %s", ruleID)
+		return fmt.Errorf("route rule not found in slice: %s", ruleKey)
 	}
 
 	m.routeRules = slices.Delete(m.routeRules, idx, idx+1)
+	delete(m.routeRulesMap, ruleKey)
 	return nil
 }
 

@@ -3,12 +3,12 @@ package uspfilter
 import (
 	"context"
 	"fmt"
-	"net/netip"
 	"os/exec"
 	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
@@ -26,9 +26,11 @@ func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[netip.Addr]RuleSet)
-	m.incomingDenyRules = make(map[netip.Addr]RuleSet)
-	m.incomingRules = make(map[netip.Addr]RuleSet)
+	maps.Clear(m.outgoingRules)
+	maps.Clear(m.incomingDenyRules)
+	maps.Clear(m.incomingRules)
+	maps.Clear(m.routeRulesMap)
+	m.routeRules = m.routeRules[:0]
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
