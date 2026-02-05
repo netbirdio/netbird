@@ -20,6 +20,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -187,9 +188,11 @@ func execute(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create Signal server if enabled
+	// Use no-op meter since metrics are disabled for now
+	noopMeter := noop.NewMeterProvider().Meter("noop")
 	var signalSrv *signalServer.Server
 	if config.Signal.Enabled {
-		signalSrv, err = signalServer.NewServer(cmd.Context(), nil)
+		signalSrv, err = signalServer.NewServer(cmd.Context(), noopMeter)
 		if err != nil {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create signal server: %w", err)
@@ -209,7 +212,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 			}
 
 			// Create combined handler with enabled components
-			s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), srv, nil, config))
+			s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), srv, noopMeter, config))
 			if srv != nil {
 				log.Infof("Relay WebSocket handler added (path: /relay)")
 			}
