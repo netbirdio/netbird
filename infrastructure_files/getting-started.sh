@@ -305,11 +305,11 @@ configure_reverse_proxy() {
 }
 
 check_existing_installation() {
-  if [[ -f combined.yaml ]]; then
+  if [[ -f config.yaml ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dashboard.env combined.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml Caddyfile dashboard.env config.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -351,7 +351,7 @@ generate_configuration_files() {
 
   # Common files for all configurations
   render_dashboard_env > dashboard.env
-  render_combined_yaml > combined.yaml
+  render_combined_yaml > config.yaml
   return 0
 }
 
@@ -577,8 +577,8 @@ services:
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
       - netbird_data:/var/lib/netbird
-      - ./combined.yaml:/etc/netbird/combined.yaml
-    command: ["server", "--config", "/etc/netbird/combined.yaml"]
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["server", "--config", "/etc/netbird/config.yaml"]
     logging:
       driver: "json-file"
       options:
@@ -642,8 +642,8 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
       - netbird_data:/var/lib/netbird
-      - ./combined.yaml:/etc/netbird/combined.yaml
-    command: ["server", "--config", "/etc/netbird/combined.yaml"]
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["server", "--config", "/etc/netbird/config.yaml"]
     labels:
       - traefik.enable=true
       # Relay router
@@ -752,8 +752,8 @@ services:
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
       - netbird_data:/var/lib/netbird
-      - ./combined.yaml:/etc/netbird/combined.yaml
-    command: ["server", "--config", "/etc/netbird/combined.yaml"]
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["server", "--config", "/etc/netbird/config.yaml"]
     logging:
       driver: "json-file"
       options:
