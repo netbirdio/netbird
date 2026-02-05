@@ -34,7 +34,14 @@ const (
 )
 
 const (
-	dnsLabelsFlag = "extra-dns-labels"
+	dnsLabelsFlag            = "extra-dns-labels"
+	extraIFaceBlackListFlag  = "extra-iface-blacklist"
+	externalIPMapFlag        = "external-ip-map"
+	dnsResolverAddress       = "dns-resolver-address"
+	enableRosenpassFlag      = "enable-rosenpass"
+	rosenpassPermissiveFlag  = "rosenpass-permissive"
+	disableAutoConnectFlag   = "disable-auto-connect"
+	enableLazyConnectionFlag = "enable-lazy-connection"
 
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
@@ -44,12 +51,19 @@ const (
 )
 
 var (
-	foregroundMode     bool
-	dnsLabels          []string
-	dnsLabelsValidated domain.List
-	noBrowser          bool
-	profileName        string
-	configPath         string
+	foregroundMode      bool
+	dnsLabels           []string
+	dnsLabelsValidated  domain.List
+	extraIFaceBlackList []string
+	natExternalIPs      []string
+	customDNSAddress    string
+	rosenpassEnabled    bool
+	rosenpassPermissive bool
+	autoConnectDisabled bool
+	lazyConnEnabled     bool
+	noBrowser           bool
+	profileName         string
+	configPath          string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -82,6 +96,24 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
+
+	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
+		`Sets external IPs maps between local addresses and interfaces.`+
+			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1 `+
+			`or --external-ip-map ""`,
+	)
+	upCmd.PersistentFlags().StringVar(&customDNSAddress, dnsResolverAddress, "",
+		`Sets a custom address for NetBird's local DNS resolver. `+
+			`If set, the agent won't attempt to discover the best ip and port to listen on. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
+	)
+	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
+	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
+	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
 
 }
 
