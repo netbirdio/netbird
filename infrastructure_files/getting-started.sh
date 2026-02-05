@@ -195,7 +195,7 @@ wait_management() {
       echo ""
       echo "Taking too long. Checking logs..."
       $DOCKER_COMPOSE_COMMAND logs --tail=20 caddy
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 management
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird
     fi
     echo -n " ."
     sleep 2
@@ -219,7 +219,7 @@ wait_management_direct() {
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 management
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird
     fi
     echo -n " ."
     sleep 2
@@ -578,7 +578,7 @@ services:
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
-    command: ["server", "--config", "/etc/netbird/config.yaml"]
+    command: ["--config", "/etc/netbird/config.yaml"]
     logging:
       driver: "json-file"
       options:
@@ -643,7 +643,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
-    command: ["server", "--config", "/etc/netbird/config.yaml"]
+    command: ["--config", "/etc/netbird/config.yaml"]
     labels:
       - traefik.enable=true
       # Relay router
@@ -753,7 +753,7 @@ services:
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
-    command: ["server", "--config", "/etc/netbird/config.yaml"]
+    command: ["--config", "/etc/netbird/config.yaml"]
     logging:
       driver: "json-file"
       options:
