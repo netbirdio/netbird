@@ -13,13 +13,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
-	"go.uber.org/mock/gomock"
+	ugomock "go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -102,13 +104,17 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	ctrl := gomock.NewController(t)
+	ctrl := ugomock.NewController(t)
 
 	networkMapController := network_map.NewMockController(ctrl)
 	networkMapController.EXPECT().
 		GetDNSDomain(gomock.Any()).
 		Return("domain").
 		AnyTimes()
+
+	ctrl2 := gomock.NewController(t)
+	permissionsManager := permissions.NewMockManager(ctrl2)
+	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -199,6 +205,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			},
 		},
 		networkMapController: networkMapController,
+		permissionsManager:   permissionsManager,
 	}
 }
 

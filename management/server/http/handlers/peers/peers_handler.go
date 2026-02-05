@@ -17,6 +17,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -26,11 +27,12 @@ import (
 // Handler is a handler that returns peers of the account
 type Handler struct {
 	accountManager       account.Manager
+	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
-	peersHandler := NewHandler(accountManager, networkMapController)
+func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
+	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
@@ -42,10 +44,11 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMap
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager, networkMapController network_map.Controller) *Handler {
+func NewHandler(accountManager account.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
 	return &Handler{
 		accountManager:       accountManager,
 		networkMapController: networkMapController,
+		permissionsManager:   permissionsManager,
 	}
 }
 
@@ -359,13 +362,19 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
+	user, err := h.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	user, err := h.accountManager.GetUserByID(r.Context(), userID)
+	err = h.permissionsManager.ValidateAccountAccess(r.Context(), accountID, user, false)
+	if err != nil {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return
+	}
+
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

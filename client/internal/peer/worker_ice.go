@@ -107,8 +107,10 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
 		w.agentDialerCancel()
-		if err := w.agent.Close(); err != nil {
-			w.log.Warnf("failed to close ICE agent: %s", err)
+		if w.agent != nil {
+			if err := w.agent.Close(); err != nil {
+				w.log.Warnf("failed to close ICE agent: %s", err)
+			}
 		}
 
 		sessionID, err := NewICESessionID()

@@ -26,7 +26,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -49,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -793,6 +793,19 @@ func IsEmbeddedIdp(i idp.Manager) bool {
 	}
 	_, ok := i.(*idp.EmbeddedIdPManager)
 	return ok
+}
+
+// IsLocalAuthDisabled checks if local (email/password) authentication is disabled.
+// Returns true only when using embedded IDP with local auth disabled in config.
+func IsLocalAuthDisabled(ctx context.Context, i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	embeddedIdp, ok := i.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return false
+	}
+	return embeddedIdp.IsLocalAuthDisabled()
 }
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
@@ -1671,8 +1684,20 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
-	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
+func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer %s for disconnect check: %v", peerPubKey, err)
+		return nil
+	}
+
+	if peer.Status.LastSeen.After(streamStartTime) {
+		log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s > streamStart=%s), skipping disconnect",
+			peerPubKey, peer.Status.LastSeen.Format(time.RFC3339), streamStartTime.Format(time.RFC3339))
+		return nil
+	}
+
+	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
