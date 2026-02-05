@@ -19,8 +19,16 @@ const (
 // to pass data back up the middleware chain.
 type CapturedData struct {
 	mu        sync.RWMutex
+	RequestID string
 	ServiceId string
 	AccountId types.AccountID
+}
+
+// GetRequestID safely gets the request ID
+func (c *CapturedData) GetRequestID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.RequestID
 }
 
 // SetServiceId safely sets the service ID
