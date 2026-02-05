@@ -202,14 +202,21 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+	// setup grpc connection
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return fmt.Errorf("connect to service CLI interface: %w", err)
+	}
+	defer conn.Close()
+	client := proto.NewDaemonServiceClient(conn)
+
 	// setup daemon
 	setConfigReq, err := setupSetConfigFromUpCmd(cmd)
 	if err != nil {
 		return err
 	}
 
-	client, err := doDaemonSetup(ctx, cmd, activeProf, pm, profileSwitched, setConfigReq)
-	if err != nil {
+	if err := doDaemonSetup(ctx, cmd, client, profileSwitched, setConfigReq); err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
 
