@@ -90,6 +90,10 @@ func execute(cmd *cobra.Command, _ []string) error {
 	}
 
 	log.Infof("Starting combined NetBird server")
+	if config.IsSimplifiedConfig() {
+		log.Infof("Using simplified configuration mode")
+		log.Infof("Exposed address: %s", config.Server.ExposedAddress)
+	}
 	log.Infof("Listen address: %s", config.Server.ListenAddress)
 	log.Infof("Enabled components: management=%v, signal=%v, relay=%v",
 		config.Management.Enabled, config.Signal.Enabled, config.Relay.Enabled)

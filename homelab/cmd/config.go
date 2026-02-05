@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path"
@@ -21,6 +22,9 @@ import (
 )
 
 // CombinedConfig is the root configuration for the combined server
+// Supports two formats:
+// 1. Simplified: All settings under "server", relay/signal use defaults
+// 2. Full: Separate relay/signal/management sections for advanced configuration
 type CombinedConfig struct {
 	Server     ServerConfig     `yaml:"server"`
 	Relay      RelayConfig      `yaml:"relay"`
@@ -29,6 +33,7 @@ type CombinedConfig struct {
 }
 
 // ServerConfig contains server-wide settings
+// In simplified mode, this contains all configuration
 type ServerConfig struct {
 	ListenAddress      string    `yaml:"listenAddress"`
 	MetricsPort        int       `yaml:"metricsPort"`
@@ -36,6 +41,22 @@ type ServerConfig struct {
 	LogLevel           string    `yaml:"logLevel"`
 	LogFile            string    `yaml:"logFile"`
 	TLS                TLSConfig `yaml:"tls"`
+
+	// Simplified config fields (used when relay/signal/management sections are omitted)
+	ExposedAddress string `yaml:"exposedAddress"` // Public address for relay and management dnsDomain
+	StunPort       int    `yaml:"stunPort"`       // STUN port (always enabled in simplified mode)
+	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
+	DataDir        string `yaml:"dataDir"`        // Data directory for all services
+
+	// Management settings (simplified mode)
+	SingleAccountModeDomain  string             `yaml:"singleAccountModeDomain"`
+	DisableSingleAccountMode bool               `yaml:"disableSingleAccountMode"`
+	DisableAnonymousMetrics  bool               `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate     bool               `yaml:"disableGeoliteUpdate"`
+	UserDeleteFromIDPEnabled bool               `yaml:"userDeleteFromIDPEnabled"`
+	Auth                     AuthConfig         `yaml:"auth"`
+	Store                    StoreConfig        `yaml:"store"`
+	ReverseProxy             ReverseProxyConfig `yaml:"reverseProxy"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -156,6 +177,16 @@ func DefaultConfig() *CombinedConfig {
 			HealthcheckAddress: ":9000",
 			LogLevel:           "info",
 			LogFile:            "console",
+			StunPort:           3478,
+			DataDir:            "/var/lib/netbird/",
+			Auth: AuthConfig{
+				Storage: AuthStorageConfig{
+					Type: "sqlite3",
+				},
+			},
+			Store: StoreConfig{
+				Engine: "sqlite",
+			},
 		},
 		Relay: RelayConfig{
 			Stun: StunConfig{
@@ -181,6 +212,115 @@ func DefaultConfig() *CombinedConfig {
 	}
 }
 
+// IsSimplifiedConfig returns true if the configuration is using simplified mode
+// (all settings under server, no separate relay/signal/management sections with explicit enabled flags)
+func (c *CombinedConfig) IsSimplifiedConfig() bool {
+	// Simplified mode is detected when server.exposedAddress is set
+	// and relay/signal/management are not explicitly configured
+	return c.Server.ExposedAddress != ""
+}
+
+// ApplySimplifiedDefaults applies defaults for simplified configuration mode
+// This populates relay/signal/management from server settings
+func (c *CombinedConfig) ApplySimplifiedDefaults() {
+	if !c.IsSimplifiedConfig() {
+		return
+	}
+
+	// Extract hostname from exposed address for DNS domain
+	exposedHost := c.Server.ExposedAddress
+	if host, _, err := net.SplitHostPort(exposedHost); err == nil {
+		exposedHost = host
+	}
+
+	// Enable and configure relay from server settings
+	c.Relay.Enabled = true
+	c.Relay.ExposedAddress = c.Server.ExposedAddress
+	c.Relay.AuthSecret = c.Server.AuthSecret
+
+	// Always enable STUN in simplified mode
+	if c.Server.StunPort > 0 {
+		c.Relay.Stun.Enabled = true
+		c.Relay.Stun.Ports = []int{c.Server.StunPort}
+		if c.Relay.Stun.LogLevel == "" {
+			c.Relay.Stun.LogLevel = c.Server.LogLevel
+		}
+	}
+
+	// Enable signal
+	c.Signal.Enabled = true
+
+	// Configure management from server settings
+	c.Management.Enabled = true
+	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
+		c.Management.DataDir = c.Server.DataDir
+	}
+	c.Management.DnsDomain = exposedHost
+	c.Management.SingleAccountModeDomain = c.Server.SingleAccountModeDomain
+	c.Management.DisableSingleAccountMode = c.Server.DisableSingleAccountMode
+	c.Management.DisableAnonymousMetrics = c.Server.DisableAnonymousMetrics
+	c.Management.DisableGeoliteUpdate = c.Server.DisableGeoliteUpdate
+	c.Management.UserDeleteFromIDPEnabled = c.Server.UserDeleteFromIDPEnabled
+
+	// Copy auth config from server if management auth is not set
+	if !c.Management.Auth.Enabled && c.Server.Auth.Enabled {
+		c.Management.Auth = c.Server.Auth
+	}
+
+	// Copy store config from server if not set
+	if c.Management.Store.Engine == "" || c.Management.Store.Engine == "sqlite" {
+		if c.Server.Store.Engine != "" {
+			c.Management.Store = c.Server.Store
+		}
+	}
+
+	// Copy reverse proxy config from server
+	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 {
+		c.Management.ReverseProxy = c.Server.ReverseProxy
+	}
+
+	// Auto-configure client settings (stuns, relays, signalUri)
+	c.autoConfigureClientSettings(exposedHost)
+}
+
+// autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
+func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string) {
+	// Auto-configure STUN server for clients
+	if c.Server.StunPort > 0 && len(c.Management.Stuns) == 0 {
+		c.Management.Stuns = []HostConfig{
+			{URI: fmt.Sprintf("stun:%s:%d", exposedHost, c.Server.StunPort)},
+		}
+	}
+
+	// Auto-configure relay for clients
+	if len(c.Management.Relays.Addresses) == 0 {
+		// Determine protocol based on TLS config
+		relayProto := "rel"
+		if c.HasTLSCert() || c.HasLetsEncrypt() {
+			relayProto = "rels"
+		}
+		c.Management.Relays.Addresses = []string{
+			fmt.Sprintf("%s://%s", relayProto, c.Server.ExposedAddress),
+		}
+	}
+	if c.Management.Relays.Secret == "" {
+		c.Management.Relays.Secret = c.Server.AuthSecret
+	}
+	if c.Management.Relays.CredentialsTTL == "" {
+		c.Management.Relays.CredentialsTTL = "12h"
+	}
+
+	// Auto-configure signal for clients
+	if c.Management.SignalURI == "" {
+		// Determine protocol based on TLS config
+		signalProto := "http"
+		if c.HasTLSCert() || c.HasLetsEncrypt() {
+			signalProto = "https"
+		}
+		c.Management.SignalURI = fmt.Sprintf("%s://%s", signalProto, c.Server.ExposedAddress)
+	}
+}
+
 // LoadConfig loads configuration from a YAML file
 func LoadConfig(configPath string) (*CombinedConfig, error) {
 	cfg := DefaultConfig()
@@ -198,11 +338,32 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Apply simplified defaults if using simplified config format
+	cfg.ApplySimplifiedDefaults()
+
 	return cfg, nil
 }
 
 // Validate validates the configuration
 func (c *CombinedConfig) Validate() error {
+	// Simplified config validation
+	if c.IsSimplifiedConfig() {
+		if c.Server.ExposedAddress == "" {
+			return fmt.Errorf("server.exposedAddress is required")
+		}
+		if c.Server.AuthSecret == "" {
+			return fmt.Errorf("server.authSecret is required")
+		}
+		if c.Server.DataDir == "" {
+			return fmt.Errorf("server.dataDir is required")
+		}
+		if c.Server.StunPort < 0 || c.Server.StunPort > 65535 {
+			return fmt.Errorf("invalid server.stunPort %d: must be between 0 and 65535", c.Server.StunPort)
+		}
+		return nil
+	}
+
+	// Full config validation
 	// Check that at least one component is enabled
 	if !c.Relay.Enabled && !c.Signal.Enabled && !c.Management.Enabled {
 		return fmt.Errorf("at least one component (relay, signal, or management) must be enabled")
