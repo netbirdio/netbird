@@ -248,7 +248,7 @@ initialize_default_values() {
   CADDY_IMAGE="caddy"
   DASHBOARD_IMAGE="netbirdio/dashboard:latest"
   # Combined server replaces separate signal, relay, and management containers
-  COMBINED_IMAGE="netbirdio/netbird:latest"
+  NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
@@ -569,7 +569,7 @@ services:
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: $COMBINED_IMAGE
+    image: \$NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: [netbird]
@@ -634,7 +634,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: $COMBINED_IMAGE
+    image: \$NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: [$network_name]
@@ -743,7 +743,7 @@ services:
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: $COMBINED_IMAGE
+    image: \$NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: ${networks}

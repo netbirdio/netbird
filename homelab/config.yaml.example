@@ -1,5 +1,5 @@
-# Combined NetBird Server Configuration
-# Copy this file to combined.yaml and customize for your deployment
+# Simplified Combined NetBird Server Configuration
+# Copy this file to config.yaml and customize for your deployment
 
 # Server-wide settings
 server:

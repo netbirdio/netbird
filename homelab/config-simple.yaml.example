@@ -1,0 +1,118 @@
+# Simplified Simplified NetBird Server Configuration
+# Copy this file to config.yaml and customize for your deployment
+#
+# This configuration runs all services (Management, Signal, Relay, STUN) together
+# with sensible defaults. Only server-level settings need to be configured.
+#
+# External Service Overrides:
+# - Set 'stuns' to use external STUN servers (disables local STUN)
+# - Set 'relays' to use external relay servers (disables local relay)
+# - Set 'signalUri' to use external signal server (disables local signal)
+
+server:
+  # Main HTTP/gRPC port for all services (Management, Signal, Relay)
+  listenAddress: ":443"
+
+  # Public address that peers will use to connect to this server
+  # Used for relay connections and management DNS domain
+  # Format: hostname:port or ip:port
+  exposedAddress: "server.mycompany.com:443"
+
+  # STUN server port (set to 0 to disable local STUN)
+  stunPort: 3478
+
+  # Metrics endpoint port
+  metricsPort: 9090
+
+  # Healthcheck endpoint address
+  healthcheckAddress: ":9000"
+
+  # Logging configuration
+  logLevel: "info"    # panic, fatal, error, warn, info, debug, trace
+  logFile: "console"  # "console" or path to log file
+
+  # TLS configuration (optional)
+  tls:
+    certFile: ""
+    keyFile: ""
+    letsencrypt:
+      enabled: false
+      dataDir: ""
+      domains: []
+      email: ""
+      awsRoute53: false
+
+  # Shared secret for relay authentication (required when running local relay)
+  authSecret: "your-secret-key-here"
+
+  # Data directory for all services
+  dataDir: "/var/lib/netbird/"
+
+  # ============================================================================
+  # External Service Overrides (optional)
+  # When these are set, the corresponding local service is NOT started
+  # and these values are used for client configuration instead
+  # ============================================================================
+
+  # External STUN servers - disables local STUN server
+  # stuns:
+  #   - uri: "stun:stun.example.com:3478"
+  #   - uri: "stun:stun.example.com:3479"
+
+  # External relay servers - disables local relay server
+  # relays:
+  #   addresses:
+  #     - "rels://relay.example.com:443"
+  #   credentialsTTL: "12h"
+  #   secret: "relay-shared-secret"
+
+  # External signal server - disables local signal server
+  # signalUri: "https://signal.example.com:443"
+
+  # ============================================================================
+  # Management Settings
+  # ============================================================================
+
+  # Single account mode domain (optional)
+  singleAccountModeDomain: ""
+  disableSingleAccountMode: false
+
+  # Metrics and updates
+  disableAnonymousMetrics: false
+  disableGeoliteUpdate: false
+
+  # User management
+  userDeleteFromIDPEnabled: false
+
+  # Embedded authentication/identity provider (Dex) configuration
+  auth:
+    enabled: false
+    # OIDC issuer URL - must be publicly accessible
+    issuer: "https://server.mycompany.com/oauth2"
+    localAuthDisabled: false
+    signKeyRefreshEnabled: false
+    storage:
+      type: "sqlite3"
+      file: ""  # Defaults to {dataDir}/idp.db
+    # OAuth2 redirect URIs for dashboard
+    dashboardRedirectURIs:
+      - "https://app.netbird.io/nb-auth"
+      - "https://app.netbird.io/nb-silent-auth"
+    # OAuth2 redirect URIs for CLI
+    cliRedirectURIs:
+      - "http://localhost:53000/"
+    # Optional initial admin user
+    # owner:
+    #   email: "admin@example.com"
+    #   password: "initial-password"
+
+  # Store configuration
+  store:
+    engine: "sqlite"  # sqlite or postgres
+    encryptionKey: ""
+
+  # Reverse proxy settings (optional)
+  # reverseProxy:
+  #   trustedHTTPProxies: []
+  #   trustedHTTPProxiesCount: 0
+  #   trustedPeers: []
