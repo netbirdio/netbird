@@ -445,7 +445,11 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 }
 
 func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
-	var ic profilemanager.ConfigInput
+	ic := profilemanager.ConfigInput{
+		NATExternalIPs:      natExternalIPs,
+		ExtraIFaceBlackList: extraIFaceBlackList,
+		DNSLabels:           dnsLabelsValidated,
+	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		ic.RosenpassEnabled = &rosenpassEnabled

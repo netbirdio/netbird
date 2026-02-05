@@ -249,9 +249,6 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	// update config with root flags
 	ic.ManagementURL = managementURL
 	ic.ConfigPath = configFilePath
-	ic.NATExternalIPs = natExternalIPs
-	ic.ExtraIFaceBlackList = extraIFaceBlackList
-	ic.DNSLabels = dnsLabelsValidated
 
 	config, err := profilemanager.UpdateOrCreateConfig(*ic)
 	if err != nil {
