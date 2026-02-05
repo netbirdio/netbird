@@ -569,7 +569,7 @@ services:
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: \$NETBIRD_SERVER_IMAGE
+    image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: [netbird]
@@ -634,7 +634,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: \$NETBIRD_SERVER_IMAGE
+    image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: [$network_name]
@@ -743,7 +743,7 @@ services:
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird:
-    image: \$NETBIRD_SERVER_IMAGE
+    image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: ${networks}
