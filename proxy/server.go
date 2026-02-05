@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/debug"
+	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
@@ -76,6 +77,8 @@ type Server struct {
 	DebugEndpointAddress string
 	// HealthAddress is the address for the health probe endpoint (default: "localhost:8080").
 	HealthAddress string
+	// ProxyToken is the access token for authenticating with the management server.
+	ProxyToken string
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -153,6 +156,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			Timeout:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		proxygrpc.WithProxyToken(s.ProxyToken),
 	)
 	if err != nil {
 		return fmt.Errorf("could not create management connection: %w", err)

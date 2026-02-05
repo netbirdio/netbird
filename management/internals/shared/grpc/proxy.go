@@ -269,19 +269,27 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendAccessLogRequest) (*proto.SendAccessLogResponse, error) {
 	accessLog := req.GetLog()
 
-	log.WithFields(log.Fields{
+	fields := log.Fields{
 		"reverse_proxy_id": accessLog.GetServiceId(),
 		"account_id":       accessLog.GetAccountId(),
 		"host":             accessLog.GetHost(),
-		"path":             accessLog.GetPath(),
-		"method":           accessLog.GetMethod(),
-		"response_code":    accessLog.GetResponseCode(),
-		"duration_ms":      accessLog.GetDurationMs(),
 		"source_ip":        accessLog.GetSourceIp(),
-		"auth_mechanism":   accessLog.GetAuthMechanism(),
-		"user_id":          accessLog.GetUserId(),
-		"auth_success":     accessLog.GetAuthSuccess(),
-	}).Debug("Access log from proxy")
+	}
+	if mechanism := accessLog.GetAuthMechanism(); mechanism != "" {
+		fields["auth_mechanism"] = mechanism
+	}
+	if userID := accessLog.GetUserId(); userID != "" {
+		fields["user_id"] = userID
+	}
+	if !accessLog.GetAuthSuccess() {
+		fields["auth_success"] = false
+	}
+	log.WithFields(fields).Debugf("%s %s %d (%dms)",
+		accessLog.GetMethod(),
+		accessLog.GetPath(),
+		accessLog.GetResponseCode(),
+		accessLog.GetDurationMs(),
+	)
 
 	logEntry := &accesslogs.AccessLogEntry{}
 	logEntry.FromProto(accessLog)

@@ -58,6 +58,8 @@ type BaseServer struct {
 	mgmtMetricsPort          int
 	mgmtPort                 int
 
+	proxyAuthClose func()
+
 	listener    net.Listener
 	certManager *autocert.Manager
 	update      *version.Update
@@ -215,6 +217,10 @@ func (s *BaseServer) Stop() error {
 		_ = s.certManager.Listener().Close()
 	}
 	s.GRPCServer().Stop()
+	if s.proxyAuthClose != nil {
+		s.proxyAuthClose()
+		s.proxyAuthClose = nil
+	}
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {

@@ -123,11 +123,13 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			realip.WithTrustedProxiesCount(trustedProxiesCount),
 			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 		}
+		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
+		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
 			grpc.KeepaliveParams(kasp),
-			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
+			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
+			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {

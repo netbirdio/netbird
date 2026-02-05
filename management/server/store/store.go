@@ -109,6 +109,12 @@ type Store interface {
 	SavePAT(ctx context.Context, pat *types.PersonalAccessToken) error
 	DeletePAT(ctx context.Context, userID, patID string) error
 
+	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
+	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
+	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
+	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
+
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)

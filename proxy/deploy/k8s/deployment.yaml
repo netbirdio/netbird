@@ -49,6 +49,13 @@ spec:
           value: "https://proxy.local"
         - name: NB_PROXY_CERTIFICATE_DIRECTORY
           value: "/certs"
+        - name: NB_PROXY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: netbird-proxy-token
+              key: token
+        - name: NB_PROXY_ALLOW_INSECURE
+          value: "true"  # Required for HTTP management connection in dev
         volumeMounts:
         - name: tls-certs
           mountPath: /certs

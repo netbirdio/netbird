@@ -126,7 +126,8 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
 	err = db.AutoMigrate(
-		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{}, &types.GroupPeer{},
+		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.ProxyAccessToken{},
+		&types.Group{}, &types.GroupPeer{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
@@ -4304,6 +4305,79 @@ func (s *SqlStore) DeletePAT(ctx context.Context, userID, patID string) error {
 
 	if result.RowsAffected == 0 {
 		return status.NewPATNotFoundError(patID)
+	}
+
+	return nil
+}
+
+// GetProxyAccessTokenByHashedToken retrieves a proxy access token by its hashed value.
+func (s *SqlStore) GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var token types.ProxyAccessToken
+	result := tx.Take(&token, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "proxy access token not found")
+		}
+		return nil, status.Errorf(status.Internal, "get proxy access token: %v", result.Error)
+	}
+
+	return &token, nil
+}
+
+// GetAllProxyAccessTokens retrieves all proxy access tokens.
+func (s *SqlStore) GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var tokens []*types.ProxyAccessToken
+	result := tx.Find(&tokens)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "get proxy access tokens: %v", result.Error)
+	}
+
+	return tokens, nil
+}
+
+// SaveProxyAccessToken saves a proxy access token to the database.
+func (s *SqlStore) SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error {
+	if result := s.db.WithContext(ctx).Create(token); result.Error != nil {
+		return status.Errorf(status.Internal, "save proxy access token: %v", result.Error)
+	}
+	return nil
+}
+
+// RevokeProxyAccessToken revokes a proxy access token by its ID.
+func (s *SqlStore) RevokeProxyAccessToken(ctx context.Context, tokenID string) error {
+	result := s.db.WithContext(ctx).Model(&types.ProxyAccessToken{}).Where(idQueryCondition, tokenID).Update("revoked", true)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "revoke proxy access token: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "proxy access token not found")
+	}
+
+	return nil
+}
+
+// MarkProxyAccessTokenUsed updates the last used timestamp for a proxy access token.
+func (s *SqlStore) MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error {
+	result := s.db.WithContext(ctx).Model(&types.ProxyAccessToken{}).
+		Where(idQueryCondition, tokenID).
+		Update("last_used", time.Now().UTC())
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "mark proxy access token as used: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "proxy access token not found")
 	}
 
 	return nil

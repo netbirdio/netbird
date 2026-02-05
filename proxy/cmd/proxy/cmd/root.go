@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +16,9 @@ import (
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
+
+// envProxyToken is the environment variable name for the proxy access token.
+const envProxyToken = "NB_PROXY_TOKEN"
 
 var (
 	Version   = "dev"
@@ -42,11 +46,12 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "proxy",
-	Short:   "NetBird reverse proxy server",
-	Long:    "NetBird reverse proxy server for proxying traffic to NetBird networks.",
-	Version: Version,
-	RunE:    runServer,
+	Use:          "proxy",
+	Short:        "NetBird reverse proxy server",
+	Long:         "NetBird reverse proxy server for proxying traffic to NetBird networks.",
+	Version:      Version,
+	SilenceUsage: true,
+	RunE:         runServer,
 }
 
 func init() {
@@ -85,6 +90,11 @@ func SetVersionInfo(version, commit, buildDate, goVersion string) {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
+	proxyToken := os.Getenv(envProxyToken)
+	if proxyToken == "" {
+		return fmt.Errorf("proxy token is required: set %s environment variable", envProxyToken)
+	}
+
 	level := "error"
 	if debugLogs {
 		level = "debug"
@@ -100,6 +110,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Version:                  Version,
 		ManagementAddress:        mgmtAddr,
 		ProxyURL:                 proxyURL,
+		ProxyToken:               proxyToken,
 		CertificateDirectory:     certDir,
 		GenerateACMECertificates: acmeCerts,
 		ACMEChallengeAddress:     acmeAddr,
