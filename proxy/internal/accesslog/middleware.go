@@ -24,10 +24,13 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		// headers that we wish to use to gather that information on the request.
 		sourceIp := extractSourceIP(r)
 
+		// Generate request ID early so it can be used by error pages.
+		requestID := xid.New().String()
+
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
 		// but the struct it points to can be mutated by inner handlers.
-		capturedData := &proxy.CapturedData{}
+		capturedData := &proxy.CapturedData{RequestID: requestID}
 		ctx := proxy.WithCapturedData(r.Context(), capturedData)
 
 		start := time.Now()
@@ -41,7 +44,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		}
 
 		entry := logEntry{
-			ID:            xid.New().String(),
+			ID:            requestID,
 			ServiceId:     capturedData.GetServiceId(),
 			AccountID:     string(capturedData.GetAccountId()),
 			Host:          host,
