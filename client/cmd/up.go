@@ -150,26 +150,14 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get current user: %v", err)
 	}
 
-	var profileSwitched bool
-	// switch profile if provided
-	if profileName != "" {
-		err = switchProfile(cmd.Context(), profileName, username.Username)
-		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
-		}
-
-		err = pm.SwitchProfile(profileName)
-		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
-		}
-
-		profileSwitched = true
-	}
-
-	activeProf, err := pm.GetActiveProfile()
+	// getActiveProfile will also switch the profile if needed
+	activeProf, err := getActiveProfile(cmd.Context(), pm, profileName, username.Username)
 	if err != nil {
 		return fmt.Errorf("get active profile: %v", err)
 	}
+
+	// if non-empty profileName, this means that we switched profile
+	profileSwitched := profileName != ""
 
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd, activeProf)
@@ -299,6 +287,9 @@ func setupSetConfigFromUpCmd(cmd *cobra.Command) (*proto.SetConfigRequest, error
 	}
 
 	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
 		m := int64(mtu)
 		req.Mtu = &m
 	}
