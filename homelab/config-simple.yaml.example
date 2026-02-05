@@ -15,8 +15,8 @@ server:
 
   # Public address that peers will use to connect to this server
   # Used for relay connections and management DNS domain
-  # Format: hostname:port or ip:port
-  exposedAddress: "server.mycompany.com:443"
+  # Format: protocol://hostname:port (e.g., https://server.mycompany.com:443)
+  exposedAddress: "https://server.mycompany.com:443"
 
   # STUN server port (set to 0 to disable local STUN)
   stunPort: 3478

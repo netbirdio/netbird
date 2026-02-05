@@ -43,7 +43,7 @@ type ServerConfig struct {
 	TLS                TLSConfig `yaml:"tls"`
 
 	// Simplified config fields (used when relay/signal/management sections are omitted)
-	ExposedAddress string `yaml:"exposedAddress"` // Public address for relay and management dnsDomain
+	ExposedAddress string `yaml:"exposedAddress"` // Public address with protocol (e.g., "https://example.com:443")
 	StunPort       int    `yaml:"stunPort"`       // STUN port (0 to disable local STUN)
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
@@ -227,6 +227,32 @@ func (c *CombinedConfig) IsSimplifiedConfig() bool {
 	return c.Server.ExposedAddress != ""
 }
 
+// parseExposedAddress extracts protocol, host, and host:port from the exposed address
+// Input format: "https://example.com:443" or "http://example.com:8080" or "example.com:443"
+// Returns: protocol ("https" or "http"), hostname only, and host:port
+func parseExposedAddress(exposedAddress string) (protocol, hostname, hostPort string) {
+	// Default to https if no protocol specified
+	protocol = "https"
+	hostPort = exposedAddress
+
+	// Check for protocol prefix
+	if strings.HasPrefix(exposedAddress, "https://") {
+		protocol = "https"
+		hostPort = strings.TrimPrefix(exposedAddress, "https://")
+	} else if strings.HasPrefix(exposedAddress, "http://") {
+		protocol = "http"
+		hostPort = strings.TrimPrefix(exposedAddress, "http://")
+	}
+
+	// Extract hostname (without port)
+	hostname = hostPort
+	if host, _, err := net.SplitHostPort(hostPort); err == nil {
+		hostname = host
+	}
+
+	return protocol, hostname, hostPort
+}
+
 // ApplySimplifiedDefaults applies defaults for simplified configuration mode
 // This populates relay/signal/management from server settings
 // External service overrides (server.stuns, server.relays, server.signalUri) disable
@@ -236,11 +262,8 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		return
 	}
 
-	// Extract hostname from exposed address for DNS domain
-	exposedHost := c.Server.ExposedAddress
-	if host, _, err := net.SplitHostPort(exposedHost); err == nil {
-		exposedHost = host
-	}
+	// Parse exposed address to extract protocol and hostname
+	exposedProto, exposedHost, exposedHostPort := parseExposedAddress(c.Server.ExposedAddress)
 
 	// Check for external service overrides
 	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
@@ -250,7 +273,7 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	// Enable relay only if no external relay is configured
 	if !hasExternalRelay {
 		c.Relay.Enabled = true
-		c.Relay.ExposedAddress = c.Server.ExposedAddress
+		c.Relay.ExposedAddress = exposedHostPort // Use host:port without protocol
 		c.Relay.AuthSecret = c.Server.AuthSecret
 
 		// Enable local STUN only if no external STUN servers and stunPort > 0
@@ -298,12 +321,18 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	}
 
 	// Auto-configure client settings (stuns, relays, signalUri)
-	c.autoConfigureClientSettings(exposedHost, hasExternalStuns, hasExternalRelay, hasExternalSignal)
+	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
 // autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
 // External overrides from server config take precedence over auto-generated values
-func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string, hasExternalStuns, hasExternalRelay, hasExternalSignal bool) {
+func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort string, hasExternalStuns, hasExternalRelay, hasExternalSignal bool) {
+	// Determine relay protocol from exposed protocol
+	relayProto := "rel"
+	if exposedProto == "https" {
+		relayProto = "rels"
+	}
+
 	// Configure STUN servers for clients
 	if hasExternalStuns {
 		// Use external STUN servers from server config
@@ -321,12 +350,8 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string, hasExte
 		c.Management.Relays = c.Server.Relays
 	} else if len(c.Management.Relays.Addresses) == 0 {
 		// Auto-configure local relay
-		relayProto := "rel"
-		if c.HasTLSCert() || c.HasLetsEncrypt() {
-			relayProto = "rels"
-		}
 		c.Management.Relays.Addresses = []string{
-			fmt.Sprintf("%s://%s", relayProto, c.Server.ExposedAddress),
+			fmt.Sprintf("%s://%s", relayProto, exposedHostPort),
 		}
 	}
 	if c.Management.Relays.Secret == "" {
@@ -342,11 +367,7 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string, hasExte
 		c.Management.SignalURI = c.Server.SignalURI
 	} else if c.Management.SignalURI == "" {
 		// Auto-configure local signal
-		signalProto := "http"
-		if c.HasTLSCert() || c.HasLetsEncrypt() {
-			signalProto = "https"
-		}
-		c.Management.SignalURI = fmt.Sprintf("%s://%s", signalProto, c.Server.ExposedAddress)
+		c.Management.SignalURI = fmt.Sprintf("%s://%s", exposedProto, exposedHostPort)
 	}
 }
 

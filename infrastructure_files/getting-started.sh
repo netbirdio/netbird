@@ -479,7 +479,7 @@ render_combined_yaml() {
 
 server:
   listenAddress: ":80"
-  exposedAddress: "$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  exposedAddress: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
   stunPort: $NETBIRD_STUN_PORT
   metricsPort: 9090
   healthcheckAddress: ":9000"
