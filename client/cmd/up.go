@@ -230,13 +230,13 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 }
 
 func setupSetConfigFromUpCmd(cmd *cobra.Command) (*proto.SetConfigRequest, error) {
-	var req proto.SetConfigRequest
-
-	req.NatExternalIPs = natExternalIPs
-	req.ExtraIFaceBlacklist = extraIFaceBlackList
-	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
-	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
-	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+	req := proto.SetConfigRequest{
+		NatExternalIPs:      natExternalIPs,
+		ExtraIFaceBlacklist: extraIFaceBlackList,
+		DnsLabels:           dnsLabelsValidated.ToPunycodeList(),
+		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+	}
 
 	if cmd.Flag(dnsResolverAddress).Changed {
 		var err error
@@ -459,7 +459,7 @@ func setupLoginRequestFromUpCmd(cmd *cobra.Command) (*proto.LoginRequest, error)
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		ExtraIFaceBlacklist: extraIFaceBlackList,
-		DnsLabels:           dnsLabels,
+		DnsLabels:           dnsLabelsValidated.ToPunycodeList(),
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
