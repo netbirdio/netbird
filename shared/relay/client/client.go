@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -166,11 +167,12 @@ type Client struct {
 
 	stateSubscription *PeersStateSubscription
 
-	mtu uint16
+	mtu        uint16
+	clientCert *tls.Certificate
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16, clientCert *tls.Certificate) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
@@ -180,6 +182,7 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
 		mtu:            mtu,
+		clientCert:     clientCert,
 		bufPool: &sync.Pool{
 			New: func() any {
 				buf := make([]byte, bufferSize)
