@@ -42,12 +42,29 @@ var loginCmd = &cobra.Command{
 			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
+
+		pm := profilemanager.NewProfileManager()
+
 		username, err := user.Current()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
 		}
 
-		pm := profilemanager.NewProfileManager()
+		var profileSwitched bool
+		// switch profile if provided
+		if profileName != "" {
+			err = switchProfile(cmd.Context(), profileName, username.Username)
+			if err != nil {
+				return fmt.Errorf("switch profile: %v", err)
+			}
+
+			err = pm.SwitchProfile(profileName)
+			if err != nil {
+				return fmt.Errorf("switch profile: %v", err)
+			}
+
+			profileSwitched = true
+		}
 
 		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
@@ -62,7 +79,7 @@ var loginCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := doDaemonLogin(ctx, cmd, activeProf, username.Username, pm); err != nil {
+		if err := loginInDaemonMode(ctx, cmd, activeProf, pm, profileSwitched); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
@@ -72,56 +89,124 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
-	providedSetupKey, err := getSetupKey()
+func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool) error {
+	// setup daemon
+	client, err := doDaemonSetup(ctx, cmd, activeProf, pm, profileSwitched, &proto.SetConfigRequest{})
 	if err != nil {
-		return err
+		return fmt.Errorf("daemon setup failed: %v", err)
+	}
+
+	// login
+	if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, &proto.LoginRequest{}); err != nil {
+		return fmt.Errorf("daemon login failed: %v", err)
+	}
+
+	return nil
+}
+
+func doDaemonSetup(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool, setConfigReq *proto.SetConfigRequest) (proto.DaemonServiceClient, error) {
+	// Check if deprecated config flag is set and show warning
+	if cmd.Flag("config").Changed && configPath != "" {
+		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
-	defer conn.Close()
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("failed closing daemon gRPC client connection %v", err)
+			return
+		}
+	}()
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	var dnsLabelsReq []string
-	if dnsLabelsValidated != nil {
-		dnsLabelsReq = dnsLabelsValidated.ToSafeStringList()
+	status, err := client.Status(ctx, &proto.StatusRequest{
+		WaitForReady: func() *bool { b := true; return &b }(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
-	loginRequest := proto.LoginRequest{
-		SetupKey:            providedSetupKey,
-		ManagementUrl:       managementURL,
-		IsUnixDesktopClient: isUnixRunningDesktop(),
-		Hostname:            hostName,
-		DnsLabels:           dnsLabelsReq,
-		ProfileName:         &activeProf.Name,
-		Username:            &username,
+	if status.Status == string(internal.StatusConnected) {
+		if !profileSwitched {
+			cmd.Println("Already connected")
+			return nil, nil
+		}
+
+		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
+			log.Errorf("call service down method: %v", err)
+			return nil, err
+		}
 	}
+
+	username, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %v", err)
+	}
+
+	// set default values for setconfigreq
+	setConfigReq.ProfileName = profileName
+	setConfigReq.Username = username.Username
+	setConfigReq.ManagementUrl = managementURL
+	setConfigReq.AdminURL = adminURL
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		setConfigReq.OptionalPreSharedKey = &preSharedKey
+	}
+
+	// set the new config
+	if _, err := client.SetConfig(ctx, setConfigReq); err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+			log.Warnf("setConfig method is not available in the daemon")
+		} else {
+			return nil, fmt.Errorf("call service setConfig method: %v", err)
+		}
+	}
+
+	return client, nil
+}
+
+func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, loginReq *proto.LoginRequest) error {
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return err
+	}
+
+	username, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
+	// set standard variables for login request
+	loginReq.SetupKey = providedSetupKey
+	loginReq.ManagementUrl = managementURL
+	loginReq.IsUnixDesktopClient = isUnixRunningDesktop()
+	loginReq.Hostname = hostName
+	loginReq.ProfileName = &activeProf.Name
+	loginReq.Username = &username.Username
 
 	profileState, err := pm.GetProfileState(activeProf.Name)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {
-		loginRequest.Hint = &profileState.Email
+		loginReq.Hint = &profileState.Email
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		loginRequest.OptionalPreSharedKey = &preSharedKey
+		loginReq.OptionalPreSharedKey = &preSharedKey
 	}
 
 	var loginErr error
-
 	var loginResp *proto.LoginResponse
-
 	err = WithBackOff(func() error {
 		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, &loginRequest)
+		loginResp, backOffErr = client.Login(ctx, loginReq)
 		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
 			s.Code() == codes.PermissionDenied ||
 			s.Code() == codes.NotFound ||
@@ -249,6 +334,9 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	// update config with root flags
 	ic.ManagementURL = managementURL
 	ic.ConfigPath = configFilePath
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		ic.PreSharedKey = &preSharedKey
+	}
 
 	config, err := profilemanager.UpdateOrCreateConfig(*ic)
 	if err != nil {

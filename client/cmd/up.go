@@ -12,9 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc/codes"
 
-	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -180,17 +178,10 @@ func upFunc(cmd *cobra.Command, args []string) error {
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
-	if err != nil {
-		return err
-	}
-
 	ic, err := setupConfigInputFromUpCmd(cmd)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
-
-	ic.CustomDNSAddress = customDNSAddressConverted
 
 	config, err := doForegroundLogin(ctx, cmd, activeProf, ic)
 	if err != nil {
@@ -211,123 +202,25 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
-	// Check if deprecated config flag is set and show warning
-	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
-	}
-
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	// setup daemon
+	setConfigReq, err := setupSetConfigFromUpCmd(cmd)
 	if err != nil {
-		return fmt.Errorf("parse custom DNS address: %v", err)
+		return err
 	}
 
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	client, err := doDaemonSetup(ctx, cmd, activeProf, pm, profileSwitched, setConfigReq)
 	if err != nil {
-		//nolint
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return fmt.Errorf("daemon setup failed: %v", err)
 	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("failed closing daemon gRPC client connection %v", err)
-			return
-		}
-	}()
 
-	client := proto.NewDaemonServiceClient(conn)
-
-	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
-	})
+	// login
+	loginReq, err := setupLoginRequestFromUpCmd(cmd)
 	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		return err
 	}
 
-	if status.Status == string(internal.StatusConnected) {
-		if !profileSwitched {
-			cmd.Println("Already connected")
-			return nil
-		}
-
-		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
-		}
-	}
-
-	username, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("get current user: %v", err)
-	}
-
-	// set the new config
-	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
-	if _, err := client.SetConfig(ctx, req); err != nil {
-		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon")
-		} else {
-			return fmt.Errorf("call service setConfig method: %v", err)
-		}
-	}
-
-	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
-		return fmt.Errorf("daemon up failed: %v", err)
-	}
-	cmd.Println("Connected")
-	return nil
-}
-
-func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, customDNSAddressConverted []byte, username string) error {
-
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return fmt.Errorf("get setup key: %v", err)
-	}
-
-	loginRequest, err := setupLoginRequest(providedSetupKey, customDNSAddressConverted, cmd)
-	if err != nil {
-		return fmt.Errorf("setup login request: %v", err)
-	}
-
-	loginRequest.ProfileName = &activeProf.Name
-	loginRequest.Username = &username
-
-	profileState, err := pm.GetProfileState(activeProf.Name)
-	if err != nil {
-		log.Debugf("failed to get profile state for login hint: %v", err)
-	} else if profileState.Email != "" {
-		loginRequest.Hint = &profileState.Email
-	}
-
-	var loginErr error
-	var loginResp *proto.LoginResponse
-
-	err = WithBackOff(func() error {
-		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
-			loginErr = backOffErr
-			return nil
-		}
-		return backOffErr
-	})
-	if err != nil {
-		return fmt.Errorf("login backoff cycle failed: %v", err)
-	}
-
-	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
-	}
-
-	if loginResp.NeedsSSOLogin {
-		if err := handleSSOLogin(ctx, cmd, loginResp, client, pm); err != nil {
-			return fmt.Errorf("sso login failed: %v", err)
-		}
+	if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, loginReq); err != nil {
+		return fmt.Errorf("daemon login failed: %v", err)
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
@@ -337,22 +230,26 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		return fmt.Errorf("call service up method: %v", err)
 	}
 
+	cmd.Println("Connected")
 	return nil
 }
 
-func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+func setupSetConfigFromUpCmd(cmd *cobra.Command) (*proto.SetConfigRequest, error) {
 	var req proto.SetConfigRequest
-	req.ProfileName = profileName
-	req.Username = username
 
-	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
 	req.NatExternalIPs = natExternalIPs
-	req.CustomDNSAddress = customDNSAddressConverted
 	req.ExtraIFaceBlacklist = extraIFaceBlackList
 	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
 	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
 	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(dnsResolverAddress).Changed {
+		var err error
+		req.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		req.RosenpassEnabled = &rosenpassEnabled
@@ -385,7 +282,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
-			return nil
+			return nil, nil
 		}
 		req.InterfaceName = &interfaceName
 	}
@@ -402,9 +299,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		req.OptionalPreSharedKey = &preSharedKey
-	}
+
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		req.DisableAutoConnect = &autoConnectDisabled
 	}
@@ -441,7 +336,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.LazyConnectionEnabled = &lazyConnEnabled
 	}
 
-	return &req
+	return &req, nil
 }
 
 func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
@@ -449,6 +344,14 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 		NATExternalIPs:      natExternalIPs,
 		ExtraIFaceBlackList: extraIFaceBlackList,
 		DNSLabels:           dnsLabelsValidated,
+	}
+
+	if cmd.Flag(dnsResolverAddress).Changed {
+		var err error
+		ic.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
@@ -510,10 +413,6 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 		ic.NetworkMonitor = &networkMonitor
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		ic.PreSharedKey = &preSharedKey
-	}
-
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		ic.DisableAutoConnect = &autoConnectDisabled
 
@@ -557,22 +456,21 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 	return &ic, nil
 }
 
-func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
+func setupLoginRequestFromUpCmd(cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
-		SetupKey:            providedSetupKey,
-		ManagementUrl:       managementURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
-		CustomDNSAddress:    customDNSAddressConverted,
-		IsUnixDesktopClient: isUnixRunningDesktop(),
-		Hostname:            hostName,
 		ExtraIFaceBlacklist: extraIFaceBlackList,
 		DnsLabels:           dnsLabels,
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		loginRequest.OptionalPreSharedKey = &preSharedKey
+	if cmd.Flag(dnsResolverAddress).Changed {
+		var err error
+		loginRequest.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
@@ -746,17 +644,15 @@ func isValidInterface(name string) (bool, error) {
 	return false, nil
 }
 
-func parseCustomDNSAddress(modified bool) ([]byte, error) {
+func parseDNSAddress(dnsAddress string) ([]byte, error) {
 	var parsed []byte
-	if modified {
-		if !isValidAddrPort(customDNSAddress) {
-			return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", customDNSAddress)
-		}
-		if customDNSAddress == "" && util.FindFirstLogPath(logFiles) != "" {
-			parsed = []byte("empty")
-		} else {
-			parsed = []byte(customDNSAddress)
-		}
+	if !isValidAddrPort(dnsAddress) {
+		return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", dnsAddress)
+	}
+	if dnsAddress == "" && util.FindFirstLogPath(logFiles) != "" {
+		parsed = []byte("empty")
+	} else {
+		parsed = []byte(dnsAddress)
 	}
 	return parsed, nil
 }
