@@ -541,7 +541,7 @@ services:
     restart: unless-stopped
     networks: [netbird]
     ports:
-      - '443:80'
+      - '443:443'
       - '443:443/udp'
       - '80:80'
     volumes:
