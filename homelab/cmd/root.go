@@ -90,22 +90,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 	}
 
 	log.Infof("Starting combined NetBird server")
-	if config.IsSimplifiedConfig() {
-		log.Infof("Using simplified configuration mode")
-		log.Infof("Exposed address: %s", config.Server.ExposedAddress)
-		if len(config.Server.Relays.Addresses) > 0 {
-			log.Infof("Using external relay: %v", config.Server.Relays.Addresses)
-		}
-		if config.Server.SignalURI != "" {
-			log.Infof("Using external signal: %s", config.Server.SignalURI)
-		}
-		if len(config.Server.Stuns) > 0 {
-			log.Infof("Using external STUN servers: %d configured", len(config.Server.Stuns))
-		}
-	}
-	log.Infof("Listen address: %s", config.Server.ListenAddress)
-	log.Infof("Enabled components: management=%v, signal=%v, relay=%v",
-		config.Management.Enabled, config.Signal.Enabled, config.Relay.Enabled)
+	logConfig(config)
 
 	// Management is required as the base server when signal or relay are enabled
 	if (config.Signal.Enabled || config.Relay.Enabled) && !config.Management.Enabled {
@@ -507,4 +492,95 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 
 	conn := ws.NewConn(wsConn, lAddr, rAddr)
 	acceptFn(conn)
+}
+
+// logConfig prints all configuration parameters for debugging
+func logConfig(cfg *CombinedConfig) {
+	log.Info("=== Configuration ===")
+
+	// Config mode
+	if cfg.IsSimplifiedConfig() {
+		log.Info("Mode: Simplified (all settings under server)")
+	} else {
+		log.Info("Mode: Full (separate relay/signal/management sections)")
+	}
+
+	// Server settings
+	log.Info("--- Server ---")
+	log.Infof("  Listen address: %s", cfg.Server.ListenAddress)
+	log.Infof("  Exposed address: %s", cfg.Server.ExposedAddress)
+	log.Infof("  Healthcheck address: %s", cfg.Server.HealthcheckAddress)
+	log.Infof("  Metrics port: %d", cfg.Server.MetricsPort)
+	log.Infof("  Log level: %s", cfg.Server.LogLevel)
+	log.Infof("  Data dir: %s", cfg.Server.DataDir)
+
+	// TLS
+	if cfg.HasTLSCert() {
+		log.Infof("  TLS: cert=%s, key=%s", cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
+	} else if cfg.HasLetsEncrypt() {
+		log.Infof("  TLS: Let's Encrypt (domains=%v)", cfg.Server.TLS.LetsEncrypt.Domains)
+	} else {
+		log.Info("  TLS: disabled (using reverse proxy)")
+	}
+
+	// Components enabled
+	log.Info("--- Components ---")
+	log.Infof("  Management: %v", cfg.Management.Enabled)
+	log.Infof("  Signal: %v", cfg.Signal.Enabled)
+	log.Infof("  Relay: %v", cfg.Relay.Enabled)
+
+	// Relay config
+	if cfg.Relay.Enabled {
+		log.Info("--- Relay ---")
+		log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
+		log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
+		if cfg.Relay.Stun.Enabled {
+			log.Infof("  STUN ports: %v", cfg.Relay.Stun.Ports)
+		} else {
+			log.Info("  STUN: disabled")
+		}
+	}
+
+	// Management config
+	if cfg.Management.Enabled {
+		log.Info("--- Management ---")
+		log.Infof("  Data dir: %s", cfg.Management.DataDir)
+		log.Infof("  DNS domain: %s", cfg.Management.DnsDomain)
+		log.Infof("  Single account mode domain: %s", cfg.Management.SingleAccountModeDomain)
+		log.Infof("  Disable single account mode: %v", cfg.Management.DisableSingleAccountMode)
+		log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
+
+		// Auth/IdP
+		if cfg.Management.Auth.Enabled {
+			log.Info("  Auth (embedded IdP):")
+			log.Infof("    Issuer: %s", cfg.Management.Auth.Issuer)
+			log.Infof("    Dashboard redirect URIs: %v", cfg.Management.Auth.DashboardRedirectURIs)
+			log.Infof("    CLI redirect URIs: %v", cfg.Management.Auth.CLIRedirectURIs)
+		} else {
+			log.Info("  Auth: disabled (using external IdP)")
+		}
+
+		// Client settings (what clients will receive)
+		log.Info("  Client settings:")
+		log.Infof("    Signal URI: %s", cfg.Management.SignalURI)
+		if len(cfg.Management.Stuns) > 0 {
+			for _, s := range cfg.Management.Stuns {
+				log.Infof("    STUN: %s", s.URI)
+			}
+		}
+		if len(cfg.Management.Relays.Addresses) > 0 {
+			log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
+			log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
+		}
+	}
+
+	log.Info("=== End Configuration ===")
+}
+
+// maskSecret returns first 4 chars of secret followed by "..."
+func maskSecret(secret string) string {
+	if len(secret) <= 4 {
+		return "****"
+	}
+	return secret[:4] + "..."
 }
