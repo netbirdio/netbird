@@ -68,8 +68,12 @@ type ConfigInput struct {
 	DisableAutoConnect            *bool
 	ExtraIFaceBlackList           []string
 	DNSRouteInterval              *time.Duration
+	// Path to client certificate used for mTLS authentication that is used for OAuth PKCE Authorization Flow with the identity provider (SSO)
 	ClientCertPath                string
 	ClientCertKeyPath             string
+	// Path to client certificate used for mTLS authentication that is used to connect to management/signal/relay backend
+	MgmtClientCertPath            string
+	MgmtClientKeyPath             string
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
@@ -148,13 +152,18 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
-	// Path to a certificate used for mTLS authentication
+
+	// Path to client certificate used for mTLS authentication that is used for OAuth PKCE Authorization Flow with the identity provider (SSO)
 	ClientCertPath string
 
 	// Path to corresponding private key of ClientCertPath
 	ClientCertKeyPath string
-
 	ClientCertKeyPair *tls.Certificate `json:"-"`
+
+	// Path to client certificate used for mTLS authentication that is used to connect to management/signal/relay backend
+	MgmtClientCertPath    string
+	MgmtClientKeyPath     string
+	MgmtClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
 
@@ -567,6 +576,30 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 	}
 
+	if input.MgmtClientKeyPath != "" {
+		config.MgmtClientKeyPath = input.MgmtClientKeyPath
+		updated = true
+	}
+
+	if input.MgmtClientCertPath != "" {
+		config.MgmtClientCertPath = input.MgmtClientCertPath
+		updated = true
+	}
+
+	// reset cached pair before reloading
+	config.MgmtClientCertKeyPair = nil
+	if (config.MgmtClientCertPath == "") != (config.MgmtClientKeyPath == "") {
+		return updated, fmt.Errorf("both MgmtClientCertPath and MgmtClientKeyPath must be set together")
+	}
+	if config.MgmtClientCertPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.MgmtClientCertPath, config.MgmtClientKeyPath)
+		if err != nil {
+			return updated, fmt.Errorf("failed to load management mTLS cert/key pair: %w", err)
+		}
+		config.MgmtClientCertKeyPair = &cert
+		log.Info("Loaded client mTLS cert/key pair for management.")
+	}
+
 	if input.DNSLabels != nil && !slices.Equal(config.DNSLabels, input.DNSLabels) {
 		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
 			input.DNSLabels.SafeString(),
@@ -753,7 +786,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled, config.MgmtClientCertKeyPair)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
