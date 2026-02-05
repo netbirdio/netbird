@@ -93,6 +93,15 @@ func execute(cmd *cobra.Command, _ []string) error {
 	if config.IsSimplifiedConfig() {
 		log.Infof("Using simplified configuration mode")
 		log.Infof("Exposed address: %s", config.Server.ExposedAddress)
+		if len(config.Server.Relays.Addresses) > 0 {
+			log.Infof("Using external relay: %v", config.Server.Relays.Addresses)
+		}
+		if config.Server.SignalURI != "" {
+			log.Infof("Using external signal: %s", config.Server.SignalURI)
+		}
+		if len(config.Server.Stuns) > 0 {
+			log.Infof("Using external STUN servers: %d configured", len(config.Server.Stuns))
+		}
 	}
 	log.Infof("Listen address: %s", config.Server.ListenAddress)
 	log.Infof("Enabled components: management=%v, signal=%v, relay=%v",

@@ -44,9 +44,16 @@ type ServerConfig struct {
 
 	// Simplified config fields (used when relay/signal/management sections are omitted)
 	ExposedAddress string `yaml:"exposedAddress"` // Public address for relay and management dnsDomain
-	StunPort       int    `yaml:"stunPort"`       // STUN port (always enabled in simplified mode)
+	StunPort       int    `yaml:"stunPort"`       // STUN port (0 to disable local STUN)
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
+
+	// External service overrides (simplified mode)
+	// When these are set, the corresponding local service is NOT started
+	// and these values are used for client configuration instead
+	Stuns     []HostConfig `yaml:"stuns"`     // External STUN servers (disables local STUN)
+	Relays    RelaysConfig `yaml:"relays"`    // External relay servers (disables local relay)
+	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
 
 	// Management settings (simplified mode)
 	SingleAccountModeDomain  string             `yaml:"singleAccountModeDomain"`
@@ -222,6 +229,8 @@ func (c *CombinedConfig) IsSimplifiedConfig() bool {
 
 // ApplySimplifiedDefaults applies defaults for simplified configuration mode
 // This populates relay/signal/management from server settings
+// External service overrides (server.stuns, server.relays, server.signalUri) disable
+// the corresponding local services and are used for client configuration instead
 func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if !c.IsSimplifiedConfig() {
 		return
@@ -233,24 +242,33 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		exposedHost = host
 	}
 
-	// Enable and configure relay from server settings
-	c.Relay.Enabled = true
-	c.Relay.ExposedAddress = c.Server.ExposedAddress
-	c.Relay.AuthSecret = c.Server.AuthSecret
+	// Check for external service overrides
+	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
+	hasExternalSignal := c.Server.SignalURI != ""
+	hasExternalStuns := len(c.Server.Stuns) > 0
 
-	// Always enable STUN in simplified mode
-	if c.Server.StunPort > 0 {
-		c.Relay.Stun.Enabled = true
-		c.Relay.Stun.Ports = []int{c.Server.StunPort}
-		if c.Relay.Stun.LogLevel == "" {
-			c.Relay.Stun.LogLevel = c.Server.LogLevel
+	// Enable relay only if no external relay is configured
+	if !hasExternalRelay {
+		c.Relay.Enabled = true
+		c.Relay.ExposedAddress = c.Server.ExposedAddress
+		c.Relay.AuthSecret = c.Server.AuthSecret
+
+		// Enable local STUN only if no external STUN servers and stunPort > 0
+		if !hasExternalStuns && c.Server.StunPort > 0 {
+			c.Relay.Stun.Enabled = true
+			c.Relay.Stun.Ports = []int{c.Server.StunPort}
+			if c.Relay.Stun.LogLevel == "" {
+				c.Relay.Stun.LogLevel = c.Server.LogLevel
+			}
 		}
 	}
 
-	// Enable signal
-	c.Signal.Enabled = true
+	// Enable signal only if no external signal is configured
+	if !hasExternalSignal {
+		c.Signal.Enabled = true
+	}
 
-	// Configure management from server settings
+	// Management is always enabled in simplified mode
 	c.Management.Enabled = true
 	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
 		c.Management.DataDir = c.Server.DataDir
@@ -275,26 +293,34 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	}
 
 	// Copy reverse proxy config from server
-	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 {
+	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 || len(c.Server.ReverseProxy.TrustedPeers) > 0 {
 		c.Management.ReverseProxy = c.Server.ReverseProxy
 	}
 
 	// Auto-configure client settings (stuns, relays, signalUri)
-	c.autoConfigureClientSettings(exposedHost)
+	c.autoConfigureClientSettings(exposedHost, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
 // autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
-func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string) {
-	// Auto-configure STUN server for clients
-	if c.Server.StunPort > 0 && len(c.Management.Stuns) == 0 {
+// External overrides from server config take precedence over auto-generated values
+func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string, hasExternalStuns, hasExternalRelay, hasExternalSignal bool) {
+	// Configure STUN servers for clients
+	if hasExternalStuns {
+		// Use external STUN servers from server config
+		c.Management.Stuns = c.Server.Stuns
+	} else if c.Server.StunPort > 0 && len(c.Management.Stuns) == 0 {
+		// Auto-configure local STUN server
 		c.Management.Stuns = []HostConfig{
 			{URI: fmt.Sprintf("stun:%s:%d", exposedHost, c.Server.StunPort)},
 		}
 	}
 
-	// Auto-configure relay for clients
-	if len(c.Management.Relays.Addresses) == 0 {
-		// Determine protocol based on TLS config
+	// Configure relay for clients
+	if hasExternalRelay {
+		// Use external relay config from server
+		c.Management.Relays = c.Server.Relays
+	} else if len(c.Management.Relays.Addresses) == 0 {
+		// Auto-configure local relay
 		relayProto := "rel"
 		if c.HasTLSCert() || c.HasLetsEncrypt() {
 			relayProto = "rels"
@@ -310,9 +336,12 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedHost string) {
 		c.Management.Relays.CredentialsTTL = "12h"
 	}
 
-	// Auto-configure signal for clients
-	if c.Management.SignalURI == "" {
-		// Determine protocol based on TLS config
+	// Configure signal for clients
+	if hasExternalSignal {
+		// Use external signal URI from server config
+		c.Management.SignalURI = c.Server.SignalURI
+	} else if c.Management.SignalURI == "" {
+		// Auto-configure local signal
 		signalProto := "http"
 		if c.HasTLSCert() || c.HasLetsEncrypt() {
 			signalProto = "https"
@@ -351,15 +380,19 @@ func (c *CombinedConfig) Validate() error {
 		if c.Server.ExposedAddress == "" {
 			return fmt.Errorf("server.exposedAddress is required")
 		}
-		if c.Server.AuthSecret == "" {
-			return fmt.Errorf("server.authSecret is required")
-		}
 		if c.Server.DataDir == "" {
 			return fmt.Errorf("server.dataDir is required")
 		}
 		if c.Server.StunPort < 0 || c.Server.StunPort > 65535 {
 			return fmt.Errorf("invalid server.stunPort %d: must be between 0 and 65535", c.Server.StunPort)
 		}
+
+		// authSecret is required only if running local relay (no external relay configured)
+		hasExternalRelay := len(c.Server.Relays.Addresses) > 0
+		if !hasExternalRelay && c.Server.AuthSecret == "" {
+			return fmt.Errorf("server.authSecret is required when running local relay")
+		}
+
 		return nil
 	}
 
