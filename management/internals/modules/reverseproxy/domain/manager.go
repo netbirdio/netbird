@@ -58,21 +58,31 @@ func NewManager(store store, proxyURLProvider proxyURLProvider) Manager {
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, error) {
-	account, err := m.store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
-	}
-	free, err := m.store.ListFreeDomains(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("list free domains: %w", err)
-	}
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
 	}
 
 	var ret []*Domain
-	// Populate all fields correctly for custom domains that are retrieved.
+
+	// Add connected proxy clusters as free domains.
+	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
+	allowList := m.proxyURLAllowList()
+	log.WithFields(log.Fields{
+		"accountID":      accountID,
+		"proxyAllowList": allowList,
+	}).Debug("getting domains with proxy allow list")
+
+	for _, cluster := range allowList {
+		ret = append(ret, &Domain{
+			Domain:    cluster,
+			AccountID: accountID,
+			Type:      TypeFree,
+			Validated: true,
+		})
+	}
+
+	// Add custom domains.
 	for _, domain := range domains {
 		ret = append(ret, &Domain{
 			ID:        domain.ID,
@@ -83,19 +93,6 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 		})
 	}
 
-	// Prepend each free domain with the account nonce and then add it to the domain
-	// array to be returned.
-	// This account nonce is added to free domains to prevent users being able to
-	// query free domain usage across accounts and simplifies tracking free domain
-	// usage across accounts.
-	for _, name := range free {
-		ret = append(ret, &Domain{
-			Domain:    account.ReverseProxyFreeDomainNonce + "." + name,
-			AccountID: accountID,
-			Type:      TypeFree,
-			Validated: true,
-		})
-	}
 	return ret, nil
 }
 
@@ -239,9 +236,4 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (st
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
-}
-
-// GetAvailableClusters returns a list of available proxy cluster addresses.
-func (m Manager) GetAvailableClusters() []string {
-	return m.proxyURLAllowList()
 }

@@ -112,13 +112,18 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return status.Errorf(codes.InvalidArgument, "proxy_id is required")
 	}
 
-	log.Infof("Proxy %s connected (version: %s, started: %s)",
-		proxyID, req.GetVersion(), req.GetStartedAt().AsTime())
+	proxyAddress := req.GetAddress()
+	log.WithFields(log.Fields{
+		"proxy_id": proxyID,
+		"address":  proxyAddress,
+		"version":  req.GetVersion(),
+		"started":  req.GetStartedAt().AsTime(),
+	}).Info("Proxy connected")
 
 	connCtx, cancel := context.WithCancel(ctx)
 	conn := &proxyConnection{
 		proxyID:  proxyID,
-		address:  req.GetAddress(),
+		address:  proxyAddress,
 		stream:   stream,
 		sendChan: make(chan *proto.ProxyMapping, 100),
 		ctx:      connCtx,
@@ -127,6 +132,12 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	s.connectedProxies.Store(proxyID, conn)
 	s.addToCluster(conn.address, proxyID)
+	log.WithFields(log.Fields{
+		"proxy_id":      proxyID,
+		"address":       proxyAddress,
+		"cluster_addr":  extractClusterAddr(proxyAddress),
+		"total_proxies": len(s.GetConnectedProxies()),
+	}).Info("Proxy registered in cluster")
 	defer func() {
 		s.connectedProxies.Delete(proxyID)
 		s.removeFromCluster(conn.address, proxyID)
@@ -306,14 +317,25 @@ func (s *ProxyServiceServer) GetConnectedProxies() []string {
 func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
 	seenUrls := make(map[string]struct{})
 	var urls []string
+	var proxyCount int
 	s.connectedProxies.Range(func(key, value interface{}) bool {
+		proxyCount++
 		conn := value.(*proxyConnection)
+		log.WithFields(log.Fields{
+			"proxy_id": conn.proxyID,
+			"address":  conn.address,
+		}).Debug("checking connected proxy for URL")
 		if _, seen := seenUrls[conn.address]; conn.address != "" && !seen {
 			seenUrls[conn.address] = struct{}{}
 			urls = append(urls, conn.address)
 		}
 		return true
 	})
+	log.WithFields(log.Fields{
+		"total_proxies":  proxyCount,
+		"unique_urls":    len(urls),
+		"connected_urls": urls,
+	}).Debug("GetConnectedProxyURLs result")
 	return urls
 }
 
