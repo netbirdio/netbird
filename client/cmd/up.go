@@ -294,7 +294,7 @@ func setupSetConfigFromUpCmd(cmd *cobra.Command) (*proto.SetConfigRequest, error
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
-			return nil, nil
+			return nil, err
 		}
 		req.InterfaceName = &interfaceName
 	}
