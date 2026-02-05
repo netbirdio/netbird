@@ -89,6 +89,8 @@ func getRequestID(r *http.Request) string {
 // classifyProxyError determines the appropriate error title, message, HTTP
 // status code, and component status based on the error type.
 func classifyProxyError(err error) (title, message string, code int, status web.ErrorStatus) {
+	errStr := err.Error()
+
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Request Timeout",
@@ -108,16 +110,36 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 			http.StatusInternalServerError,
 			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
 
-	case strings.Contains(err.Error(), "connection refused"):
+	case strings.Contains(errStr, "no peer connection found"),
+		strings.Contains(errStr, "start netbird client"),
+		strings.Contains(errStr, "engine not started"),
+		strings.Contains(errStr, "get net:"):
+		// The proxy peer (embedded client) is not connected
+		return "Proxy Not Connected",
+			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
+			http.StatusBadGateway,
+			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
+
+	case strings.Contains(errStr, "connection refused"):
+		// Routing peer connected but destination service refused the connection
 		return "Service Unavailable",
 			"The connection to the service was refused. Please verify that the service is running and try again.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
 
-	default:
+	case strings.Contains(errStr, "no route to host"),
+		strings.Contains(errStr, "network is unreachable"),
+		strings.Contains(errStr, "i/o timeout"):
+		// Peer is not reachable
 		return "Peer Not Connected",
 			"The connection to the peer could not be established. Please ensure the peer is running and connected to the NetBird network.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
 	}
+
+	// Unknown error - log it and show generic message
+	return "Connection Error",
+		"An unexpected error occurred while connecting to the service. Please try again later.",
+		http.StatusBadGateway,
+		web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
 }

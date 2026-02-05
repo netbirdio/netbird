@@ -18,7 +18,7 @@ export function ErrorPage({ code, title, message, proxy = true, peer = true, des
     <main className="flex flex-col items-center mt-24 px-4 max-w-3xl mx-auto">
       {/* Error Code */}
       <div className="text-sm text-netbird font-normal font-mono mb-3 z-10 relative">
-        {code} {title === "Service Unavailable" ? "Bad Gateway" : title.split(" ").slice(0, 2).join(" ")}
+        Error {code}
       </div>
 
       {/* Title */}
@@ -31,7 +31,7 @@ export function ErrorPage({ code, title, message, proxy = true, peer = true, des
       <div className="hidden sm:flex items-start justify-center w-full mt-6 mb-16 z-10 relative">
         <StatusCard icon={UserIcon} label="You" line={false} />
         <StatusCard icon={WaypointsIcon} label="Proxy" success={proxy} />
-        <StatusCard icon={Server} label="Routing Peer" success={peer} />
+        <StatusCard icon={Server} label="Peer" success={peer} />
         <StatusCard icon={Globe} label="Destination" success={destination} />
       </div>
 
