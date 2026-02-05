@@ -76,7 +76,7 @@ const (
 	// Provides the env variable name for use with idpTimeout function
 	idpTimeoutEnv = "NB_IDP_TIMEOUT"
 	// Sets the defaultTimeout to 10s.
-	defaultTimeout  = 10 * time.Second
+	defaultTimeout = 10 * time.Second
 )
 
 // idpTimeout returns a timeout value for the IDP

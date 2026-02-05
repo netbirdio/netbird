@@ -180,12 +180,13 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
 	return Create(s, func() reverseproxy.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer(), s.ProxyTokenStore())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer(), s.ProxyTokenStore(), s.ReverseProxyDomainManager())
 	})
 }
 
-func (s *BaseServer) ReverseProxyDomainManager() domain.Manager {
-	return Create(s, func() domain.Manager {
-		return domain.NewManager(s.Store(), s.ReverseProxyGRPCServer())
+func (s *BaseServer) ReverseProxyDomainManager() *domain.Manager {
+	return Create(s, func() *domain.Manager {
+		m := domain.NewManager(s.Store(), s.ReverseProxyGRPCServer())
+		return &m
 	})
 }

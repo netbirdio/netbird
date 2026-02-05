@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
@@ -57,21 +58,31 @@ func NewManager(store store, proxyURLProvider proxyURLProvider) Manager {
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, error) {
-	account, err := m.store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
-	}
-	free, err := m.store.ListFreeDomains(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("list free domains: %w", err)
-	}
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
 	}
 
 	var ret []*Domain
-	// Populate all fields correctly for custom domains that are retrieved.
+
+	// Add connected proxy clusters as free domains.
+	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
+	allowList := m.proxyURLAllowList()
+	log.WithFields(log.Fields{
+		"accountID":      accountID,
+		"proxyAllowList": allowList,
+	}).Debug("getting domains with proxy allow list")
+
+	for _, cluster := range allowList {
+		ret = append(ret, &Domain{
+			Domain:    cluster,
+			AccountID: accountID,
+			Type:      TypeFree,
+			Validated: true,
+		})
+	}
+
+	// Add custom domains.
 	for _, domain := range domains {
 		ret = append(ret, &Domain{
 			ID:        domain.ID,
@@ -82,19 +93,6 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 		})
 	}
 
-	// Prepend each free domain with the account nonce and then add it to the domain
-	// array to be returned.
-	// This account nonce is added to free domains to prevent users being able to
-	// query free domain usage across accounts and simplifies tracking free domain
-	// usage across accounts.
-	for _, name := range free {
-		ret = append(ret, &Domain{
-			Domain:    account.ReverseProxyFreeDomainNonce + "." + name,
-			AccountID: accountID,
-			Type:      TypeFree,
-			Validated: true,
-		})
-	}
 	return ret, nil
 }
 
@@ -124,6 +122,11 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) e
 }
 
 func (m Manager) ValidateDomain(accountID, domainID string) {
+	log.WithFields(log.Fields{
+		"accountID": accountID,
+		"domainID":  domainID,
+	}).Info("starting domain validation")
+
 	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -133,12 +136,20 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		return
 	}
 
-	if m.validator.IsValid(context.Background(), d.Domain, m.proxyURLAllowList()) {
+	allowList := m.proxyURLAllowList()
+	log.WithFields(log.Fields{
+		"accountID":      accountID,
+		"domainID":       domainID,
+		"domain":         d.Domain,
+		"proxyAllowList": allowList,
+	}).Info("validating domain against proxy allow list")
+
+	if m.validator.IsValid(context.Background(), d.Domain, allowList) {
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
 			"domain":    d.Domain,
-		}).Debug("domain validated successfully")
+		}).Info("domain validated successfully")
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
 			log.WithFields(log.Fields{
@@ -148,6 +159,13 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 			}).WithError(err).Error("update custom domain in store")
 			return
 		}
+	} else {
+		log.WithFields(log.Fields{
+			"accountID":      accountID,
+			"domainID":       domainID,
+			"domain":         d.Domain,
+			"proxyAllowList": allowList,
+		}).Warn("domain validation failed - CNAME does not match any connected proxy")
 	}
 }
 
@@ -162,17 +180,60 @@ func (m Manager) proxyURLAllowList() []string {
 	}
 	var allowedProxyURLs []string
 	for _, addr := range reverseProxyAddresses {
+		if addr == "" {
+			continue
+		}
+		host := extractHostFromAddress(addr)
+		if host != "" {
+			allowedProxyURLs = append(allowedProxyURLs, host)
+		}
+	}
+	return allowedProxyURLs
+}
+
+// extractHostFromAddress extracts the hostname from an address string.
+// It handles both URL format (https://host:port) and plain hostname (host or host:port).
+func extractHostFromAddress(addr string) string {
+	// If it looks like a URL with a scheme, parse it
+	if strings.Contains(addr, "://") {
 		proxyUrl, err := url.Parse(addr)
 		if err != nil {
-			// TODO: log?
-			continue
+			log.WithError(err).Debugf("failed to parse proxy URL %s", addr)
+			return ""
 		}
 		host, _, err := net.SplitHostPort(proxyUrl.Host)
 		if err != nil {
-			// TODO: log?
-			host = proxyUrl.Host
+			return proxyUrl.Host
 		}
-		allowedProxyURLs = append(allowedProxyURLs, host)
+		return host
 	}
-	return allowedProxyURLs
+
+	// Otherwise treat as hostname or host:port
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port, use as-is
+		return addr
+	}
+	return host
+}
+
+// DeriveClusterFromDomain determines the proxy cluster for a given domain.
+// For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
+// For custom domains, the cluster is determined by looking up the CNAME target.
+func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (string, error) {
+	allowList := m.proxyURLAllowList()
+	if len(allowList) == 0 {
+		return "", fmt.Errorf("no proxy clusters available")
+	}
+
+	if cluster, ok := ExtractClusterFromFreeDomain(domain, allowList); ok {
+		return cluster, nil
+	}
+
+	cluster, valid := m.validator.ValidateWithCluster(ctx, domain, allowList)
+	if valid {
+		return cluster, nil
+	}
+
+	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
 }

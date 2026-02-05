@@ -20,12 +20,12 @@ type handler struct {
 	manager reverseproxy.Manager
 }
 
+// RegisterEndpoints registers all reverse proxy HTTP endpoints.
 func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
 
-	// Hang domain endpoints off the main router here.
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
 	domain.RegisterEndpoints(domainRouter, domainManager)
 

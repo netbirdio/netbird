@@ -1947,6 +1947,15 @@ type ProxyAccessLog struct {
 	UserId *string `json:"user_id,omitempty"`
 }
 
+// ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
+type ProxyCluster struct {
+	// Address Cluster address used for CNAME targets
+	Address string `json:"address"`
+
+	// ConnectedProxies Number of proxy nodes connected in this cluster
+	ConnectedProxies int `json:"connected_proxies"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -1973,6 +1982,9 @@ type ReverseProxy struct {
 
 	// Name Reverse proxy name
 	Name string `json:"name"`
+
+	// ProxyCluster The proxy cluster handling this reverse proxy (derived from domain)
+	ProxyCluster *string `json:"proxy_cluster,omitempty"`
 
 	// Targets List of target backends for this reverse proxy
 	Targets []ReverseProxyTarget `json:"targets"`
