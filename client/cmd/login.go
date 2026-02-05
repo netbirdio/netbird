@@ -90,9 +90,16 @@ var loginCmd = &cobra.Command{
 }
 
 func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool) error {
-	// setup daemon
-	client, err := doDaemonSetup(ctx, cmd, activeProf, pm, profileSwitched, &proto.SetConfigRequest{})
+	// setup grpc connection
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		return fmt.Errorf("connect to service CLI interface: %w", err)
+	}
+	defer conn.Close()
+	client := proto.NewDaemonServiceClient(conn)
+
+	// setup daemon
+	if err := doDaemonSetup(ctx, cmd, client, profileSwitched, &proto.SetConfigRequest{}); err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
 
@@ -104,51 +111,34 @@ func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	return nil
 }
 
-func doDaemonSetup(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool, setConfigReq *proto.SetConfigRequest) (proto.DaemonServiceClient, error) {
+func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, setConfigReq *proto.SetConfigRequest) error {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
 	}
 
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("failed closing daemon gRPC client connection %v", err)
-			return
-		}
-	}()
-
-	client := proto.NewDaemonServiceClient(conn)
-
 	status, err := client.Status(ctx, &proto.StatusRequest{
 		WaitForReady: func() *bool { b := true; return &b }(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to get daemon status: %v", err)
+		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if !profileSwitched {
 			cmd.Println("Already connected")
-			return nil, nil
+			return nil
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
-			return nil, err
+			return err
 		}
 	}
 
 	username, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("get current user: %v", err)
+		return fmt.Errorf("get current user: %v", err)
 	}
 
 	// set default values for setconfigreq
@@ -165,11 +155,11 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon")
 		} else {
-			return nil, fmt.Errorf("call service setConfig method: %v", err)
+			return fmt.Errorf("call service setConfig method: %v", err)
 		}
 	}
 
-	return client, nil
+	return nil
 }
 
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, loginReq *proto.LoginRequest) error {
@@ -355,7 +345,8 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, activeProf *prof
 		return nil, fmt.Errorf("foreground login failed: %v", err)
 	}
 	cmd.Println("Logging successfully")
-	return nil, nil
+
+	return config, nil
 }
 
 func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) error {
