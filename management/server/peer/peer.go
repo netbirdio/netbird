@@ -48,6 +48,8 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool `gorm:"index"`
+	// ProxyEmbedded indicates whether the peer is embedded in a reverse proxy
+	ProxyEmbedded bool `gorm:"index"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
@@ -224,6 +226,7 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:                   p.LastLogin,
 		CreatedAt:                   p.CreatedAt,
 		Ephemeral:                   p.Ephemeral,
+		ProxyEmbedded:               p.ProxyEmbedded,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),

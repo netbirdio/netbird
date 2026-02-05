@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {Loader2, Lock, Binary, LogIn} from "lucide-react";
 import { getData, type Data } from "@/data";
 import Button from "@/components/Button";
@@ -22,6 +22,10 @@ const methods: NonNullable<Data["methods"]> =
     : {  password:"password", pin: "pin", oidc: "/auth/oidc" };
 
 function App() {
+  useEffect(() => {
+    document.title = "Authentication Required - NetBird Service";
+  }, []);
+
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [pin, setPin] = useState("");

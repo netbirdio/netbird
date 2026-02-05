@@ -22,6 +22,8 @@ type ProxyServiceClient interface {
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
 	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
+	CreateProxyPeer(ctx context.Context, in *CreateProxyPeerRequest, opts ...grpc.CallOption) (*CreateProxyPeerResponse, error)
+	GetOIDCURL(ctx context.Context, in *GetOIDCURLRequest, opts ...grpc.CallOption) (*GetOIDCURLResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -91,6 +93,24 @@ func (c *proxyServiceClient) SendStatusUpdate(ctx context.Context, in *SendStatu
 	return out, nil
 }
 
+func (c *proxyServiceClient) CreateProxyPeer(ctx context.Context, in *CreateProxyPeerRequest, opts ...grpc.CallOption) (*CreateProxyPeerResponse, error) {
+	out := new(CreateProxyPeerResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/CreateProxyPeer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyServiceClient) GetOIDCURL(ctx context.Context, in *GetOIDCURLRequest, opts ...grpc.CallOption) (*GetOIDCURLResponse, error) {
+	out := new(GetOIDCURLResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/GetOIDCURL", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -99,6 +119,8 @@ type ProxyServiceServer interface {
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
 	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
+	CreateProxyPeer(context.Context, *CreateProxyPeerRequest) (*CreateProxyPeerResponse, error)
+	GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -117,6 +139,12 @@ func (UnimplementedProxyServiceServer) Authenticate(context.Context, *Authentica
 }
 func (UnimplementedProxyServiceServer) SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendStatusUpdate not implemented")
+}
+func (UnimplementedProxyServiceServer) CreateProxyPeer(context.Context, *CreateProxyPeerRequest) (*CreateProxyPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateProxyPeer not implemented")
+}
+func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOIDCURL not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -206,6 +234,42 @@ func _ProxyService_SendStatusUpdate_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_CreateProxyPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateProxyPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).CreateProxyPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/CreateProxyPeer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).CreateProxyPeer(ctx, req.(*CreateProxyPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyService_GetOIDCURL_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOIDCURLRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).GetOIDCURL(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/GetOIDCURL",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).GetOIDCURL(ctx, req.(*GetOIDCURLRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -224,6 +288,14 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendStatusUpdate",
 			Handler:    _ProxyService_SendStatusUpdate_Handler,
+		},
+		{
+			MethodName: "CreateProxyPeer",
+			Handler:    _ProxyService_CreateProxyPeer_Handler,
+		},
+		{
+			MethodName: "GetOIDCURL",
+			Handler:    _ProxyService_GetOIDCURL_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

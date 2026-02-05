@@ -2,26 +2,45 @@ package grpc
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
+	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+type ProxyOIDCConfig struct {
+	Issuer      string
+	ClientID    string
+	Scopes      []string
+	CallbackURL string
+	HMACKey     []byte
+
+	Audience     string
+	KeysLocation string
+}
 
 type reverseProxyStore interface {
 	GetReverseProxies(ctx context.Context, lockStrength store.LockingStrength) ([]*reverseproxy.ReverseProxy, error)
@@ -32,11 +51,6 @@ type reverseProxyStore interface {
 type reverseProxyManager interface {
 	SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error
 	SetStatus(ctx context.Context, accountID, reverseProxyID string, status reverseproxy.ProxyStatus) error
-}
-
-type keyStore interface {
-	GetGroupByName(ctx context.Context, groupName string, accountID string) (*types.Group, error)
-	CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType, expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error)
 }
 
 // ClusterInfo contains information about a proxy cluster.
@@ -61,14 +75,23 @@ type ProxyServiceServer struct {
 	// Store of reverse proxies
 	reverseProxyStore reverseProxyStore
 
-	// Store for client setup keys
-	keyStore keyStore
-
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
 	// Manager for reverse proxy operations
 	reverseProxyManager reverseProxyManager
+
+	// Manager for peers
+	peersManager peers.Manager
+
+	// Store for one-time authentication tokens
+	tokenStore *OneTimeTokenStore
+
+	// OIDC configuration for proxy authentication
+	oidcConfig ProxyOIDCConfig
+
+	// TODO: use database to store these instead?
+	pkceVerifiers sync.Map
 }
 
 // proxyConnection represents a connected proxy
@@ -83,12 +106,14 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore, keys keyStore, accessLogMgr accesslogs.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(store reverseProxyStore, accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
 		reverseProxyStore: store,
-		keyStore:          keys,
 		accessLogManager:  accessLogMgr,
+		oidcConfig:        oidcConfig,
+		tokenStore:        tokenStore,
+		peersManager:      peersManager,
 	}
 }
 
@@ -180,32 +205,14 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
-		group, err := s.keyStore.GetGroupByName(ctx, rp.Name, rp.AccountID)
+		// Generate one-time authentication token for each proxy in the snapshot
+		// Tokens are not persistent on the proxy, so we need to generate new ones on reconnection
+		token, err := s.tokenStore.GenerateToken(rp.AccountID, rp.ID, 5*time.Minute)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"proxy":   rp.Name,
 				"account": rp.AccountID,
-			}).WithError(err).Error("Failed to get group by name")
-			continue
-		}
-
-		key, err := s.keyStore.CreateSetupKey(ctx,
-			rp.AccountID,
-			rp.Name,
-			types.SetupKeyReusable,
-			0,
-			[]string{group.ID},
-			0,
-			activity.SystemInitiator,
-			true,
-			false,
-		)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"proxy":   rp.Name,
-				"account": rp.AccountID,
-				"group":   group.ID,
-			}).WithError(err).Error("Failed to create setup key")
+			}).WithError(err).Error("Failed to generate auth token for snapshot")
 			continue
 		}
 
@@ -213,7 +220,8 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			Mapping: []*proto.ProxyMapping{
 				rp.ToProtoMapping(
 					reverseproxy.Create,
-					key.Key,
+					token,
+					s.GetOIDCValidationConfig(),
 				),
 			},
 		}); err != nil {
@@ -423,7 +431,10 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 		// TODO: log the error
 		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
 	}
+
 	var authenticated bool
+	var userId string
+	var method proxyauth.Method
 	switch v := req.GetRequest().(type) {
 	case *proto.AuthenticateRequest_Pin:
 		auth := proxy.Auth.PinAuth
@@ -433,6 +444,8 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			break
 		}
 		authenticated = subtle.ConstantTimeCompare([]byte(auth.Pin), []byte(v.Pin.GetPin())) == 1
+		userId = "pin-user"
+		method = proxyauth.MethodPIN
 	case *proto.AuthenticateRequest_Password:
 		auth := proxy.Auth.PasswordAuth
 		if auth == nil || !auth.Enabled {
@@ -441,9 +454,28 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			break
 		}
 		authenticated = subtle.ConstantTimeCompare([]byte(auth.Password), []byte(v.Password.GetPassword())) == 1
+		userId = "password-user"
+		method = proxyauth.MethodPassword
 	}
+
+	var token string
+	if authenticated && proxy.SessionPrivateKey != "" {
+		token, err = sessionkey.SignToken(
+			proxy.SessionPrivateKey,
+			userId,
+			proxy.Domain,
+			method,
+			proxyauth.DefaultSessionExpiry,
+		)
+		if err != nil {
+			log.WithError(err).Error("Failed to sign session token")
+			authenticated = false
+		}
+	}
+
 	return &proto.AuthenticateResponse{
-		Success: authenticated,
+		Success:      authenticated,
+		SessionToken: token,
 	}, nil
 }
 
@@ -511,4 +543,199 @@ func protoStatusToInternal(protoStatus proto.ProxyStatus) reverseproxy.ProxyStat
 	default:
 		return reverseproxy.StatusError
 	}
+}
+
+// CreateProxyPeer handles proxy peer creation with one-time token authentication
+func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.CreateProxyPeerRequest) (*proto.CreateProxyPeerResponse, error) {
+	reverseProxyID := req.GetReverseProxyId()
+	accountID := req.GetAccountId()
+	token := req.GetToken()
+	key := req.WireguardPublicKey
+
+	log.WithFields(log.Fields{
+		"reverse_proxy_id": reverseProxyID,
+		"account_id":       accountID,
+	}).Debug("CreateProxyPeer request received")
+
+	if reverseProxyID == "" || accountID == "" || token == "" {
+		log.Warn("CreateProxyPeer: missing required fields")
+		return &proto.CreateProxyPeerResponse{
+			Success:      false,
+			ErrorMessage: strPtr("missing required fields: reverse_proxy_id, account_id, and token are required"),
+		}, nil
+	}
+
+	if err := s.tokenStore.ValidateAndConsume(token, accountID, reverseProxyID); err != nil {
+		log.WithFields(log.Fields{
+			"reverse_proxy_id": reverseProxyID,
+			"account_id":       accountID,
+		}).WithError(err).Warn("CreateProxyPeer: token validation failed")
+		return &proto.CreateProxyPeerResponse{
+			Success:      false,
+			ErrorMessage: strPtr("authentication failed: invalid or expired token"),
+		}, status.Errorf(codes.Unauthenticated, "token validation failed: %v", err)
+	}
+
+	err := s.peersManager.CreateProxyPeer(ctx, accountID, key)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"reverse_proxy_id": reverseProxyID,
+			"account_id":       accountID,
+		}).WithError(err).Error("CreateProxyPeer: failed to create proxy peer")
+		return &proto.CreateProxyPeerResponse{
+			Success:      false,
+			ErrorMessage: strPtr(fmt.Sprintf("failed to create proxy peer: %v", err)),
+		}, status.Errorf(codes.Internal, "failed to create proxy peer: %v", err)
+	}
+
+	return &proto.CreateProxyPeerResponse{
+		Success: true,
+	}, nil
+}
+
+// strPtr is a helper to create a string pointer for optional proto fields
+func strPtr(s string) *string {
+	return &s
+}
+
+func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {
+	redirectURL, err := url.Parse(req.GetRedirectUrl())
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse redirect url: %v", err)
+	}
+	// Validate redirectURL against known proxy endpoints to avoid abuse of OIDC redirection.
+	proxies, err := s.reverseProxyStore.GetAccountReverseProxies(ctx, store.LockingStrengthNone, req.GetAccountId())
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
+	}
+	var found bool
+	for _, proxy := range proxies {
+		if proxy.Domain == redirectURL.Hostname() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "reverse proxy not found in store")
+	}
+
+	provider, err := oidc.NewProvider(ctx, s.oidcConfig.Issuer)
+	if err != nil {
+		// TODO: log
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to create OIDC provider: %v", err)
+	}
+
+	scopes := s.oidcConfig.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+	}
+
+	// Using an HMAC here to avoid redirection state being modified.
+	// State format: base64(redirectURL)|hmac
+	hmacSum := s.generateHMAC(redirectURL.String())
+	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), hmacSum)
+
+	codeVerifier := oauth2.GenerateVerifier()
+	s.pkceVerifiers.Store(state, codeVerifier)
+
+	return &proto.GetOIDCURLResponse{
+		Url: (&oauth2.Config{
+			ClientID:    s.oidcConfig.ClientID,
+			Endpoint:    provider.Endpoint(),
+			RedirectURL: s.oidcConfig.CallbackURL,
+			Scopes:      scopes,
+		}).AuthCodeURL(state, oauth2.S256ChallengeOption(codeVerifier)),
+	}, nil
+}
+
+// GetOIDCConfig returns the OIDC configuration for token validation.
+func (s *ProxyServiceServer) GetOIDCConfig() ProxyOIDCConfig {
+	return s.oidcConfig
+}
+
+// GetOIDCValidationConfig returns the OIDC configuration for token validation
+// in the format needed by ToProtoMapping.
+func (s *ProxyServiceServer) GetOIDCValidationConfig() reverseproxy.OIDCValidationConfig {
+	return reverseproxy.OIDCValidationConfig{
+		Issuer:             s.oidcConfig.Issuer,
+		Audiences:          []string{s.oidcConfig.Audience},
+		KeysLocation:       s.oidcConfig.KeysLocation,
+		MaxTokenAgeSeconds: 0, // No max token age by default
+	}
+}
+
+func (s *ProxyServiceServer) generateHMAC(input string) string {
+	mac := hmac.New(sha256.New, s.oidcConfig.HMACKey)
+	mac.Write([]byte(input))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// ValidateState validates the state parameter from an OAuth callback.
+// Returns the original redirect URL if valid, or an error if invalid.
+func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
+	v, ok := s.pkceVerifiers.LoadAndDelete(state)
+	if !ok {
+		return "", "", errors.New("no verifier for state")
+	}
+	verifier, ok = v.(string)
+	if !ok {
+		return "", "", errors.New("invalid verifier for state")
+	}
+
+	parts := strings.Split(state, "|")
+	if len(parts) != 2 {
+		return "", "", errors.New("invalid state format")
+	}
+
+	encodedURL := parts[0]
+	providedHMAC := parts[1]
+
+	redirectURLBytes, err := base64.URLEncoding.DecodeString(encodedURL)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid state encoding: %w", err)
+	}
+	redirectURL = string(redirectURLBytes)
+
+	expectedHMAC := s.generateHMAC(redirectURL)
+
+	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
+		return "", "", fmt.Errorf("invalid state signature")
+	}
+
+	return verifier, redirectURL, nil
+}
+
+// GenerateSessionToken creates a signed session JWT for the given domain and user.
+func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
+	// Find the proxy by domain to get its signing key
+	proxies, err := s.reverseProxyStore.GetReverseProxies(ctx, store.LockingStrengthNone)
+	if err != nil {
+		return "", fmt.Errorf("get reverse proxies: %w", err)
+	}
+
+	var proxy *reverseproxy.ReverseProxy
+	for _, p := range proxies {
+		if p.Domain == domain {
+			proxy = p
+			break
+		}
+	}
+	if proxy == nil {
+		return "", fmt.Errorf("reverse proxy not found for domain: %s", domain)
+	}
+
+	if proxy.SessionPrivateKey == "" {
+		return "", fmt.Errorf("no session key configured for domain: %s", domain)
+	}
+
+	return sessionkey.SignToken(
+		proxy.SessionPrivateKey,
+		userID,
+		domain,
+		method,
+		proxyauth.DefaultSessionExpiry,
+	)
 }

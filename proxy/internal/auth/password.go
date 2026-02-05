@@ -3,13 +3,11 @@ package auth
 import (
 	"net/http"
 
+	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const (
-	passwordUserId = "password-user"
-	passwordFormId = "password"
-)
+const passwordFormId = "password"
 
 type Password struct {
 	id, accountId string
@@ -24,8 +22,8 @@ func NewPassword(client authenticator, id, accountId string) Password {
 	}
 }
 
-func (Password) Type() Method {
-	return MethodPassword
+func (Password) Type() auth.Method {
+	return auth.MethodPassword
 }
 
 // Authenticate attempts to authenticate the request using a form
@@ -35,6 +33,11 @@ func (Password) Type() Method {
 // authentication may be successful.
 func (p Password) Authenticate(r *http.Request) (string, string) {
 	password := r.FormValue(passwordFormId)
+
+	if password == "" {
+		// This cannot be authenticated, so not worth wasting time sending the request.
+		return "", passwordFormId
+	}
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
 		Id:        p.id,
@@ -51,12 +54,8 @@ func (p Password) Authenticate(r *http.Request) (string, string) {
 	}
 
 	if res.GetSuccess() {
-		return passwordUserId, ""
+		return res.GetSessionToken(), ""
 	}
 
 	return "", passwordFormId
-}
-
-func (p Password) Middleware(next http.Handler) http.Handler {
-	return next
 }

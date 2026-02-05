@@ -14,14 +14,18 @@ Proxy Authentication methods supported are:
 - Simple PIN
 - HTTP Basic Auth Username and Password
 
-## Management Connection
+## Management Connection and Authentication
 
 The Proxy communicates with the Management server over a gRPC connection.
 Proxies act as clients to the Management server, the following RPCs are used:
 - Server-side streaming for proxied service updates.
 - Client-side streaming for proxy logs.
 
-## Authentication
+To authenticate with the Management server, the proxy server uses Machine-to-Machine OAuth2.
+If you are using the embedded IdP //TODO: explain how to get credentials.
+Otherwise, create a new machine-to-machine profile in your IdP for proxy servers and set the relevant settings in the proxy's environment or flags (see below).
+
+## User Authentication
 
 When a request hits the Proxy, it looks up the permitted authentication methods for the Host domain.
 If no authentication methods are registered for the Host domain, then no authentication will be applied (for fully public resources).

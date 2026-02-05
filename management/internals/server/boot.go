@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
@@ -94,7 +95,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ReverseProxyManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ReverseProxyManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -161,11 +162,40 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccountManager(), s.AccessLogsManager())
+		proxyService := nbgrpc.NewProxyServiceServer(s.Store(), s.AccessLogsManager(), s.ProxyTokenStore(), s.proxyOIDCConfig(), s.PeersManager())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetProxyManager(s.ReverseProxyManager())
 		})
 		return proxyService
+	})
+}
+
+func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
+	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		// TODO: this is weird, double check
+		// Build callback URL - this should be the management server's callback endpoint
+		// For embedded IdP, derive from issuer. For external, use a configured value or derive from issuer.
+		// The callback URL should be registered in the IdP's allowed redirect URIs for the dashboard client.
+		callbackURL := strings.TrimSuffix(s.Config.HttpConfig.AuthIssuer, "/oauth2")
+		callbackURL = callbackURL + "/api/oauth/callback"
+
+		return nbgrpc.ProxyOIDCConfig{
+			Issuer:       s.Config.HttpConfig.AuthIssuer,
+			ClientID:     "netbird-dashboard", // Reuse dashboard client
+			Scopes:       []string{"openid", "profile", "email"},
+			CallbackURL:  callbackURL,
+			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
+			Audience:     s.Config.HttpConfig.AuthAudience,
+			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
+		}
+	})
+}
+
+func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
+	return Create(s, func() *nbgrpc.OneTimeTokenStore {
+		tokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
+		log.Info("One-time token store initialized for proxy authentication")
+		return tokenStore
 	})
 }
 

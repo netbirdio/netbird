@@ -37,7 +37,8 @@ func init() {
 
 // ServeHTTP serves the web UI. For static assets it serves them directly,
 // for other paths it renders the page with the provided data.
-func ServeHTTP(w http.ResponseWriter, r *http.Request, data any) {
+// Optional statusCode can be passed to set a custom HTTP status code (default 200).
+func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...int) {
 	if initErr != nil {
 		http.Error(w, initErr.Error(), http.StatusInternalServerError)
 		return
@@ -101,5 +102,20 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
+	if len(statusCode) > 0 {
+		w.WriteHeader(statusCode[0])
+	}
 	w.Write(buf.Bytes())
+}
+
+// ServeErrorPage renders a user-friendly error page with the given details.
+func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, message string) {
+	ServeHTTP(w, r, map[string]any{
+		"page": "error",
+		"error": map[string]any{
+			"code":    code,
+			"title":   title,
+			"message": message,
+		},
+	}, code)
 }

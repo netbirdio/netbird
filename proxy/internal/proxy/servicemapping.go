@@ -6,16 +6,18 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
 type Mapping struct {
 	ID        string
-	AccountID string
+	AccountID types.AccountID
 	Host      string
 	Paths     map[string]*url.URL
 }
 
-func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string, string, bool) {
+func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string, types.AccountID, bool) {
 	p.mappingsMux.RLock()
 	if p.mappings == nil {
 		p.mappingsMux.RUnlock()
@@ -27,10 +29,13 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (*url.URL, string
 	}
 	defer p.mappingsMux.RUnlock()
 
-	host, _, err := net.SplitHostPort(req.Host)
-	if err != nil {
-		host = req.Host
+	// Strip port from host if present (e.g., "external.test:8443" -> "external.test")
+	host := req.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
+
+	p.logger.Debugf("looking for mapping for host: %s, path: %s", host, req.URL.Path)
 	m, exists := p.mappings[host]
 	if !exists {
 		return nil, "", "", false

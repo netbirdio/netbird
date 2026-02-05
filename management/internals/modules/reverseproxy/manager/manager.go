@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -17,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -32,16 +30,18 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	proxyGRPCServer    *nbgrpc.ProxyServiceServer
 	clusterDeriver     ClusterDeriver
+	tokenStore         *nbgrpc.OneTimeTokenStore
 }
 
 // NewManager creates a new reverse proxy manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) reverseproxy.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver, tokenStore *nbgrpc.OneTimeTokenStore) reverseproxy.Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyGRPCServer:    proxyGRPCServer,
 		clusterDeriver:     clusterDeriver,
+		tokenStore:         tokenStore,
 	}
 }
 
@@ -92,6 +92,14 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	reverseProxy.Auth = authConfig
 
+	// Generate session JWT signing keys
+	keyPair, err := sessionkey.GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("generate session keys: %w", err)
+	}
+	reverseProxy.SessionPrivateKey = keyPair.PrivateKey
+	reverseProxy.SessionPublicKey = keyPair.PublicKey
+
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		// Check for duplicate domain
 		existingReverseProxy, err := transaction.GetReverseProxyByDomain(ctx, accountID, reverseProxy.Domain)
@@ -114,56 +122,14 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		return nil, err
 	}
 
+	token, err := m.tokenStore.GenerateToken(accountID, reverseProxy.ID, 5*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate authentication token: %w", err)
+	}
+
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
-	// TODO: refactor to avoid policy and group creation here
-	group := &types.Group{
-		ID:     xid.New().String(),
-		Name:   reverseProxy.Name,
-		Issued: types.GroupIssuedAPI,
-	}
-	err = m.accountManager.CreateGroup(ctx, accountID, activity.SystemInitiator, group)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create default group for reverse proxy: %w", err)
-	}
-
-	for _, target := range reverseProxy.Targets {
-		policyID := uuid.New().String()
-		// TODO: support other resource types in the future
-		targetType := types.ResourceTypePeer
-		if target.TargetType == "resource" {
-			targetType = types.ResourceTypeHost
-		}
-		policyRule := &types.PolicyRule{
-			ID:                  policyID,
-			PolicyID:            policyID,
-			Name:                reverseProxy.Name,
-			Enabled:             true,
-			Action:              types.PolicyTrafficActionAccept,
-			Protocol:            types.PolicyRuleProtocolALL,
-			Sources:             []string{group.ID},
-			DestinationResource: types.Resource{Type: targetType, ID: target.TargetId},
-			Bidirectional:       false,
-		}
-
-		policy := &types.Policy{
-			AccountID: accountID,
-			Name:      reverseProxy.Name,
-			Enabled:   true,
-			Rules:     []*types.PolicyRule{policyRule},
-		}
-		_, err = m.accountManager.SavePolicy(ctx, accountID, activity.SystemInitiator, policy, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create default policy for reverse proxy: %w", err)
-		}
-	}
-
-	key, err := m.accountManager.CreateSetupKey(ctx, accountID, reverseProxy.Name, types.SetupKeyReusable, 0, []string{group.ID}, 0, activity.SystemInitiator, true, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create setup key for reverse proxy: %w", err)
-	}
-
-	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, key.Key), reverseProxy.ProxyCluster)
+	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 
 	return reverseProxy, nil
 }
@@ -225,11 +191,12 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
+	oidcConfig := m.proxyGRPCServer.GetOIDCValidationConfig()
 	if domainChanged && oldCluster != reverseProxy.ProxyCluster {
-		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, ""), oldCluster)
-		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, ""), reverseProxy.ProxyCluster)
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", oidcConfig), oldCluster)
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, "", oidcConfig), reverseProxy.ProxyCluster)
 	} else {
-		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Update, ""), reverseProxy.ProxyCluster)
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Update, "", oidcConfig), reverseProxy.ProxyCluster)
 	}
 
 	return reverseProxy, nil
@@ -264,7 +231,7 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxyID, accountID, activity.ReverseProxyDeleted, reverseProxy.EventMeta())
 
-	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, ""), reverseProxy.ProxyCluster)
+	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 
 	return nil
 }

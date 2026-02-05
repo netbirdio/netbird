@@ -13,6 +13,7 @@ import (
 
 func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l.logger.Debugf("access log middleware invoked for %s %s", r.Method, r.URL.Path)
 		// Use a response writer wrapper so we can access the status code later.
 		sw := &statusWriter{
 			w:      w,
@@ -42,7 +43,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		entry := logEntry{
 			ID:            xid.New().String(),
 			ServiceId:     capturedData.GetServiceId(),
-			AccountID:     capturedData.GetAccountId(),
+			AccountID:     string(capturedData.GetAccountId()),
 			Host:          host,
 			Path:          r.URL.Path,
 			DurationMs:    duration.Milliseconds(),
