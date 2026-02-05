@@ -148,46 +148,21 @@ func upFunc(cmd *cobra.Command, args []string) error {
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	// override the default profile filepath if provided
-	if configPath != "" {
-		_ = profilemanager.NewServiceManager(configPath)
-	}
-
-	err := handleRebrand(cmd)
-	if err != nil {
-		return err
-	}
-
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
 	}
 
-	configFilePath, err := activeProf.FilePath()
-	if err != nil {
-		return fmt.Errorf("get active profile file path: %v", err)
-	}
-
-	ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
+	ic, err := setupConfigInputFromUpCmd(cmd)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
 
-	providedSetupKey, err := getSetupKey()
+	ic.CustomDNSAddress = customDNSAddressConverted
+
+	config, err := doForegroundLogin(ctx, cmd, activeProf, ic)
 	if err != nil {
 		return err
-	}
-
-	config, err := profilemanager.UpdateOrCreateConfig(*ic)
-	if err != nil {
-		return fmt.Errorf("get config file: %v", err)
-	}
-
-	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
-
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.Name)
-	if err != nil {
-		return fmt.Errorf("foreground login failed: %v", err)
 	}
 
 	var cancel context.CancelFunc
@@ -437,15 +412,8 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	return &req
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
-	ic := profilemanager.ConfigInput{
-		ManagementURL:       managementURL,
-		ConfigPath:          configFilePath,
-		NATExternalIPs:      natExternalIPs,
-		CustomDNSAddress:    customDNSAddressConverted,
-		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsValidated,
-	}
+func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
+	var ic profilemanager.ConfigInput
 
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		ic.RosenpassEnabled = &rosenpassEnabled
