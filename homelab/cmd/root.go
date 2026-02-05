@@ -30,7 +30,6 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
-	"github.com/netbirdio/netbird/signal/metrics"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/stun"
 	"github.com/netbirdio/netbird/util"
@@ -114,11 +113,8 @@ func execute(cmd *cobra.Command, _ []string) error {
 
 	wg := sync.WaitGroup{}
 
-	// Resource creation phase (fail fast before starting any goroutines)
-	metricsServer, err := metrics.NewServer(config.Server.MetricsPort, "")
-	if err != nil {
-		return fmt.Errorf("setup metrics: %w", err)
-	}
+	// TODO: Implement combined metrics server for all components
+	// For now, metrics are disabled to avoid port conflicts between components
 
 	_, tlsSupport, err := handleTLSConfig(config)
 	if err != nil {
@@ -141,7 +137,6 @@ func execute(cmd *cobra.Command, _ []string) error {
 		authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
 		relayCfg := relayServer.Config{
-			Meter:          metricsServer.Meter,
 			ExposedAddress: config.Relay.ExposedAddress,
 			AuthValidator:  authenticator,
 			TLSSupport:     tlsSupport,
@@ -194,7 +189,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 	// Create Signal server if enabled
 	var signalSrv *signalServer.Server
 	if config.Signal.Enabled {
-		signalSrv, err = signalServer.NewServer(cmd.Context(), metricsServer.Meter)
+		signalSrv, err = signalServer.NewServer(cmd.Context(), nil)
 		if err != nil {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create signal server: %w", err)
@@ -214,7 +209,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 			}
 
 			// Create combined handler with enabled components
-			s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), srv, metricsServer.Meter, config))
+			s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), srv, nil, config))
 			if srv != nil {
 				log.Infof("Relay WebSocket handler added (path: /relay)")
 			}
@@ -247,28 +242,19 @@ func execute(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Start all other servers
-	startServers(&wg, metricsServer, srv, httpHealthcheck, stunServer)
+	startServers(&wg, srv, httpHealthcheck, stunServer)
 
 	waitForExitSignal()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = shutdownServers(ctx, metricsServer, srv, httpHealthcheck, stunServer, mgmtSrv)
+	err = shutdownServers(ctx, srv, httpHealthcheck, stunServer, mgmtSrv)
 	wg.Wait()
 	return err
 }
 
-func startServers(wg *sync.WaitGroup, metricsServer *metrics.Metrics, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
-		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("failed to start metrics server: %v", err)
-		}
-	}()
-
+func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
 	if srv != nil {
 		instanceURL := srv.InstanceURL()
 		log.Infof("Relay server instance URL: %s", instanceURL.String())
@@ -297,7 +283,7 @@ func startServers(wg *sync.WaitGroup, metricsServer *metrics.Metrics, srv *relay
 	}
 }
 
-func shutdownServers(ctx context.Context, metricsServer *metrics.Metrics, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -321,11 +307,6 @@ func shutdownServers(ctx context.Context, metricsServer *metrics.Metrics, srv *r
 		if err := mgmtSrv.Stop(); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to close management server: %w", err))
 		}
-	}
-
-	log.Infof("shutting down metrics server")
-	if err := metricsServer.Shutdown(ctx); err != nil {
-		errs = multierror.Append(errs, fmt.Errorf("failed to close metrics server: %w", err))
 	}
 
 	return errs
