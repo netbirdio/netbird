@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -50,26 +51,14 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("get current user: %v", err)
 		}
 
-		var profileSwitched bool
-		// switch profile if provided
-		if profileName != "" {
-			err = switchProfile(cmd.Context(), profileName, username.Username)
-			if err != nil {
-				return fmt.Errorf("switch profile: %v", err)
-			}
-
-			err = pm.SwitchProfile(profileName)
-			if err != nil {
-				return fmt.Errorf("switch profile: %v", err)
-			}
-
-			profileSwitched = true
-		}
-
+		// getActiveProfile will also switch the profile if needed
 		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
 		}
+
+		// if non-empty profileName, this means that we switched profile
+		profileSwitched := profileName != ""
 
 		// workaround to run without service
 		if util.FindFirstLogPath(logFiles) == "" {
@@ -126,8 +115,7 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 
 	if status.Status == string(internal.StatusConnected) {
 		if !profileSwitched {
-			cmd.Println("Already connected")
-			return nil
+			return errors.New("Already connected")
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
