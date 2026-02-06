@@ -273,7 +273,12 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	// Enable relay only if no external relay is configured
 	if !hasExternalRelay {
 		c.Relay.Enabled = true
-		c.Relay.ExposedAddress = exposedHostPort // Use host:port without protocol
+		// Set relay exposed address with relay protocol (rels:// for https, rel:// for http)
+		relayProto := "rel"
+		if exposedProto == "https" {
+			relayProto = "rels"
+		}
+		c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
 		c.Relay.AuthSecret = c.Server.AuthSecret
 
 		// Enable local STUN only if no external STUN servers and stunPort > 0
