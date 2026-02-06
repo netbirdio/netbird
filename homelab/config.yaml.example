@@ -39,6 +39,9 @@ relay:
   # Shared secret for relay authentication (required when enabled)
   authSecret: "your-secret-key-here"
 
+  # Log level for relay (reserved for future use, currently uses global log level)
+  logLevel: "info"
+
   # Embedded STUN server (optional)
   stun:
     enabled: false
@@ -49,8 +52,9 @@ relay:
 signal:
   # Enable/disable the signal service
   enabled: true
-  # Signal shares the server.listenAddress port
-  # No additional configuration needed
+
+  # Log level for signal (reserved for future use, currently uses global log level)
+  logLevel: "info"
 
 # Management service configuration
 management:

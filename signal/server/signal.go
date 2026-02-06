@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -55,6 +56,7 @@ type Server struct {
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
 	metrics    *metrics.AppMetrics
+	logger     *log.Entry
 
 	successHeader metadata.MD
 
@@ -89,6 +91,31 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// CreateLogger creates a component-specific logger for the signal server with its own log level.
+// This allows the signal server to have a different log level than the global logger.
+// The returned logger can be passed to the server via SetLogger.
+func CreateLogger(logLevel string) *log.Entry {
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		level = log.InfoLevel
+	}
+
+	signalLogger := log.New()
+	signalLogger.SetOutput(log.StandardLogger().Out)
+	signalLogger.SetLevel(level)
+	formatter.SetTextFormatter(signalLogger)
+
+	logger := signalLogger.WithField("component", "signal")
+	logger.Infof("Signal server log level set to: %s", level.String())
+	return logger
+}
+
+// SetLogger sets a custom logger for the signal server.
+// If not called, the signal server uses the global logger.
+func (s *Server) SetLogger(logger *log.Entry) {
+	s.logger = logger
 }
 
 // Send forwards a message to the signal peer

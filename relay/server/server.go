@@ -142,3 +142,9 @@ func (r *Server) InstanceURL() url.URL {
 func (r *Server) RelayAccept() func(conn net.Conn) {
 	return r.relay.Accept
 }
+
+// SetLogger sets a custom logger for the relay server.
+// Use CreateLogger to create a component-specific logger with its own log level.
+func (r *Server) SetLogger(logger *log.Entry) {
+	r.relay.SetLogger(logger)
+}

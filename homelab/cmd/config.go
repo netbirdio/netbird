@@ -87,6 +87,7 @@ type RelayConfig struct {
 	Enabled        bool       `yaml:"enabled"`
 	ExposedAddress string     `yaml:"exposedAddress"`
 	AuthSecret     string     `yaml:"authSecret"`
+	LogLevel       string     `yaml:"logLevel"`
 	Stun           StunConfig `yaml:"stun"`
 }
 
@@ -99,9 +100,8 @@ type StunConfig struct {
 
 // SignalConfig contains signal service settings
 type SignalConfig struct {
-	Enabled bool `yaml:"enabled"`
-	// Signal shares the server.listenAddress port
-	// Reserved for future signal-specific settings
+	Enabled  bool   `yaml:"enabled"`
+	LogLevel string `yaml:"logLevel"`
 }
 
 // ManagementConfig contains management service settings
@@ -196,11 +196,15 @@ func DefaultConfig() *CombinedConfig {
 			},
 		},
 		Relay: RelayConfig{
+			LogLevel: "info", // Reserved for future use (currently uses global log level)
 			Stun: StunConfig{
 				Enabled:  false,
 				Ports:    []int{3478},
 				LogLevel: "info",
 			},
+		},
+		Signal: SignalConfig{
+			LogLevel: "info", // Reserved for future use (currently uses global log level)
 		},
 		Management: ManagementConfig{
 			DataDir: "/var/lib/netbird/",
@@ -280,6 +284,9 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		}
 		c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
 		c.Relay.AuthSecret = c.Server.AuthSecret
+		if c.Relay.LogLevel == "" {
+			c.Relay.LogLevel = c.Server.LogLevel
+		}
 
 		// Enable local STUN only if no external STUN servers and stunPort > 0
 		if !hasExternalStuns && c.Server.StunPort > 0 {
@@ -294,6 +301,9 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	// Enable signal only if no external signal is configured
 	if !hasExternalSignal {
 		c.Signal.Enabled = true
+		if c.Signal.LogLevel == "" {
+			c.Signal.LogLevel = c.Server.LogLevel
+		}
 	}
 
 	// Management is always enabled in simplified mode

@@ -132,6 +132,13 @@ func execute(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
+
+		// Set component-specific logger
+		relayLogLevel := config.Relay.LogLevel
+		if relayLogLevel == "" {
+			relayLogLevel = "info"
+		}
+		srv.SetLogger(relayServer.CreateLogger(relayLogLevel))
 		log.Infof("Relay server created")
 	}
 
@@ -182,6 +189,13 @@ func execute(cmd *cobra.Command, _ []string) error {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create signal server: %w", err)
 		}
+
+		// Set component-specific logger
+		signalLogLevel := config.Signal.LogLevel
+		if signalLogLevel == "" {
+			signalLogLevel = "info"
+		}
+		signalSrv.SetLogger(signalServer.CreateLogger(signalLogLevel))
 		log.Infof("Signal server created")
 	}
 
@@ -526,8 +540,8 @@ func logConfig(cfg *CombinedConfig) {
 	// Components enabled
 	log.Info("--- Components ---")
 	log.Infof("  Management: %v", cfg.Management.Enabled)
-	log.Infof("  Signal: %v", cfg.Signal.Enabled)
-	log.Infof("  Relay: %v", cfg.Relay.Enabled)
+	log.Infof("  Signal: %v (log level: %s)", cfg.Signal.Enabled, cfg.Signal.LogLevel)
+	log.Infof("  Relay: %v (log level: %s)", cfg.Relay.Enabled, cfg.Relay.LogLevel)
 
 	// Relay config
 	if cfg.Relay.Enabled {
@@ -535,7 +549,7 @@ func logConfig(cfg *CombinedConfig) {
 		log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
 		log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
 		if cfg.Relay.Stun.Enabled {
-			log.Infof("  STUN ports: %v", cfg.Relay.Stun.Ports)
+			log.Infof("  STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
 		} else {
 			log.Info("  STUN: disabled")
 		}
