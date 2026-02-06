@@ -404,11 +404,20 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
+// It implements a backpressure mechanism that sends the first update immediately,
+// then debounces subsequent rapid updates, ensuring only the latest update is sent
+// after a quiet period.
 func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
+
+	// Create a debouncer for this peer connection
+	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
+	defer debouncer.Stop()
+
 	for {
 		select {
 		// condition when there are some updates
+		// todo set the updates channel size to 1
 		case update, open := <-updates:
 			if s.appMetrics != nil {
 				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
@@ -419,10 +428,28 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 				return nil
 			}
+
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
-				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-				return err
+			if debouncer.ProcessUpdate(update) {
+				// Send immediately (first update or after quiet period)
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
+					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+					return err
+				}
+			}
+
+		// Timer expired - quiet period reached, send pending updates if any
+		case <-debouncer.TimerChannel():
+			pendingUpdates := debouncer.GetPendingUpdates()
+			if len(pendingUpdates) == 0 {
+				continue
+			}
+			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
+			for _, pendingUpdate := range pendingUpdates {
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv, streamStartTime); err != nil {
+					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+					return err
+				}
 			}
 
 		// condition when client <-> server connection has been terminated
