@@ -16,6 +16,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: git-town/action@v1.2.1
+      - uses: git-town/action@v1.3.2
         with:
           skip-single-stacks: true
