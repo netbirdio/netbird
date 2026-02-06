@@ -130,6 +130,7 @@ type registeredHandlerMap map[types.HandlerID]handlerWrapper
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
 	WgInterface    WGIface
+	Firewall       DNSFirewall
 	CustomAddress  string
 	StatusRecorder *peer.Status
 	StateManager   *statemanager.Manager
@@ -151,7 +152,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, config.Firewall)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -396,7 +397,11 @@ func (s *DefaultServer) Stop() {
 }
 
 func (s *DefaultServer) disableDNS() error {
-	defer s.service.Stop()
+	defer func() {
+		if err := s.service.Stop(); err != nil {
+			log.Errorf("failed to stop DNS service: %v", err)
+		}
+	}()
 
 	if s.isUsingNoopHostManager() {
 		return nil
