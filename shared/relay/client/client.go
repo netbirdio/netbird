@@ -249,6 +249,17 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		return nil, err
 	}
 
+	c.mu.Lock()
+	if !c.serviceIsRunning {
+		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
+			delete(c.conns, peerID)
+		}
+		c.mu.Unlock()
+		container.close()
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+	c.mu.Unlock()
+
 	c.log.Infof("remote peer is available: %s", peerID)
 	return conn, nil
 }
