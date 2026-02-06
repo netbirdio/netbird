@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,11 +13,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
@@ -582,6 +585,40 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
+
+// resetState clears all firewall rules and closes connection trackers.
+// Must be called with m.mutex held.
+func (m *Manager) resetState() {
+	maps.Clear(m.outgoingRules)
+	maps.Clear(m.incomingDenyRules)
+	maps.Clear(m.incomingRules)
+	maps.Clear(m.routeRulesMap)
+	m.routeRules = m.routeRules[:0]
+
+	if m.udpTracker != nil {
+		m.udpTracker.Close()
+	}
+
+	if m.icmpTracker != nil {
+		m.icmpTracker.Close()
+	}
+
+	if m.tcpTracker != nil {
+		m.tcpTracker.Close()
+	}
+
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
+	}
+
+	if m.logger != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.logger.Stop(ctx); err != nil {
+			log.Errorf("failed to shutdown logger: %v", err)
+		}
+	}
+}
 
 // SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
 func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
