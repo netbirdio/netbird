@@ -828,6 +828,10 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	started := time.Now()
+	defer func() {
+		log.Infof("sync finished in %s", time.Since(started))
+	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
