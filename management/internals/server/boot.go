@@ -180,8 +180,9 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 		callbackURL = callbackURL + "/api/oauth/callback"
 
 		return nbgrpc.ProxyOIDCConfig{
-			Issuer:       s.Config.HttpConfig.AuthIssuer,
-			ClientID:     "netbird-dashboard", // Reuse dashboard client
+			Issuer: s.Config.HttpConfig.AuthIssuer,
+			// todo: double check auth clientID value
+			ClientID:     s.Config.HttpConfig.AuthAudience, // Reuse dashboard client
 			Scopes:       []string{"openid", "profile", "email"},
 			CallbackURL:  callbackURL,
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.

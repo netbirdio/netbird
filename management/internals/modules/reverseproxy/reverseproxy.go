@@ -82,15 +82,15 @@ type ReverseProxyMeta struct {
 }
 
 type ReverseProxy struct {
-	ID        string `gorm:"primaryKey"`
-	AccountID string `gorm:"index"`
-	Name      string
-	Domain    string   `gorm:"index"`
-	ProxyCluster string   `gorm:"index"`
-	Targets   []Target `gorm:"serializer:json"`
-	Enabled   bool
-	Auth      AuthConfig       `gorm:"serializer:json"`
-	Meta      ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	ID                string `gorm:"primaryKey"`
+	AccountID         string `gorm:"index"`
+	Name              string
+	Domain            string   `gorm:"index"`
+	ProxyCluster      string   `gorm:"index"`
+	Targets           []Target `gorm:"serializer:json"`
+	Enabled           bool
+	Auth              AuthConfig       `gorm:"serializer:json"`
+	Meta              ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string           `gorm:"column:session_private_key"`
 	SessionPublicKey  string           `gorm:"column:session_public_key"`
 }
@@ -322,6 +322,7 @@ func (r *ReverseProxy) Copy() *ReverseProxy {
 		AccountID:         r.AccountID,
 		Name:              r.Name,
 		Domain:            r.Domain,
+		ProxyCluster:      r.ProxyCluster,
 		Targets:           targets,
 		Enabled:           r.Enabled,
 		Auth:              r.Auth,

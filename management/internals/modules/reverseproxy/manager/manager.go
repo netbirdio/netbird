@@ -180,6 +180,8 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 		}
 
 		reverseProxy.Meta = existingReverseProxy.Meta
+		reverseProxy.SessionPrivateKey = existingReverseProxy.SessionPrivateKey
+		reverseProxy.SessionPublicKey = existingReverseProxy.SessionPublicKey
 
 		if err = transaction.UpdateReverseProxy(ctx, reverseProxy); err != nil {
 			return fmt.Errorf("update reverse proxy: %w", err)
