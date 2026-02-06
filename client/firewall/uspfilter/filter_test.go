@@ -263,6 +263,158 @@ func TestAddUDPPacketHook(t *testing.T) {
 	}
 }
 
+// TestPeerRuleLifecycleDenyRules verifies that deny rules are correctly added
+// to the deny map and can be cleanly deleted without leaving orphans.
+func TestPeerRuleLifecycleDenyRules(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, m.Close(nil))
+	}()
+
+	ip := net.ParseIP("192.168.1.1")
+	addr := netip.MustParseAddr("192.168.1.1")
+
+	// Add multiple deny rules for different ports
+	rule1, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+	require.NoError(t, err)
+
+	rule2, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{80}}, fw.ActionDrop, "")
+	require.NoError(t, err)
+
+	m.mutex.RLock()
+	denyCount := len(m.incomingDenyRules[addr])
+	m.mutex.RUnlock()
+	require.Equal(t, 2, denyCount, "Should have exactly 2 deny rules")
+
+	// Delete the first deny rule
+	err = m.DeletePeerRule(rule1[0])
+	require.NoError(t, err)
+
+	m.mutex.RLock()
+	denyCount = len(m.incomingDenyRules[addr])
+	m.mutex.RUnlock()
+	require.Equal(t, 1, denyCount, "Should have 1 deny rule after deleting first")
+
+	// Delete the second deny rule
+	err = m.DeletePeerRule(rule2[0])
+	require.NoError(t, err)
+
+	m.mutex.RLock()
+	_, exists := m.incomingDenyRules[addr]
+	m.mutex.RUnlock()
+	require.False(t, exists, "Deny rules IP entry should be cleaned up when empty")
+}
+
+// TestPeerRuleAddAndDeleteDontLeak verifies that repeatedly adding and deleting
+// peer rules (simulating network map updates) does not leak rules in the maps.
+func TestPeerRuleAddAndDeleteDontLeak(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, m.Close(nil))
+	}()
+
+	ip := net.ParseIP("192.168.1.1")
+	addr := netip.MustParseAddr("192.168.1.1")
+
+	// Simulate 10 network map updates: add rule, delete old, add new
+	for i := 0; i < 10; i++ {
+		// Add a deny rule
+		rules, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+			&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+		require.NoError(t, err)
+
+		// Add an allow rule
+		allowRules, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+			&fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+		require.NoError(t, err)
+
+		// Delete them (simulating ACL manager cleanup)
+		for _, r := range rules {
+			require.NoError(t, m.DeletePeerRule(r))
+		}
+		for _, r := range allowRules {
+			require.NoError(t, m.DeletePeerRule(r))
+		}
+	}
+
+	m.mutex.RLock()
+	denyCount := len(m.incomingDenyRules[addr])
+	allowCount := len(m.incomingRules[addr])
+	m.mutex.RUnlock()
+
+	require.Equal(t, 0, denyCount, "No deny rules should remain after cleanup")
+	require.Equal(t, 0, allowCount, "No allow rules should remain after cleanup")
+}
+
+// TestMixedAllowDenyRulesSameIP verifies that allow and deny rules for the same
+// IP are stored in separate maps and don't interfere with each other.
+func TestMixedAllowDenyRulesSameIP(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, m.Close(nil))
+	}()
+
+	ip := net.ParseIP("192.168.1.1")
+
+	// Add allow rule for port 80
+	allowRule, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+	require.NoError(t, err)
+
+	// Add deny rule for port 22
+	denyRule, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+	require.NoError(t, err)
+
+	addr := netip.MustParseAddr("192.168.1.1")
+	m.mutex.RLock()
+	allowCount := len(m.incomingRules[addr])
+	denyCount := len(m.incomingDenyRules[addr])
+	m.mutex.RUnlock()
+
+	require.Equal(t, 1, allowCount, "Should have 1 allow rule")
+	require.Equal(t, 1, denyCount, "Should have 1 deny rule")
+
+	// Delete allow rule should not affect deny rule
+	err = m.DeletePeerRule(allowRule[0])
+	require.NoError(t, err)
+
+	m.mutex.RLock()
+	denyCountAfter := len(m.incomingDenyRules[addr])
+	m.mutex.RUnlock()
+
+	require.Equal(t, 1, denyCountAfter, "Deny rule should still exist after deleting allow rule")
+
+	// Delete deny rule
+	err = m.DeletePeerRule(denyRule[0])
+	require.NoError(t, err)
+
+	m.mutex.RLock()
+	_, denyExists := m.incomingDenyRules[addr]
+	_, allowExists := m.incomingRules[addr]
+	m.mutex.RUnlock()
+
+	require.False(t, denyExists, "Deny rules should be empty")
+	require.False(t, allowExists, "Allow rules should be empty")
+}
+
 func TestManagerReset(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
