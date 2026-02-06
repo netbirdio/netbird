@@ -21,6 +21,7 @@ type PeerRule struct {
 	drop       bool
 
 	udpHook func([]byte) bool
+	tcpHook func([]byte) bool
 }
 
 // ID returns the rule id

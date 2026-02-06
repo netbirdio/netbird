@@ -1796,6 +1796,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 
 		dnsServer, err := dns.NewDefaultServer(e.ctx, dns.DefaultServerConfig{
 			WgInterface:    e.wgInterface,
+			Firewall:       e.firewall,
 			CustomAddress:  e.config.CustomDNSAddress,
 			StatusRecorder: e.statusRecorder,
 			StateManager:   e.stateManager,

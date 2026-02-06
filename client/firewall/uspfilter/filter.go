@@ -663,6 +663,9 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 			return true
 		}
 	case layers.LayerTypeTCP:
+		if m.tcpHooksDrop(uint16(d.tcp.DstPort), dstIP, packetData) {
+			return true
+		}
 		// Clamp MSS on all TCP SYN packets, including those from local IPs.
 		// SNATed routed traffic may appear as local IP but still requires clamping.
 		if m.mssClampEnabled {
@@ -873,6 +876,38 @@ func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte
 		for _, rule := range rules {
 			if rule.udpHook != nil && portsMatch(rule.dPort, dport) {
 				return rule.udpHook(packetData)
+			}
+		}
+	}
+
+	return false
+}
+
+// tcpHooksDrop checks if any TCP hooks should drop the packet
+func (m *Manager) tcpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	if rules, exists := m.outgoingRules[dstIP]; exists {
+		for _, rule := range rules {
+			if rule.tcpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.tcpHook(packetData)
+			}
+		}
+	}
+
+	if rules, exists := m.outgoingRules[netip.IPv4Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.tcpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.tcpHook(packetData)
+			}
+		}
+	}
+
+	if rules, exists := m.outgoingRules[netip.IPv6Unspecified()]; exists {
+		for _, rule := range rules {
+			if rule.tcpHook != nil && portsMatch(rule.dPort, dport) {
+				return rule.tcpHook(packetData)
 			}
 		}
 	}
@@ -1224,12 +1259,14 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 
 		switch payloadLayer {
 		case layers.LayerTypeTCP:
+			if rule.tcpHook != nil {
+				return rule.mgmtId, rule.tcpHook(packetData), true
+			}
+
 			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
 				return rule.mgmtId, rule.drop, true
 			}
 		case layers.LayerTypeUDP:
-			// if rule has UDP hook (and if we are here we match this rule)
-			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
 				return rule.mgmtId, rule.udpHook(packetData), true
 			}
@@ -1312,6 +1349,40 @@ func (m *Manager) AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook fu
 	m.mutex.Lock()
 	if in {
 		// Incoming UDP hooks are stored in allow rules map
+		if _, ok := m.incomingRules[r.ip]; !ok {
+			m.incomingRules[r.ip] = make(map[string]PeerRule)
+		}
+		m.incomingRules[r.ip][r.id] = r
+	} else {
+		if _, ok := m.outgoingRules[r.ip]; !ok {
+			m.outgoingRules[r.ip] = make(map[string]PeerRule)
+		}
+		m.outgoingRules[r.ip][r.id] = r
+	}
+	m.mutex.Unlock()
+
+	return r.id
+}
+
+// AddTCPPacketHook calls hook when TCP packet from given direction matched
+//
+// Hook function returns flag which indicates should be the matched package dropped or not
+func (m *Manager) AddTCPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string {
+	r := PeerRule{
+		id:         uuid.New().String(),
+		ip:         ip,
+		protoLayer: layers.LayerTypeTCP,
+		dPort:      &firewall.Port{Values: []uint16{dPort}},
+		ipLayer:    layers.LayerTypeIPv6,
+		tcpHook:    hook,
+	}
+
+	if ip.Is4() {
+		r.ipLayer = layers.LayerTypeIPv4
+	}
+
+	m.mutex.Lock()
+	if in {
 		if _, ok := m.incomingRules[r.ip]; !ok {
 			m.incomingRules[r.ip] = make(map[string]PeerRule)
 		}

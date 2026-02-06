@@ -48,6 +48,20 @@ func (mr *MockPacketFilterMockRecorder) AddUDPPacketHook(arg0, arg1, arg2, arg3 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUDPPacketHook", reflect.TypeOf((*MockPacketFilter)(nil).AddUDPPacketHook), arg0, arg1, arg2, arg3)
 }
 
+// AddTCPPacketHook mocks base method.
+func (m *MockPacketFilter) AddTCPPacketHook(arg0 bool, arg1 netip.Addr, arg2 uint16, arg3 func([]byte) bool) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddTCPPacketHook", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// AddTCPPacketHook indicates an expected call of AddTCPPacketHook.
+func (mr *MockPacketFilterMockRecorder) AddTCPPacketHook(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTCPPacketHook", reflect.TypeOf((*MockPacketFilter)(nil).AddTCPPacketHook), arg0, arg1, arg2, arg3)
+}
+
 // FilterInbound mocks base method.
 func (m *MockPacketFilter) FilterInbound(arg0 []byte, arg1 int) bool {
 	m.ctrl.T.Helper()

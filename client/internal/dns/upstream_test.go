@@ -12,6 +12,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -127,6 +128,7 @@ func (m *mockNetstackProvider) ToInterface() *net.Interface       { return nil }
 func (m *mockNetstackProvider) IsUserspaceBind() bool             { return false }
 func (m *mockNetstackProvider) GetFilter() device.PacketFilter    { return nil }
 func (m *mockNetstackProvider) GetDevice() *device.FilteredDevice { return nil }
+func (m *mockNetstackProvider) GetWGDevice() *wgdevice.Device     { return nil }
 func (m *mockNetstackProvider) GetNet() *netstack.Net             { return nil }
 func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
 	return "", nil
@@ -474,4 +476,181 @@ func TestFormatFailures(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestDNSProtocolContext(t *testing.T) {
+	t.Run("roundtrip udp", func(t *testing.T) {
+		ctx := ContextWithDNSProtocol(context.Background(), "udp")
+		assert.Equal(t, "udp", DNSProtocolFromContext(ctx))
+	})
+
+	t.Run("roundtrip tcp", func(t *testing.T) {
+		ctx := ContextWithDNSProtocol(context.Background(), "tcp")
+		assert.Equal(t, "tcp", DNSProtocolFromContext(ctx))
+	})
+
+	t.Run("missing returns empty", func(t *testing.T) {
+		assert.Equal(t, "", DNSProtocolFromContext(context.Background()))
+	})
+}
+
+func TestExchangeWithFallback_TCPContext(t *testing.T) {
+	// Start a local DNS server that responds on TCP only
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.1"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpServer := &dns.Server{
+		Addr:    "127.0.0.1:0",
+		Net:     "tcp",
+		Handler: tcpHandler,
+	}
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	tcpServer.Listener = tcpLn
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// With TCP context, should connect directly via TCP without trying UDP
+	ctx := ContextWithDNSProtocol(context.Background(), "tcp")
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.1")
+}
+
+func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
+	// Start a server on both UDP and TCP.
+	// The handler returns a small response that works on both.
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.3"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{
+		PacketConn: udpPC,
+		Net:        "udp",
+		Handler:    handler,
+	}
+
+	tcpLn, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  handler,
+	}
+
+	go func() {
+		if err := udpServer.ActivateAndServe(); err != nil {
+			t.Logf("udp server: %v", err)
+		}
+	}()
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	}()
+
+	// Normal UDP exchange without TCP context should succeed via UDP
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.3")
+	assert.False(t, rm.Truncated, "small response should not be truncated")
+}
+
+func TestExchangeWithFallback_TCPContextSkipsUDP(t *testing.T) {
+	// Start only a TCP server (no UDP). With TCP context it should succeed.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.2"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  tcpHandler,
+	}
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// TCP context: should skip UDP entirely and go directly to TCP
+	ctx := ContextWithDNSProtocol(context.Background(), "tcp")
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.2")
+
+	// Without TCP context, trying to reach a TCP-only server via UDP should fail
+	ctx2 := context.Background()
+	client2 := &dns.Client{Timeout: 500 * time.Millisecond}
+	_, _, err = ExchangeWithFallback(ctx2, client2, r, upstream)
+	assert.Error(t, err, "should fail when no UDP server and no TCP context")
 }

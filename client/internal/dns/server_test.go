@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -63,6 +64,10 @@ func (w *mocWGIface) GetFilter() device.PacketFilter {
 
 func (w *mocWGIface) GetDevice() *device.FilteredDevice {
 	panic("implement me")
+}
+
+func (w *mocWGIface) GetWGDevice() *wgdevice.Device {
+	return nil
 }
 
 func (w *mocWGIface) GetInterfaceGUIDString() (string, error) {

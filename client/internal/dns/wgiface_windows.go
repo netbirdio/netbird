@@ -1,6 +1,7 @@
 package dns
 
 import (
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -14,6 +15,7 @@ type WGIface interface {
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
+	GetWGDevice() *wgdevice.Device
 	GetNet() *netstack.Net
 	GetInterfaceGUIDString() (string, error)
 }

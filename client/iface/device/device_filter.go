@@ -21,6 +21,12 @@ type PacketFilter interface {
 	// Hook function receives raw network packet data as argument.
 	AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string
 
+	// AddTCPPacketHook calls hook when TCP packet from given direction matched
+	//
+	// Hook function returns flag which indicates should be the matched package dropped or not.
+	// Hook function receives raw network packet data as argument.
+	AddTCPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string
+
 	// RemovePacketHook removes hook by ID
 	RemovePacketHook(hookID string) error
 }
