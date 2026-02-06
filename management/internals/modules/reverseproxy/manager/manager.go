@@ -131,6 +131,8 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
 	return reverseProxy, nil
 }
 
@@ -191,12 +193,17 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
-	if domainChanged && oldCluster != reverseProxy.ProxyCluster {
+	switch {
+	case domainChanged && oldCluster != reverseProxy.ProxyCluster:
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), oldCluster)
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
-	} else {
+	case !reverseProxy.Enabled:
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
+	default:
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
+
 	}
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return reverseProxy, nil
 }
@@ -231,6 +238,8 @@ func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID,
 	m.accountManager.StoreEvent(ctx, userID, reverseProxyID, accountID, activity.ReverseProxyDeleted, reverseProxy.EventMeta())
 
 	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil
 }
