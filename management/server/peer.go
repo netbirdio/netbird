@@ -574,9 +574,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	var setupKeyID string
 	var setupKeyName string
-	var ephemeral bool
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
+	ephemeral := peer.Ephemeral
 	switch {
 	case addedByUser:
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
@@ -732,9 +732,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				}
 			}
 
-			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
-			if err != nil {
-				return fmt.Errorf("failed adding peer to All group: %w", err)
+			if !peer.ProxyEmbedded {
+				err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+				if err != nil {
+					return fmt.Errorf("failed adding peer to All group: %w", err)
+				}
 			}
 
 			switch {

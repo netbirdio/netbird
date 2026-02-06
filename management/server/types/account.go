@@ -283,9 +283,10 @@ func (a *Account) GetPeerNetworkMap(
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
+	resourcesMap map[string]*resourceTypes.NetworkResource,
 	metrics *telemetry.AccountManagerMetrics,
 	groupIDToUserIDs map[string][]string,
-	exposedServices map[string][]*reverseproxy.ReverseProxy, // routerPeer -> list of exposed services
+	exposedServices map[string][]*reverseproxy.ReverseProxy,
 	proxyPeers []*nbpeer.Peer,
 ) *NetworkMap {
 	start := time.Now()
@@ -309,7 +310,7 @@ func (a *Account) GetPeerNetworkMap(
 	var authorizedUsers map[string]map[string]struct{}
 	var enableSSH bool
 	if peer.ProxyEmbedded {
-		aclPeers, firewallRules = a.GetProxyConnectionResources(exposedServices)
+		aclPeers, firewallRules = a.GetProxyConnectionResources(ctx, exposedServices)
 	} else {
 		aclPeers, firewallRules, authorizedUsers, enableSSH = a.GetPeerConnectionResources(ctx, peer, validatedPeersMap, groupIDToUserIDs)
 		proxyAclPeers, proxyFirewallRules := a.GetPeerProxyResources(exposedServices[peerID], proxyPeers)
@@ -328,14 +329,34 @@ func (a *Account) GetPeerNetworkMap(
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups)
-	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
-	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
-	var networkResourcesFirewallRules []*RouteFirewallRule
-	if isRouter {
-		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
+	var routes, networksRoutes []*route.Route
+	var isRouter bool
+	var sourcePeers map[string]struct{}
+	var routesFirewallRules []*RouteFirewallRule
+	if peer.ProxyEmbedded {
+		routes, routesFirewallRules, aclPeers = a.GetPeerProxyRoutes(ctx, peer, exposedServices, resourcesMap, routers, proxyPeers)
+		for _, p := range aclPeers {
+			expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
+			if a.Settings.PeerLoginExpirationEnabled && expired {
+				expiredPeers = append(expiredPeers, p)
+				continue
+			}
+			peersToConnect = append(peersToConnect, p)
+		}
+	} else {
+		oldRoutes := a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups)
+		oldRoutesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
+		proxyRoutes, proxyRoutesFirewallRules, _ := a.GetPeerProxyRoutes(ctx, peer, exposedServices, resourcesMap, routers, proxyPeers)
+		isRouter, networksRoutes, sourcePeers = a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
+		var networksFirewallRules []*RouteFirewallRule
+		if isRouter {
+			networksFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networksRoutes, resourcePolicies)
+		}
+		routes = slices.Concat(networksRoutes, oldRoutes, proxyRoutes)
+		routesFirewallRules = slices.Concat(networksFirewallRules, oldRoutesFirewallRules, proxyRoutesFirewallRules)
 	}
-	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, isRouter, sourcePeers)
+
+	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(routes, peer, peersToConnect, expiredPeers, isRouter, sourcePeers)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -363,31 +384,31 @@ func (a *Account) GetPeerNetworkMap(
 	nm := &NetworkMap{
 		Peers:               peersToConnectIncludingRouters,
 		Network:             a.Network.Copy(),
-		Routes:              slices.Concat(networkResourcesRoutes, routesUpdate),
+		Routes:              routes,
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
-		RoutesFirewallRules: slices.Concat(networkResourcesFirewallRules, routesFirewallRules),
+		RoutesFirewallRules: routesFirewallRules,
 		AuthorizedUsers:     authorizedUsers,
 		EnableSSH:           enableSSH,
 	}
 
 	if metrics != nil {
-		objectCount := int64(len(peersToConnectIncludingRouters) + len(expiredPeers) + len(routesUpdate) + len(networkResourcesRoutes) + len(firewallRules) + +len(networkResourcesFirewallRules) + len(routesFirewallRules))
+		objectCount := int64(len(peersToConnectIncludingRouters) + len(expiredPeers) + len(routes) + len(firewallRules) + +len(routesFirewallRules))
 		metrics.CountNetworkMapObjects(objectCount)
 		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
 
 		if objectCount > 5000 {
 			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects, "+
-				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d, network resources routes: %d, network resources firewall rules: %d, routes firewall rules: %d",
-				a.Id, objectCount, len(peersToConnectIncludingRouters), len(expiredPeers), len(routesUpdate), len(firewallRules), len(networkResourcesRoutes), len(networkResourcesFirewallRules), len(routesFirewallRules))
+				"peers to connect: %d, expired peers: %d, routes: %d, firewall rules: %d, routes firewall rules: %d",
+				a.Id, objectCount, len(peersToConnectIncludingRouters), len(expiredPeers), len(routes), len(firewallRules), len(routesFirewallRules))
 		}
 	}
 
 	return nm
 }
 
-func (a *Account) GetProxyConnectionResources(exposedServices map[string][]*reverseproxy.ReverseProxy) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.ReverseProxy) ([]*nbpeer.Peer, []*FirewallRule) {
 	var aclPeers []*nbpeer.Peer
 	var firewallRules []*FirewallRule
 
@@ -400,8 +421,7 @@ func (a *Account) GetProxyConnectionResources(exposedServices map[string][]*reve
 				if !target.Enabled {
 					continue
 				}
-				switch target.TargetType {
-				case reverseproxy.TargetTypePeer:
+				if target.TargetType == reverseproxy.TargetTypePeer {
 					tpeer := a.GetPeer(target.TargetId)
 					if tpeer == nil {
 						continue
@@ -415,8 +435,6 @@ func (a *Account) GetProxyConnectionResources(exposedServices map[string][]*reve
 						Protocol:  string(PolicyRuleProtocolTCP),
 						PortRange: RulePortRange{Start: uint16(target.Port), End: uint16(target.Port)},
 					})
-				case reverseproxy.TargetTypeResource:
-					// TODO: handle resource type targets
 				}
 			}
 		}
@@ -438,17 +456,6 @@ func (a *Account) GetPeerProxyResources(services []*reverseproxy.ReverseProxy, p
 				continue
 			}
 			aclPeers = proxyPeers
-			for _, peer := range aclPeers {
-				firewallRules = append(firewallRules, &FirewallRule{
-					PolicyID:  "proxy-" + service.ID,
-					PeerIP:    peer.IP.String(),
-					Direction: FirewallRuleDirectionIN,
-					Action:    "allow",
-					Protocol:  string(PolicyRuleProtocolTCP),
-					PortRange: RulePortRange{Start: uint16(target.Port), End: uint16(target.Port)},
-				})
-			}
-			// TODO: handle routes
 		}
 	}
 
@@ -1893,6 +1900,71 @@ func (a *Account) GetExposedServicesMap() map[string][]*reverseproxy.ReverseProx
 		}
 	}
 	return services
+}
+
+func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, proxies map[string][]*reverseproxy.ReverseProxy, resourcesMap map[string]*resourceTypes.NetworkResource, routers map[string]map[string]*routerTypes.NetworkRouter, proxyPeers []*nbpeer.Peer) ([]*route.Route, []*RouteFirewallRule, []*nbpeer.Peer) {
+	sourceRanges := make([]string, 0, len(proxyPeers))
+	for _, proxyPeer := range proxyPeers {
+		sourceRanges = append(sourceRanges, fmt.Sprintf(AllowedIPsFormat, proxyPeer.IP))
+	}
+	peers := make(map[string]*nbpeer.Peer, len(resourcesMap))
+
+	var routes []*route.Route
+	var firewallRules []*RouteFirewallRule
+	for _, proxyPerResource := range proxies {
+		for _, proxy := range proxyPerResource {
+			for _, target := range proxy.Targets {
+				if target.TargetType == reverseproxy.TargetTypeResource {
+					resource, ok := resourcesMap[target.TargetId]
+					if !ok {
+						log.WithContext(ctx).Warnf("proxy target %s not found in resources map", target.TargetId)
+						continue
+					}
+					networkRouters, ok := routers[resource.NetworkID]
+					if !ok {
+						log.WithContext(ctx).Warnf("proxy target %s not found in routers map", target.TargetId)
+						continue
+					}
+					for peerID, router := range networkRouters {
+						routePeer := a.GetPeer(peerID)
+						route := resource.ToRoute(routePeer, router)
+						routes = append(routes, route)
+						rule := RouteFirewallRule{
+							PolicyID:     fmt.Sprintf("proxy-%s-%s", proxy.ID, route.ID),
+							RouteID:      route.ID,
+							SourceRanges: sourceRanges,
+							Action:       string(PolicyTrafficActionAccept),
+							Destination:  route.Network.String(),
+							Protocol:     string(PolicyRuleProtocolTCP),
+							Domains:      route.Domains,
+							IsDynamic:    route.IsDynamic(),
+							PortRange: RulePortRange{
+								Start: uint16(target.Port),
+								End:   uint16(target.Port),
+							},
+						}
+						firewallRules = append(firewallRules, &rule)
+						peers[peerID] = routePeer
+					}
+				}
+			}
+		}
+	}
+
+	resultPeers := make([]*nbpeer.Peer, 0, len(peers))
+	for _, peer := range peers {
+		resultPeers = append(resultPeers, peer)
+	}
+
+	return routes, firewallRules, resultPeers
+}
+
+func (a *Account) GetResourcesMap() map[string]*resourceTypes.NetworkResource {
+	resourcesMap := make(map[string]*resourceTypes.NetworkResource, len(a.NetworkResources))
+	for _, resource := range a.NetworkResources {
+		resourcesMap[resource.ID] = resource
+	}
+	return resourcesMap
 }
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
