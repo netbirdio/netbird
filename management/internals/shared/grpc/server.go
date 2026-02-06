@@ -755,8 +755,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	log.WithContext(ctx).Infof("Login response prepared for peer %s with config %v", peerKey, loginResp.GetPeerConfig())
-
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed getting server's WireGuard private key: %s", err)
@@ -872,8 +870,6 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
-
-	log.WithContext(ctx).Infof("sending initial sync response to peer %s with config: %v", peerKey, plainResp)
 
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),
