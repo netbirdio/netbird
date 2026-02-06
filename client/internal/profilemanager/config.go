@@ -252,7 +252,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if config.AdminURL == nil {
-		log.Infof("using default Admin URL %s", DefaultManagementURL)
+		log.Infof("using default Admin URL %s", DefaultAdminURL)
 		config.AdminURL, err = parseURL("Admin URL", DefaultAdminURL)
 		if err != nil {
 			return false, err
