@@ -84,7 +84,7 @@ var loginCmd = &cobra.Command{
 
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
 	// setup daemon
-	alreadyConnected, err := daemonSetup(ctx, cmd, client, ic)
+	alreadyConnected, err := daemonSetup(ctx, cmd, client, activeProf, ic)
 	if err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
@@ -101,7 +101,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 	return nil
 }
 
-func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, ic *profilemanager.ConfigInput) (bool, error) {
+func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, ic *profilemanager.ConfigInput) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
@@ -136,7 +136,7 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 
 	// set default values for setconfigreq
 	setConfigReq := configInputToSetConfigRequest(ic)
-	setConfigReq.ProfileName = profileName
+	setConfigReq.ProfileName = activeProf.Name
 	setConfigReq.Username = username.Username
 	setConfigReq.ManagementUrl = managementURL
 	setConfigReq.AdminURL = adminURL
