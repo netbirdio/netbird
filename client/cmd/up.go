@@ -53,7 +53,6 @@ const (
 var (
 	foregroundMode      bool
 	dnsLabels           []string
-	dnsLabelsValidated  domain.List
 	extraIFaceBlackList []string
 	natExternalIPs      []string
 	customDNSAddress    string
@@ -128,16 +127,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
-	}
-
-	err = validateNATExternalIPs(natExternalIPs)
-	if err != nil {
-		return err
-	}
-
-	dnsLabelsValidated, err = validateDnsLabels(dnsLabels)
-	if err != nil {
-		return err
 	}
 
 	ctx := internal.CtxInitState(cmd.Context())
@@ -293,7 +282,18 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 	ic := profilemanager.ConfigInput{
 		NATExternalIPs:      natExternalIPs,
 		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsValidated,
+	}
+
+	if err := validateNATExternalIPs(natExternalIPs); err != nil {
+		return nil, err
+	}
+
+	if dnsLabels != nil {
+		var err error
+		ic.DNSLabels, err = validateDnsLabels(dnsLabels)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cmd.Flag(dnsResolverAddress).Changed {
