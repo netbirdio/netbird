@@ -12,8 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -190,9 +188,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("setup config: %v", err)
 	}
 
-	// setup grpc connection
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	client, err := doDaemonLogin(ctx, cmd, activeProf, pm, profileSwitched, ic)
 	if err != nil {
+<<<<<<< HEAD
 		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
@@ -209,6 +207,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, setupLoginRequestFromConfigInput(cmd, ic)); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
+=======
+		return err
+>>>>>>> 20f4fcd4d (use configinput in general and convert it around, much cleaner)
 	}
 
 	// up the service
