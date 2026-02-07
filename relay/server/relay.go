@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/relay/server/listener/quic"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -139,18 +137,6 @@ func NewRelay(config Config) (*Relay, error) {
 
 // Accept start to handle a new peer connection
 func (r *Relay) Accept(conn net.Conn) {
-	var transport string
-	switch conn.(type) {
-	case *ws.Conn:
-		transport = "websocket"
-	case *quic.Conn:
-		transport = "quic"
-	default:
-		transport = "unknown"
-	}
-
-	// Use transport in logging
-	log.Infof("peer connected via %s from: %s", transport, conn.RemoteAddr())
 	acceptTime := time.Now()
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
