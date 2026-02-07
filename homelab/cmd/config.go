@@ -21,15 +21,25 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
-// CombinedConfig is the root configuration for the combined server
-// Supports two formats:
-// 1. Simplified: All settings under "server", relay/signal use defaults
-// 2. Full: Separate relay/signal/management sections for advanced configuration
+// CombinedConfig is the root configuration for the combined server.
+// The combined server is primarily a Management server with optional embedded
+// Signal, Relay, and STUN services.
+//
+// Architecture:
+//   - Management: Always runs locally (this IS the management server)
+//   - Signal: Runs locally by default; disabled if server.signalUri is set
+//   - Relay: Runs locally by default; disabled if server.relays is set
+//   - STUN: Runs locally by default; disabled if server.stuns is set or stunPort is 0
+//
+// All user-facing settings are under "server". The relay/signal/management
+// fields are internal and populated automatically from server settings.
 type CombinedConfig struct {
-	Server     ServerConfig     `yaml:"server"`
-	Relay      RelayConfig      `yaml:"relay"`
-	Signal     SignalConfig     `yaml:"signal"`
-	Management ManagementConfig `yaml:"management"`
+	Server ServerConfig `yaml:"server"`
+
+	// Internal configs - populated from Server settings, not user-configurable
+	Relay      RelayConfig      `yaml:"-"`
+	Signal     SignalConfig     `yaml:"-"`
+	Management ManagementConfig `yaml:"-"`
 }
 
 // ServerConfig contains server-wide settings
@@ -47,13 +57,6 @@ type ServerConfig struct {
 	StunPort       int    `yaml:"stunPort"`       // STUN port (0 to disable local STUN)
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
-
-	// Component-specific log level overrides (simplified mode)
-	// If not set, components use the main LogLevel
-	RelayLogLevel      string `yaml:"relayLogLevel"`
-	StunLogLevel       string `yaml:"stunLogLevel"`
-	SignalLogLevel     string `yaml:"signalLogLevel"`
-	ManagementLogLevel string `yaml:"managementLogLevel"`
 
 	// External service overrides (simplified mode)
 	// When these are set, the corresponding local service is NOT started
@@ -231,11 +234,8 @@ func DefaultConfig() *CombinedConfig {
 	}
 }
 
-// IsSimplifiedConfig returns true if the configuration is using simplified mode
-// (all settings under server, no separate relay/signal/management sections with explicit enabled flags)
-func (c *CombinedConfig) IsSimplifiedConfig() bool {
-	// Simplified mode is detected when server.exposedAddress is set
-	// and relay/signal/management are not explicitly configured
+// hasRequiredSettings returns true if the configuration has the required server settings
+func (c *CombinedConfig) hasRequiredSettings() bool {
 	return c.Server.ExposedAddress != ""
 }
 
@@ -265,12 +265,11 @@ func parseExposedAddress(exposedAddress string) (protocol, hostname, hostPort st
 	return protocol, hostname, hostPort
 }
 
-// ApplySimplifiedDefaults applies defaults for simplified configuration mode
-// This populates relay/signal/management from server settings
-// External service overrides (server.stuns, server.relays, server.signalUri) disable
-// the corresponding local services and are used for client configuration instead
+// ApplySimplifiedDefaults populates internal relay/signal/management configs from server settings.
+// Management is always enabled. Signal, Relay, and STUN are enabled unless external
+// overrides are configured (server.signalUri, server.relays, server.stuns).
 func (c *CombinedConfig) ApplySimplifiedDefaults() {
-	if !c.IsSimplifiedConfig() {
+	if !c.hasRequiredSettings() {
 		return
 	}
 
@@ -293,11 +292,7 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
 		c.Relay.AuthSecret = c.Server.AuthSecret
 		if c.Relay.LogLevel == "" {
-			if c.Server.RelayLogLevel != "" {
-				c.Relay.LogLevel = c.Server.RelayLogLevel
-			} else {
-				c.Relay.LogLevel = c.Server.LogLevel
-			}
+			c.Relay.LogLevel = c.Server.LogLevel
 		}
 
 		// Enable local STUN only if no external STUN servers and stunPort > 0
@@ -305,11 +300,7 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 			c.Relay.Stun.Enabled = true
 			c.Relay.Stun.Ports = []int{c.Server.StunPort}
 			if c.Relay.Stun.LogLevel == "" {
-				if c.Server.StunLogLevel != "" {
-					c.Relay.Stun.LogLevel = c.Server.StunLogLevel
-				} else {
-					c.Relay.Stun.LogLevel = c.Server.LogLevel
-				}
+				c.Relay.Stun.LogLevel = c.Server.LogLevel
 			}
 		}
 	}
@@ -318,22 +309,14 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if !hasExternalSignal {
 		c.Signal.Enabled = true
 		if c.Signal.LogLevel == "" {
-			if c.Server.SignalLogLevel != "" {
-				c.Signal.LogLevel = c.Server.SignalLogLevel
-			} else {
-				c.Signal.LogLevel = c.Server.LogLevel
-			}
+			c.Signal.LogLevel = c.Server.LogLevel
 		}
 	}
 
 	// Management is always enabled in simplified mode
 	c.Management.Enabled = true
 	if c.Management.LogLevel == "" {
-		if c.Server.ManagementLogLevel != "" {
-			c.Management.LogLevel = c.Server.ManagementLogLevel
-		} else {
-			c.Management.LogLevel = c.Server.LogLevel
-		}
+		c.Management.LogLevel = c.Server.LogLevel
 	}
 	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
 		c.Management.DataDir = c.Server.DataDir
@@ -430,7 +413,7 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Apply simplified defaults if using simplified config format
+	// Populate internal configs from server settings
 	cfg.ApplySimplifiedDefaults()
 
 	return cfg, nil
@@ -438,64 +421,20 @@ func LoadConfig(configPath string) (*CombinedConfig, error) {
 
 // Validate validates the configuration
 func (c *CombinedConfig) Validate() error {
-	// Simplified config validation
-	if c.IsSimplifiedConfig() {
-		if c.Server.ExposedAddress == "" {
-			return fmt.Errorf("server.exposedAddress is required")
-		}
-		if c.Server.DataDir == "" {
-			return fmt.Errorf("server.dataDir is required")
-		}
-		if c.Server.StunPort < 0 || c.Server.StunPort > 65535 {
-			return fmt.Errorf("invalid server.stunPort %d: must be between 0 and 65535", c.Server.StunPort)
-		}
-
-		// authSecret is required only if running local relay (no external relay configured)
-		hasExternalRelay := len(c.Server.Relays.Addresses) > 0
-		if !hasExternalRelay && c.Server.AuthSecret == "" {
-			return fmt.Errorf("server.authSecret is required when running local relay")
-		}
-
-		return nil
+	if c.Server.ExposedAddress == "" {
+		return fmt.Errorf("server.exposedAddress is required")
+	}
+	if c.Server.DataDir == "" {
+		return fmt.Errorf("server.dataDir is required")
+	}
+	if c.Server.StunPort < 0 || c.Server.StunPort > 65535 {
+		return fmt.Errorf("invalid server.stunPort %d: must be between 0 and 65535", c.Server.StunPort)
 	}
 
-	// Full config validation
-	// Check that at least one component is enabled
-	if !c.Relay.Enabled && !c.Signal.Enabled && !c.Management.Enabled {
-		return fmt.Errorf("at least one component (relay, signal, or management) must be enabled")
-	}
-
-	// Validate relay config only if enabled
-	if c.Relay.Enabled {
-		if c.Relay.ExposedAddress == "" {
-			return fmt.Errorf("relay.exposedAddress is required when relay is enabled")
-		}
-		if c.Relay.AuthSecret == "" {
-			return fmt.Errorf("relay.authSecret is required when relay is enabled")
-		}
-
-		if c.Relay.Stun.Enabled {
-			if len(c.Relay.Stun.Ports) == 0 {
-				return fmt.Errorf("relay.stun.ports is required when relay.stun.enabled is true")
-			}
-			seen := make(map[int]bool)
-			for _, port := range c.Relay.Stun.Ports {
-				if port <= 0 || port > 65535 {
-					return fmt.Errorf("invalid STUN port %d: must be between 1 and 65535", port)
-				}
-				if seen[port] {
-					return fmt.Errorf("duplicate STUN port %d", port)
-				}
-				seen[port] = true
-			}
-		}
-	}
-
-	// Validate management config only if enabled
-	if c.Management.Enabled {
-		if c.Management.DataDir == "" {
-			return fmt.Errorf("management.dataDir is required when management is enabled")
-		}
+	// authSecret is required only if running local relay (no external relay configured)
+	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
+	if !hasExternalRelay && c.Server.AuthSecret == "" {
+		return fmt.Errorf("server.authSecret is required when running local relay")
 	}
 
 	return nil

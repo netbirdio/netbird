@@ -1,13 +1,15 @@
-# Simplified Simplified NetBird Server Configuration
+# NetBird Combined Server Configuration
 # Copy this file to config.yaml and customize for your deployment
 #
-# This configuration runs all services (Management, Signal, Relay, STUN) together
-# with sensible defaults. Only server-level settings need to be configured.
+# This is a Management server with optional embedded Signal, Relay, and STUN services.
+# By default, all services run locally. You can use external services instead by
+# setting the corresponding override fields.
 #
-# External Service Overrides:
-# - Set 'stuns' to use external STUN servers (disables local STUN)
-# - Set 'relays' to use external relay servers (disables local relay)
-# - Set 'signalUri' to use external signal server (disables local signal)
+# Architecture:
+#   - Management: Always runs locally (this IS the management server)
+#   - Signal: Local by default; set 'signalUri' to use external (disables local)
+#   - Relay: Local by default; set 'relays' to use external (disables local)
+#   - STUN: Local by default; set 'stuns' to use external, or stunPort: 0 to disable
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -31,13 +33,6 @@ server:
   logLevel: "info"    # Default log level for all components: panic, fatal, error, warn, info, debug, trace
   logFile: "console"  # "console" or path to log file
 
-  # Component-specific log level overrides (optional)
-  # If not set, components use the main logLevel above
-  # relayLogLevel: "debug"
-  # stunLogLevel: "debug"
-  # signalLogLevel: "debug"
-  # managementLogLevel: "debug"
-
   # TLS configuration (optional)
   tls:
     certFile: ""
@@ -57,8 +52,8 @@ server:
 
   # ============================================================================
   # External Service Overrides (optional)
-  # When these are set, the corresponding local service is NOT started
-  # and these values are used for client configuration instead
+  # Use these to point to external Signal, Relay, or STUN servers instead of
+  # running them locally. When set, the corresponding local service is disabled.
   # ============================================================================
 
   # External STUN servers - disables local STUN server

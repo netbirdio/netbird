@@ -519,13 +519,6 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 func logConfig(cfg *CombinedConfig) {
 	log.Info("=== Configuration ===")
 
-	// Config mode
-	if cfg.IsSimplifiedConfig() {
-		log.Info("Mode: Simplified (all settings under server)")
-	} else {
-		log.Info("Mode: Full (separate relay/signal/management sections)")
-	}
-
 	// Server settings
 	log.Info("--- Server ---")
 	log.Infof("  Listen address: %s", cfg.Server.ListenAddress)
