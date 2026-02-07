@@ -3047,6 +3047,9 @@ components:
           description: Whether the domain has been validated
         type:
           $ref: '#/components/schemas/ReverseProxyDomainType'
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain is validated against (only for custom domains)
       required:
         - id
         - domain
@@ -3058,8 +3061,12 @@ components:
         domain:
           type: string
           description: Domain name
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain should be validated against
       required:
         - domain
+        - target_cluster
     InstanceStatus:
       type: object
       description: Instance status information

@@ -19,11 +19,12 @@ const (
 )
 
 type Domain struct {
-	ID        string     `gorm:"unique;primaryKey;autoIncrement"`
-	Domain    string     `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
-	AccountID string     `gorm:"index"`
-	Type      domainType `gorm:"-"`
-	Validated bool
+	ID            string     `gorm:"unique;primaryKey;autoIncrement"`
+	Domain        string     `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
+	AccountID     string     `gorm:"index"`
+	TargetCluster string     // The proxy cluster this domain should be validated against
+	Type          domainType `gorm:"-"`
+	Validated     bool
 }
 
 type store interface {
@@ -32,7 +33,7 @@ type store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*Domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *Domain) (*Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 }
@@ -85,31 +86,43 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 	// Add custom domains.
 	for _, domain := range domains {
 		ret = append(ret, &Domain{
-			ID:        domain.ID,
-			Domain:    domain.Domain,
-			AccountID: accountID,
-			Type:      TypeCustom,
-			Validated: domain.Validated,
+			ID:            domain.ID,
+			Domain:        domain.Domain,
+			AccountID:     accountID,
+			TargetCluster: domain.TargetCluster,
+			Type:          TypeCustom,
+			Validated:     domain.Validated,
 		})
 	}
 
 	return ret, nil
 }
 
-func (m Manager) CreateDomain(ctx context.Context, accountID, domainName string) (*Domain, error) {
-	// Attempt an initial validation; however, a failure is still acceptable for creation
-	// because the user may not yet have configured their DNS records, or the DNS update
-	// has not yet reached the servers that are queried by the validation resolver.
+func (m Manager) CreateDomain(ctx context.Context, accountID, domainName, targetCluster string) (*Domain, error) {
+
+	// Verify the target cluster is in the available clusters
+	allowList := m.proxyURLAllowList()
+	clusterValid := false
+	for _, cluster := range allowList {
+		if cluster == targetCluster {
+			clusterValid = true
+			break
+		}
+	}
+	if !clusterValid {
+		return nil, fmt.Errorf("target cluster %s is not available", targetCluster)
+	}
+
+	// Attempt an initial validation against the specified cluster only
 	var validated bool
-	if m.validator.IsValid(ctx, domainName, m.proxyURLAllowList()) {
+	if m.validator.IsValid(ctx, domainName, []string{targetCluster}) {
 		validated = true
 	}
 
-	d, err := m.store.CreateCustomDomain(ctx, accountID, domainName, validated)
+	d, err := m.store.CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated)
 	if err != nil {
 		return d, fmt.Errorf("create domain in store: %w", err)
 	}
-
 	return d, nil
 }
 
@@ -136,15 +149,25 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		return
 	}
 
-	allowList := m.proxyURLAllowList()
-	log.WithFields(log.Fields{
-		"accountID":      accountID,
-		"domainID":       domainID,
-		"domain":         d.Domain,
-		"proxyAllowList": allowList,
-	}).Info("validating domain against proxy allow list")
+	// Validate only against the domain's target cluster
+	targetCluster := d.TargetCluster
+	if targetCluster == "" {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+			"domain":    d.Domain,
+		}).Warn("domain has no target cluster set, skipping validation")
+		return
+	}
 
-	if m.validator.IsValid(context.Background(), d.Domain, allowList) {
+	log.WithFields(log.Fields{
+		"accountID":     accountID,
+		"domainID":      domainID,
+		"domain":        d.Domain,
+		"targetCluster": targetCluster,
+	}).Info("validating domain against target cluster")
+
+	if m.validator.IsValid(context.Background(), d.Domain, []string{targetCluster}) {
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
@@ -161,11 +184,11 @@ func (m Manager) ValidateDomain(accountID, domainID string) {
 		}
 	} else {
 		log.WithFields(log.Fields{
-			"accountID":      accountID,
-			"domainID":       domainID,
-			"domain":         d.Domain,
-			"proxyAllowList": allowList,
-		}).Warn("domain validation failed - CNAME does not match any connected proxy")
+			"accountID":     accountID,
+			"domainID":      domainID,
+			"domain":        d.Domain,
+			"targetCluster": targetCluster,
+		}).Warn("domain validation failed - CNAME does not match target cluster")
 	}
 }
 

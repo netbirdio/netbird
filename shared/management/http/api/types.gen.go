@@ -2006,6 +2006,9 @@ type ReverseProxyDomain struct {
 	// Id Domain ID
 	Id string `json:"id"`
 
+	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
+	TargetCluster *string `json:"target_cluster,omitempty"`
+
 	// Type Type of Reverse Proxy Domain
 	Type ReverseProxyDomainType `json:"type"`
 
@@ -2017,6 +2020,9 @@ type ReverseProxyDomain struct {
 type ReverseProxyDomainRequest struct {
 	// Domain Domain name
 	Domain string `json:"domain"`
+
+	// TargetCluster The proxy cluster this domain should be validated against
+	TargetCluster string `json:"target_cluster"`
 }
 
 // ReverseProxyDomainType Type of Reverse Proxy Domain

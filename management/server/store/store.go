@@ -255,7 +255,7 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 

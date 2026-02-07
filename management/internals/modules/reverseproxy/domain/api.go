@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -40,12 +39,16 @@ func domainTypeToApi(t domainType) api.ReverseProxyDomainType {
 }
 
 func domainToApi(d *Domain) api.ReverseProxyDomain {
-	return api.ReverseProxyDomain{
+	resp := api.ReverseProxyDomain{
 		Domain:    d.Domain,
 		Id:        d.ID,
 		Type:      domainTypeToApi(d.Type),
 		Validated: d.Validated,
 	}
+	if d.TargetCluster != "" {
+		resp.TargetCluster = &d.TargetCluster
+	}
+	return resp
 }
 
 func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +85,7 @@ func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, req.Domain)
+	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, req.Domain, req.TargetCluster)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

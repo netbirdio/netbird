@@ -4845,13 +4845,14 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	return domains, nil
 }
 
-func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, validated bool) (*domain.Domain, error) {
+func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
-		ID:        xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
-		Domain:    domainName,
-		AccountID: accountID,
-		Type:      domain.TypeCustom,
-		Validated: validated,
+		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
+		Domain:        domainName,
+		AccountID:     accountID,
+		TargetCluster: targetCluster,
+		Type:          domain.TypeCustom,
+		Validated:     validated,
 	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
