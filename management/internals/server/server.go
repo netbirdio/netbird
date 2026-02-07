@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/formatter"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -50,6 +51,8 @@ type BaseServer struct {
 	container map[string]any
 	// AfterInit is a function that will be called after the server is initialized
 	afterInit []func(s *BaseServer)
+	// logger is the component-specific logger
+	logger *log.Entry
 
 	disableMetrics           bool
 	dnsDomain                string
@@ -85,6 +88,30 @@ func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain strin
 
 func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
 	s.afterInit = append(s.afterInit, fn)
+}
+
+// CreateLogger creates a component-specific logger for the management server with its own log level.
+// The returned logger can be passed to the server via SetLogger.
+func CreateLogger(logLevel string) *log.Entry {
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		level = log.InfoLevel
+	}
+
+	mgmtLogger := log.New()
+	mgmtLogger.SetOutput(log.StandardLogger().Out)
+	mgmtLogger.SetLevel(level)
+	formatter.SetTextFormatter(mgmtLogger)
+
+	logger := mgmtLogger.WithField("component", "management")
+	logger.Infof("Management server log level set to: %s", level.String())
+	return logger
+}
+
+// SetLogger sets a custom logger for the management server.
+// If not called, the management server uses the global logger.
+func (s *BaseServer) SetLogger(logger *log.Entry) {
+	s.logger = logger
 }
 
 // Start begins listening for HTTP requests on the configured address

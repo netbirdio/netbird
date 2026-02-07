@@ -48,6 +48,13 @@ type ServerConfig struct {
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
 
+	// Component-specific log level overrides (simplified mode)
+	// If not set, components use the main LogLevel
+	RelayLogLevel      string `yaml:"relayLogLevel"`
+	StunLogLevel       string `yaml:"stunLogLevel"`
+	SignalLogLevel     string `yaml:"signalLogLevel"`
+	ManagementLogLevel string `yaml:"managementLogLevel"`
+
 	// External service overrides (simplified mode)
 	// When these are set, the corresponding local service is NOT started
 	// and these values are used for client configuration instead
@@ -107,6 +114,7 @@ type SignalConfig struct {
 // ManagementConfig contains management service settings
 type ManagementConfig struct {
 	Enabled                  bool               `yaml:"enabled"`
+	LogLevel                 string             `yaml:"logLevel"`
 	DataDir                  string             `yaml:"dataDir"`
 	DnsDomain                string             `yaml:"dnsDomain"`
 	SingleAccountModeDomain  string             `yaml:"singleAccountModeDomain"`
@@ -285,7 +293,11 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
 		c.Relay.AuthSecret = c.Server.AuthSecret
 		if c.Relay.LogLevel == "" {
-			c.Relay.LogLevel = c.Server.LogLevel
+			if c.Server.RelayLogLevel != "" {
+				c.Relay.LogLevel = c.Server.RelayLogLevel
+			} else {
+				c.Relay.LogLevel = c.Server.LogLevel
+			}
 		}
 
 		// Enable local STUN only if no external STUN servers and stunPort > 0
@@ -293,7 +305,11 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 			c.Relay.Stun.Enabled = true
 			c.Relay.Stun.Ports = []int{c.Server.StunPort}
 			if c.Relay.Stun.LogLevel == "" {
-				c.Relay.Stun.LogLevel = c.Server.LogLevel
+				if c.Server.StunLogLevel != "" {
+					c.Relay.Stun.LogLevel = c.Server.StunLogLevel
+				} else {
+					c.Relay.Stun.LogLevel = c.Server.LogLevel
+				}
 			}
 		}
 	}
@@ -302,12 +318,23 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if !hasExternalSignal {
 		c.Signal.Enabled = true
 		if c.Signal.LogLevel == "" {
-			c.Signal.LogLevel = c.Server.LogLevel
+			if c.Server.SignalLogLevel != "" {
+				c.Signal.LogLevel = c.Server.SignalLogLevel
+			} else {
+				c.Signal.LogLevel = c.Server.LogLevel
+			}
 		}
 	}
 
 	// Management is always enabled in simplified mode
 	c.Management.Enabled = true
+	if c.Management.LogLevel == "" {
+		if c.Server.ManagementLogLevel != "" {
+			c.Management.LogLevel = c.Server.ManagementLogLevel
+		} else {
+			c.Management.LogLevel = c.Server.LogLevel
+		}
+	}
 	if c.Management.DataDir == "" || c.Management.DataDir == "/var/lib/netbird/" {
 		c.Management.DataDir = c.Server.DataDir
 	}

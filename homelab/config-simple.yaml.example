@@ -28,8 +28,15 @@ server:
   healthcheckAddress: ":9000"
 
   # Logging configuration
-  logLevel: "info"    # panic, fatal, error, warn, info, debug, trace
+  logLevel: "info"    # Default log level for all components: panic, fatal, error, warn, info, debug, trace
   logFile: "console"  # "console" or path to log file
+
+  # Component-specific log level overrides (optional)
+  # If not set, components use the main logLevel above
+  # relayLogLevel: "debug"
+  # stunLogLevel: "debug"
+  # signalLogLevel: "debug"
+  # managementLogLevel: "debug"
 
   # TLS configuration (optional)
   tls:

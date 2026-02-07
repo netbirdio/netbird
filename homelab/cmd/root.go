@@ -176,6 +176,13 @@ func execute(cmd *cobra.Command, _ []string) error {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create management server: %w", err)
 		}
+
+		// Set component-specific logger
+		mgmtLogLevel := config.Management.LogLevel
+		if mgmtLogLevel == "" {
+			mgmtLogLevel = "info"
+		}
+		mgmtSrv.SetLogger(mgmtServer.CreateLogger(mgmtLogLevel))
 		log.Infof("Management server created")
 	}
 
@@ -539,7 +546,7 @@ func logConfig(cfg *CombinedConfig) {
 
 	// Components enabled
 	log.Info("--- Components ---")
-	log.Infof("  Management: %v", cfg.Management.Enabled)
+	log.Infof("  Management: %v (log level: %s)", cfg.Management.Enabled, cfg.Management.LogLevel)
 	log.Infof("  Signal: %v (log level: %s)", cfg.Signal.Enabled, cfg.Signal.LogLevel)
 	log.Infof("  Relay: %v (log level: %s)", cfg.Relay.Enabled, cfg.Relay.LogLevel)
 
