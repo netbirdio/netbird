@@ -46,6 +46,9 @@ var loginCmd = &cobra.Command{
 
 		pm := profilemanager.NewProfileManager()
 
+		// if non-empty profileName, this means that we switched profile
+		profileSwitched := profileName != ""
+
 		username, err := user.Current()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
@@ -56,9 +59,6 @@ var loginCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
 		}
-
-		// if non-empty profileName, this means that we switched profile
-		profileSwitched := profileName != ""
 
 		// workaround to run without service
 		if util.FindFirstLogPath(logFiles) == "" {
@@ -88,8 +88,13 @@ func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	client := proto.NewDaemonServiceClient(conn)
 
 	// setup daemon
-	if err := doDaemonSetup(ctx, cmd, client, profileSwitched, &proto.SetConfigRequest{}); err != nil {
+	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, &proto.SetConfigRequest{})
+	if err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
+	}
+
+	if alreadyConnected {
+		return nil
 	}
 
 	// login
@@ -101,6 +106,7 @@ func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *prof
 }
 
 func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, setConfigReq *proto.SetConfigRequest) error {
+func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, setConfigReq *proto.SetConfigRequest) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
@@ -110,23 +116,25 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 		WaitForReady: func() *bool { b := true; return &b }(),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		return false, fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if !profileSwitched {
-			return errors.New("Already connected")
+			return true, nil
 		}
 
+		// we are already conneted, but we want to switch profiles
+		// so we need to disconnect first
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
-			return err
+			return false, err
 		}
 	}
 
 	username, err := user.Current()
 	if err != nil {
-		return fmt.Errorf("get current user: %v", err)
+		return false, fmt.Errorf("get current user: %v", err)
 	}
 
 	// set default values for setconfigreq
@@ -143,11 +151,11 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon")
 		} else {
-			return fmt.Errorf("call service setConfig method: %v", err)
+			return false, fmt.Errorf("call service setConfig method: %v", err)
 		}
 	}
 
-	return nil
+	return true, nil
 }
 
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, loginReq *proto.LoginRequest) error {
