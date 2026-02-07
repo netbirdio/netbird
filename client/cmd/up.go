@@ -50,7 +50,6 @@ const (
 var (
 	foregroundMode      bool
 	dnsLabels           []string
-	dnsLabelsValidated  domain.List
 	extraIFaceBlackList []string
 	natExternalIPs      []string
 	customDNSAddress    string
@@ -123,16 +122,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
-	}
-
-	err = validateNATExternalIPs(natExternalIPs)
-	if err != nil {
-		return err
-	}
-
-	dnsLabelsValidated, err = validateDnsLabels(dnsLabels)
-	if err != nil {
-		return err
 	}
 
 	ctx := internal.CtxInitState(cmd.Context())
@@ -229,63 +218,22 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	return nil
 }
 
-func setupSetConfigFromConfigInput(ic *profilemanager.ConfigInput) *proto.SetConfigRequest {
-	req := &proto.SetConfigRequest{
-		ManagementUrl:                 ic.ManagementURL,
-		AdminURL:                      ic.AdminURL,
-		NatExternalIPs:                ic.NATExternalIPs,
-		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
-		CustomDNSAddress:              ic.CustomDNSAddress,
-		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
-		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
-		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
-		RosenpassEnabled:              ic.RosenpassEnabled,
-		RosenpassPermissive:           ic.RosenpassPermissive,
-		ServerSSHAllowed:              ic.ServerSSHAllowed,
-		EnableSSHRoot:                 ic.EnableSSHRoot,
-		EnableSSHSFTP:                 ic.EnableSSHSFTP,
-		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
-		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
-		DisableSSHAuth:                ic.DisableSSHAuth,
-		InterfaceName:                 ic.InterfaceName,
-		NetworkMonitor:                ic.NetworkMonitor,
-		DisableAutoConnect:            ic.DisableAutoConnect,
-		DisableClientRoutes:           ic.DisableClientRoutes,
-		DisableServerRoutes:           ic.DisableServerRoutes,
-		DisableDns:                    ic.DisableDNS,
-		DisableFirewall:               ic.DisableFirewall,
-		BlockLanAccess:                ic.BlockLANAccess,
-		BlockInbound:                  ic.BlockInbound,
-		DisableNotifications:          ic.DisableNotifications,
-		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
-		OptionalPreSharedKey:          ic.PreSharedKey,
-	}
-
-	// Type conversions needed
-	if ic.WireguardPort != nil {
-		p := int64(*ic.WireguardPort)
-		req.WireguardPort = &p
-	}
-	if ic.MTU != nil {
-		m := int64(*ic.MTU)
-		req.Mtu = &m
-	}
-	if ic.SSHJWTCacheTTL != nil {
-		ttl := int32(*ic.SSHJWTCacheTTL)
-		req.SshJWTCacheTTL = &ttl
-	}
-	if ic.DNSRouteInterval != nil {
-		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
-	}
-
-	return req
-}
-
 func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
 	ic := profilemanager.ConfigInput{
 		NATExternalIPs:      natExternalIPs,
 		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsValidated,
+	}
+
+	if err := validateNATExternalIPs(natExternalIPs); err != nil {
+		return nil, err
+	}
+
+	if dnsLabels != nil {
+		var err error
+		ic.DNSLabels, err = validateDnsLabels(dnsLabels)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cmd.Flag(dnsResolverAddress).Changed {
