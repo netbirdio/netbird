@@ -12,8 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -185,25 +183,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("setup config: %v", err)
 	}
 
-	// setup grpc connection
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	client, err := doDaemonLogin(ctx, cmd, activeProf, pm, profileSwitched, ic)
 	if err != nil {
-		return fmt.Errorf("connect to service CLI interface: %w", err)
-	}
-	defer conn.Close()
-	client := proto.NewDaemonServiceClient(conn)
-
-	// setup daemon
-	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, setupSetConfigFromConfigInput(ic))
-	if err != nil {
-		return fmt.Errorf("daemon setup failed: %v", err)
-	}
-
-	// login if not already connected
-	if !alreadyConnected {
-		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, setupLoginRequestFromConfigInput(ic)); err != nil {
-			return fmt.Errorf("daemon login failed: %v", err)
-		}
+		return err
 	}
 
 	// up the service
@@ -344,60 +326,6 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
 	return &ic, nil
-}
-
-func setupLoginRequestFromConfigInput(ic *profilemanager.ConfigInput) *proto.LoginRequest {
-	req := &proto.LoginRequest{
-		ManagementUrl:                 ic.ManagementURL,
-		AdminURL:                      ic.AdminURL,
-		NatExternalIPs:                ic.NATExternalIPs,
-		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
-		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
-		CustomDNSAddress:              ic.CustomDNSAddress,
-		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
-		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
-		RosenpassEnabled:              ic.RosenpassEnabled,
-		RosenpassPermissive:           ic.RosenpassPermissive,
-		ServerSSHAllowed:              ic.ServerSSHAllowed,
-		EnableSSHRoot:                 ic.EnableSSHRoot,
-		EnableSSHSFTP:                 ic.EnableSSHSFTP,
-		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
-		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
-		DisableSSHAuth:                ic.DisableSSHAuth,
-		InterfaceName:                 ic.InterfaceName,
-		NetworkMonitor:                ic.NetworkMonitor,
-		DisableAutoConnect:            ic.DisableAutoConnect,
-		DisableClientRoutes:           ic.DisableClientRoutes,
-		DisableServerRoutes:           ic.DisableServerRoutes,
-		DisableDns:                    ic.DisableDNS,
-		DisableFirewall:               ic.DisableFirewall,
-		BlockLanAccess:                ic.BlockLANAccess,
-		BlockInbound:                  ic.BlockInbound,
-		DisableNotifications:          ic.DisableNotifications,
-		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
-	}
-
-	// Type conversions needed
-	if ic.WireguardPort != nil {
-		p := int64(*ic.WireguardPort)
-		req.WireguardPort = &p
-	}
-	if ic.MTU != nil {
-		m := int64(*ic.MTU)
-		req.Mtu = &m
-	}
-	if ic.SSHJWTCacheTTL != nil {
-		ttl := int32(*ic.SSHJWTCacheTTL)
-		req.SshJWTCacheTTL = &ttl
-	}
-	if ic.DNSRouteInterval != nil {
-		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
-	}
-	if ic.PreSharedKey != nil {
-		req.OptionalPreSharedKey = ic.PreSharedKey
-	}
-
-	return req
 }
 
 func validateNATExternalIPs(list []string) error {

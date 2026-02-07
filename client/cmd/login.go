@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -67,7 +68,7 @@ var loginCmd = &cobra.Command{
 			return nil
 		}
 
-		if err := loginInDaemonMode(ctx, cmd, activeProf, pm, profileSwitched); err != nil {
+		if _, err := doDaemonLogin(ctx, cmd, activeProf, pm, profileSwitched, &profilemanager.ConfigInput{}); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
@@ -77,35 +78,34 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func loginInDaemonMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool) error {
+func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool, ic *profilemanager.ConfigInput) (proto.DaemonServiceClient, error) {
 	// setup grpc connection
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		return fmt.Errorf("connect to service CLI interface: %w", err)
+		return nil, fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 	client := proto.NewDaemonServiceClient(conn)
 
 	// setup daemon
-	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, &proto.SetConfigRequest{})
+	alreadyConnected, err := daemonSetup(ctx, cmd, client, profileSwitched, ic)
 	if err != nil {
-		return fmt.Errorf("daemon setup failed: %v", err)
+		return nil, fmt.Errorf("daemon setup failed: %v", err)
 	}
 
 	if alreadyConnected {
-		return nil
+		return client, nil
 	}
 
 	// login
-	if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, &proto.LoginRequest{}); err != nil {
-		return fmt.Errorf("daemon login failed: %v", err)
+	if err := daemonLogin(ctx, cmd, client, activeProf, pm, ic); err != nil {
+		return nil, fmt.Errorf("daemon login failed: %v", err)
 	}
 
-	return nil
+	return client, nil
 }
 
-func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, setConfigReq *proto.SetConfigRequest) error {
-func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, setConfigReq *proto.SetConfigRequest) (bool, error) {
+func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, ic *profilemanager.ConfigInput) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
@@ -137,6 +137,7 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 	}
 
 	// set default values for setconfigreq
+	setConfigReq := configInputToSetConfigRequest(ic)
 	setConfigReq.ProfileName = profileName
 	setConfigReq.Username = username.Username
 	setConfigReq.ManagementUrl = managementURL
@@ -157,7 +158,7 @@ func doDaemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 	return true, nil
 }
 
-func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, loginReq *proto.LoginRequest) error {
+func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return err
@@ -169,6 +170,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 	}
 
 	// set standard variables for login request
+	loginReq := configInputToLoginRequest(ic)
 	loginReq.SetupKey = providedSetupKey
 	loginReq.ManagementUrl = managementURL
 	loginReq.IsUnixDesktopClient = isUnixRunningDesktop()
@@ -466,4 +468,110 @@ func setEnvAndFlags(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func configInputToSetConfigRequest(ic *profilemanager.ConfigInput) *proto.SetConfigRequest {
+	req := &proto.SetConfigRequest{
+		ManagementUrl:                 ic.ManagementURL,
+		AdminURL:                      ic.AdminURL,
+		NatExternalIPs:                ic.NATExternalIPs,
+		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
+		CustomDNSAddress:              ic.CustomDNSAddress,
+		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
+		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
+		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
+		RosenpassEnabled:              ic.RosenpassEnabled,
+		RosenpassPermissive:           ic.RosenpassPermissive,
+		ServerSSHAllowed:              ic.ServerSSHAllowed,
+		EnableSSHRoot:                 ic.EnableSSHRoot,
+		EnableSSHSFTP:                 ic.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                ic.DisableSSHAuth,
+		InterfaceName:                 ic.InterfaceName,
+		NetworkMonitor:                ic.NetworkMonitor,
+		DisableAutoConnect:            ic.DisableAutoConnect,
+		DisableClientRoutes:           ic.DisableClientRoutes,
+		DisableServerRoutes:           ic.DisableServerRoutes,
+		DisableDns:                    ic.DisableDNS,
+		DisableFirewall:               ic.DisableFirewall,
+		BlockLanAccess:                ic.BlockLANAccess,
+		BlockInbound:                  ic.BlockInbound,
+		DisableNotifications:          ic.DisableNotifications,
+		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
+		OptionalPreSharedKey:          ic.PreSharedKey,
+	}
+
+	// Type conversions needed
+	if ic.WireguardPort != nil {
+		p := int64(*ic.WireguardPort)
+		req.WireguardPort = &p
+	}
+	if ic.MTU != nil {
+		m := int64(*ic.MTU)
+		req.Mtu = &m
+	}
+	if ic.SSHJWTCacheTTL != nil {
+		ttl := int32(*ic.SSHJWTCacheTTL)
+		req.SshJWTCacheTTL = &ttl
+	}
+	if ic.DNSRouteInterval != nil {
+		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
+	}
+
+	return req
+}
+
+func configInputToLoginRequest(ic *profilemanager.ConfigInput) *proto.LoginRequest {
+	req := &proto.LoginRequest{
+		ManagementUrl:                 ic.ManagementURL,
+		AdminURL:                      ic.AdminURL,
+		NatExternalIPs:                ic.NATExternalIPs,
+		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
+		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
+		CustomDNSAddress:              ic.CustomDNSAddress,
+		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
+		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
+		RosenpassEnabled:              ic.RosenpassEnabled,
+		RosenpassPermissive:           ic.RosenpassPermissive,
+		ServerSSHAllowed:              ic.ServerSSHAllowed,
+		EnableSSHRoot:                 ic.EnableSSHRoot,
+		EnableSSHSFTP:                 ic.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                ic.DisableSSHAuth,
+		InterfaceName:                 ic.InterfaceName,
+		NetworkMonitor:                ic.NetworkMonitor,
+		DisableAutoConnect:            ic.DisableAutoConnect,
+		DisableClientRoutes:           ic.DisableClientRoutes,
+		DisableServerRoutes:           ic.DisableServerRoutes,
+		DisableDns:                    ic.DisableDNS,
+		DisableFirewall:               ic.DisableFirewall,
+		BlockLanAccess:                ic.BlockLANAccess,
+		BlockInbound:                  ic.BlockInbound,
+		DisableNotifications:          ic.DisableNotifications,
+		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
+	}
+
+	// Type conversions needed
+	if ic.WireguardPort != nil {
+		p := int64(*ic.WireguardPort)
+		req.WireguardPort = &p
+	}
+	if ic.MTU != nil {
+		m := int64(*ic.MTU)
+		req.Mtu = &m
+	}
+	if ic.SSHJWTCacheTTL != nil {
+		ttl := int32(*ic.SSHJWTCacheTTL)
+		req.SshJWTCacheTTL = &ttl
+	}
+	if ic.DNSRouteInterval != nil {
+		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
+	}
+	if ic.PreSharedKey != nil {
+		req.OptionalPreSharedKey = ic.PreSharedKey
+	}
+
+	return req
 }
