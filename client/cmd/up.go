@@ -204,20 +204,24 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return err
 	}
 
-	if err := doDaemonSetup(ctx, cmd, client, profileSwitched, setConfigReq); err != nil {
+	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, setConfigReq)
+	if err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
 
-	// login
-	loginReq, err := setupLoginRequestFromUpCmd(cmd)
-	if err != nil {
-		return err
+	// login if not already connected
+	if !alreadyConnected {
+		loginReq, err := setupLoginRequestFromUpCmd(cmd)
+		if err != nil {
+			return err
+		}
+
+		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, loginReq); err != nil {
+			return fmt.Errorf("daemon login failed: %v", err)
+		}
 	}
 
-	if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, loginReq); err != nil {
-		return fmt.Errorf("daemon login failed: %v", err)
-	}
-
+	// up the service
 	if _, err := client.Up(ctx, &proto.UpRequest{
 		ProfileName: &activeProf.Name,
 		Username:    &username,
