@@ -46,9 +46,6 @@ var loginCmd = &cobra.Command{
 
 		pm := profilemanager.NewProfileManager()
 
-		// if non-empty profileName, this means that we switched profile
-		profileSwitched := profileName != ""
-
 		username, err := user.Current()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
@@ -68,7 +65,7 @@ var loginCmd = &cobra.Command{
 			return nil
 		}
 
-		if _, err := doDaemonLogin(ctx, cmd, activeProf, pm, profileSwitched, &profilemanager.ConfigInput{}); err != nil {
+		if _, err := doDaemonLogin(ctx, cmd, activeProf, pm, &profilemanager.ConfigInput{}); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
@@ -78,7 +75,7 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, profileSwitched bool, ic *profilemanager.ConfigInput) (proto.DaemonServiceClient, error) {
+func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) (proto.DaemonServiceClient, error) {
 	// setup grpc connection
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -88,7 +85,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 	client := proto.NewDaemonServiceClient(conn)
 
 	// setup daemon
-	alreadyConnected, err := daemonSetup(ctx, cmd, client, profileSwitched, ic)
+	alreadyConnected, err := daemonSetup(ctx, cmd, client, ic)
 	if err != nil {
 		return nil, fmt.Errorf("daemon setup failed: %v", err)
 	}
@@ -105,7 +102,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 	return client, nil
 }
 
-func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, profileSwitched bool, ic *profilemanager.ConfigInput) (bool, error) {
+func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, ic *profilemanager.ConfigInput) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
@@ -119,7 +116,8 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		if !profileSwitched {
+		// if non-empty profileName, this means that we switched profile
+		if profileName != "" {
 			return true, nil
 		}
 
@@ -222,7 +220,6 @@ func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 
 func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) (*profilemanager.Profile, error) {
 	// switch profile if provided
-
 	if profileName != "" {
 		if err := switchProfileOnDaemon(ctx, pm, profileName, username); err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
