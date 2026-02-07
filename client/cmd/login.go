@@ -551,6 +551,7 @@ func configInputToLoginRequest(ic *profilemanager.ConfigInput) *proto.LoginReque
 		BlockInbound:                  ic.BlockInbound,
 		DisableNotifications:          ic.DisableNotifications,
 		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
+		OptionalPreSharedKey:          ic.PreSharedKey,
 	}
 
 	// Type conversions needed
@@ -568,9 +569,6 @@ func configInputToLoginRequest(ic *profilemanager.ConfigInput) *proto.LoginReque
 	}
 	if ic.DNSRouteInterval != nil {
 		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
-	}
-	if ic.PreSharedKey != nil {
-		req.OptionalPreSharedKey = ic.PreSharedKey
 	}
 
 	return req
