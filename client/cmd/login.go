@@ -122,7 +122,7 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 			return true, nil
 		}
 
-		// we are already conneted, but we want to switch profiles
+		// we are already connected, but we want to switch profiles
 		// so we need to disconnect first
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
