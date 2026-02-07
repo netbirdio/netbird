@@ -37,7 +37,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("set env and flags: %v", err)
 		}
 
-		ctx := internal.CtxInitState(context.Background())
+		ctx := internal.CtxInitState(cmd.Context())
 
 		if hostName != "" {
 			// nolint
@@ -83,8 +83,14 @@ var loginCmd = &cobra.Command{
 }
 
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
+	// get user
+	user, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
 	// setup daemon
-	alreadyConnected, err := daemonSetup(ctx, cmd, client, activeProf, ic)
+	alreadyConnected, err := daemonSetup(ctx, cmd, client, activeProf, ic, user.Username)
 	if err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
@@ -94,14 +100,14 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 	}
 
 	// login
-	if err := daemonLogin(ctx, cmd, client, activeProf, pm, ic); err != nil {
+	if err := daemonLogin(ctx, cmd, client, activeProf, pm, ic, user.Username); err != nil {
 		return fmt.Errorf("daemon login failed: %v", err)
 	}
 
 	return nil
 }
 
-func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, ic *profilemanager.ConfigInput) (bool, error) {
+func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, ic *profilemanager.ConfigInput, username string) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
 		cmd.PrintErrf("Warning: Config flag is deprecated, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
@@ -129,15 +135,10 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 		}
 	}
 
-	username, err := user.Current()
-	if err != nil {
-		return false, fmt.Errorf("get current user: %v", err)
-	}
-
 	// set default values for setconfigreq
 	setConfigReq := configInputToSetConfigRequest(ic)
 	setConfigReq.ProfileName = activeProf.Name
-	setConfigReq.Username = username.Username
+	setConfigReq.Username = username
 	setConfigReq.ManagementUrl = managementURL
 	setConfigReq.AdminURL = adminURL
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -156,15 +157,10 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 	return false, nil
 }
 
-func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
+func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput, username string) error {
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return err
-	}
-
-	username, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("get current user: %v", err)
 	}
 
 	// set standard variables for login request
@@ -174,7 +170,7 @@ func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 	loginReq.IsUnixDesktopClient = isUnixRunningDesktop()
 	loginReq.Hostname = hostName
 	loginReq.ProfileName = &activeProf.Name
-	loginReq.Username = &username.Username
+	loginReq.Username = &username
 
 	profileState, err := pm.GetProfileState(activeProf.Name)
 	if err != nil {
@@ -238,7 +234,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 }
 
 func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) error {
-	err := switchProfile(context.Background(), profileName, username)
+	err := switchProfile(ctx, profileName, username)
 	if err != nil {
 		return fmt.Errorf("switch profile on daemon: %v", err)
 	}
