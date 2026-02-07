@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -190,6 +189,13 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+	// get our config input, so we can generate
+	// proto.SetConfig and proto.LoginRequest
+	ic, err := setupConfigInputFromUpCmd(cmd)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
+	}
+
 	// setup grpc connection
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -199,24 +205,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	client := proto.NewDaemonServiceClient(conn)
 
 	// setup daemon
-	setConfigReq, err := setupSetConfigFromUpCmd(cmd)
-	if err != nil {
-		return err
-	}
-
-	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, setConfigReq)
+	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, setupSetConfigFromConfigInput(ic))
 	if err != nil {
 		return fmt.Errorf("daemon setup failed: %v", err)
 	}
 
 	// login if not already connected
 	if !alreadyConnected {
-		loginReq, err := setupLoginRequestFromUpCmd(cmd)
-		if err != nil {
-			return err
-		}
-
-		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, loginReq); err != nil {
+		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, setupLoginRequestFromConfigInput(ic)); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 	}
@@ -233,112 +229,56 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	return nil
 }
 
-func setupSetConfigFromUpCmd(cmd *cobra.Command) (*proto.SetConfigRequest, error) {
-	req := proto.SetConfigRequest{
-		NatExternalIPs:      natExternalIPs,
-		ExtraIFaceBlacklist: extraIFaceBlackList,
-		DnsLabels:           dnsLabelsValidated.ToPunycodeList(),
-		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
-		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+func setupSetConfigFromConfigInput(ic *profilemanager.ConfigInput) *proto.SetConfigRequest {
+	req := &proto.SetConfigRequest{
+		ManagementUrl:                 ic.ManagementURL,
+		AdminURL:                      ic.AdminURL,
+		NatExternalIPs:                ic.NATExternalIPs,
+		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
+		CustomDNSAddress:              ic.CustomDNSAddress,
+		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
+		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
+		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
+		RosenpassEnabled:              ic.RosenpassEnabled,
+		RosenpassPermissive:           ic.RosenpassPermissive,
+		ServerSSHAllowed:              ic.ServerSSHAllowed,
+		EnableSSHRoot:                 ic.EnableSSHRoot,
+		EnableSSHSFTP:                 ic.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                ic.DisableSSHAuth,
+		InterfaceName:                 ic.InterfaceName,
+		NetworkMonitor:                ic.NetworkMonitor,
+		DisableAutoConnect:            ic.DisableAutoConnect,
+		DisableClientRoutes:           ic.DisableClientRoutes,
+		DisableServerRoutes:           ic.DisableServerRoutes,
+		DisableDns:                    ic.DisableDNS,
+		DisableFirewall:               ic.DisableFirewall,
+		BlockLanAccess:                ic.BlockLANAccess,
+		BlockInbound:                  ic.BlockInbound,
+		DisableNotifications:          ic.DisableNotifications,
+		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
+		OptionalPreSharedKey:          ic.PreSharedKey,
 	}
 
-	if cmd.Flag(dnsResolverAddress).Changed {
-		var err error
-		req.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		req.RosenpassEnabled = &rosenpassEnabled
-	}
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		req.RosenpassPermissive = &rosenpassPermissive
-	}
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		req.ServerSSHAllowed = &serverSSHAllowed
-	}
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		req.EnableSSHRoot = &enableSSHRoot
-	}
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		req.EnableSSHSFTP = &enableSSHSFTP
-	}
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		req.DisableSSHAuth = &disableSSHAuth
-	}
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
-		req.SshJWTCacheTTL = &sshJWTCacheTTL32
-	}
-	if cmd.Flag(interfaceNameFlag).Changed {
-		if err := parseInterfaceName(interfaceName); err != nil {
-			log.Errorf("parse interface name: %v", err)
-			return nil, err
-		}
-		req.InterfaceName = &interfaceName
-	}
-	if cmd.Flag(wireguardPortFlag).Changed {
-		p := int64(wireguardPort)
+	// Type conversions needed
+	if ic.WireguardPort != nil {
+		p := int64(*ic.WireguardPort)
 		req.WireguardPort = &p
 	}
-
-	if cmd.Flag(mtuFlag).Changed {
-		if err := iface.ValidateMTU(mtu); err != nil {
-			return nil, err
-		}
-		m := int64(mtu)
+	if ic.MTU != nil {
+		m := int64(*ic.MTU)
 		req.Mtu = &m
 	}
-
-	if cmd.Flag(networkMonitorFlag).Changed {
-		req.NetworkMonitor = &networkMonitor
+	if ic.SSHJWTCacheTTL != nil {
+		ttl := int32(*ic.SSHJWTCacheTTL)
+		req.SshJWTCacheTTL = &ttl
+	}
+	if ic.DNSRouteInterval != nil {
+		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
 	}
 
-	if cmd.Flag(disableAutoConnectFlag).Changed {
-		req.DisableAutoConnect = &autoConnectDisabled
-	}
-
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
-		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
-	}
-
-	if cmd.Flag(disableClientRoutesFlag).Changed {
-		req.DisableClientRoutes = &disableClientRoutes
-	}
-
-	if cmd.Flag(disableServerRoutesFlag).Changed {
-		req.DisableServerRoutes = &disableServerRoutes
-	}
-
-	if cmd.Flag(disableDNSFlag).Changed {
-		req.DisableDns = &disableDNS
-	}
-
-	if cmd.Flag(disableFirewallFlag).Changed {
-		req.DisableFirewall = &disableFirewall
-	}
-
-	if cmd.Flag(blockLANAccessFlag).Changed {
-		req.BlockLanAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(blockInboundFlag).Changed {
-		req.BlockInbound = &blockInbound
-	}
-
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
-		req.LazyConnectionEnabled = &lazyConnEnabled
-	}
-
-	return &req, nil
+	return req
 }
 
 func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
@@ -458,117 +398,58 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 	return &ic, nil
 }
 
-func setupLoginRequestFromUpCmd(cmd *cobra.Command) (*proto.LoginRequest, error) {
-	loginRequest := proto.LoginRequest{
-		NatExternalIPs:      natExternalIPs,
-		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
-		ExtraIFaceBlacklist: extraIFaceBlackList,
-		DnsLabels:           dnsLabelsValidated.ToPunycodeList(),
-		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
+func setupLoginRequestFromConfigInput(ic *profilemanager.ConfigInput) *proto.LoginRequest {
+	req := &proto.LoginRequest{
+		ManagementUrl:                 ic.ManagementURL,
+		AdminURL:                      ic.AdminURL,
+		NatExternalIPs:                ic.NATExternalIPs,
+		CleanNATExternalIPs:           ic.NATExternalIPs != nil && len(ic.NATExternalIPs) == 0,
+		ExtraIFaceBlacklist:           ic.ExtraIFaceBlackList,
+		CustomDNSAddress:              ic.CustomDNSAddress,
+		DnsLabels:                     ic.DNSLabels.ToPunycodeList(),
+		CleanDNSLabels:                ic.DNSLabels != nil && len(ic.DNSLabels) == 0,
+		RosenpassEnabled:              ic.RosenpassEnabled,
+		RosenpassPermissive:           ic.RosenpassPermissive,
+		ServerSSHAllowed:              ic.ServerSSHAllowed,
+		EnableSSHRoot:                 ic.EnableSSHRoot,
+		EnableSSHSFTP:                 ic.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  ic.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: ic.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                ic.DisableSSHAuth,
+		InterfaceName:                 ic.InterfaceName,
+		NetworkMonitor:                ic.NetworkMonitor,
+		DisableAutoConnect:            ic.DisableAutoConnect,
+		DisableClientRoutes:           ic.DisableClientRoutes,
+		DisableServerRoutes:           ic.DisableServerRoutes,
+		DisableDns:                    ic.DisableDNS,
+		DisableFirewall:               ic.DisableFirewall,
+		BlockLanAccess:                ic.BlockLANAccess,
+		BlockInbound:                  ic.BlockInbound,
+		DisableNotifications:          ic.DisableNotifications,
+		LazyConnectionEnabled:         ic.LazyConnectionEnabled,
 	}
 
-	if cmd.Flag(dnsResolverAddress).Changed {
-		var err error
-		loginRequest.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
-		if err != nil {
-			return nil, err
-		}
+	// Type conversions needed
+	if ic.WireguardPort != nil {
+		p := int64(*ic.WireguardPort)
+		req.WireguardPort = &p
+	}
+	if ic.MTU != nil {
+		m := int64(*ic.MTU)
+		req.Mtu = &m
+	}
+	if ic.SSHJWTCacheTTL != nil {
+		ttl := int32(*ic.SSHJWTCacheTTL)
+		req.SshJWTCacheTTL = &ttl
+	}
+	if ic.DNSRouteInterval != nil {
+		req.DnsRouteInterval = durationpb.New(*ic.DNSRouteInterval)
+	}
+	if ic.PreSharedKey != nil {
+		req.OptionalPreSharedKey = ic.PreSharedKey
 	}
 
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		loginRequest.RosenpassEnabled = &rosenpassEnabled
-	}
-
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		loginRequest.RosenpassPermissive = &rosenpassPermissive
-	}
-
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		loginRequest.ServerSSHAllowed = &serverSSHAllowed
-	}
-
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		loginRequest.EnableSSHRoot = &enableSSHRoot
-	}
-
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		loginRequest.EnableSSHSFTP = &enableSSHSFTP
-	}
-
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		loginRequest.DisableSSHAuth = &disableSSHAuth
-	}
-
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
-		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
-	}
-
-	if cmd.Flag(disableAutoConnectFlag).Changed {
-		loginRequest.DisableAutoConnect = &autoConnectDisabled
-	}
-
-	if cmd.Flag(interfaceNameFlag).Changed {
-		if err := parseInterfaceName(interfaceName); err != nil {
-			return nil, err
-		}
-		loginRequest.InterfaceName = &interfaceName
-	}
-
-	if cmd.Flag(wireguardPortFlag).Changed {
-		wp := int64(wireguardPort)
-		loginRequest.WireguardPort = &wp
-	}
-
-	if cmd.Flag(mtuFlag).Changed {
-		if err := iface.ValidateMTU(mtu); err != nil {
-			return nil, err
-		}
-		m := int64(mtu)
-		loginRequest.Mtu = &m
-	}
-
-	if cmd.Flag(networkMonitorFlag).Changed {
-		loginRequest.NetworkMonitor = &networkMonitor
-	}
-
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
-		loginRequest.DnsRouteInterval = durationpb.New(dnsRouteInterval)
-	}
-
-	if cmd.Flag(disableClientRoutesFlag).Changed {
-		loginRequest.DisableClientRoutes = &disableClientRoutes
-	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
-		loginRequest.DisableServerRoutes = &disableServerRoutes
-	}
-	if cmd.Flag(disableDNSFlag).Changed {
-		loginRequest.DisableDns = &disableDNS
-	}
-	if cmd.Flag(disableFirewallFlag).Changed {
-		loginRequest.DisableFirewall = &disableFirewall
-	}
-
-	if cmd.Flag(blockLANAccessFlag).Changed {
-		loginRequest.BlockLanAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(blockInboundFlag).Changed {
-		loginRequest.BlockInbound = &blockInbound
-	}
-
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
-		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
-	}
-	return &loginRequest, nil
+	return req
 }
 
 func validateNATExternalIPs(list []string) error {
