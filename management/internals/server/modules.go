@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"os"
+
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 
@@ -37,7 +40,12 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	}
 
 	return Create(s, func() geolocation.Geolocation {
-		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
+		transport := util.NewTransport()
+		httpClient := &http.Client{
+			Transport: transport,
+		}
+
+		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate, httpClient)
 		if err != nil {
 			log.Fatalf("could not initialize geolocation service: %v", err)
 		}

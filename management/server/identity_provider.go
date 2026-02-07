@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util"
 )
 
 // oidcProviderJSON represents the OpenID Connect discovery document
@@ -33,9 +34,8 @@ type oidcProviderJSON struct {
 func validateOIDCIssuer(ctx context.Context, issuer string) error {
 	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
 
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	httpClient := util.NewHTTPClient()
+	httpClient.Timeout = 10 * time.Second
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
 	if err != nil {

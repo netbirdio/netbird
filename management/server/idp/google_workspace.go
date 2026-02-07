@@ -12,6 +12,7 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // GoogleWorkspaceManager Google Workspace manager client instance.
@@ -44,14 +45,14 @@ func (gc *GoogleWorkspaceCredentials) Authenticate(_ context.Context) (JWTToken,
 
 // NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
 func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.CustomerID == "" {

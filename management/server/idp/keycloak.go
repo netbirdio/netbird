@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // KeycloakManager keycloak manager client instance.
@@ -59,14 +60,14 @@ type keycloakProfile struct {
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
 func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

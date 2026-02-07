@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -132,12 +133,12 @@ type ConnectionOptions struct {
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
 func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
-	httpTransport.MaxIdleConns = 5
+	credentialsHTTPTransport := util.NewTransport()
+	credentialsHTTPTransport.MaxIdleConns = 5
 
-		httpClient := &http.Client{
+	credentialsHTTPClient := &http.Client{
 		Timeout:   idpTimeout(),
-		Transport: httpTransport,
+		Transport: credentialsHTTPTransport,
 	}
 
 	helper := JsonParser{}
@@ -164,15 +165,23 @@ func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) 
 
 	credentials := &Auth0Credentials{
 		clientConfig: config,
-		httpClient:   httpClient,
+		httpClient:   credentialsHTTPClient,
 		helper:       helper,
 		appMetrics:   appMetrics,
+	}
+
+	managerHTTPTransport := util.NewTransport()
+	managerHTTPTransport.MaxIdleConns = 5
+
+	managerHTTPClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: managerHTTPTransport,
 	}
 
 	return &Auth0Manager{
 		authIssuer:  config.AuthIssuer,
 		credentials: credentials,
-		httpClient:  httpClient,
+		httpClient:  managerHTTPClient,
 		helper:      helper,
 		appMetrics:  appMetrics,
 	}, nil

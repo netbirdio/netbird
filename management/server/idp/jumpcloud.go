@@ -9,6 +9,7 @@ import (
 	v1 "github.com/TheJumpCloud/jcapi-go/v1"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -41,7 +42,7 @@ type JumpCloudCredentials struct {
 
 // NewJumpCloudManager creates a new instance of the JumpCloudManager.
 func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{

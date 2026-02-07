@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -61,20 +62,20 @@ const (
 	geonamesdbPattern = "geonames_*.db"
 )
 
-func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool) (Geolocation, error) {
+func NewGeolocation(ctx context.Context, dataDir string, autoUpdate bool, httpClient *http.Client) (Geolocation, error) {
 	mmdbGlobPattern := filepath.Join(dataDir, mmdbPattern)
-	mmdbFile, err := getDatabaseFilename(ctx, geoLiteCityTarGZURL, mmdbGlobPattern, autoUpdate)
+	mmdbFile, err := getDatabaseFilename(ctx, httpClient, geoLiteCityTarGZURL, mmdbGlobPattern, autoUpdate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database filename: %v", err)
 	}
 
 	geonamesDbGlobPattern := filepath.Join(dataDir, geonamesdbPattern)
-	geonamesDbFile, err := getDatabaseFilename(ctx, geoLiteCityZipURL, geonamesDbGlobPattern, autoUpdate)
+	geonamesDbFile, err := getDatabaseFilename(ctx, httpClient, geoLiteCityZipURL, geonamesDbGlobPattern, autoUpdate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database filename: %v", err)
 	}
 
-	if err := loadGeolocationDatabases(ctx, dataDir, mmdbFile, geonamesDbFile); err != nil {
+	if err := loadGeolocationDatabases(ctx, httpClient, dataDir, mmdbFile, geonamesDbFile); err != nil {
 		return nil, fmt.Errorf("failed to load MaxMind databases: %v", err)
 	}
 
@@ -196,14 +197,14 @@ func getExistingDatabases(pattern string) []string {
 	return files
 }
 
-func getDatabaseFilename(ctx context.Context, databaseURL string, filenamePattern string, autoUpdate bool) (string, error) {
+func getDatabaseFilename(ctx context.Context, client *http.Client, databaseURL string, filenamePattern string, autoUpdate bool) (string, error) {
 	var (
 		filename string
 		err      error
 	)
 
 	if autoUpdate {
-		filename, err = getFilenameFromURL(databaseURL)
+		filename, err = getFilenameFromURL(client, databaseURL)
 		if err != nil {
 			log.WithContext(ctx).Debugf("Failed to update database from url: %s", databaseURL)
 			return "", err
@@ -211,7 +212,7 @@ func getDatabaseFilename(ctx context.Context, databaseURL string, filenamePatter
 	} else {
 		files := getExistingDatabases(filenamePattern)
 		if len(files) < 1 {
-			filename, err = getFilenameFromURL(databaseURL)
+			filename, err = getFilenameFromURL(client, databaseURL)
 			if err != nil {
 				log.WithContext(ctx).Debugf("Failed to get database from url: %s", databaseURL)
 				return "", err

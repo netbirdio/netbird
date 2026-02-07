@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -214,7 +214,7 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 		return jwks, err
 	}
 
-	resp, err := http.Get(requestURI.String())
+	resp, err := util.NewHTTPClient().Get(requestURI.String())
 	if err != nil {
 		return jwks, err
 	}

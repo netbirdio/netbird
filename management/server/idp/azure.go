@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 const profileFields = "id,displayName,mail,userPrincipalName"
@@ -54,14 +55,14 @@ type azureProfile map[string]any
 
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
-		httpClient := &http.Client{
+	httpClient := &http.Client{
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

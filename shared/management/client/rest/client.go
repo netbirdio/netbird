@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/netbirdio/netbird/shared/management/http/util"
+	nbutil "github.com/netbirdio/netbird/util"
 )
 
 // Client Management service HTTP REST API Client
@@ -94,7 +95,7 @@ func NewWithBearerToken(managementURL, token string) *Client {
 // NewWithOptions initialize new Client instance with options
 func NewWithOptions(opts ...option) *Client {
 	client := &Client{
-		httpClient: http.DefaultClient,
+		httpClient: nbutil.NewHTTPClient(),
 	}
 
 	for _, option := range opts {

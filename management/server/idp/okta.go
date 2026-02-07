@@ -11,6 +11,7 @@ import (
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // OktaManager okta manager client instance.
@@ -40,7 +41,7 @@ type OktaCredentials struct {
 
 // NewOktaManager creates a new instance of the OktaManager.
 func NewOktaManager(config OktaClientConfig, appMetrics telemetry.AppMetrics) (*OktaManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
