@@ -45,7 +45,6 @@ var loginCmd = &cobra.Command{
 		}
 
 		pm := profilemanager.NewProfileManager()
-
 		username, err := user.Current()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
@@ -57,49 +56,49 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("get active profile: %v", err)
 		}
 
-		// workaround to run without service
+		// foreground mode
 		if util.FindFirstLogPath(logFiles) == "" {
 			if _, err := doForegroundLogin(ctx, cmd, activeProf, &profilemanager.ConfigInput{}); err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)
 			}
-			return nil
+		} else { // daemon mode
+			// setup grpc connection + defer close
+			conn, err := DialClientGRPCServer(ctx, daemonAddr)
+			if err != nil {
+				return fmt.Errorf("connect to service CLI interface: %w", err)
+			}
+			defer conn.Close()
+			client := proto.NewDaemonServiceClient(conn)
+
+			// daemon login
+			if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, &profilemanager.ConfigInput{}); err != nil {
+				return fmt.Errorf("daemon login failed: %v", err)
+			}
 		}
 
-		if _, err := doDaemonLogin(ctx, cmd, activeProf, pm, &profilemanager.ConfigInput{}); err != nil {
-			return fmt.Errorf("daemon login failed: %v", err)
-		}
-
-		cmd.Println("Logging successfully")
+		cmd.Println("Logged in successfully")
 
 		return nil
 	},
 }
 
-func doDaemonLogin(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) (proto.DaemonServiceClient, error) {
-	// setup grpc connection
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		return nil, fmt.Errorf("connect to service CLI interface: %w", err)
-	}
-	defer conn.Close()
-	client := proto.NewDaemonServiceClient(conn)
-
+func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
 	// setup daemon
 	alreadyConnected, err := daemonSetup(ctx, cmd, client, ic)
 	if err != nil {
-		return nil, fmt.Errorf("daemon setup failed: %v", err)
+		return fmt.Errorf("daemon setup failed: %v", err)
 	}
 
 	if alreadyConnected {
-		return client, nil
+		return nil
 	}
 
 	// login
 	if err := daemonLogin(ctx, cmd, client, activeProf, pm, ic); err != nil {
-		return nil, fmt.Errorf("daemon login failed: %v", err)
+		return fmt.Errorf("daemon login failed: %v", err)
 	}
 
-	return client, nil
+	return nil
 }
 
 func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, ic *profilemanager.ConfigInput) (bool, error) {
