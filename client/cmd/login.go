@@ -338,7 +338,6 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	if err != nil {
 		return nil, fmt.Errorf("foreground login failed: %v", err)
 	}
-	cmd.Println("Logged in successfully")
 
 	return config, nil
 }
