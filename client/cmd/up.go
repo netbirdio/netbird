@@ -217,16 +217,14 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 
 	if dnsLabels != nil {
 		var err error
-		ic.DNSLabels, err = validateDnsLabels(dnsLabels)
-		if err != nil {
+		if ic.DNSLabels, err = validateDnsLabels(dnsLabels); err != nil {
 			return nil, err
 		}
 	}
 
 	if cmd.Flag(dnsResolverAddress).Changed {
 		var err error
-		ic.CustomDNSAddress, err = parseDNSAddress(customDNSAddress)
-		if err != nil {
+		if ic.CustomDNSAddress, err = parseDNSAddress(customDNSAddress); err != nil {
 			return nil, err
 		}
 	}
@@ -292,12 +290,9 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		ic.DisableAutoConnect = &autoConnectDisabled
-
 		if autoConnectDisabled {
 			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
-		}
-
-		if !autoConnectDisabled {
+		} else {
 			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
 		}
 	}
@@ -309,12 +304,15 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 	if cmd.Flag(disableClientRoutesFlag).Changed {
 		ic.DisableClientRoutes = &disableClientRoutes
 	}
+
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		ic.DisableServerRoutes = &disableServerRoutes
 	}
+
 	if cmd.Flag(disableDNSFlag).Changed {
 		ic.DisableDNS = &disableDNS
 	}
+
 	if cmd.Flag(disableFirewallFlag).Changed {
 		ic.DisableFirewall = &disableFirewall
 	}

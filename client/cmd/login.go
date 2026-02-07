@@ -312,7 +312,6 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, activeProf *prof
 	configFilePath, err := activeProf.FilePath()
 	if err != nil {
 		return nil, fmt.Errorf("get active profile file path: %v", err)
-
 	}
 
 	// update config with root flags
