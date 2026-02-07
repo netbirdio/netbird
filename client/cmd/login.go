@@ -117,7 +117,8 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 
 	if status.Status == string(internal.StatusConnected) {
 		// if non-empty profileName, this means that we switched profile
-		if profileName != "" {
+		profileSwitched := profileName != ""
+		if !profileSwitched {
 			return true, nil
 		}
 
