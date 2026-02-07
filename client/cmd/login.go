@@ -153,7 +153,7 @@ func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonSer
 		}
 	}
 
-	return true, nil
+	return false, nil
 }
 
 func daemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, pm *profilemanager.ProfileManager, ic *profilemanager.ConfigInput) error {
