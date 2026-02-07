@@ -51,7 +51,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		// getActiveProfile will also switch the profile if needed
-		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName, username.Username)
+		activeProf, err := getActiveProfile(ctx, pm, profileName, username.Username)
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
 		}
