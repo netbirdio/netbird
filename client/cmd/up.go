@@ -135,7 +135,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	pm := profilemanager.NewProfileManager()
-
 	username, err := user.Current()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
@@ -147,13 +146,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get active profile: %v", err)
 	}
 
-	// if non-empty profileName, this means that we switched profile
-	profileSwitched := profileName != ""
-
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
-	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
+
+	return runInDaemonMode(ctx, cmd, pm, activeProf)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -180,7 +177,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
 	// get our config input, so we can generate
 	// proto.SetConfig and proto.LoginRequest
 	ic, err := setupConfigInputFromUpCmd(cmd)
@@ -188,28 +185,17 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("setup config: %v", err)
 	}
 
-	client, err := doDaemonLogin(ctx, cmd, activeProf, pm, profileSwitched, ic)
+	// setup client
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-<<<<<<< HEAD
 		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 	client := proto.NewDaemonServiceClient(conn)
 
-	// setup daemon
-	alreadyConnected, err := doDaemonSetup(ctx, cmd, client, profileSwitched, setupSetConfigFromConfigInput(cmd, ic))
-	if err != nil {
-		return fmt.Errorf("daemon setup failed: %v", err)
-	}
-
-	// login if not already connected
-	if !alreadyConnected {
-		if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, setupLoginRequestFromConfigInput(cmd, ic)); err != nil {
-			return fmt.Errorf("daemon login failed: %v", err)
-		}
-=======
+	// do login
+	if err := doDaemonLogin(ctx, cmd, client, activeProf, pm, ic); err != nil {
 		return err
->>>>>>> 20f4fcd4d (use configinput in general and convert it around, much cleaner)
 	}
 
 	// up the service
