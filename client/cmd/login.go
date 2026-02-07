@@ -104,7 +104,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, client proto.DaemonS
 func daemonSetup(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, ic *profilemanager.ConfigInput) (bool, error) {
 	// Check if deprecated config flag is set and show warning
 	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+		cmd.PrintErrf("Warning: Config flag is deprecated, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
 	}
 
 	status, err := client.Status(ctx, &proto.StatusRequest{
