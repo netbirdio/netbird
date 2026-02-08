@@ -118,9 +118,17 @@ func (s *Server) SetLogger(logger *log.Entry) {
 	s.logger = logger
 }
 
+// log returns the component logger if set, otherwise the global logger.
+func (s *Server) log() *log.Entry {
+	if s.logger != nil {
+		return s.logger
+	}
+	return log.WithField("component", "signal")
+}
+
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	s.log().Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
@@ -173,14 +181,14 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedRegistration)))
-		log.Errorf("error while registering message listener for peer [%s] %v", p.Id, err)
+		s.log().Errorf("error while registering message listener for peer [%s] %v", p.Id, err)
 		return nil, status.Errorf(codes.Internal, "error while registering message listener")
 	}
 	return p, nil
 }
 
 func (s *Server) DeregisterPeer(p *peer.Peer) {
-	log.Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
+	s.log().Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 	s.metrics.PeerConnectionDuration.Record(p.Stream.Context(), int64(time.Since(p.RegisteredAt).Seconds()))
 	s.registry.Deregister(p)
 }

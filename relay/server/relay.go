@@ -73,6 +73,14 @@ func (r *Relay) SetLogger(logger *log.Entry) {
 	r.logger = logger
 }
 
+// log returns the component logger if set, otherwise the global logger.
+func (r *Relay) log() *log.Entry {
+	if r.logger != nil {
+		return r.logger
+	}
+	return log.WithField("component", "relay")
+}
+
 // Relay represents the relay server
 type Relay struct {
 	metrics       *metrics.Metrics
@@ -152,12 +160,12 @@ func (r *Relay) Accept(conn net.Conn) {
 	peerID, err := h.handshakeReceive()
 	if err != nil {
 		if peerid.IsHealthCheck(peerID) {
-			log.Debugf("health check connection from %s", conn.RemoteAddr())
+			r.log().Debugf("health check connection from %s", conn.RemoteAddr())
 		} else {
-			log.Errorf("failed to handshake: %s", err)
+			r.log().Errorf("failed to handshake: %s", err)
 		}
 		if cErr := conn.Close(); cErr != nil {
-			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
+			r.log().Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
 		return
 	}
@@ -182,7 +190,7 @@ func (r *Relay) Accept(conn net.Conn) {
 	}()
 
 	if err := h.handshakeResponse(); err != nil {
-		log.Errorf("failed to send handshake response, close peer: %s", err)
+		r.log().Errorf("failed to send handshake response, close peer: %s", err)
 		peer.Close()
 	}
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
@@ -191,7 +199,7 @@ func (r *Relay) Accept(conn net.Conn) {
 // Shutdown closes the relay server
 // It closes the connection with all peers in gracefully and stops accepting new connections.
 func (r *Relay) Shutdown(ctx context.Context) {
-	log.Infof("close connection with all peers")
+	r.log().Infof("close connection with all peers")
 	r.closeMu.Lock()
 	defer r.closeMu.Unlock()
 
