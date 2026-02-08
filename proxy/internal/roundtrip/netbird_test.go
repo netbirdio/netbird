@@ -7,15 +7,23 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+type mockMgmtClient struct{}
+
+func (m *mockMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
 
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("http://invalid.test:9999", "test-proxy", nil, nil)
+	return NewNetBird("http://invalid.test:9999", "test-proxy", nil, nil, &mockMgmtClient{})
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
