@@ -110,6 +110,10 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 			return status.Errorf(status.AlreadyExists, "reverse proxy with domain %s already exists", reverseProxy.Domain)
 		}
 
+		if err = validateTargetReferences(ctx, transaction, accountID, reverseProxy.Targets); err != nil {
+			return err
+		}
+
 		if err = transaction.CreateReverseProxy(ctx, reverseProxy); err != nil {
 			return fmt.Errorf("failed to create reverse proxy: %w", err)
 		}
@@ -181,6 +185,10 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 		reverseProxy.SessionPrivateKey = existingReverseProxy.SessionPrivateKey
 		reverseProxy.SessionPublicKey = existingReverseProxy.SessionPublicKey
 
+		if err = validateTargetReferences(ctx, transaction, accountID, reverseProxy.Targets); err != nil {
+			return err
+		}
+
 		if err = transaction.UpdateReverseProxy(ctx, reverseProxy); err != nil {
 			return fmt.Errorf("update reverse proxy: %w", err)
 		}
@@ -206,6 +214,29 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return reverseProxy, nil
+}
+
+// validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
+func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []reverseproxy.Target) error {
+	for _, target := range targets {
+		switch target.TargetType {
+		case reverseproxy.TargetTypePeer:
+			if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
+				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+					return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
+				}
+				return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
+			}
+		case reverseproxy.TargetTypeResource:
+			if _, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
+				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+					return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
+				}
+				return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (m *managerImpl) DeleteReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) error {

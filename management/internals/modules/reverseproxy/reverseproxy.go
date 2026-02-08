@@ -2,6 +2,7 @@ package reverseproxy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -326,6 +327,15 @@ func (r *ReverseProxy) Validate() error {
 
 	if len(r.Targets) == 0 {
 		return errors.New("at least one target is required")
+	}
+
+	for i, target := range r.Targets {
+		if target.TargetType != TargetTypePeer && target.TargetType != TargetTypeResource {
+			return fmt.Errorf("target %d has invalid target_type %q, must be %q or %q", i, target.TargetType, TargetTypePeer, TargetTypeResource)
+		}
+		if target.TargetId == "" {
+			return fmt.Errorf("target %d has empty target_id", i)
+		}
 	}
 
 	return nil
