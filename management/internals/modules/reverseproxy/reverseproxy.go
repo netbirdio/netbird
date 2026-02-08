@@ -347,6 +347,7 @@ func (r *ReverseProxy) Copy() *ReverseProxy {
 		ProxyCluster:      r.ProxyCluster,
 		Targets:           targets,
 		Enabled:           r.Enabled,
+		PassHostHeader:    r.PassHostHeader,
 		Auth:              r.Auth,
 		Meta:              r.Meta,
 		SessionPrivateKey: r.SessionPrivateKey,
