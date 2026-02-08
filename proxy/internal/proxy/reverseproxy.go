@@ -80,7 +80,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rp := &httputil.ReverseProxy{
-		Rewrite:      p.rewriteFunc(result.url, result.passHostHeader),
+		Rewrite:      p.rewriteFunc(result.url, result.matchedPath, result.passHostHeader),
 		Transport:    p.transport,
 		ErrorHandler: proxyErrorHandler,
 	}
@@ -92,8 +92,18 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // forwarding headers and stripping proxy authentication credentials.
 // When passHostHeader is true, the original client Host header is preserved
 // instead of being rewritten to the backend's address.
-func (p *ReverseProxy) rewriteFunc(target *url.URL, passHostHeader bool) func(r *httputil.ProxyRequest) {
+func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
+		// Strip the matched path prefix from the incoming request path before
+		// SetURL joins it with the target's base path, avoiding path duplication.
+		if matchedPath != "" && matchedPath != "/" {
+			r.Out.URL.Path = strings.TrimPrefix(r.Out.URL.Path, matchedPath)
+			if r.Out.URL.Path == "" {
+				r.Out.URL.Path = "/"
+			}
+			r.Out.URL.RawPath = ""
+		}
+
 		r.SetURL(target)
 		if passHostHeader {
 			r.Out.Host = r.In.Host

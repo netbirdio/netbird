@@ -20,6 +20,7 @@ type Mapping struct {
 
 type targetResult struct {
 	url            *url.URL
+	matchedPath    string
 	serviceID      string
 	accountID      types.AccountID
 	passHostHeader bool
@@ -56,6 +57,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, target)
 			return targetResult{
 				url:            target,
+				matchedPath:    path,
 				serviceID:      m.ID,
 				accountID:      m.AccountID,
 				passHostHeader: m.PassHostHeader,
