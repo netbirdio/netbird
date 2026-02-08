@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -26,6 +28,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
+
+const envSkipDNSProbe = "NB_SKIP_DNS_PROBE"
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
@@ -439,6 +443,17 @@ func (s *DefaultServer) SearchDomains() []string {
 // ProbeAvailability tests each upstream group's servers for availability
 // and deactivates the group if no server responds
 func (s *DefaultServer) ProbeAvailability() {
+	if val := os.Getenv(envSkipDNSProbe); val != "" {
+		skipProbe, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", envSkipDNSProbe, err)
+		}
+		if skipProbe {
+			log.Infof("skipping DNS probe due to %s", envSkipDNSProbe)
+			return
+		}
+	}
+
 	var wg sync.WaitGroup
 	for _, mux := range s.dnsMuxMap {
 		wg.Add(1)
