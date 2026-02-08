@@ -2961,7 +2961,7 @@ components:
           description: Backend ip or domain for this target
         port:
           type: integer
-          description: Backend port for this target
+          description: Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
         enabled:
           type: boolean
           description: Whether this target is enabled

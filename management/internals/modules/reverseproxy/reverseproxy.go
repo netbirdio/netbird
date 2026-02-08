@@ -213,7 +213,7 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 			Host:   target.Host,
 			Path:   path,
 		}
-		if target.Port > 0 {
+		if target.Port > 0 && !isDefaultPort(target.Protocol, target.Port) {
 			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.Itoa(target.Port))
 		}
 
@@ -265,6 +265,12 @@ func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
 		log.Fatalf("unknown operation type: %v", op)
 		return proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
 	}
+}
+
+// isDefaultPort reports whether port is the standard default for the given scheme
+// (443 for https, 80 for http).
+func isDefaultPort(scheme string, port int) bool {
+	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
 func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID string) {
