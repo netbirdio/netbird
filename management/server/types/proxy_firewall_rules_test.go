@@ -372,9 +372,12 @@ func TestGetPeerProxyRoutes_ResourceWithAccessLocal(t *testing.T) {
 
 	routes, routeFwRules, aclPeers := account.GetPeerProxyRoutes(context.Background(), account.Peers["proxy-peer"], exposedServices, resourcesMap, routers, proxyPeers)
 
-	assert.Empty(t, routes, "should NOT generate routes for AccessLocal resource")
-	assert.Empty(t, routeFwRules, "should NOT generate route firewall rules for AccessLocal resource")
-	assert.Empty(t, aclPeers, "should NOT include router peer from route path for AccessLocal resource")
+	require.NotEmpty(t, routes, "should generate routes for AccessLocal resource")
+	require.NotEmpty(t, routeFwRules, "should generate route firewall rules for AccessLocal resource")
+	require.NotEmpty(t, aclPeers, "should include router peer in ACL for AccessLocal resource")
+
+	assert.Equal(t, uint16(443), routeFwRules[0].PortRange.Start)
+	assert.Equal(t, "192.168.1.100/32", routeFwRules[0].Destination)
 }
 
 func TestGetPeerProxyRoutes_PeerTargetSkipped(t *testing.T) {

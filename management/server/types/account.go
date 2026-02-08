@@ -1928,7 +1928,7 @@ func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, pro
 	for _, proxyPerResource := range proxies {
 		for _, proxy := range proxyPerResource {
 			for _, target := range proxy.Targets {
-				if target.TargetType == reverseproxy.TargetTypeResource && !target.AccessLocal {
+				if target.TargetType == reverseproxy.TargetTypeResource {
 					resource, ok := resourcesMap[target.TargetId]
 					if !ok {
 						log.WithContext(ctx).Warnf("proxy target %s not found in resources map", target.TargetId)
