@@ -3,7 +3,7 @@ package main
 import (
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/homelab/cmd"
+	"github.com/netbirdio/netbird/combined/cmd"
 )
 
 func main() {
