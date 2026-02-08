@@ -1905,7 +1905,11 @@ func (a *Account) GetExposedServicesMap() map[string][]*reverseproxy.ReverseProx
 			case reverseproxy.TargetTypePeer:
 				services[target.TargetId] = append(services[target.TargetId], proxy)
 			case reverseproxy.TargetTypeResource:
-				resource := resourcesMap[target.TargetId]
+				resource, ok := resourcesMap[target.TargetId]
+				if !ok {
+					log.Warnf("proxy %s target resource %s not found in resources map", proxy.ID, target.TargetId)
+					continue
+				}
 				routers := routersMap[resource.NetworkID]
 				for peerID := range routers {
 					services[peerID] = append(services[peerID], proxy)
