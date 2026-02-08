@@ -1,18 +1,26 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/web"
 )
 
 func TestRewriteFunc_HostRewriting(t *testing.T) {
@@ -810,4 +818,149 @@ func newProxyRequest(t *testing.T, rawURL, remoteAddr string) *httputil.ProxyReq
 	out.Header = in.Header.Clone()
 
 	return &httputil.ProxyRequest{In: in, Out: out}
+}
+
+func TestClassifyProxyError(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantTitle  string
+		wantCode   int
+		wantStatus web.ErrorStatus
+	}{
+		{
+			name:       "context deadline exceeded",
+			err:        context.DeadlineExceeded,
+			wantTitle:  "Request Timeout",
+			wantCode:   http.StatusGatewayTimeout,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: true, Destination: false},
+		},
+		{
+			name:       "wrapped deadline exceeded",
+			err:        fmt.Errorf("dial: %w", context.DeadlineExceeded),
+			wantTitle:  "Request Timeout",
+			wantCode:   http.StatusGatewayTimeout,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: true, Destination: false},
+		},
+		{
+			name:       "context canceled",
+			err:        context.Canceled,
+			wantTitle:  "Request Canceled",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: true, Destination: false},
+		},
+		{
+			name:       "no account ID",
+			err:        roundtrip.ErrNoAccountID,
+			wantTitle:  "Configuration Error",
+			wantCode:   http.StatusInternalServerError,
+			wantStatus: web.ErrorStatus{Proxy: false, Peer: false, Destination: false},
+		},
+		{
+			name:       "no peer connection",
+			err:        fmt.Errorf("%w for account: abc", roundtrip.ErrNoPeerConnection),
+			wantTitle:  "Proxy Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: false, Peer: false, Destination: false},
+		},
+		{
+			name:       "client not started",
+			err:        fmt.Errorf("%w: %w", roundtrip.ErrClientStartFailed, errors.New("engine init failed")),
+			wantTitle:  "Proxy Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: false, Peer: false, Destination: false},
+		},
+		{
+			name: "syscall ECONNREFUSED via os.SyscallError",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+			},
+			wantTitle:  "Service Unavailable",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: true, Destination: false},
+		},
+		{
+			name: "gvisor connection was refused",
+			err: &net.OpError{
+				Op:  "connect",
+				Net: "tcp",
+				Err: errors.New("connection was refused"),
+			},
+			wantTitle:  "Service Unavailable",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: true, Destination: false},
+		},
+		{
+			name: "syscall EHOSTUNREACH via os.SyscallError",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "connect", Err: syscall.EHOSTUNREACH},
+			},
+			wantTitle:  "Peer Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+		{
+			name: "syscall ENETUNREACH via os.SyscallError",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENETUNREACH},
+			},
+			wantTitle:  "Peer Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+		{
+			name: "gvisor host is unreachable",
+			err: &net.OpError{
+				Op:  "connect",
+				Net: "tcp",
+				Err: errors.New("host is unreachable"),
+			},
+			wantTitle:  "Peer Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+		{
+			name: "gvisor network is unreachable",
+			err: &net.OpError{
+				Op:  "connect",
+				Net: "tcp",
+				Err: errors.New("network is unreachable"),
+			},
+			wantTitle:  "Peer Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+		{
+			name: "standard no route to host",
+			err: &net.OpError{
+				Op:  "dial",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "connect", Err: syscall.EHOSTUNREACH},
+			},
+			wantTitle:  "Peer Not Connected",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+		{
+			name:       "unknown error falls to default",
+			err:        errors.New("something unexpected"),
+			wantTitle:  "Connection Error",
+			wantCode:   http.StatusBadGateway,
+			wantStatus: web.ErrorStatus{Proxy: true, Peer: false, Destination: false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			title, _, code, status := classifyProxyError(tt.err)
+			assert.Equal(t, tt.wantTitle, title, "title")
+			assert.Equal(t, tt.wantCode, code, "status code")
+			assert.Equal(t, tt.wantStatus, status, "component status")
+		})
+	}
 }

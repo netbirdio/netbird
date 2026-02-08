@@ -24,8 +24,14 @@ import (
 
 const deviceNamePrefix = "ingress-proxy-"
 
-// ErrNoAccountID is returned when a request context is missing the account ID.
-var ErrNoAccountID = errors.New("no account ID in request context")
+var (
+	// ErrNoAccountID is returned when a request context is missing the account ID.
+	ErrNoAccountID = errors.New("no account ID in request context")
+	// ErrNoPeerConnection is returned when no embedded client exists for the account.
+	ErrNoPeerConnection = errors.New("no peer connection found")
+	// ErrClientStartFailed is returned when the embedded client fails to start.
+	ErrClientStartFailed = errors.New("client start failed")
+)
 
 // domainInfo holds metadata about a registered domain.
 type domainInfo struct {
@@ -346,7 +352,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	entry, exists := n.clients[accountID]
 	if !exists {
 		n.clientsMux.RUnlock()
-		return nil, fmt.Errorf("no peer connection found for account: %s", accountID)
+		return nil, fmt.Errorf("%w for account: %s", ErrNoPeerConnection, accountID)
 	}
 	client := entry.client
 	transport := entry.transport
@@ -359,7 +365,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	defer cancel()
 	if err := client.Start(startCtx); err != nil {
 		if !errors.Is(err, embed.ErrClientAlreadyStarted) {
-			return nil, fmt.Errorf("start netbird client: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrClientStartFailed, err)
 		}
 	}
 

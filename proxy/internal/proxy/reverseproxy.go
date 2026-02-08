@@ -319,8 +319,6 @@ func getRequestID(r *http.Request) string {
 // classifyProxyError determines the appropriate error title, message, HTTP
 // status code, and component status based on the error type.
 func classifyProxyError(err error) (title, message string, code int, status web.ErrorStatus) {
-	errStr := err.Error()
-
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Request Timeout",
@@ -340,36 +338,68 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 			http.StatusInternalServerError,
 			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
 
-	case strings.Contains(errStr, "no peer connection found"),
-		strings.Contains(errStr, "start netbird client"),
-		strings.Contains(errStr, "engine not started"),
-		strings.Contains(errStr, "get net:"):
-		// The proxy peer (embedded client) is not connected
+	case errors.Is(err, roundtrip.ErrNoPeerConnection),
+		errors.Is(err, roundtrip.ErrClientStartFailed):
 		return "Proxy Not Connected",
 			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
 
-	case strings.Contains(errStr, "connection refused"):
-		// Routing peer connected but destination service refused the connection
+	case isConnectionRefused(err):
 		return "Service Unavailable",
 			"The connection to the service was refused. Please verify that the service is running and try again.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
 
-	case strings.Contains(errStr, "no route to host"),
-		strings.Contains(errStr, "network is unreachable"),
-		strings.Contains(errStr, "i/o timeout"):
-		// Peer is not reachable
+	case isHostUnreachable(err):
 		return "Peer Not Connected",
 			"The connection to the peer could not be established. Please ensure the peer is running and connected to the NetBird network.",
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
+
+	case isNetTimeout(err):
+		return "Request Timeout",
+			"The request timed out while trying to reach the service. Please refresh the page and try again.",
+			http.StatusGatewayTimeout,
+			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
 	}
 
-	// Unknown error - log it and show generic message
 	return "Connection Error",
 		"An unexpected error occurred while connecting to the service. Please try again later.",
 		http.StatusBadGateway,
 		web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
+}
+
+// isConnectionRefused checks for connection refused errors by inspecting
+// the inner error of a *net.OpError. This handles both standard net errors
+// (where the inner error is a *os.SyscallError with "connection refused")
+// and gVisor netstack errors ("connection was refused").
+func isConnectionRefused(err error) bool {
+	return opErrorContains(err, "refused")
+}
+
+// isHostUnreachable checks for host/network unreachable errors by inspecting
+// the inner error of a *net.OpError. Covers standard net ("no route to host",
+// "network is unreachable") and gVisor ("host is unreachable", etc.).
+func isHostUnreachable(err error) bool {
+	return opErrorContains(err, "unreachable") || opErrorContains(err, "no route to host")
+}
+
+// isNetTimeout checks whether the error is a network timeout using the
+// net.Error interface.
+func isNetTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// opErrorContains extracts the inner error from a *net.OpError and checks
+// whether its message contains the given substring. This handles gVisor
+// netstack errors which wrap tcpip errors as plain strings rather than
+// syscall.Errno values.
+func opErrorContains(err error, substr string) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Err != nil {
+		return strings.Contains(opErr.Err.Error(), substr)
+	}
+	return false
 }
