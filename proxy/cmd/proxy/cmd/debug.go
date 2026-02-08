@@ -68,8 +68,14 @@ var debugPingCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+var debugLogCmd = &cobra.Command{
+	Use:   "log",
+	Short: "Manage client logging",
+	Long:  "Commands to manage logging settings for a client connected through the proxy.",
+}
+
 var debugLogLevelCmd = &cobra.Command{
-	Use:          "loglevel <account-id> <level>",
+	Use:          "level <account-id> <level>",
 	Short:        "Set client log level",
 	Long:         "Set the log level for a client (trace, debug, info, warn, error).",
 	Args:         cobra.ExactArgs(2),
@@ -109,7 +115,8 @@ func init() {
 	debugCmd.AddCommand(debugStatusCmd)
 	debugCmd.AddCommand(debugSyncCmd)
 	debugCmd.AddCommand(debugPingCmd)
-	debugCmd.AddCommand(debugLogLevelCmd)
+	debugLogCmd.AddCommand(debugLogLevelCmd)
+	debugCmd.AddCommand(debugLogCmd)
 	debugCmd.AddCommand(debugStartCmd)
 	debugCmd.AddCommand(debugStopCmd)
 

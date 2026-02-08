@@ -53,6 +53,48 @@ func (c *Client) Health(ctx context.Context) error {
 func (c *Client) printHealth(data map[string]any) {
 	_, _ = fmt.Fprintf(c.out, "Status: %v\n", data["status"])
 	_, _ = fmt.Fprintf(c.out, "Uptime: %v\n", data["uptime"])
+	_, _ = fmt.Fprintf(c.out, "Management Connected: %s\n", boolIcon(data["management_connected"]))
+	_, _ = fmt.Fprintf(c.out, "All Clients Healthy:  %s\n", boolIcon(data["all_clients_healthy"]))
+
+	clients, ok := data["clients"].(map[string]any)
+	if !ok || len(clients) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintf(c.out, "\n%-38s %-9s %-7s %-8s %s\n", "ACCOUNT ID", "HEALTHY", "MGMT", "SIGNAL", "RELAYS")
+	_, _ = fmt.Fprintln(c.out, strings.Repeat("-", 80))
+
+	for accountID, v := range clients {
+		ch, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		healthy := boolIcon(ch["healthy"])
+		mgmt := boolIcon(ch["management_connected"])
+		signal := boolIcon(ch["signal_connected"])
+
+		relaysConn, _ := ch["relays_connected"].(float64)
+		relaysTotal, _ := ch["relays_total"].(float64)
+		relays := fmt.Sprintf("%d/%d", int(relaysConn), int(relaysTotal))
+
+		_, _ = fmt.Fprintf(c.out, "%-38s %-9s %-7s %-8s %s", accountID, healthy, mgmt, signal, relays)
+		if errMsg, ok := ch["error"].(string); ok && errMsg != "" {
+			_, _ = fmt.Fprintf(c.out, "  (%s)", errMsg)
+		}
+		_, _ = fmt.Fprintln(c.out)
+	}
+}
+
+func boolIcon(v any) string {
+	b, ok := v.(bool)
+	if !ok {
+		return "?"
+	}
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // ListClients fetches the list of all clients.

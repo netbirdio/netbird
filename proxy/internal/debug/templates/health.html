@@ -6,8 +6,33 @@
   <style>{{template "style"}}</style>
 </head>
 <body>
-  <h1>OK</h1>
+  <h1>{{.Status}}</h1>
   <p>Uptime: {{.Uptime}}</p>
+  <p>Management Connected: {{.ManagementReady}}</p>
+  <p>All Clients Healthy: {{.AllClientsHealthy}}</p>
+  {{if .Clients}}
+  <h2>Clients</h2>
+  <table>
+    <tr>
+      <th>Account ID</th>
+      <th>Healthy</th>
+      <th>Management</th>
+      <th>Signal</th>
+      <th>Relays</th>
+      <th>Error</th>
+    </tr>
+    {{range $id, $c := .Clients}}
+    <tr>
+      <td>{{$id}}</td>
+      <td>{{$c.Healthy}}</td>
+      <td>{{$c.ManagementConnected}}</td>
+      <td>{{$c.SignalConnected}}</td>
+      <td>{{$c.RelaysConnected}}/{{$c.RelaysTotal}}</td>
+      <td>{{$c.Error}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{end}}
   <p><a href="/debug">&larr; Back</a></p>
 </body>
 </html>

@@ -18,6 +18,7 @@ import (
 
 	nbembed "github.com/netbirdio/netbird/client/embed"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/version"
@@ -52,9 +53,17 @@ type clientProvider interface {
 	ListClientsForDebug() map[types.AccountID]roundtrip.ClientDebugInfo
 }
 
+// healthChecker provides health probe state.
+type healthChecker interface {
+	ReadinessProbe() bool
+	StartupProbe(ctx context.Context) bool
+	CheckClientsConnected(ctx context.Context) (bool, map[types.AccountID]health.ClientHealth)
+}
+
 // Handler provides HTTP debug endpoints.
 type Handler struct {
 	provider   clientProvider
+	health     healthChecker
 	logger     *log.Logger
 	startTime  time.Time
 	templates  *template.Template
@@ -62,12 +71,13 @@ type Handler struct {
 }
 
 // NewHandler creates a new debug handler.
-func NewHandler(provider clientProvider, logger *log.Logger) *Handler {
+func NewHandler(provider clientProvider, healthChecker healthChecker, logger *log.Logger) *Handler {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	h := &Handler{
 		provider:  provider,
+		health:    healthChecker,
 		logger:    logger,
 		startTime: time.Now(),
 	}
@@ -547,20 +557,41 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 }
 
 type healthData struct {
-	Uptime string
+	Uptime              string
+	Status              string
+	ManagementReady     bool
+	AllClientsHealthy   bool
+	Clients             map[types.AccountID]health.ClientHealth
 }
 
-func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request, wantJSON bool) {
+func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON bool) {
+	uptime := time.Since(h.startTime).Round(10 * time.Millisecond).String()
+
+	ready := h.health.ReadinessProbe()
+	allHealthy, clientHealth := h.health.CheckClientsConnected(r.Context())
+
+	status := "ok"
+	if !ready || !allHealthy {
+		status = "degraded"
+	}
+
 	if wantJSON {
 		h.writeJSON(w, map[string]interface{}{
-			"status": "ok",
-			"uptime": time.Since(h.startTime).Round(10 * time.Millisecond).String(),
+			"status":               status,
+			"uptime":               uptime,
+			"management_connected": ready,
+			"all_clients_healthy":  allHealthy,
+			"clients":              clientHealth,
 		})
 		return
 	}
 
 	data := healthData{
-		Uptime: time.Since(h.startTime).Round(time.Second).String(),
+		Uptime:            time.Since(h.startTime).Round(time.Second).String(),
+		Status:            status,
+		ManagementReady:   ready,
+		AllClientsHealthy: allHealthy,
+		Clients:           clientHealth,
 	}
 
 	h.renderTemplate(w, "health", data)

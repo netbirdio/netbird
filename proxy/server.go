@@ -230,9 +230,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Configure Access logs to management server.
 	accessLog := accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
 
+	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
+
 	if s.DebugEndpointEnabled {
 		debugAddr := debugEndpointAddr(s.DebugEndpointAddress)
-		debugHandler := debug.NewHandler(s.netbird, s.Logger)
+		debugHandler := debug.NewHandler(s.netbird, s.healthChecker, s.Logger)
 		s.debug = &http.Server{
 			Addr:    debugAddr,
 			Handler: debugHandler,
@@ -255,7 +257,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	if healthAddr == "" {
 		healthAddr = "localhost:8080"
 	}
-	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
 	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger)
 	healthListener, err := net.Listen("tcp", healthAddr)
 	if err != nil {
