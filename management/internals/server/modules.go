@@ -72,7 +72,14 @@ func (s *BaseServer) UsersManager() users.Manager {
 func (s *BaseServer) SettingsManager() settings.Manager {
 	return Create(s, func() settings.Manager {
 		extraSettingsManager := integrations.NewManager(s.EventStore())
-		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager())
+
+		idpConfig := settings.IdpConfig{}
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpConfig.EmbeddedIdpEnabled = true
+			idpConfig.LocalAuthDisabled = s.Config.EmbeddedIdP.LocalAuthDisabled
+		}
+
+		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager(), idpConfig)
 	})
 }
 

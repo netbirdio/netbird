@@ -296,6 +296,11 @@ components:
           type: boolean
           readOnly: true
           example: false
+        local_auth_disabled:
+          description: Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
+          type: boolean
+          readOnly: true
+          example: false
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration

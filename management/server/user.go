@@ -191,6 +191,10 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 // Unlike createNewIdpUser, this method fetches user data directly from the database
 // since the embedded IdP usage ensures the username and email are stored locally in the User table.
 func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+	}
+
 	inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, inviterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inviter user: %w", err)
@@ -1462,6 +1466,10 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
 
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+	}
+
 	if err := validateUserInvite(invite); err != nil {
 		return nil, err
 	}
@@ -1619,6 +1627,10 @@ func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID,
 func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, password string) error {
 	if !IsEmbeddedIdp(am.idpManager) {
 		return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
 	}
 
 	if password == "" {

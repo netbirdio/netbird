@@ -250,7 +250,10 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
-			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{Update: update})
+			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+				Update:      update,
+				MessageType: network_map.MessageTypeNetworkMap,
+			})
 		}(peer)
 	}
 
@@ -374,7 +377,10 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
 	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{Update: update})
+	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
+		Update:      update,
+		MessageType: network_map.MessageTypeNetworkMap,
+	})
 
 	return nil
 }
@@ -783,6 +789,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 					},
 				},
 			},
+			MessageType: network_map.MessageTypeNetworkMap,
 		})
 		c.peersUpdateManager.CloseChannel(ctx, peerID)
 

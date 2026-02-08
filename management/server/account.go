@@ -795,6 +795,19 @@ func IsEmbeddedIdp(i idp.Manager) bool {
 	return ok
 }
 
+// IsLocalAuthDisabled checks if local (email/password) authentication is disabled.
+// Returns true only when using embedded IDP with local auth disabled in config.
+func IsLocalAuthDisabled(ctx context.Context, i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	embeddedIdp, ok := i.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return false
+	}
+	return embeddedIdp.IsLocalAuthDisabled()
+}
+
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
@@ -1657,13 +1670,13 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID)
+	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID, syncTime)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
@@ -1671,8 +1684,20 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
-	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
+func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer %s for disconnect check: %v", peerPubKey, err)
+		return nil
+	}
+
+	if peer.Status.LastSeen.After(streamStartTime) {
+		log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s > streamStart=%s), skipping disconnect",
+			peerPubKey, peer.Status.LastSeen.Format(time.RFC3339), streamStartTime.Format(time.RFC3339))
+		return nil
+	}
+
+	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID, time.Now().UTC())
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}

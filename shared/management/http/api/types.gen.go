@@ -446,6 +446,9 @@ type AccountSettings struct {
 	// LazyConnectionEnabled Enables or disables experimental lazy connection
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
+	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
+	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
