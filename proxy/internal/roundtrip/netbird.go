@@ -361,7 +361,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Attempt to start the client, if the client is already running then
 	// it will return an error that we ignore, if this hits a timeout then
 	// this request is unprocessable.
-	startCtx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
+	startCtx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
 	defer cancel()
 	if err := client.Start(startCtx); err != nil {
 		if !errors.Is(err, embed.ErrClientAlreadyStarted) {
