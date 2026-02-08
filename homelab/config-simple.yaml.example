@@ -9,7 +9,7 @@
 #   - Management: Always runs locally (this IS the management server)
 #   - Signal: Local by default; set 'signalUri' to use external (disables local)
 #   - Relay: Local by default; set 'relays' to use external (disables local)
-#   - STUN: Local by default; set 'stuns' to use external, or stunPorts: [] to disable
+#   - STUN: Local on port 3478 by default; set 'stuns' to use external instead
 
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
@@ -20,9 +20,9 @@ server:
   # Format: protocol://hostname:port (e.g., https://server.mycompany.com:443)
   exposedAddress: "https://server.mycompany.com:443"
 
-  # STUN server ports (empty list to disable local STUN)
-  stunPorts:
-    - 3478
+  # STUN server ports (defaults to [3478] if not specified; set 'stuns' to use external)
+  # stunPorts:
+  #   - 3478
 
   # Metrics endpoint port
   metricsPort: 9090

@@ -29,7 +29,7 @@ import (
 //   - Management: Always runs locally (this IS the management server)
 //   - Signal: Runs locally by default; disabled if server.signalUri is set
 //   - Relay: Runs locally by default; disabled if server.relays is set
-//   - STUN: Runs locally by default; disabled if server.stuns is set or stunPorts is empty
+//   - STUN: Runs locally on port 3478 by default; disabled if server.stuns is set
 //
 // All user-facing settings are under "server". The relay/signal/management
 // fields are internal and populated automatically from server settings.
@@ -280,6 +280,11 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	hasExternalRelay := len(c.Server.Relays.Addresses) > 0
 	hasExternalSignal := c.Server.SignalURI != ""
 	hasExternalStuns := len(c.Server.Stuns) > 0
+
+	// Default stunPorts to [3478] if not specified and no external STUN
+	if len(c.Server.StunPorts) == 0 && !hasExternalStuns {
+		c.Server.StunPorts = []int{3478}
+	}
 
 	// Enable relay only if no external relay is configured
 	if !hasExternalRelay {
