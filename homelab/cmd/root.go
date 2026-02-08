@@ -133,12 +133,6 @@ func execute(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 
-		// Set component-specific logger
-		relayLogLevel := config.Relay.LogLevel
-		if relayLogLevel == "" {
-			relayLogLevel = "info"
-		}
-		srv.SetLogger(relayServer.CreateLogger(relayLogLevel))
 		log.Infof("Relay server created")
 	}
 
@@ -176,13 +170,6 @@ func execute(cmd *cobra.Command, _ []string) error {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create management server: %w", err)
 		}
-
-		// Set component-specific logger
-		mgmtLogLevel := config.Management.LogLevel
-		if mgmtLogLevel == "" {
-			mgmtLogLevel = "info"
-		}
-		mgmtSrv.SetLogger(mgmtServer.CreateLogger(mgmtLogLevel))
 		log.Infof("Management server created")
 	}
 
@@ -196,13 +183,6 @@ func execute(cmd *cobra.Command, _ []string) error {
 			cleanupSTUNListeners(stunListeners)
 			return fmt.Errorf("failed to create signal server: %w", err)
 		}
-
-		// Set component-specific logger
-		signalLogLevel := config.Signal.LogLevel
-		if signalLogLevel == "" {
-			signalLogLevel = "info"
-		}
-		signalSrv.SetLogger(signalServer.CreateLogger(signalLogLevel))
 		log.Infof("Signal server created")
 	}
 

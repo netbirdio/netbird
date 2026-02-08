@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
@@ -48,45 +47,11 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// CreateLogger creates a component-specific logger for the relay server with its own log level.
-// This allows the relay to have a different log level than the global logger.
-// The returned logger can be passed to the relay via SetLogger.
-func CreateLogger(logLevel string) *log.Entry {
-	level, err := log.ParseLevel(logLevel)
-	if err != nil {
-		level = log.InfoLevel
-	}
-
-	relayLogger := log.New()
-	relayLogger.SetOutput(log.StandardLogger().Out)
-	relayLogger.SetLevel(level)
-	formatter.SetTextFormatter(relayLogger)
-
-	logger := relayLogger.WithField("component", "relay")
-	logger.Infof("Relay server log level set to: %s", level.String())
-	return logger
-}
-
-// SetLogger sets a custom logger for the relay server.
-// If not called, the relay uses the global logger.
-func (r *Relay) SetLogger(logger *log.Entry) {
-	r.logger = logger
-}
-
-// log returns the component logger if set, otherwise the global logger.
-func (r *Relay) log() *log.Entry {
-	if r.logger != nil {
-		return r.logger
-	}
-	return log.WithField("component", "relay")
-}
-
 // Relay represents the relay server
 type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     Validator
-	logger        *log.Entry
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
@@ -160,12 +125,12 @@ func (r *Relay) Accept(conn net.Conn) {
 	peerID, err := h.handshakeReceive()
 	if err != nil {
 		if peerid.IsHealthCheck(peerID) {
-			r.log().Debugf("health check connection from %s", conn.RemoteAddr())
+			log.Debugf("health check connection from %s", conn.RemoteAddr())
 		} else {
-			r.log().Errorf("failed to handshake: %s", err)
+			log.Errorf("failed to handshake: %s", err)
 		}
 		if cErr := conn.Close(); cErr != nil {
-			r.log().Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
+			log.Errorf("failed to close connection, %s: %s", conn.RemoteAddr(), cErr)
 		}
 		return
 	}
@@ -190,7 +155,7 @@ func (r *Relay) Accept(conn net.Conn) {
 	}()
 
 	if err := h.handshakeResponse(); err != nil {
-		r.log().Errorf("failed to send handshake response, close peer: %s", err)
+		log.Errorf("failed to send handshake response, close peer: %s", err)
 		peer.Close()
 	}
 	r.metrics.RecordAuthenticationTime(time.Since(acceptTime))
@@ -199,7 +164,7 @@ func (r *Relay) Accept(conn net.Conn) {
 // Shutdown closes the relay server
 // It closes the connection with all peers in gracefully and stops accepting new connections.
 func (r *Relay) Shutdown(ctx context.Context) {
-	r.log().Infof("close connection with all peers")
+	log.Infof("close connection with all peers")
 	r.closeMu.Lock()
 	defer r.closeMu.Unlock()
 

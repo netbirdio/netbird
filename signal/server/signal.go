@@ -17,7 +17,6 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
-	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -56,7 +55,6 @@ type Server struct {
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
 	metrics    *metrics.AppMetrics
-	logger     *log.Entry
 
 	successHeader metadata.MD
 
@@ -93,42 +91,9 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 	return s, nil
 }
 
-// CreateLogger creates a component-specific logger for the signal server with its own log level.
-// This allows the signal server to have a different log level than the global logger.
-// The returned logger can be passed to the server via SetLogger.
-func CreateLogger(logLevel string) *log.Entry {
-	level, err := log.ParseLevel(logLevel)
-	if err != nil {
-		level = log.InfoLevel
-	}
-
-	signalLogger := log.New()
-	signalLogger.SetOutput(log.StandardLogger().Out)
-	signalLogger.SetLevel(level)
-	formatter.SetTextFormatter(signalLogger)
-
-	logger := signalLogger.WithField("component", "signal")
-	logger.Infof("Signal server log level set to: %s", level.String())
-	return logger
-}
-
-// SetLogger sets a custom logger for the signal server.
-// If not called, the signal server uses the global logger.
-func (s *Server) SetLogger(logger *log.Entry) {
-	s.logger = logger
-}
-
-// log returns the component logger if set, otherwise the global logger.
-func (s *Server) log() *log.Entry {
-	if s.logger != nil {
-		return s.logger
-	}
-	return log.WithField("component", "signal")
-}
-
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	s.log().Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
@@ -181,14 +146,14 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedRegistration)))
-		s.log().Errorf("error while registering message listener for peer [%s] %v", p.Id, err)
+		log.Errorf("error while registering message listener for peer [%s] %v", p.Id, err)
 		return nil, status.Errorf(codes.Internal, "error while registering message listener")
 	}
 	return p, nil
 }
 
 func (s *Server) DeregisterPeer(p *peer.Peer) {
-	s.log().Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
+	log.Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 	s.metrics.PeerConnectionDuration.Record(p.Stream.Context(), int64(time.Since(p.RegisteredAt).Seconds()))
 	s.registry.Deregister(p)
 }
