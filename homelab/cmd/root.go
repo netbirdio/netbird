@@ -74,7 +74,47 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, _ []string) error {
-	// Load configuration from YAML file
+	if err := initializeConfig(); err != nil {
+		return err
+	}
+
+	// Management is required as the base server when signal or relay are enabled
+	if (config.Signal.Enabled || config.Relay.Enabled) && !config.Management.Enabled {
+		return fmt.Errorf("management must be enabled when signal or relay are enabled (provides the base HTTP server)")
+	}
+
+	servers, err := createAllServers(cmd.Context(), config)
+	if err != nil {
+		return err
+	}
+
+	// Register services with management's gRPC server using AfterInit hook
+	setupServerHooks(servers, config)
+
+	// Start management server (this also starts the HTTP listener)
+	if servers.mgmtSrv != nil {
+		if err := servers.mgmtSrv.Start(cmd.Context()); err != nil {
+			cleanupSTUNListeners(servers.stunListeners)
+			return fmt.Errorf("failed to start management server: %w", err)
+		}
+	}
+
+	// Start all other servers
+	wg := sync.WaitGroup{}
+	startServers(&wg, servers.relaySrv, servers.healthcheck, servers.stunServer)
+
+	waitForExitSignal()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv)
+	wg.Wait()
+	return err
+}
+
+// initializeConfig loads and validates the configuration, then initializes logging.
+func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
 	if err != nil {
@@ -85,162 +125,172 @@ func execute(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Initialize logging
 	if err := util.InitLog(config.Server.LogLevel, config.Server.LogFile); err != nil {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
+	return nil
+}
 
-	// Management is required as the base server when signal or relay are enabled
-	if (config.Signal.Enabled || config.Relay.Enabled) && !config.Management.Enabled {
-		return fmt.Errorf("management must be enabled when signal or relay are enabled (provides the base HTTP server)")
+// serverInstances holds all server instances created during startup.
+type serverInstances struct {
+	relaySrv      *relayServer.Server
+	mgmtSrv       *mgmtServer.BaseServer
+	signalSrv     *signalServer.Server
+	healthcheck   *healthcheck.Server
+	stunServer    *stun.Server
+	stunListeners []*net.UDPConn
+	noopMeter     metric.Meter
+}
+
+// createAllServers creates all server instances based on configuration.
+func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstances, error) {
+	servers := &serverInstances{
+		noopMeter: noop.NewMeterProvider().Meter("noop"),
 	}
 
-	wg := sync.WaitGroup{}
-
-	// TODO: Implement combined metrics server for all components
-	// For now, metrics are disabled to avoid port conflicts between components
-
-	_, tlsSupport, err := handleTLSConfig(config)
+	_, tlsSupport, err := handleTLSConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to setup TLS config: %w", err)
+		return nil, fmt.Errorf("failed to setup TLS config: %w", err)
 	}
 
-	// Create STUN listeners early to fail fast (only if relay with STUN is enabled)
-	var stunListeners []*net.UDPConn
-	if config.Relay.Enabled {
-		stunListeners, err = createSTUNListeners(config)
-		if err != nil {
-			return err
-		}
+	if err := servers.createRelayServer(cfg, tlsSupport); err != nil {
+		return nil, err
 	}
 
-	// Create relay server if enabled
-	var srv *relayServer.Server
-	if config.Relay.Enabled {
-		hashedSecret := sha256.Sum256([]byte(config.Relay.AuthSecret))
-		authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
-
-		relayCfg := relayServer.Config{
-			ExposedAddress: config.Relay.ExposedAddress,
-			AuthValidator:  authenticator,
-			TLSSupport:     tlsSupport,
-		}
-
-		srv, err = createRelayServer(relayCfg, stunListeners)
-		if err != nil {
-			return err
-		}
-
-		log.Infof("Relay server created")
+	if err := servers.createManagementServer(ctx, cfg); err != nil {
+		return nil, err
 	}
 
-	// Create management server if enabled
-	var mgmtSrv *mgmtServer.BaseServer
-	var mgmtConfig *nbconfig.Config
-	if config.Management.Enabled {
-		mgmtConfig = config.ToManagementConfig()
-
-		// Extract port from listen address for embedded IdP config
-		_, portStr, portErr := net.SplitHostPort(config.Server.ListenAddress)
-		if portErr != nil {
-			portStr = "443"
-		}
-		mgmtPort, _ := strconv.Atoi(portStr)
-
-		// Apply embedded IdP configuration (mirrors management/cmd/management.go)
-		if err := ApplyEmbeddedIdPConfig(cmd.Context(), mgmtConfig, mgmtPort, config.Management.DisableSingleAccountMode); err != nil {
-			cleanupSTUNListeners(stunListeners)
-			return fmt.Errorf("failed to apply embedded IdP config: %w", err)
-		}
-
-		// Ensure encryption key exists
-		if err := EnsureEncryptionKey(cmd.Context(), mgmtConfig); err != nil {
-			cleanupSTUNListeners(stunListeners)
-			return fmt.Errorf("failed to ensure encryption key: %w", err)
-		}
-
-		// Log config info
-		LogConfigInfo(mgmtConfig)
-
-		mgmtSrv, err = createManagementServer(config, mgmtConfig)
-		if err != nil {
-			cleanupSTUNListeners(stunListeners)
-			return fmt.Errorf("failed to create management server: %w", err)
-		}
-		log.Infof("Management server created")
+	if err := servers.createSignalServer(ctx, cfg); err != nil {
+		return nil, err
 	}
 
-	// Create Signal server if enabled
-	// Use no-op meter since metrics are disabled for now
-	noopMeter := noop.NewMeterProvider().Meter("noop")
-	var signalSrv *signalServer.Server
-	if config.Signal.Enabled {
-		signalSrv, err = signalServer.NewServer(cmd.Context(), noopMeter)
-		if err != nil {
-			cleanupSTUNListeners(stunListeners)
-			return fmt.Errorf("failed to create signal server: %w", err)
-		}
-		log.Infof("Signal server created")
+	if err := servers.createHealthcheckServer(cfg); err != nil {
+		return nil, err
 	}
 
-	// Register services with management's gRPC server using AfterInit hook
-	if mgmtSrv != nil {
-		mgmtSrv.AfterInit(func(s *mgmtServer.BaseServer) {
-			grpcSrv := s.GRPCServer()
+	return servers, nil
+}
 
-			// Register Signal service if enabled
-			if signalSrv != nil {
-				proto.RegisterSignalExchangeServer(grpcSrv, signalSrv)
-				log.Infof("Signal server registered on port %s", config.Server.ListenAddress)
-			}
-
-			// Create combined handler with enabled components
-			s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), srv, noopMeter, config))
-			if srv != nil {
-				log.Infof("Relay WebSocket handler added (path: /relay)")
-			}
-		})
+func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool) error {
+	if !cfg.Relay.Enabled {
+		return nil
 	}
 
-	// Create healthcheck server
-	var httpHealthcheck *healthcheck.Server
-	hCfg := healthcheck.Config{
-		ListenAddress:  config.Server.HealthcheckAddress,
-		ServiceChecker: srv, // Can be nil if relay is disabled
-	}
-	httpHealthcheck, err = createHealthCheck(hCfg, stunListeners)
+	var err error
+	s.stunListeners, err = createSTUNListeners(cfg)
 	if err != nil {
 		return err
 	}
 
-	// Create STUN server if listeners exist
-	var stunServer *stun.Server
-	if len(stunListeners) > 0 {
-		stunServer = stun.NewServer(stunListeners, config.Relay.Stun.LogLevel)
+	hashedSecret := sha256.Sum256([]byte(cfg.Relay.AuthSecret))
+	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
+
+	relayCfg := relayServer.Config{
+		ExposedAddress: cfg.Relay.ExposedAddress,
+		AuthValidator:  authenticator,
+		TLSSupport:     tlsSupport,
 	}
 
-	// Start management server (this also starts the HTTP listener)
-	if mgmtSrv != nil {
-		if err := mgmtSrv.Start(cmd.Context()); err != nil {
-			cleanupSTUNListeners(stunListeners)
-			return fmt.Errorf("failed to start management server: %w", err)
-		}
+	s.relaySrv, err = createRelayServer(relayCfg, s.stunListeners)
+	if err != nil {
+		return err
 	}
 
-	// Start all other servers
-	startServers(&wg, srv, httpHealthcheck, stunServer)
+	log.Infof("Relay server created")
 
-	waitForExitSignal()
+	if len(s.stunListeners) > 0 {
+		s.stunServer = stun.NewServer(s.stunListeners, cfg.Relay.Stun.LogLevel)
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	return nil
+}
 
-	err = shutdownServers(ctx, srv, httpHealthcheck, stunServer, mgmtSrv)
-	wg.Wait()
+func (s *serverInstances) createManagementServer(ctx context.Context, cfg *CombinedConfig) error {
+	if !cfg.Management.Enabled {
+		return nil
+	}
+
+	mgmtConfig := cfg.ToManagementConfig()
+
+	_, portStr, portErr := net.SplitHostPort(cfg.Server.ListenAddress)
+	if portErr != nil {
+		portStr = "443"
+	}
+	mgmtPort, _ := strconv.Atoi(portStr)
+
+	if err := ApplyEmbeddedIdPConfig(ctx, mgmtConfig, mgmtPort, cfg.Management.DisableSingleAccountMode); err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to apply embedded IdP config: %w", err)
+	}
+
+	if err := EnsureEncryptionKey(ctx, mgmtConfig); err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to ensure encryption key: %w", err)
+	}
+
+	LogConfigInfo(mgmtConfig)
+
+	var err error
+	s.mgmtSrv, err = createManagementServer(cfg, mgmtConfig)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to create management server: %w", err)
+	}
+
+	log.Infof("Management server created")
+	return nil
+}
+
+func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedConfig) error {
+	if !cfg.Signal.Enabled {
+		return nil
+	}
+
+	var err error
+	s.signalSrv, err = signalServer.NewServer(ctx, s.noopMeter)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to create signal server: %w", err)
+	}
+
+	log.Infof("Signal server created")
+	return nil
+}
+
+func (s *serverInstances) createHealthcheckServer(cfg *CombinedConfig) error {
+	hCfg := healthcheck.Config{
+		ListenAddress:  cfg.Server.HealthcheckAddress,
+		ServiceChecker: s.relaySrv,
+	}
+
+	var err error
+	s.healthcheck, err = createHealthCheck(hCfg, s.stunListeners)
 	return err
+}
+
+// setupServerHooks registers services with management's gRPC server.
+func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
+	if servers.mgmtSrv == nil {
+		return
+	}
+
+	servers.mgmtSrv.AfterInit(func(s *mgmtServer.BaseServer) {
+		grpcSrv := s.GRPCServer()
+
+		if servers.signalSrv != nil {
+			proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
+			log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
+		}
+
+		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), servers.relaySrv, servers.noopMeter, cfg))
+		if servers.relaySrv != nil {
+			log.Infof("Relay WebSocket handler added (path: /relay)")
+		}
+	})
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
@@ -497,8 +547,14 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 // logConfig prints all configuration parameters for debugging
 func logConfig(cfg *CombinedConfig) {
 	log.Info("=== Configuration ===")
+	logServerConfig(cfg)
+	logComponentsConfig(cfg)
+	logRelayConfig(cfg)
+	logManagementConfig(cfg)
+	log.Info("=== End Configuration ===")
+}
 
-	// Server settings
+func logServerConfig(cfg *CombinedConfig) {
 	log.Info("--- Server ---")
 	log.Infof("  Listen address: %s", cfg.Server.ListenAddress)
 	log.Infof("  Exposed address: %s", cfg.Server.ExposedAddress)
@@ -507,7 +563,6 @@ func logConfig(cfg *CombinedConfig) {
 	log.Infof("  Log level: %s", cfg.Server.LogLevel)
 	log.Infof("  Data dir: %s", cfg.Server.DataDir)
 
-	// TLS
 	switch {
 	case cfg.HasTLSCert():
 		log.Infof("  TLS: cert=%s, key=%s", cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
@@ -516,59 +571,58 @@ func logConfig(cfg *CombinedConfig) {
 	default:
 		log.Info("  TLS: disabled (using reverse proxy)")
 	}
+}
 
-	// Components enabled
+func logComponentsConfig(cfg *CombinedConfig) {
 	log.Info("--- Components ---")
 	log.Infof("  Management: %v (log level: %s)", cfg.Management.Enabled, cfg.Management.LogLevel)
 	log.Infof("  Signal: %v (log level: %s)", cfg.Signal.Enabled, cfg.Signal.LogLevel)
 	log.Infof("  Relay: %v (log level: %s)", cfg.Relay.Enabled, cfg.Relay.LogLevel)
+}
 
-	// Relay config
-	if cfg.Relay.Enabled {
-		log.Info("--- Relay ---")
-		log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
-		log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
-		if cfg.Relay.Stun.Enabled {
-			log.Infof("  STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
-		} else {
-			log.Info("  STUN: disabled")
-		}
+func logRelayConfig(cfg *CombinedConfig) {
+	if !cfg.Relay.Enabled {
+		return
+	}
+	log.Info("--- Relay ---")
+	log.Infof("  Exposed address: %s", cfg.Relay.ExposedAddress)
+	log.Infof("  Auth secret: %s...", maskSecret(cfg.Relay.AuthSecret))
+	if cfg.Relay.Stun.Enabled {
+		log.Infof("  STUN ports: %v (log level: %s)", cfg.Relay.Stun.Ports, cfg.Relay.Stun.LogLevel)
+	} else {
+		log.Info("  STUN: disabled")
+	}
+}
+
+func logManagementConfig(cfg *CombinedConfig) {
+	if !cfg.Management.Enabled {
+		return
+	}
+	log.Info("--- Management ---")
+	log.Infof("  Data dir: %s", cfg.Management.DataDir)
+	log.Infof("  DNS domain: %s", cfg.Management.DnsDomain)
+	log.Infof("  Single account mode domain: %s", cfg.Management.SingleAccountModeDomain)
+	log.Infof("  Disable single account mode: %v", cfg.Management.DisableSingleAccountMode)
+	log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
+
+	if cfg.Management.Auth.Enabled {
+		log.Info("  Auth (embedded IdP):")
+		log.Infof("    Issuer: %s", cfg.Management.Auth.Issuer)
+		log.Infof("    Dashboard redirect URIs: %v", cfg.Management.Auth.DashboardRedirectURIs)
+		log.Infof("    CLI redirect URIs: %v", cfg.Management.Auth.CLIRedirectURIs)
+	} else {
+		log.Info("  Auth: disabled (using external IdP)")
 	}
 
-	// Management config
-	if cfg.Management.Enabled {
-		log.Info("--- Management ---")
-		log.Infof("  Data dir: %s", cfg.Management.DataDir)
-		log.Infof("  DNS domain: %s", cfg.Management.DnsDomain)
-		log.Infof("  Single account mode domain: %s", cfg.Management.SingleAccountModeDomain)
-		log.Infof("  Disable single account mode: %v", cfg.Management.DisableSingleAccountMode)
-		log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
-
-		// Auth/IdP
-		if cfg.Management.Auth.Enabled {
-			log.Info("  Auth (embedded IdP):")
-			log.Infof("    Issuer: %s", cfg.Management.Auth.Issuer)
-			log.Infof("    Dashboard redirect URIs: %v", cfg.Management.Auth.DashboardRedirectURIs)
-			log.Infof("    CLI redirect URIs: %v", cfg.Management.Auth.CLIRedirectURIs)
-		} else {
-			log.Info("  Auth: disabled (using external IdP)")
-		}
-
-		// Client settings (what clients will receive)
-		log.Info("  Client settings:")
-		log.Infof("    Signal URI: %s", cfg.Management.SignalURI)
-		if len(cfg.Management.Stuns) > 0 {
-			for _, s := range cfg.Management.Stuns {
-				log.Infof("    STUN: %s", s.URI)
-			}
-		}
-		if len(cfg.Management.Relays.Addresses) > 0 {
-			log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
-			log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
-		}
+	log.Info("  Client settings:")
+	log.Infof("    Signal URI: %s", cfg.Management.SignalURI)
+	for _, s := range cfg.Management.Stuns {
+		log.Infof("    STUN: %s", s.URI)
 	}
-
-	log.Info("=== End Configuration ===")
+	if len(cfg.Management.Relays.Addresses) > 0 {
+		log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
+		log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
+	}
 }
 
 // maskSecret returns first 4 chars of secret followed by "..."

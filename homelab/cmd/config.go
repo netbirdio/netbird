@@ -286,39 +286,55 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 		c.Server.StunPorts = []int{3478}
 	}
 
-	// Enable relay only if no external relay is configured
-	if !hasExternalRelay {
-		c.Relay.Enabled = true
-		// Set relay exposed address with relay protocol (rels:// for https, rel:// for http)
-		relayProto := "rel"
-		if exposedProto == "https" {
-			relayProto = "rels"
-		}
-		c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
-		c.Relay.AuthSecret = c.Server.AuthSecret
-		if c.Relay.LogLevel == "" {
-			c.Relay.LogLevel = c.Server.LogLevel
-		}
+	c.applyRelayDefaults(exposedProto, exposedHostPort, hasExternalRelay, hasExternalStuns)
+	c.applySignalDefaults(hasExternalSignal)
+	c.applyManagementDefaults(exposedHost)
 
-		// Enable local STUN only if no external STUN servers and stunPorts are configured
-		if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
-			c.Relay.Stun.Enabled = true
-			c.Relay.Stun.Ports = c.Server.StunPorts
-			if c.Relay.Stun.LogLevel == "" {
-				c.Relay.Stun.LogLevel = c.Server.LogLevel
-			}
-		}
+	// Auto-configure client settings (stuns, relays, signalUri)
+	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
+}
+
+// applyRelayDefaults configures the relay service if no external relay is configured.
+func (c *CombinedConfig) applyRelayDefaults(exposedProto, exposedHostPort string, hasExternalRelay, hasExternalStuns bool) {
+	if hasExternalRelay {
+		return
 	}
 
-	// Enable signal only if no external signal is configured
-	if !hasExternalSignal {
-		c.Signal.Enabled = true
-		if c.Signal.LogLevel == "" {
-			c.Signal.LogLevel = c.Server.LogLevel
-		}
+	c.Relay.Enabled = true
+	relayProto := "rel"
+	if exposedProto == "https" {
+		relayProto = "rels"
+	}
+	c.Relay.ExposedAddress = fmt.Sprintf("%s://%s", relayProto, exposedHostPort)
+	c.Relay.AuthSecret = c.Server.AuthSecret
+	if c.Relay.LogLevel == "" {
+		c.Relay.LogLevel = c.Server.LogLevel
 	}
 
-	// Management is always enabled in simplified mode
+	// Enable local STUN only if no external STUN servers and stunPorts are configured
+	if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
+		c.Relay.Stun.Enabled = true
+		c.Relay.Stun.Ports = c.Server.StunPorts
+		if c.Relay.Stun.LogLevel == "" {
+			c.Relay.Stun.LogLevel = c.Server.LogLevel
+		}
+	}
+}
+
+// applySignalDefaults configures the signal service if no external signal is configured.
+func (c *CombinedConfig) applySignalDefaults(hasExternalSignal bool) {
+	if hasExternalSignal {
+		return
+	}
+
+	c.Signal.Enabled = true
+	if c.Signal.LogLevel == "" {
+		c.Signal.LogLevel = c.Server.LogLevel
+	}
+}
+
+// applyManagementDefaults configures the management service (always enabled).
+func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 	c.Management.Enabled = true
 	if c.Management.LogLevel == "" {
 		c.Management.LogLevel = c.Server.LogLevel
@@ -349,9 +365,6 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 	if len(c.Server.ReverseProxy.TrustedHTTPProxies) > 0 || c.Server.ReverseProxy.TrustedHTTPProxiesCount > 0 || len(c.Server.ReverseProxy.TrustedPeers) > 0 {
 		c.Management.ReverseProxy = c.Server.ReverseProxy
 	}
-
-	// Auto-configure client settings (stuns, relays, signalUri)
-	c.autoConfigureClientSettings(exposedProto, exposedHost, exposedHostPort, hasExternalStuns, hasExternalRelay, hasExternalSignal)
 }
 
 // autoConfigureClientSettings sets up STUN/relay/signal URIs for clients
