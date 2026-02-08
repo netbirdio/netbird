@@ -33,15 +33,20 @@ type Manager struct {
 	}
 
 	certNotifier certificateNotifier
+	logger       *log.Logger
 }
 
-func NewManager(certDir, acmeURL string, notifier certificateNotifier) *Manager {
+func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *log.Logger) *Manager {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	mgr := &Manager{
 		domains: make(map[string]struct {
 			accountID      string
 			reverseProxyID string
 		}),
 		certNotifier: notifier,
+		logger:       logger,
 	}
 	mgr.Manager = &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
@@ -88,10 +93,10 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 		Conn:       &dummyConn{ctx: ctx},
 	}
 
-	log.Infof("prefetching certificate for domain %q", domain)
+	mgr.logger.Infof("prefetching certificate for domain %q", domain)
 	cert, err := mgr.GetCertificate(hello)
 	if err != nil {
-		log.Warnf("prefetch certificate for domain %q: %v", domain, err)
+		mgr.logger.Warnf("prefetch certificate for domain %q: %v", domain, err)
 		return
 	}
 
@@ -100,7 +105,7 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 		mgr.logCertificateDetails(domain, cert.Leaf, now)
 	}
 
-	log.Infof("certificate for domain %q is ready", domain)
+	mgr.logger.Infof("certificate for domain %q is ready", domain)
 
 	mgr.domainsMux.RLock()
 	info, exists := mgr.domains[domain]
@@ -108,41 +113,41 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 
 	if exists && mgr.certNotifier != nil {
 		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.reverseProxyID, domain); err != nil {
-			log.Warnf("notify certificate ready for domain %q: %v", domain, err)
+			mgr.logger.Warnf("notify certificate ready for domain %q: %v", domain, err)
 		}
 	}
 }
 
 // logCertificateDetails logs certificate validity and SCT timestamps.
 func (mgr *Manager) logCertificateDetails(domain string, cert *x509.Certificate, now time.Time) {
-	log.Infof("certificate for %q: NotBefore=%v, NotAfter=%v, now=%v",
+	mgr.logger.Infof("certificate for %q: NotBefore=%v, NotAfter=%v, now=%v",
 		domain, cert.NotBefore.UTC(), cert.NotAfter.UTC(), now.UTC())
 
 	if cert.NotBefore.After(now) {
-		log.Warnf("certificate for %q NotBefore is in the future by %v", domain, cert.NotBefore.Sub(now))
+		mgr.logger.Warnf("certificate for %q NotBefore is in the future by %v", domain, cert.NotBefore.Sub(now))
 	} else {
-		log.Infof("certificate for %q NotBefore is %v in the past", domain, now.Sub(cert.NotBefore))
+		mgr.logger.Infof("certificate for %q NotBefore is %v in the past", domain, now.Sub(cert.NotBefore))
 	}
 
-	sctTimestamps := parseSCTTimestamps(cert)
+	sctTimestamps := mgr.parseSCTTimestamps(cert)
 	if len(sctTimestamps) == 0 {
-		log.Warnf("certificate for %q has no embedded SCTs", domain)
+		mgr.logger.Warnf("certificate for %q has no embedded SCTs", domain)
 		return
 	}
 
 	for i, sctTime := range sctTimestamps {
 		if sctTime.After(now) {
-			log.Warnf("certificate for %q SCT[%d] timestamp is in the future: %v (by %v)",
+			mgr.logger.Warnf("certificate for %q SCT[%d] timestamp is in the future: %v (by %v)",
 				domain, i, sctTime.UTC(), sctTime.Sub(now))
 		} else {
-			log.Infof("certificate for %q SCT[%d] timestamp: %v (%v in the past)",
+			mgr.logger.Infof("certificate for %q SCT[%d] timestamp: %v (%v in the past)",
 				domain, i, sctTime.UTC(), now.Sub(sctTime))
 		}
 	}
 }
 
 // parseSCTTimestamps extracts SCT timestamps from a certificate.
-func parseSCTTimestamps(cert *x509.Certificate) []time.Time {
+func (mgr *Manager) parseSCTTimestamps(cert *x509.Certificate) []time.Time {
 	var timestamps []time.Time
 
 	for _, ext := range cert.Extensions {
@@ -153,7 +158,7 @@ func parseSCTTimestamps(cert *x509.Certificate) []time.Time {
 		// The extension value is an OCTET STRING containing the SCT list
 		var sctListBytes []byte
 		if _, err := asn1.Unmarshal(ext.Value, &sctListBytes); err != nil {
-			log.Debugf("failed to unmarshal SCT list outer wrapper: %v", err)
+			mgr.logger.Debugf("failed to unmarshal SCT list outer wrapper: %v", err)
 			continue
 		}
 

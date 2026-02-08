@@ -181,7 +181,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	tlsConfig := &tls.Config{}
 	if s.GenerateACMECertificates {
 		s.Logger.WithField("acme_server", s.ACMEDirectory).Debug("ACME certificates enabled, configuring certificate manager")
-		s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s)
+		s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s, s.Logger)
 		s.http = &http.Server{
 			Addr:    s.ACMEChallengeAddress,
 			Handler: s.acme.HTTPHandler(nil),
