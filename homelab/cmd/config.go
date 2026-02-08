@@ -207,15 +207,15 @@ func DefaultConfig() *CombinedConfig {
 			},
 		},
 		Relay: RelayConfig{
-			LogLevel: "info", // Reserved for future use (currently uses global log level)
+			// LogLevel inherited from Server.LogLevel via ApplySimplifiedDefaults
 			Stun: StunConfig{
-				Enabled:  false,
-				Ports:    []int{3478},
-				LogLevel: "info",
+				Enabled: false,
+				Ports:   []int{3478},
+				// LogLevel inherited from Server.LogLevel via ApplySimplifiedDefaults
 			},
 		},
 		Signal: SignalConfig{
-			LogLevel: "info", // Reserved for future use (currently uses global log level)
+			// LogLevel inherited from Server.LogLevel via ApplySimplifiedDefaults
 		},
 		Management: ManagementConfig{
 			DataDir: "/var/lib/netbird/",
