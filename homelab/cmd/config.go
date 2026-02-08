@@ -29,7 +29,7 @@ import (
 //   - Management: Always runs locally (this IS the management server)
 //   - Signal: Runs locally by default; disabled if server.signalUri is set
 //   - Relay: Runs locally by default; disabled if server.relays is set
-//   - STUN: Runs locally by default; disabled if server.stuns is set or stunPort is 0
+//   - STUN: Runs locally by default; disabled if server.stuns is set or stunPorts is empty
 //
 // All user-facing settings are under "server". The relay/signal/management
 // fields are internal and populated automatically from server settings.
@@ -54,7 +54,7 @@ type ServerConfig struct {
 
 	// Simplified config fields (used when relay/signal/management sections are omitted)
 	ExposedAddress string `yaml:"exposedAddress"` // Public address with protocol (e.g., "https://example.com:443")
-	StunPort       int    `yaml:"stunPort"`       // STUN port (0 to disable local STUN)
+	StunPorts      []int  `yaml:"stunPorts"`      // STUN ports (empty to disable local STUN)
 	AuthSecret     string `yaml:"authSecret"`     // Shared secret for relay authentication
 	DataDir        string `yaml:"dataDir"`        // Data directory for all services
 
@@ -195,7 +195,7 @@ func DefaultConfig() *CombinedConfig {
 			HealthcheckAddress: ":9000",
 			LogLevel:           "info",
 			LogFile:            "console",
-			StunPort:           3478,
+			StunPorts:          []int{3478},
 			DataDir:            "/var/lib/netbird/",
 			Auth: AuthConfig{
 				Storage: AuthStorageConfig{
@@ -295,10 +295,10 @@ func (c *CombinedConfig) ApplySimplifiedDefaults() {
 			c.Relay.LogLevel = c.Server.LogLevel
 		}
 
-		// Enable local STUN only if no external STUN servers and stunPort > 0
-		if !hasExternalStuns && c.Server.StunPort > 0 {
+		// Enable local STUN only if no external STUN servers and stunPorts are configured
+		if !hasExternalStuns && len(c.Server.StunPorts) > 0 {
 			c.Relay.Stun.Enabled = true
-			c.Relay.Stun.Ports = []int{c.Server.StunPort}
+			c.Relay.Stun.Ports = c.Server.StunPorts
 			if c.Relay.Stun.LogLevel == "" {
 				c.Relay.Stun.LogLevel = c.Server.LogLevel
 			}
@@ -362,10 +362,12 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	if hasExternalStuns {
 		// Use external STUN servers from server config
 		c.Management.Stuns = c.Server.Stuns
-	} else if c.Server.StunPort > 0 && len(c.Management.Stuns) == 0 {
-		// Auto-configure local STUN server
-		c.Management.Stuns = []HostConfig{
-			{URI: fmt.Sprintf("stun:%s:%d", exposedHost, c.Server.StunPort)},
+	} else if len(c.Server.StunPorts) > 0 && len(c.Management.Stuns) == 0 {
+		// Auto-configure local STUN servers for all ports
+		for _, port := range c.Server.StunPorts {
+			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
+				URI: fmt.Sprintf("stun:%s:%d", exposedHost, port),
+			})
 		}
 	}
 
@@ -427,8 +429,17 @@ func (c *CombinedConfig) Validate() error {
 	if c.Server.DataDir == "" {
 		return fmt.Errorf("server.dataDir is required")
 	}
-	if c.Server.StunPort < 0 || c.Server.StunPort > 65535 {
-		return fmt.Errorf("invalid server.stunPort %d: must be between 0 and 65535", c.Server.StunPort)
+
+	// Validate STUN ports
+	seen := make(map[int]bool)
+	for _, port := range c.Server.StunPorts {
+		if port <= 0 || port > 65535 {
+			return fmt.Errorf("invalid server.stunPorts value %d: must be between 1 and 65535", port)
+		}
+		if seen[port] {
+			return fmt.Errorf("duplicate STUN port %d in server.stunPorts", port)
+		}
+		seen[port] = true
 	}
 
 	// authSecret is required only if running local relay (no external relay configured)
