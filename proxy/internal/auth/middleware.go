@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -134,15 +135,25 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 	})
 }
 
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration) {
+// AddDomain registers authentication schemes for the given domain.
+// If schemes are provided, a valid session public key is required to sign/verify
+// session JWTs. Returns an error if the key is missing or invalid.
+// Callers must not serve the domain if this returns an error, to avoid
+// exposing an unauthenticated service.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration) error {
+	if len(schemes) == 0 {
+		mw.domainsMux.Lock()
+		defer mw.domainsMux.Unlock()
+		mw.domains[domain] = DomainConfig{}
+		return nil
+	}
+
 	pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
 	if err != nil {
-		// TODO: log
-		return
+		return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
 	}
 	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		// TODO: log
-		return
+		return fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
 	}
 
 	mw.domainsMux.Lock()
@@ -152,6 +163,7 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		SessionPublicKey:  pubKeyBytes,
 		SessionExpiration: expiration,
 	}
+	return nil
 }
 
 func (mw *Middleware) RemoveDomain(domain string) {
