@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -147,8 +148,7 @@ func execute(cmd *cobra.Command, _ []string) error {
 		if portErr != nil {
 			portStr = "443"
 		}
-		var mgmtPort int
-		fmt.Sscanf(portStr, "%d", &mgmtPort)
+		mgmtPort, _ := strconv.Atoi(portStr)
 
 		// Apply embedded IdP configuration (mirrors management/cmd/management.go)
 		if err := ApplyEmbeddedIdPConfig(cmd.Context(), mgmtConfig, mgmtPort, config.Management.DisableSingleAccountMode); err != nil {
@@ -394,8 +394,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 		// If no port specified, assume default
 		portStr = "443"
 	}
-	var mgmtPort int
-	fmt.Sscanf(portStr, "%d", &mgmtPort)
+	mgmtPort, _ := strconv.Atoi(portStr)
 
 	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
 	userDeleteFromIDPEnabled := mgmt.UserDeleteFromIDPEnabled
@@ -509,11 +508,12 @@ func logConfig(cfg *CombinedConfig) {
 	log.Infof("  Data dir: %s", cfg.Server.DataDir)
 
 	// TLS
-	if cfg.HasTLSCert() {
+	switch {
+	case cfg.HasTLSCert():
 		log.Infof("  TLS: cert=%s, key=%s", cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
-	} else if cfg.HasLetsEncrypt() {
+	case cfg.HasLetsEncrypt():
 		log.Infof("  TLS: Let's Encrypt (domains=%v)", cfg.Server.TLS.LetsEncrypt.Domains)
-	} else {
+	default:
 		log.Info("  TLS: disabled (using reverse proxy)")
 	}
 
