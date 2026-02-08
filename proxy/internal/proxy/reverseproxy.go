@@ -48,6 +48,9 @@ func NewReverseProxy(transport http.RoundTripper, forwardedProto string, logger 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	result, exists := p.findTargetForRequest(r)
 	if !exists {
+		if cd := CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetOrigin(OriginNoRoute)
+		}
 		requestID := getRequestID(r)
 		web.ServeErrorPage(w, r, http.StatusNotFound, "Service Not Found",
 			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.",
@@ -156,8 +159,15 @@ func extractForwardedPort(host, resolvedProto string) string {
 // proxyErrorHandler handles errors from the reverse proxy and serves
 // user-friendly error pages instead of raw error responses.
 func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	if cd := CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(OriginProxyError)
+	}
 	requestID := getRequestID(r)
 	title, message, code, status := classifyProxyError(err)
+
+	log.Warnf("proxy error: request_id=%s method=%s host=%s path=%s status=%d title=%q err=%v",
+		requestID, r.Method, r.Host, r.URL.Path, code, title, err)
+
 	web.ServeErrorPage(w, r, code, title, message, requestID, status)
 }
 

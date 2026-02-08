@@ -35,7 +35,6 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 		host = h
 	}
 
-	p.logger.Debugf("looking for mapping for host: %s, path: %s", host, req.URL.Path)
 	m, exists := p.mappings[host]
 	if !exists {
 		p.logger.Debugf("no mapping found for host: %s", host)

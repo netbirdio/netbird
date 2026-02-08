@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/auth"
-
+	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -99,7 +99,9 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if token != "" {
 				userid, _, err := auth.ValidateSessionJWT(token, host, config.SessionPublicKey)
 				if err != nil {
-					// TODO: log, this should never fail.
+					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+						cd.SetOrigin(proxy.OriginAuth)
+					}
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
@@ -125,6 +127,9 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			methods[scheme.Type().String()] = promptData
 		}
 
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetOrigin(proxy.OriginAuth)
+		}
 		web.ServeHTTP(w, r, map[string]any{"methods": methods})
 	})
 }

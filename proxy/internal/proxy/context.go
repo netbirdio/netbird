@@ -15,6 +15,33 @@ const (
 	capturedDataKey requestContextKey = "capturedData"
 )
 
+// ResponseOrigin indicates where a response was generated.
+type ResponseOrigin int
+
+const (
+	// OriginBackend means the response came from the backend service.
+	OriginBackend ResponseOrigin = iota
+	// OriginNoRoute means the proxy had no matching host or path.
+	OriginNoRoute
+	// OriginProxyError means the proxy failed to reach the backend.
+	OriginProxyError
+	// OriginAuth means the proxy intercepted the request for authentication.
+	OriginAuth
+)
+
+func (o ResponseOrigin) String() string {
+	switch o {
+	case OriginNoRoute:
+		return "no_route"
+	case OriginProxyError:
+		return "proxy_error"
+	case OriginAuth:
+		return "auth"
+	default:
+		return "backend"
+	}
+}
+
 // CapturedData is a mutable struct that allows downstream handlers
 // to pass data back up the middleware chain.
 type CapturedData struct {
@@ -22,6 +49,7 @@ type CapturedData struct {
 	RequestID string
 	ServiceId string
 	AccountId types.AccountID
+	Origin    ResponseOrigin
 }
 
 // GetRequestID safely gets the request ID
@@ -57,6 +85,20 @@ func (c *CapturedData) GetAccountId() types.AccountID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.AccountId
+}
+
+// SetOrigin safely sets the response origin
+func (c *CapturedData) SetOrigin(origin ResponseOrigin) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Origin = origin
+}
+
+// GetOrigin safely gets the response origin
+func (c *CapturedData) GetOrigin() ResponseOrigin {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Origin
 }
 
 // WithCapturedData adds a CapturedData struct to the context

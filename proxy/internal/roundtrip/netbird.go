@@ -363,15 +363,19 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	n.logger.WithFields(log.Fields{
-		"account_id": accountID,
-		"host":       req.Host,
-		"url":        req.URL.String(),
-		"requestURI": req.RequestURI,
-		"method":     req.Method,
-	}).Debug("running roundtrip for peer connection")
+	start := time.Now()
+	resp, err := transport.RoundTrip(req)
+	duration := time.Since(start)
 
-	return transport.RoundTrip(req)
+	if err != nil {
+		n.logger.Debugf("roundtrip: method=%s host=%s url=%s account=%s duration=%s err=%v",
+			req.Method, req.Host, req.URL.String(), accountID, duration.Truncate(time.Millisecond), err)
+		return nil, err
+	}
+
+	n.logger.Debugf("roundtrip: method=%s host=%s url=%s account=%s status=%d duration=%s",
+		req.Method, req.Host, req.URL.String(), accountID, resp.StatusCode, duration.Truncate(time.Millisecond))
+	return resp, nil
 }
 
 // StopAll stops all clients.

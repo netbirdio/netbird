@@ -13,19 +13,20 @@ import (
 
 func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		l.logger.Debugf("access log middleware invoked for %s %s", r.Method, r.URL.Path)
+		// Generate request ID early so it can be used by error pages and log correlation.
+		requestID := xid.New().String()
+
+		l.logger.Debugf("request: request_id=%s method=%s host=%s path=%s", requestID, r.Method, r.Host, r.URL.Path)
+
 		// Use a response writer wrapper so we can access the status code later.
 		sw := &statusWriter{
 			w:      w,
-			status: http.StatusOK, // Default status is OK unless otherwise modified.
+			status: http.StatusOK,
 		}
 
 		// Get the source IP before passing the request on as the proxy will modify
 		// headers that we wish to use to gather that information on the request.
 		sourceIp := extractSourceIP(r)
-
-		// Generate request ID early so it can be used by error pages.
-		requestID := xid.New().String()
 
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
@@ -57,6 +58,9 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			UserId:        auth.UserFromContext(r.Context()),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
 		}
+		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
+			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceId(), capturedData.GetAccountId())
+
 		l.log(r.Context(), entry)
 	})
 }
