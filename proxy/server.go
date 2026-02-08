@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/embeddedroots"
@@ -286,7 +287,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Finally, start the reverse proxy.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   accessLog.Middleware(s.auth.Protect(s.proxy)),
+		Handler:   accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy))),
 		TLSConfig: tlsConfig,
 	}
 	s.Logger.Debugf("starting listening on reverse proxy server address %s", addr)

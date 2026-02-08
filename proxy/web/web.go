@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+// PathPrefix is the unique URL prefix for serving the proxy's own web assets.
+// Using a distinctive prefix prevents collisions with backend application routes.
+const PathPrefix = "/__netbird__"
+
 //go:embed dist/*
 var files embed.FS
 
@@ -35,6 +39,38 @@ func init() {
 	tmpl, initErr = template.New("index").Parse(string(indexHTML))
 }
 
+// AssetHandler returns middleware that intercepts requests for the proxy's
+// own web assets (under PathPrefix) and serves them from the embedded
+// filesystem, preventing them from being forwarded to backend services.
+func AssetHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, PathPrefix+"/") {
+			serveAsset(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// serveAsset serves a static file from the embedded filesystem.
+func serveAsset(w http.ResponseWriter, r *http.Request) {
+	if initErr != nil {
+		http.Error(w, initErr.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Strip the prefix to get the embedded FS path (e.g. "assets/index.js").
+	filePath := strings.TrimPrefix(r.URL.Path, PathPrefix+"/")
+	content, err := fs.ReadFile(webFS, filePath)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	setContentType(w, filePath)
+	w.Write(content) //nolint:errcheck
+}
+
 // ServeHTTP serves the web UI. For static assets it serves them directly,
 // for other paths it renders the page with the provided data.
 // Optional statusCode can be passed to set a custom HTTP status code (default 200).
@@ -54,42 +90,19 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...i
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write(content)
+		w.Write(content) //nolint:errcheck
 		return
 	}
 
-	// Serve static assets directly
-	if strings.HasPrefix(path, "/assets/") {
-		filePath := strings.TrimPrefix(path, "/")
-		content, err := fs.ReadFile(webFS, filePath)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-
-		switch filepath.Ext(filePath) {
-		case ".js":
-			w.Header().Set("Content-Type", "application/javascript")
-		case ".css":
-			w.Header().Set("Content-Type", "text/css")
-		case ".svg":
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case ".ttf":
-			w.Header().Set("Content-Type", "font/ttf")
-		case ".woff":
-			w.Header().Set("Content-Type", "font/woff")
-		case ".woff2":
-			w.Header().Set("Content-Type", "font/woff2")
-		case ".ico":
-			w.Header().Set("Content-Type", "image/x-icon")
-		}
-
-		w.Write(content)
+	// Serve static assets directly (handles requests that reach here
+	// via auth middleware calling ServeHTTP for unauthenticated requests).
+	if strings.HasPrefix(path, PathPrefix+"/") {
+		serveAsset(w, r)
 		return
 	}
 
 	// Render the page with data
-	dataJSON, _ := json.Marshal(data)
+	dataJSON, _ := json.Marshal(data) //nolint:errcheck
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, struct {
@@ -105,7 +118,26 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...i
 	if len(statusCode) > 0 {
 		w.WriteHeader(statusCode[0])
 	}
-	w.Write(buf.Bytes())
+	w.Write(buf.Bytes()) //nolint:errcheck
+}
+
+func setContentType(w http.ResponseWriter, filePath string) {
+	switch filepath.Ext(filePath) {
+	case ".js":
+		w.Header().Set("Content-Type", "application/javascript")
+	case ".css":
+		w.Header().Set("Content-Type", "text/css")
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".ttf":
+		w.Header().Set("Content-Type", "font/ttf")
+	case ".woff":
+		w.Header().Set("Content-Type", "font/woff")
+	case ".woff2":
+		w.Header().Set("Content-Type", "font/woff2")
+	case ".ico":
+		w.Header().Set("Content-Type", "image/x-icon")
+	}
 }
 
 // ErrorStatus represents the connection status for each component in the error page.
