@@ -332,7 +332,7 @@ func TestProtect_WrongKeyCookieIsRejected(t *testing.T) {
 	assert.False(t, backendCalled, "cookie signed by wrong key should be rejected")
 }
 
-func TestProtect_SchemeAuthSetsSessionCookie(t *testing.T) {
+func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger())
 	kp := generateTestKeyPair(t)
 
@@ -350,20 +350,23 @@ func TestProtect_SchemeAuthSetsSessionCookie(t *testing.T) {
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour))
 
-	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "pin-user", UserFromContext(r.Context()))
-		assert.Equal(t, auth.MethodPIN, MethodFromContext(r.Context()))
+	var backendCalled bool
+	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
 		w.WriteHeader(http.StatusOK)
-	}))
+	})
+	handler := mw.Protect(backend)
 
 	// Submit the PIN via form POST.
 	form := url.Values{"pin": {"111111"}}
-	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/somepath", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.False(t, backendCalled, "backend should not be called during auth, only a redirect should be returned")
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+	assert.Equal(t, "/somepath", rec.Header().Get("Location"), "redirect should point to the original request URI")
 
 	cookies := rec.Result().Cookies()
 	var sessionCookie *http.Cookie
@@ -427,10 +430,12 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour))
 
-	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, auth.MethodPassword, MethodFromContext(r.Context()))
+	var backendCalled bool
+	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
 		w.WriteHeader(http.StatusOK)
-	}))
+	})
+	handler := mw.Protect(backend)
 
 	form := url.Values{"password": {"secret"}}
 	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader(form.Encode()))
@@ -438,7 +443,8 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.False(t, backendCalled, "backend should not be called during auth")
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
 }
 
 func TestProtect_InvalidTokenFromSchemeReturns400(t *testing.T) {

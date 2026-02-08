@@ -98,8 +98,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		for _, scheme := range config.Schemes {
 			token, promptData := scheme.Authenticate(r)
 			if token != "" {
-				userid, _, err := auth.ValidateSessionJWT(token, host, config.SessionPublicKey)
-				if err != nil {
+				if _, _, err := auth.ValidateSessionJWT(token, host, config.SessionPublicKey); err != nil {
 					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 						cd.SetOrigin(proxy.OriginAuth)
 					}
@@ -120,9 +119,12 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 					MaxAge:   int(expiration.Seconds()),
 				})
 
-				ctx := withAuthMethod(r.Context(), scheme.Type())
-				ctx = withAuthUser(ctx, userid)
-				next.ServeHTTP(w, r.WithContext(ctx))
+				// Redirect instead of forwarding the auth POST to the backend.
+				// The browser will follow with a GET carrying the new session cookie.
+				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+					cd.SetOrigin(proxy.OriginAuth)
+				}
+				http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
 				return
 			}
 			methods[scheme.Type().String()] = promptData
@@ -131,7 +133,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetOrigin(proxy.OriginAuth)
 		}
-		web.ServeHTTP(w, r, map[string]any{"methods": methods})
+		web.ServeHTTP(w, r, map[string]any{"methods": methods}, http.StatusUnauthorized)
 	})
 }
 

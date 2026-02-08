@@ -62,10 +62,11 @@ function App() {
     fetch(window.location.href, {
       method: "POST",
       body: formData,
-      redirect: "follow",
+      redirect: "manual",
     })
       .then((res) => {
-        if (res.ok || res.redirected) {
+        if (res.type === "opaqueredirect" || res.status === 0) {
+          setSubmitting("redirect");
           window.location.reload();
         } else {
           handleAuthError(method, "Authentication failed. Please try again.");
@@ -91,6 +92,21 @@ function App() {
 
   const hasCredentialAuth = methods.password || methods.pin;
   const hasBothCredentials = methods.password && methods.pin;
+
+  if (submitting === "redirect") {
+    return (
+      <main className="mt-20">
+        <Card className="max-w-105 mx-auto">
+          <Title>Authenticated</Title>
+          <Description>Loading service...</Description>
+          <div className="flex justify-center mt-7">
+            <Loader2 className="animate-spin" size={24} />
+          </div>
+        </Card>
+        <PoweredByNetBird />
+      </main>
+    );
+  }
 
   return (
     <main className="mt-20">
