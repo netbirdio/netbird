@@ -79,6 +79,9 @@ type Server struct {
 	HealthAddress string
 	// ProxyToken is the access token for authenticating with the management server.
 	ProxyToken string
+	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
+	// Valid values: "auto" (detect from TLS), "http", "https".
+	ForwardedProto string
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -214,7 +217,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}
 
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
-	s.proxy = proxy.NewReverseProxy(s.netbird, s.Logger)
+	s.proxy = proxy.NewReverseProxy(s.netbird, s.ForwardedProto, s.Logger)
 
 	// Configure the authentication middleware.
 	s.auth = auth.NewMiddleware(s.Logger)
@@ -436,7 +439,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		schemes = append(schemes, auth.NewPin(s.mgmtClient, mapping.GetId(), mapping.GetAccountId()))
 	}
 	if mapping.GetAuth().GetOidc() {
-		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, mapping.GetId(), mapping.GetAccountId()))
+		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, mapping.GetId(), mapping.GetAccountId(), s.ForwardedProto))
 	}
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
@@ -479,10 +482,11 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		paths[pathMapping.GetPath()] = targetURL
 	}
 	return proxy.Mapping{
-		ID:        mapping.GetId(),
-		AccountID: types.AccountID(mapping.GetAccountId()),
-		Host:      mapping.GetDomain(),
-		Paths:     paths,
+		ID:             mapping.GetId(),
+		AccountID:      types.AccountID(mapping.GetAccountId()),
+		Host:           mapping.GetDomain(),
+		Paths:          paths,
+		PassHostHeader: mapping.GetPassHostHeader(),
 	}
 }
 

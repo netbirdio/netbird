@@ -16,16 +16,19 @@ type urlGenerator interface {
 }
 
 type OIDC struct {
-	id, accountId string
-	client        urlGenerator
+	id             string
+	accountId      string
+	forwardedProto string
+	client         urlGenerator
 }
 
 // NewOIDC creates a new OIDC authentication scheme
-func NewOIDC(client urlGenerator, id, accountId string) OIDC {
+func NewOIDC(client urlGenerator, id, accountId, forwardedProto string) OIDC {
 	return OIDC{
-		id:        id,
-		accountId: accountId,
-		client:    client,
+		id:             id,
+		accountId:      accountId,
+		forwardedProto: forwardedProto,
+		client:         client,
 	}
 }
 
@@ -42,7 +45,7 @@ func (o OIDC) Authenticate(r *http.Request) (string, string) {
 	}
 
 	redirectURL := &url.URL{
-		Scheme: "https",
+		Scheme: auth.ResolveProto(o.forwardedProto, r.TLS),
 		Host:   r.Host,
 		Path:   r.URL.Path,
 	}

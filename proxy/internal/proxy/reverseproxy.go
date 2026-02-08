@@ -3,22 +3,28 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
 type ReverseProxy struct {
-	transport   http.RoundTripper
-	mappingsMux sync.RWMutex
-	mappings    map[string]Mapping
-	logger      *log.Logger
+	transport http.RoundTripper
+	// forwardedProto overrides the X-Forwarded-Proto header value.
+	// Valid values: "auto" (detect from TLS), "http", "https".
+	forwardedProto string
+	mappingsMux    sync.RWMutex
+	mappings       map[string]Mapping
+	logger         *log.Logger
 }
 
 // NewReverseProxy configures a new NetBird ReverseProxy.
@@ -27,19 +33,20 @@ type ReverseProxy struct {
 // between requested URLs and targets.
 // The internal mappings can be modified using the AddMapping
 // and RemoveMapping functions.
-func NewReverseProxy(transport http.RoundTripper, logger *log.Logger) *ReverseProxy {
+func NewReverseProxy(transport http.RoundTripper, forwardedProto string, logger *log.Logger) *ReverseProxy {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &ReverseProxy{
-		transport: transport,
-		mappings:  make(map[string]Mapping),
-		logger:    logger,
+		transport:      transport,
+		forwardedProto: forwardedProto,
+		mappings:       make(map[string]Mapping),
+		logger:         logger,
 	}
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	target, serviceId, accountID, exists := p.findTargetForRequest(r)
+	result, exists := p.findTargetForRequest(r)
 	if !exists {
 		requestID := getRequestID(r)
 		web.ServeErrorPage(w, r, http.StatusNotFound, "Service Not Found",
@@ -49,25 +56,101 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the serviceId in the context for later retrieval.
-	ctx := withServiceId(r.Context(), serviceId)
+	ctx := withServiceId(r.Context(), result.serviceID)
 	// Set the accountId in the context for later retrieval (for middleware).
-	ctx = withAccountId(ctx, accountID)
+	ctx = withAccountId(ctx, result.accountID)
 	// Set the accountId in the context for the roundtripper to use.
-	ctx = roundtrip.WithAccountID(ctx, accountID)
+	ctx = roundtrip.WithAccountID(ctx, result.accountID)
 
 	// Also populate captured data if it exists (allows middleware to read after handler completes).
 	// This solves the problem of passing data UP the middleware chain: we put a mutable struct
 	// pointer in the context, and mutate the struct here so outer middleware can read it.
 	if capturedData := CapturedDataFromContext(ctx); capturedData != nil {
-		capturedData.SetServiceId(serviceId)
-		capturedData.SetAccountId(accountID)
+		capturedData.SetServiceId(result.serviceID)
+		capturedData.SetAccountId(result.accountID)
 	}
 
-	// Set up a reverse proxy using the transport and then use it to serve the request.
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = p.transport
-	proxy.ErrorHandler = proxyErrorHandler
-	proxy.ServeHTTP(w, r.WithContext(ctx))
+	rp := &httputil.ReverseProxy{
+		Rewrite:      p.rewriteFunc(result.url, result.passHostHeader),
+		Transport:    p.transport,
+		ErrorHandler: proxyErrorHandler,
+	}
+	rp.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// rewriteFunc returns a Rewrite function for httputil.ReverseProxy that rewrites
+// inbound requests to target the backend service while setting security-relevant
+// forwarding headers and stripping proxy authentication credentials.
+// When passHostHeader is true, the original client Host header is preserved
+// instead of being rewritten to the backend's address.
+func (p *ReverseProxy) rewriteFunc(target *url.URL, passHostHeader bool) func(r *httputil.ProxyRequest) {
+	return func(r *httputil.ProxyRequest) {
+		r.SetURL(target)
+		if passHostHeader {
+			r.Out.Host = r.In.Host
+		} else {
+			r.Out.Host = target.Host
+		}
+
+		clientIP := extractClientIP(r.In.RemoteAddr)
+		proto := auth.ResolveProto(p.forwardedProto, r.In.TLS)
+
+		// Strip any incoming forwarding headers since this proxy is the trust
+		// boundary and set them fresh based on the direct connection.
+		r.Out.Header.Set("X-Forwarded-For", clientIP)
+		r.Out.Header.Set("X-Real-IP", clientIP)
+		r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
+		r.Out.Header.Set("X-Forwarded-Proto", proto)
+		r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, proto))
+
+		stripSessionCookie(r)
+		stripSessionTokenQuery(r)
+	}
+}
+
+// stripSessionCookie removes the proxy's session cookie from the outgoing
+// request while preserving all other cookies.
+func stripSessionCookie(r *httputil.ProxyRequest) {
+	cookies := r.In.Cookies()
+	r.Out.Header.Del("Cookie")
+	for _, c := range cookies {
+		if c.Name != auth.SessionCookieName {
+			r.Out.AddCookie(c)
+		}
+	}
+}
+
+// stripSessionTokenQuery removes the OIDC session_token query parameter from
+// the outgoing URL to prevent credential leakage to backends.
+func stripSessionTokenQuery(r *httputil.ProxyRequest) {
+	q := r.Out.URL.Query()
+	if q.Has("session_token") {
+		q.Del("session_token")
+		r.Out.URL.RawQuery = q.Encode()
+	}
+}
+
+// extractClientIP extracts the IP address from an http.Request.RemoteAddr
+// which is always in host:port format.
+func extractClientIP(remoteAddr string) string {
+	ip, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return ip
+}
+
+// extractForwardedPort returns the port from the Host header if present,
+// otherwise defaults to the standard port for the resolved protocol.
+func extractForwardedPort(host, resolvedProto string) string {
+	_, port, err := net.SplitHostPort(host)
+	if err == nil && port != "" {
+		return port
+	}
+	if resolvedProto == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 // proxyErrorHandler handles errors from the reverse proxy and serves

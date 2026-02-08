@@ -1983,6 +1983,9 @@ type ReverseProxy struct {
 	// Name Reverse proxy name
 	Name string `json:"name"`
 
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
 	// ProxyCluster The proxy cluster handling this reverse proxy (derived from domain)
 	ProxyCluster *string `json:"proxy_cluster,omitempty"`
 
@@ -2055,6 +2058,9 @@ type ReverseProxyRequest struct {
 
 	// Name Reverse proxy name
 	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
 
 	// Targets List of target backends for this reverse proxy
 	Targets []ReverseProxyTarget `json:"targets"`

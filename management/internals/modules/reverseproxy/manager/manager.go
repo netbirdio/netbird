@@ -86,11 +86,9 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 		}
 	}
 
-	authConfig := reverseProxy.Auth
-
-	reverseProxy = reverseproxy.NewReverseProxy(accountID, reverseProxy.Name, reverseProxy.Domain, proxyCluster, reverseProxy.Targets, reverseProxy.Enabled)
-
-	reverseProxy.Auth = authConfig
+	reverseProxy.AccountID = accountID
+	reverseProxy.ProxyCluster = proxyCluster
+	reverseProxy.InitNewRecord()
 
 	// Generate session JWT signing keys
 	keyPair, err := sessionkey.GenerateKeyPair()

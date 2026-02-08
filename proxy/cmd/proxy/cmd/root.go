@@ -43,6 +43,7 @@ var (
 	oidcClientSecret  string
 	oidcEndpoint      string
 	oidcScopes        string
+	forwardedProto    string
 )
 
 var rootCmd = &cobra.Command{
@@ -70,6 +71,7 @@ func init() {
 	rootCmd.Flags().StringVar(&oidcClientSecret, "oidc-secret", envStringOrDefault("NB_PROXY_OIDC_CLIENT_SECRET", ""), "The OAuth2 Client Secret for OIDC User Authentication")
 	rootCmd.Flags().StringVar(&oidcEndpoint, "oidc-endpoint", envStringOrDefault("NB_PROXY_OIDC_ENDPOINT", ""), "The OIDC Endpoint for OIDC User Authentication")
 	rootCmd.Flags().StringVar(&oidcScopes, "oidc-scopes", envStringOrDefault("NB_PROXY_OIDC_SCOPES", "openid,profile,email"), "The OAuth2 scopes for OIDC User Authentication, comma separated")
+	rootCmd.Flags().StringVar(&forwardedProto, "forwarded-proto", envStringOrDefault("NB_PROXY_FORWARDED_PROTO", "auto"), "X-Forwarded-Proto value for backends: auto, http, or https")
 }
 
 // Execute runs the root command.
@@ -105,6 +107,12 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	log.Infof("configured log level: %s", level)
 
+	switch forwardedProto {
+	case "auto", "http", "https":
+	default:
+		return fmt.Errorf("invalid --forwarded-proto value %q: must be auto, http, or https", forwardedProto)
+	}
+
 	srv := proxy.Server{
 		Logger:                   logger,
 		Version:                  Version,
@@ -122,6 +130,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		OIDCClientSecret:         oidcClientSecret,
 		OIDCEndpoint:             oidcEndpoint,
 		OIDCScopes:               strings.Split(oidcScopes, ","),
+		ForwardedProto:           forwardedProto,
 	}
 
 	if err := srv.ListenAndServe(context.TODO(), addr); err != nil {

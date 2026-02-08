@@ -2857,6 +2857,9 @@ components:
         enabled:
           type: boolean
           description: Whether the reverse proxy is enabled
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
         auth:
           $ref: '#/components/schemas/ReverseProxyAuthConfig'
         meta:
@@ -2914,6 +2917,9 @@ components:
           type: boolean
           description: Whether the reverse proxy is enabled
           default: true
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
         auth:
           $ref: '#/components/schemas/ReverseProxyAuthConfig'
       required:

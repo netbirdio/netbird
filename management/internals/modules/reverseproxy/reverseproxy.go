@@ -7,9 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/netbirdio/netbird/util/crypt"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -89,6 +90,7 @@ type ReverseProxy struct {
 	ProxyCluster      string   `gorm:"index"`
 	Targets           []Target `gorm:"serializer:json"`
 	Enabled           bool
+	PassHostHeader    bool
 	Auth              AuthConfig       `gorm:"serializer:json"`
 	Meta              ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string           `gorm:"column:session_private_key"`
@@ -96,18 +98,26 @@ type ReverseProxy struct {
 }
 
 func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []Target, enabled bool) *ReverseProxy {
-	return &ReverseProxy{
-		ID:           xid.New().String(),
+	rp := &ReverseProxy{
 		AccountID:    accountID,
 		Name:         name,
 		Domain:       domain,
 		ProxyCluster: proxyCluster,
 		Targets:      targets,
 		Enabled:      enabled,
-		Meta: ReverseProxyMeta{
-			CreatedAt: time.Now(),
-			Status:    string(StatusPending),
-		},
+	}
+	rp.InitNewRecord()
+	return rp
+}
+
+// InitNewRecord generates a new unique ID and resets metadata for a newly created
+// ReverseProxy record. This overwrites any existing ID and Meta fields and should
+// only be called during initial creation, not for updates.
+func (r *ReverseProxy) InitNewRecord() {
+	r.ID = xid.New().String()
+	r.Meta = ReverseProxyMeta{
+		CreatedAt: time.Now(),
+		Status:    string(StatusPending),
 	}
 }
 
@@ -159,13 +169,14 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 
 	resp := &api.ReverseProxy{
-		Id:      r.ID,
-		Name:    r.Name,
-		Domain:  r.Domain,
-		Targets: apiTargets,
-		Enabled: r.Enabled,
-		Auth:    authConfig,
-		Meta:    meta,
+		Id:             r.ID,
+		Name:           r.Name,
+		Domain:         r.Domain,
+		Targets:        apiTargets,
+		Enabled:        r.Enabled,
+		PassHostHeader: &r.PassHostHeader,
+		Auth:           authConfig,
+		Meta:           meta,
 	}
 
 	if r.ProxyCluster != "" {
@@ -220,13 +231,14 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 	}
 
 	return &proto.ProxyMapping{
-		Type:      operationToProtoType(operation),
-		Id:        r.ID,
-		Domain:    r.Domain,
-		Path:      pathMappings,
-		AuthToken: authToken,
-		Auth:      auth,
-		AccountId: r.AccountID,
+		Type:           operationToProtoType(operation),
+		Id:             r.ID,
+		Domain:         r.Domain,
+		Path:           pathMappings,
+		AuthToken:      authToken,
+		Auth:           auth,
+		AccountId:      r.AccountID,
+		PassHostHeader: r.PassHostHeader,
 	}
 }
 
@@ -264,6 +276,10 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 	r.Targets = targets
 
 	r.Enabled = req.Enabled
+
+	if req.PassHostHeader != nil {
+		r.PassHostHeader = *req.PassHostHeader
+	}
 
 	if req.Auth.PasswordAuth != nil {
 		r.Auth.PasswordAuth = &PasswordAuthConfig{

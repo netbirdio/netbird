@@ -4,6 +4,7 @@ package auth
 
 import (
 	"crypto/ed25519"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -27,6 +28,21 @@ const (
 	DefaultSessionExpiry = 24 * time.Hour
 	SessionJWTIssuer     = "netbird-management"
 )
+
+// ResolveProto determines the protocol scheme based on the forwarded proto
+// configuration. When set to "http" or "https" the value is used directly.
+// Otherwise TLS state is used: if conn is non-nil "https" is returned, else "http".
+func ResolveProto(forwardedProto string, conn *tls.ConnectionState) string {
+	switch forwardedProto {
+	case "http", "https":
+		return forwardedProto
+	default:
+		if conn != nil {
+			return "https"
+		}
+		return "http"
+	}
+}
 
 // ValidateSessionJWT validates a session JWT and returns the user ID and method.
 func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey) (userID, method string, err error) {

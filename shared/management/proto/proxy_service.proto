@@ -64,6 +64,9 @@ message ProxyMapping {
   repeated PathMapping path = 5;
   string auth_token = 6;
   Authentication auth = 7;
+  // When true, the original Host header from the client request is passed
+  // through to the backend instead of being rewritten to the backend's address.
+  bool pass_host_header = 8;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
