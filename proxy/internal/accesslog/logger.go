@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"context"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -14,18 +15,24 @@ type gRPCClient interface {
 	SendAccessLog(ctx context.Context, in *proto.SendAccessLogRequest, opts ...grpc.CallOption) (*proto.SendAccessLogResponse, error)
 }
 
+// Logger sends access log entries to the management server via gRPC.
 type Logger struct {
-	client gRPCClient
-	logger *log.Logger
+	client         gRPCClient
+	logger         *log.Logger
+	trustedProxies []netip.Prefix
 }
 
-func NewLogger(client gRPCClient, logger *log.Logger) *Logger {
+// NewLogger creates a new access log Logger. The trustedProxies parameter
+// configures which upstream proxy IP ranges are trusted for extracting
+// the real client IP from X-Forwarded-For headers.
+func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Prefix) *Logger {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &Logger{
-		client: client,
-		logger: logger,
+		client:         client,
+		logger:         logger,
+		trustedProxies: trustedProxies,
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"testing"
 
@@ -291,6 +292,158 @@ func TestExtractForwardedPort(t *testing.T) {
 			assert.Equal(t, tt.expected, extractForwardedPort(tt.host, tt.resolvedProto))
 		})
 	}
+}
+
+func TestRewriteFunc_TrustedProxy(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+
+	t.Run("appends to X-Forwarded-For", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+		rewrite(pr)
+
+		assert.Equal(t, "203.0.113.50, 10.0.0.1", pr.Out.Header.Get("X-Forwarded-For"))
+	})
+
+	t.Run("preserves upstream X-Real-IP", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
+		pr.In.Header.Set("X-Real-IP", "203.0.113.50")
+
+		rewrite(pr)
+
+		assert.Equal(t, "203.0.113.50", pr.Out.Header.Get("X-Real-IP"))
+	})
+
+	t.Run("resolves X-Real-IP from XFF when not set by upstream", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.2")
+
+		rewrite(pr)
+
+		assert.Equal(t, "203.0.113.50", pr.Out.Header.Get("X-Real-IP"),
+			"should resolve real client through trusted chain")
+	})
+
+	t.Run("preserves upstream X-Forwarded-Host", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://proxy.internal/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-Host", "original.example.com")
+
+		rewrite(pr)
+
+		assert.Equal(t, "original.example.com", pr.Out.Header.Get("X-Forwarded-Host"))
+	})
+
+	t.Run("preserves upstream X-Forwarded-Proto", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-Proto", "https")
+
+		rewrite(pr)
+
+		assert.Equal(t, "https", pr.Out.Header.Get("X-Forwarded-Proto"))
+	})
+
+	t.Run("preserves upstream X-Forwarded-Port", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-Port", "8443")
+
+		rewrite(pr)
+
+		assert.Equal(t, "8443", pr.Out.Header.Get("X-Forwarded-Port"))
+	})
+
+	t.Run("falls back to local proto when upstream does not set it", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "https", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "https", pr.Out.Header.Get("X-Forwarded-Proto"),
+			"should use configured forwardedProto as fallback")
+	})
+
+	t.Run("sets X-Forwarded-Host from request when upstream does not set it", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "example.com", pr.Out.Header.Get("X-Forwarded-Host"))
+	})
+
+	t.Run("untrusted RemoteAddr strips headers even with trusted list", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+		pr.In.Header.Set("X-Forwarded-For", "10.0.0.1, 172.16.0.1")
+		pr.In.Header.Set("X-Real-IP", "evil")
+		pr.In.Header.Set("X-Forwarded-Host", "evil.example.com")
+		pr.In.Header.Set("X-Forwarded-Proto", "https")
+		pr.In.Header.Set("X-Forwarded-Port", "9999")
+
+		rewrite(pr)
+
+		assert.Equal(t, "203.0.113.50", pr.Out.Header.Get("X-Forwarded-For"),
+			"untrusted: XFF must be replaced")
+		assert.Equal(t, "203.0.113.50", pr.Out.Header.Get("X-Real-IP"),
+			"untrusted: X-Real-IP must be replaced")
+		assert.Equal(t, "example.com", pr.Out.Header.Get("X-Forwarded-Host"),
+			"untrusted: host must be from direct connection")
+		assert.Equal(t, "http", pr.Out.Header.Get("X-Forwarded-Proto"),
+			"untrusted: proto must be locally resolved")
+		assert.Equal(t, "80", pr.Out.Header.Get("X-Forwarded-Port"),
+			"untrusted: port must be locally computed")
+	})
+
+	t.Run("empty trusted list behaves as untrusted", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: nil}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+		rewrite(pr)
+
+		assert.Equal(t, "10.0.0.1", pr.Out.Header.Get("X-Forwarded-For"),
+			"nil trusted list: should strip and use RemoteAddr")
+	})
+
+	t.Run("XFF starts fresh when trusted proxy has no upstream XFF", func(t *testing.T) {
+		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
+		rewrite := p.rewriteFunc(target, false)
+
+		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "10.0.0.1", pr.Out.Header.Get("X-Forwarded-For"),
+			"no upstream XFF: should set direct connection IP")
+	})
 }
 
 // newProxyRequest creates an httputil.ProxyRequest suitable for testing

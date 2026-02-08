@@ -50,6 +50,7 @@ type CapturedData struct {
 	ServiceId string
 	AccountId types.AccountID
 	Origin    ResponseOrigin
+	ClientIP  string
 }
 
 // GetRequestID safely gets the request ID
@@ -99,6 +100,20 @@ func (c *CapturedData) GetOrigin() ResponseOrigin {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.Origin
+}
+
+// SetClientIP safely sets the resolved client IP.
+func (c *CapturedData) SetClientIP(ip string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ClientIP = ip
+}
+
+// GetClientIP safely gets the resolved client IP.
+func (c *CapturedData) GetClientIP() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ClientIP
 }
 
 // WithCapturedData adds a CapturedData struct to the context

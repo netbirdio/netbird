@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path/filepath"
 	"time"
@@ -82,6 +83,10 @@ type Server struct {
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	ForwardedProto string
+	// TrustedProxies is a list of IP prefixes for trusted upstream proxies.
+	// When set, forwarding headers from these sources are preserved and
+	// appended to instead of being stripped.
+	TrustedProxies []netip.Prefix
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -217,13 +222,13 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}
 
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
-	s.proxy = proxy.NewReverseProxy(s.netbird, s.ForwardedProto, s.Logger)
+	s.proxy = proxy.NewReverseProxy(s.netbird, s.ForwardedProto, s.TrustedProxies, s.Logger)
 
 	// Configure the authentication middleware.
 	s.auth = auth.NewMiddleware(s.Logger)
 
 	// Configure Access logs to management server.
-	accessLog := accesslog.NewLogger(s.mgmtClient, s.Logger)
+	accessLog := accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
 
 	if s.DebugEndpointEnabled {
 		debugAddr := debugEndpointAddr(s.DebugEndpointAddress)

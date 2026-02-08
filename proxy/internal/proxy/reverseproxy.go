@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -22,6 +23,10 @@ type ReverseProxy struct {
 	// forwardedProto overrides the X-Forwarded-Proto header value.
 	// Valid values: "auto" (detect from TLS), "http", "https".
 	forwardedProto string
+	// trustedProxies is a list of IP prefixes for trusted upstream proxies.
+	// When the direct connection comes from a trusted proxy, forwarding
+	// headers are preserved and appended to instead of being stripped.
+	trustedProxies []netip.Prefix
 	mappingsMux    sync.RWMutex
 	mappings       map[string]Mapping
 	logger         *log.Logger
@@ -33,13 +38,14 @@ type ReverseProxy struct {
 // between requested URLs and targets.
 // The internal mappings can be modified using the AddMapping
 // and RemoveMapping functions.
-func NewReverseProxy(transport http.RoundTripper, forwardedProto string, logger *log.Logger) *ReverseProxy {
+func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trustedProxies []netip.Prefix, logger *log.Logger) *ReverseProxy {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &ReverseProxy{
 		transport:      transport,
 		forwardedProto: forwardedProto,
+		trustedProxies: trustedProxies,
 		mappings:       make(map[string]Mapping),
 		logger:         logger,
 	}
@@ -96,19 +102,71 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, passHostHeader bool) func(r 
 		}
 
 		clientIP := extractClientIP(r.In.RemoteAddr)
-		proto := auth.ResolveProto(p.forwardedProto, r.In.TLS)
 
-		// Strip any incoming forwarding headers since this proxy is the trust
-		// boundary and set them fresh based on the direct connection.
-		r.Out.Header.Set("X-Forwarded-For", clientIP)
-		r.Out.Header.Set("X-Real-IP", clientIP)
-		r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
-		r.Out.Header.Set("X-Forwarded-Proto", proto)
-		r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, proto))
+		if IsTrustedProxy(clientIP, p.trustedProxies) {
+			p.setTrustedForwardingHeaders(r, clientIP)
+		} else {
+			p.setUntrustedForwardingHeaders(r, clientIP)
+		}
 
 		stripSessionCookie(r)
 		stripSessionTokenQuery(r)
 	}
+}
+
+// setTrustedForwardingHeaders appends to the existing forwarding header chain
+// and preserves upstream-provided headers when the direct connection is from
+// a trusted proxy.
+func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+	// Append the direct connection IP to the existing X-Forwarded-For chain.
+	if existing := r.In.Header.Get("X-Forwarded-For"); existing != "" {
+		r.Out.Header.Set("X-Forwarded-For", existing+", "+clientIP)
+	} else {
+		r.Out.Header.Set("X-Forwarded-For", clientIP)
+	}
+
+	// Preserve upstream X-Real-IP if present; otherwise resolve through the chain.
+	if realIP := r.In.Header.Get("X-Real-IP"); realIP != "" {
+		r.Out.Header.Set("X-Real-IP", realIP)
+	} else {
+		resolved := ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"), p.trustedProxies)
+		r.Out.Header.Set("X-Real-IP", resolved)
+	}
+
+	// Preserve upstream X-Forwarded-Host if present.
+	if fwdHost := r.In.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		r.Out.Header.Set("X-Forwarded-Host", fwdHost)
+	} else {
+		r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
+	}
+
+	// Trust upstream X-Forwarded-Proto; fall back to local resolution.
+	if fwdProto := r.In.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
+		r.Out.Header.Set("X-Forwarded-Proto", fwdProto)
+	} else {
+		r.Out.Header.Set("X-Forwarded-Proto", auth.ResolveProto(p.forwardedProto, r.In.TLS))
+	}
+
+	// Trust upstream X-Forwarded-Port; fall back to local computation.
+	if fwdPort := r.In.Header.Get("X-Forwarded-Port"); fwdPort != "" {
+		r.Out.Header.Set("X-Forwarded-Port", fwdPort)
+	} else {
+		resolvedProto := r.Out.Header.Get("X-Forwarded-Proto")
+		r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, resolvedProto))
+	}
+}
+
+// setUntrustedForwardingHeaders strips all incoming forwarding headers and
+// sets them fresh based on the direct connection. This is the default
+// behavior when no trusted proxies are configured or the direct connection
+// is from an untrusted source.
+func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+	proto := auth.ResolveProto(p.forwardedProto, r.In.TLS)
+	r.Out.Header.Set("X-Forwarded-For", clientIP)
+	r.Out.Header.Set("X-Real-IP", clientIP)
+	r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
+	r.Out.Header.Set("X-Forwarded-Proto", proto)
+	r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, proto))
 }
 
 // stripSessionCookie removes the proxy's session cookie from the outgoing
@@ -163,12 +221,21 @@ func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 		cd.SetOrigin(OriginProxyError)
 	}
 	requestID := getRequestID(r)
+	clientIP := getClientIP(r)
 	title, message, code, status := classifyProxyError(err)
 
-	log.Warnf("proxy error: request_id=%s method=%s host=%s path=%s status=%d title=%q err=%v",
-		requestID, r.Method, r.Host, r.URL.Path, code, title, err)
+	log.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
+		requestID, clientIP, r.Method, r.Host, r.URL.Path, code, title, err)
 
 	web.ServeErrorPage(w, r, code, title, message, requestID, status)
+}
+
+// getClientIP retrieves the resolved client IP from context.
+func getClientIP(r *http.Request) string {
+	if capturedData := CapturedDataFromContext(r.Context()); capturedData != nil {
+		return capturedData.GetClientIP()
+	}
+	return ""
 }
 
 // getRequestID retrieves the request ID from context or returns empty string.

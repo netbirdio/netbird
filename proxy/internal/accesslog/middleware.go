@@ -24,14 +24,15 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			status: http.StatusOK,
 		}
 
-		// Get the source IP before passing the request on as the proxy will modify
-		// headers that we wish to use to gather that information on the request.
-		sourceIp := extractSourceIP(r)
+		// Resolve the source IP using trusted proxy configuration before passing
+		// the request on, as the proxy will modify forwarding headers.
+		sourceIp := extractSourceIP(r, l.trustedProxies)
 
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
 		// but the struct it points to can be mutated by inner handlers.
 		capturedData := &proxy.CapturedData{RequestID: requestID}
+		capturedData.SetClientIP(sourceIp)
 		ctx := proxy.WithCapturedData(r.Context(), capturedData)
 
 		start := time.Now()
