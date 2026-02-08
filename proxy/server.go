@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cloudflare/backoff"
+	backoff "github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -295,12 +295,21 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 }
 
 func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
-	b := backoff.New(0, 0)
-	initialSyncDone := false
-	for {
-		s.Logger.Debug("Getting mapping updates from management server")
+	bo := &backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         10 * time.Second,
+		MaxElapsedTime:      0, // retry indefinitely until context is canceled
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
 
-		// Mark management as disconnected while we're attempting to reconnect.
+	initialSyncDone := false
+
+	operation := func() error {
+		s.Logger.Debug("connecting to management mapping stream")
+
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
@@ -312,47 +321,36 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			Address:   s.ProxyURL,
 		})
 		if err != nil {
-			s.Logger.WithError(err).Warn("Could not get mapping updates, will retry")
-			backoffDuration := b.Duration()
-			s.Logger.WithFields(log.Fields{
-				"backoff": backoffDuration,
-				"error":   err,
-			}).Error("Unable to create mapping client to management server, retrying connection after backoff")
-			time.Sleep(backoffDuration)
-			continue
+			return fmt.Errorf("create mapping stream: %w", err)
 		}
 
-		// Mark management as connected once stream is established.
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(true)
 		}
-		s.Logger.Debug("Got mapping updates client from management server")
+		s.Logger.Debug("management mapping stream established")
 
-		err = s.handleMappingStream(ctx, mappingClient, &initialSyncDone)
+		// Stream established — reset backoff so the next failure retries quickly.
+		bo.Reset()
+
+		streamErr := s.handleMappingStream(ctx, mappingClient, &initialSyncDone)
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		backoffDuration := b.Duration()
-		switch {
-		case errors.Is(err, context.Canceled),
-			errors.Is(err, context.DeadlineExceeded):
-			// Context is telling us that it is time to quit so gracefully exit here.
-			// No need to log the error as it is a parent context causing this return.
-			s.Logger.Debugf("Got context error, will exit loop: %v", err)
-			return
-		case err != nil:
-			// Log the error and then retry the connection.
-			s.Logger.WithFields(log.Fields{
-				"backoff": backoffDuration,
-				"error":   err,
-			}).Error("Error processing mapping stream from management server, retrying connection after backoff")
-		default:
-			// TODO: should this really be at error level? Maybe, if you start getting lots of these this could be an indication of connectivity issues.
-			s.Logger.WithField("backoff", backoffDuration).Error("Management mapping connection terminated by the server, retrying connection after backoff")
+		if streamErr == nil {
+			return fmt.Errorf("stream closed by server")
 		}
-		time.Sleep(backoffDuration)
+
+		return fmt.Errorf("mapping stream: %w", streamErr)
+	}
+
+	notify := func(err error, next time.Duration) {
+		s.Logger.Warnf("management connection failed, retrying in %s: %v", next.Truncate(time.Millisecond), err)
+	}
+
+	if err := backoff.RetryNotify(operation, backoff.WithContext(bo, ctx), notify); err != nil {
+		s.Logger.WithError(err).Debug("management mapping worker exiting")
 	}
 }
 
