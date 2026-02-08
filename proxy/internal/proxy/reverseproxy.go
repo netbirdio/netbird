@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -84,6 +85,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Transport:    p.transport,
 		ErrorHandler: proxyErrorHandler,
 	}
+	if result.rewriteRedirects {
+		rp.ModifyResponse = p.rewriteLocationFunc(result.url, result.matchedPath, r)
+	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
 }
 
@@ -122,6 +126,62 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 		stripSessionCookie(r)
 		stripSessionTokenQuery(r)
 	}
+}
+
+// rewriteLocationFunc returns a ModifyResponse function that rewrites Location
+// headers in backend responses when they point to the backend's address,
+// replacing them with the public-facing host and scheme.
+func (p *ReverseProxy) rewriteLocationFunc(target *url.URL, matchedPath string, inReq *http.Request) func(*http.Response) error {
+	publicHost := inReq.Host
+	publicScheme := auth.ResolveProto(p.forwardedProto, inReq.TLS)
+
+	return func(resp *http.Response) error {
+		location := resp.Header.Get("Location")
+		if location == "" {
+			return nil
+		}
+
+		locURL, err := url.Parse(location)
+		if err != nil {
+			return fmt.Errorf("parse Location header %q: %w", location, err)
+		}
+
+		// Only rewrite absolute URLs that point to the backend.
+		if locURL.Host == "" || !hostsEqual(locURL, target) {
+			return nil
+		}
+
+		locURL.Host = publicHost
+		locURL.Scheme = publicScheme
+
+		// Re-add the stripped path prefix so the client reaches the correct route.
+		// TrimRight prevents double slashes when matchedPath has a trailing slash.
+		if matchedPath != "" && matchedPath != "/" {
+			locURL.Path = strings.TrimRight(matchedPath, "/") + "/" + strings.TrimLeft(locURL.Path, "/")
+		}
+
+		resp.Header.Set("Location", locURL.String())
+		return nil
+	}
+}
+
+// hostsEqual compares two URL authorities, normalizing default ports per
+// RFC 3986 Section 6.2.3 (https://443 == https, http://80 == http).
+func hostsEqual(a, b *url.URL) bool {
+	return normalizeHost(a) == normalizeHost(b)
+}
+
+// normalizeHost strips the port from a URL's Host field if it matches the
+// scheme's default port (443 for https, 80 for http).
+func normalizeHost(u *url.URL) string {
+	host, port, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return u.Host
+	}
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		return host
+	}
+	return u.Host
 }
 
 // setTrustedForwardingHeaders appends to the existing forwarding header chain

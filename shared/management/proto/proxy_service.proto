@@ -67,6 +67,9 @@ message ProxyMapping {
   // When true, the original Host header from the client request is passed
   // through to the backend instead of being rewritten to the backend's address.
   bool pass_host_header = 8;
+  // When true, Location headers in backend responses are rewritten to replace
+  // the backend address with the public-facing domain.
+  bool rewrite_redirects = 9;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

@@ -399,6 +399,9 @@ type ProxyMapping struct {
 	// When true, the original Host header from the client request is passed
 	// through to the backend instead of being rewritten to the backend's address.
 	PassHostHeader bool `protobuf:"varint,8,opt,name=pass_host_header,json=passHostHeader,proto3" json:"pass_host_header,omitempty"`
+	// When true, Location headers in backend responses are rewritten to replace
+	// the backend address with the public-facing domain.
+	RewriteRedirects bool `protobuf:"varint,9,opt,name=rewrite_redirects,json=rewriteRedirects,proto3" json:"rewrite_redirects,omitempty"`
 }
 
 func (x *ProxyMapping) Reset() {
@@ -485,6 +488,13 @@ func (x *ProxyMapping) GetAuth() *Authentication {
 func (x *ProxyMapping) GetPassHostHeader() bool {
 	if x != nil {
 		return x.PassHostHeader
+	}
+	return false
+}
+
+func (x *ProxyMapping) GetRewriteRedirects() bool {
+	if x != nil {
+		return x.RewriteRedirects
 	}
 	return false
 }

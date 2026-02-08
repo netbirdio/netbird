@@ -470,6 +470,329 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 	})
 }
 
+// TestRewriteFunc_PathForwarding verifies what path the backend actually
+// receives given different configurations. This simulates the full pipeline:
+// management builds a target URL (with matching prefix baked into the path),
+// then the proxy strips the prefix and SetURL re-joins with the target path.
+func TestRewriteFunc_PathForwarding(t *testing.T) {
+	p := &ReverseProxy{forwardedProto: "auto"}
+
+	// Simulate what ToProtoMapping does: target URL includes the matching
+	// prefix as its path component, so the proxy strips-then-re-adds.
+	t.Run("path prefix baked into target URL is a no-op", func(t *testing.T) {
+		// Management builds: path="/heise", target="https://heise.de:443/heise"
+		target, _ := url.Parse("https://heise.de:443/heise")
+		rewrite := p.rewriteFunc(target, "/heise", false)
+		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "/heise/", pr.Out.URL.Path,
+			"backend sees /heise/ because prefix is stripped then re-added by SetURL")
+	})
+
+	t.Run("subpath under prefix also preserved", func(t *testing.T) {
+		target, _ := url.Parse("https://heise.de:443/heise")
+		rewrite := p.rewriteFunc(target, "/heise", false)
+		pr := newProxyRequest(t, "http://external.test/heise/article/123", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "/heise/article/123", pr.Out.URL.Path,
+			"subpath is preserved on top of the re-added prefix")
+	})
+
+	// What the behavior WOULD be if target URL had no path (true stripping)
+	t.Run("target without path prefix gives true stripping", func(t *testing.T) {
+		target, _ := url.Parse("https://heise.de:443")
+		rewrite := p.rewriteFunc(target, "/heise", false)
+		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "/", pr.Out.URL.Path,
+			"without path in target URL, backend sees / (true prefix stripping)")
+	})
+
+	t.Run("target without path prefix strips and preserves subpath", func(t *testing.T) {
+		target, _ := url.Parse("https://heise.de:443")
+		rewrite := p.rewriteFunc(target, "/heise", false)
+		pr := newProxyRequest(t, "http://external.test/heise/article/123", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "/article/123", pr.Out.URL.Path,
+			"without path in target URL, prefix is truly stripped")
+	})
+
+	// Root path "/" — no stripping expected
+	t.Run("root path forwards full request path unchanged", func(t *testing.T) {
+		target, _ := url.Parse("https://backend.example.com:443/")
+		rewrite := p.rewriteFunc(target, "/", false)
+		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
+
+		rewrite(pr)
+
+		assert.Equal(t, "/heise", pr.Out.URL.Path,
+			"root path match must not strip anything")
+	})
+}
+
+func TestRewriteLocationFunc(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	newProxy := func(proto string) *ReverseProxy { return &ReverseProxy{forwardedProto: proto} }
+	newReq := func(rawURL string) *http.Request {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, rawURL, nil)
+		parsed, _ := url.Parse(rawURL)
+		r.Host = parsed.Host
+		return r
+	}
+	run := func(p *ReverseProxy, matchedPath string, inReq *http.Request, location string) (*http.Response, error) {
+		t.Helper()
+		modifyResp := p.rewriteLocationFunc(target, matchedPath, inReq)
+		resp := &http.Response{Header: http.Header{}}
+		if location != "" {
+			resp.Header.Set("Location", location)
+		}
+		err := modifyResp(resp)
+		return resp, err
+	}
+
+	t.Run("rewrites Location pointing to backend", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/page"),
+			"http://backend.internal:8080/login")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/login", resp.Header.Get("Location"))
+	})
+
+	t.Run("does not rewrite Location pointing to other host", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"https://other.example.com/path")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://other.example.com/path", resp.Header.Get("Location"))
+	})
+
+	t.Run("does not rewrite relative Location", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"/dashboard")
+
+		require.NoError(t, err)
+		assert.Equal(t, "/dashboard", resp.Header.Get("Location"))
+	})
+
+	t.Run("re-adds stripped path prefix", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/api", newReq("https://public.example.com/api/users"),
+			"http://backend.internal:8080/users")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/api/users", resp.Header.Get("Location"))
+	})
+
+	t.Run("uses resolved proto for scheme", func(t *testing.T) {
+		resp, err := run(newProxy("auto"), "", newReq("http://public.example.com/"),
+			"http://backend.internal:8080/path")
+
+		require.NoError(t, err)
+		assert.Equal(t, "http://public.example.com/path", resp.Header.Get("Location"))
+	})
+
+	t.Run("no-op when Location header is empty", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"), "")
+
+		require.NoError(t, err)
+		assert.Empty(t, resp.Header.Get("Location"))
+	})
+
+	t.Run("does not prepend root path prefix", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/", newReq("https://public.example.com/login"),
+			"http://backend.internal:8080/login")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/login", resp.Header.Get("Location"))
+	})
+
+	// --- Edge cases: query parameters and fragments ---
+
+	t.Run("preserves query parameters", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:8080/login?redirect=%2Fdashboard&lang=en")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/login?redirect=%2Fdashboard&lang=en", resp.Header.Get("Location"))
+	})
+
+	t.Run("preserves fragment", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:8080/docs#section-2")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/docs#section-2", resp.Header.Get("Location"))
+	})
+
+	t.Run("preserves query parameters and fragment together", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:8080/search?q=test&page=1#results")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/search?q=test&page=1#results", resp.Header.Get("Location"))
+	})
+
+	t.Run("preserves query parameters with path prefix re-added", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/api", newReq("https://public.example.com/api/search"),
+			"http://backend.internal:8080/search?q=hello")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/api/search?q=hello", resp.Header.Get("Location"))
+	})
+
+	// --- Edge cases: slash handling ---
+
+	t.Run("no double slash when matchedPath has trailing slash", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/api/", newReq("https://public.example.com/api/users"),
+			"http://backend.internal:8080/users")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/api/users", resp.Header.Get("Location"))
+	})
+
+	t.Run("backend redirect to root with path prefix", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/app", newReq("https://public.example.com/app/"),
+			"http://backend.internal:8080/")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/app/", resp.Header.Get("Location"))
+	})
+
+	t.Run("backend redirect to root with trailing-slash path prefix", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/app/", newReq("https://public.example.com/app/"),
+			"http://backend.internal:8080/")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/app/", resp.Header.Get("Location"))
+	})
+
+	t.Run("preserves trailing slash on redirect path", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:8080/path/")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/path/", resp.Header.Get("Location"))
+	})
+
+	t.Run("backend redirect to bare root", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/page"),
+			"http://backend.internal:8080/")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/", resp.Header.Get("Location"))
+	})
+
+	// --- Edge cases: host/port matching ---
+
+	t.Run("does not rewrite when backend host matches but port differs", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:9090/other")
+
+		require.NoError(t, err)
+		assert.Equal(t, "http://backend.internal:9090/other", resp.Header.Get("Location"),
+			"Different port means different host authority, must not rewrite")
+	})
+
+	t.Run("rewrites when redirect omits default port matching target", func(t *testing.T) {
+		// Target is backend.internal:8080, redirect is to backend.internal (no port).
+		// These are different authorities, so should NOT rewrite.
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal/path")
+
+		require.NoError(t, err)
+		assert.Equal(t, "http://backend.internal/path", resp.Header.Get("Location"),
+			"backend.internal != backend.internal:8080, must not rewrite")
+	})
+
+	t.Run("rewrites when target has :443 but redirect omits it for https", func(t *testing.T) {
+		// Target: heise.de:443, redirect: https://heise.de/path (no :443 because it's default)
+		// Per RFC 3986, these are the same authority.
+		target443, _ := url.Parse("https://heise.de:443")
+		p := newProxy("https")
+		modifyResp := p.rewriteLocationFunc(target443, "", newReq("https://public.example.com/"))
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://heise.de/path")
+
+		err := modifyResp(resp)
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/path", resp.Header.Get("Location"),
+			"heise.de:443 and heise.de are the same for https")
+	})
+
+	t.Run("rewrites when target has :80 but redirect omits it for http", func(t *testing.T) {
+		target80, _ := url.Parse("http://backend.local:80")
+		p := newProxy("http")
+		modifyResp := p.rewriteLocationFunc(target80, "", newReq("http://public.example.com/"))
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "http://backend.local/path")
+
+		err := modifyResp(resp)
+
+		require.NoError(t, err)
+		assert.Equal(t, "http://public.example.com/path", resp.Header.Get("Location"),
+			"backend.local:80 and backend.local are the same for http")
+	})
+
+	t.Run("rewrites when redirect has :443 but target omits it", func(t *testing.T) {
+		targetNoPort, _ := url.Parse("https://heise.de")
+		p := newProxy("https")
+		modifyResp := p.rewriteLocationFunc(targetNoPort, "", newReq("https://public.example.com/"))
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://heise.de:443/path")
+
+		err := modifyResp(resp)
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/path", resp.Header.Get("Location"),
+			"heise.de and heise.de:443 are the same for https")
+	})
+
+	t.Run("does not conflate non-default ports", func(t *testing.T) {
+		target8443, _ := url.Parse("https://backend.internal:8443")
+		p := newProxy("https")
+		modifyResp := p.rewriteLocationFunc(target8443, "", newReq("https://public.example.com/"))
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://backend.internal/path")
+
+		err := modifyResp(resp)
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://backend.internal/path", resp.Header.Get("Location"),
+			"backend.internal:8443 != backend.internal (port 443), must not rewrite")
+	})
+
+	// --- Edge cases: encoded paths ---
+
+	t.Run("preserves percent-encoded path segments", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"),
+			"http://backend.internal:8080/path%20with%20spaces/file%2Fname")
+
+		require.NoError(t, err)
+		loc := resp.Header.Get("Location")
+		assert.Contains(t, loc, "public.example.com")
+		parsed, err := url.Parse(loc)
+		require.NoError(t, err)
+		assert.Equal(t, "/path with spaces/file/name", parsed.Path)
+	})
+
+	t.Run("preserves encoded query parameters with path prefix", func(t *testing.T) {
+		resp, err := run(newProxy("https"), "/v1", newReq("https://public.example.com/v1/"),
+			"http://backend.internal:8080/redirect?url=http%3A%2F%2Fexample.com")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://public.example.com/v1/redirect?url=http%3A%2F%2Fexample.com", resp.Header.Get("Location"))
+	})
+}
+
 // newProxyRequest creates an httputil.ProxyRequest suitable for testing
 // the Rewrite function. It simulates what httputil.ReverseProxy does internally:
 // Out is a shallow clone of In with headers copied.

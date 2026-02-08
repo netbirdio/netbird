@@ -491,11 +491,12 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		paths[pathMapping.GetPath()] = targetURL
 	}
 	return proxy.Mapping{
-		ID:             mapping.GetId(),
-		AccountID:      types.AccountID(mapping.GetAccountId()),
-		Host:           mapping.GetDomain(),
-		Paths:          paths,
-		PassHostHeader: mapping.GetPassHostHeader(),
+		ID:               mapping.GetId(),
+		AccountID:        types.AccountID(mapping.GetAccountId()),
+		Host:             mapping.GetDomain(),
+		Paths:            paths,
+		PassHostHeader:   mapping.GetPassHostHeader(),
+		RewriteRedirects: mapping.GetRewriteRedirects(),
 	}
 }
 

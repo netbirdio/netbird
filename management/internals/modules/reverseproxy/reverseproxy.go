@@ -95,6 +95,7 @@ type ReverseProxy struct {
 	Targets           []Target `gorm:"serializer:json"`
 	Enabled           bool
 	PassHostHeader    bool
+	RewriteRedirects  bool
 	Auth              AuthConfig       `gorm:"serializer:json"`
 	Meta              ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string           `gorm:"column:session_private_key"`
@@ -174,14 +175,15 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	}
 
 	resp := &api.ReverseProxy{
-		Id:             r.ID,
-		Name:           r.Name,
-		Domain:         r.Domain,
-		Targets:        apiTargets,
-		Enabled:        r.Enabled,
-		PassHostHeader: &r.PassHostHeader,
-		Auth:           authConfig,
-		Meta:           meta,
+		Id:               r.ID,
+		Name:             r.Name,
+		Domain:           r.Domain,
+		Targets:          apiTargets,
+		Enabled:          r.Enabled,
+		PassHostHeader:   &r.PassHostHeader,
+		RewriteRedirects: &r.RewriteRedirects,
+		Auth:             authConfig,
+		Meta:             meta,
 	}
 
 	if r.ProxyCluster != "" {
@@ -203,6 +205,9 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 			path = *target.Path
 		}
 
+		// TODO: Make path prefix stripping configurable per-target.
+		// Currently the matching prefix is baked into the target URL path,
+		// so the proxy strips-then-re-adds it (effectively a no-op).
 		targetURL := url.URL{
 			Scheme: target.Protocol,
 			Host:   target.Host,
@@ -236,14 +241,15 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 	}
 
 	return &proto.ProxyMapping{
-		Type:           operationToProtoType(operation),
-		Id:             r.ID,
-		Domain:         r.Domain,
-		Path:           pathMappings,
-		AuthToken:      authToken,
-		Auth:           auth,
-		AccountId:      r.AccountID,
-		PassHostHeader: r.PassHostHeader,
+		Type:             operationToProtoType(operation),
+		Id:               r.ID,
+		Domain:           r.Domain,
+		Path:             pathMappings,
+		AuthToken:        authToken,
+		Auth:             auth,
+		AccountId:        r.AccountID,
+		PassHostHeader:   r.PassHostHeader,
+		RewriteRedirects: r.RewriteRedirects,
 	}
 }
 
@@ -286,6 +292,10 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 
 	if req.PassHostHeader != nil {
 		r.PassHostHeader = *req.PassHostHeader
+	}
+
+	if req.RewriteRedirects != nil {
+		r.RewriteRedirects = *req.RewriteRedirects
 	}
 
 	if req.Auth.PasswordAuth != nil {
@@ -358,6 +368,7 @@ func (r *ReverseProxy) Copy() *ReverseProxy {
 		Targets:           targets,
 		Enabled:           r.Enabled,
 		PassHostHeader:    r.PassHostHeader,
+		RewriteRedirects:  r.RewriteRedirects,
 		Auth:              r.Auth,
 		Meta:              r.Meta,
 		SessionPrivateKey: r.SessionPrivateKey,

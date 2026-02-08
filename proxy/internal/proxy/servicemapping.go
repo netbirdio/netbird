@@ -11,19 +11,21 @@ import (
 )
 
 type Mapping struct {
-	ID             string
-	AccountID      types.AccountID
-	Host           string
-	Paths          map[string]*url.URL
-	PassHostHeader bool
+	ID               string
+	AccountID        types.AccountID
+	Host             string
+	Paths            map[string]*url.URL
+	PassHostHeader   bool
+	RewriteRedirects bool
 }
 
 type targetResult struct {
-	url            *url.URL
-	matchedPath    string
-	serviceID      string
-	accountID      types.AccountID
-	passHostHeader bool
+	url              *url.URL
+	matchedPath      string
+	serviceID        string
+	accountID        types.AccountID
+	passHostHeader   bool
+	rewriteRedirects bool
 }
 
 func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bool) {
@@ -56,11 +58,12 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 			target := m.Paths[path]
 			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, target)
 			return targetResult{
-				url:            target,
-				matchedPath:    path,
-				serviceID:      m.ID,
-				accountID:      m.AccountID,
-				passHostHeader: m.PassHostHeader,
+				url:              target,
+				matchedPath:      path,
+				serviceID:        m.ID,
+				accountID:        m.AccountID,
+				passHostHeader:   m.PassHostHeader,
+				rewriteRedirects: m.RewriteRedirects,
 			}, true
 		}
 	}

@@ -2865,6 +2865,9 @@ components:
         pass_host_header:
           type: boolean
           description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
           $ref: '#/components/schemas/ReverseProxyAuthConfig'
         meta:
@@ -2925,6 +2928,9 @@ components:
         pass_host_header:
           type: boolean
           description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
           $ref: '#/components/schemas/ReverseProxyAuthConfig'
       required:
