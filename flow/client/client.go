@@ -54,8 +54,13 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
+	// Note: Flow client checks IsWebSocketFallbackEnabled() at creation time only.
+	// Unlike management/signal which use CreateConnection() with dynamic fallback detection,
+	// flow is non-critical telemetry that will simply retry on the next interval if connection fails.
+	// The fallback state is set globally by management/signal connections, so flow benefits from it
+	// on subsequent client recreations.
 	opts = append(opts,
-		nbgrpc.WithCustomDialer(tlsEnabled, wsproxy.FlowComponent),
+		nbgrpc.WithCustomDialer(tlsEnabled, wsproxy.FlowComponent, nbgrpc.IsWebSocketFallbackEnabled()),
 		grpc.WithIdleTimeout(interval*2),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

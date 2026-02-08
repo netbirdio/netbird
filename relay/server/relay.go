@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
@@ -47,11 +48,37 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// CreateLogger creates a component-specific logger for the relay server with its own log level.
+// This allows the relay to have a different log level than the global logger.
+// The returned logger can be passed to the relay via SetLogger.
+func CreateLogger(logLevel string) *log.Entry {
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		level = log.InfoLevel
+	}
+
+	relayLogger := log.New()
+	relayLogger.SetOutput(log.StandardLogger().Out)
+	relayLogger.SetLevel(level)
+	formatter.SetTextFormatter(relayLogger)
+
+	logger := relayLogger.WithField("component", "relay")
+	logger.Infof("Relay server log level set to: %s", level.String())
+	return logger
+}
+
+// SetLogger sets a custom logger for the relay server.
+// If not called, the relay uses the global logger.
+func (r *Relay) SetLogger(logger *log.Entry) {
+	r.logger = logger
+}
+
 // Relay represents the relay server
 type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
 	validator     Validator
+	logger        *log.Entry
 
 	store          *store.Store
 	notifier       *store.PeerNotifier

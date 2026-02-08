@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/url"
 	"sync"
 
@@ -133,4 +134,17 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 
 func (r *Server) InstanceURL() url.URL {
 	return r.relay.InstanceURL()
+}
+
+// RelayAccept returns the relay's Accept function for handling incoming connections.
+// This allows external HTTP handlers to route connections to the relay without
+// starting the relay's own listeners.
+func (r *Server) RelayAccept() func(conn net.Conn) {
+	return r.relay.Accept
+}
+
+// SetLogger sets a custom logger for the relay server.
+// Use CreateLogger to create a component-specific logger with its own log level.
+func (r *Server) SetLogger(logger *log.Entry) {
+	r.relay.SetLogger(logger)
 }
