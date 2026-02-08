@@ -38,6 +38,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 	p.logger.Debugf("looking for mapping for host: %s, path: %s", host, req.URL.Path)
 	m, exists := p.mappings[host]
 	if !exists {
+		p.logger.Debugf("no mapping found for host: %s", host)
 		return targetResult{}, false
 	}
 
@@ -52,14 +53,17 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 
 	for _, path := range paths {
 		if strings.HasPrefix(req.URL.Path, path) {
+			target := m.Paths[path]
+			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, target)
 			return targetResult{
-				url:            m.Paths[path],
+				url:            target,
 				serviceID:      m.ID,
 				accountID:      m.AccountID,
 				passHostHeader: m.PassHostHeader,
 			}, true
 		}
 	}
+	p.logger.Debugf("no path match for host: %s, path: %s", host, req.URL.Path)
 	return targetResult{}, false
 }
 

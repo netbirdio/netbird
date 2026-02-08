@@ -46,6 +46,9 @@ type Target struct {
 	TargetId   string  `json:"target_id"`
 	TargetType string  `json:"target_type"`
 	Enabled    bool    `json:"enabled"`
+	// AccessLocal indicates the resource is served locally on the router peer,
+	// requiring additional peer-level firewall rules for the proxy to access the router directly.
+	AccessLocal bool `json:"access_local"`
 }
 
 type PasswordAuthConfig struct {
@@ -149,13 +152,14 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	apiTargets := make([]api.ReverseProxyTarget, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		apiTargets = append(apiTargets, api.ReverseProxyTarget{
-			Path:       target.Path,
-			Host:       target.Host,
-			Port:       target.Port,
-			Protocol:   api.ReverseProxyTargetProtocol(target.Protocol),
-			TargetId:   target.TargetId,
-			TargetType: api.ReverseProxyTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled,
+			Path:        target.Path,
+			Host:        target.Host,
+			Port:        target.Port,
+			Protocol:    api.ReverseProxyTargetProtocol(target.Protocol),
+			TargetId:    target.TargetId,
+			TargetType:  api.ReverseProxyTargetTargetType(target.TargetType),
+			Enabled:     target.Enabled,
+			AccessLocal: &target.AccessLocal,
 		})
 	}
 
@@ -263,14 +267,16 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 
 	targets := make([]Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
+		accessLocal := apiTarget.AccessLocal != nil && *apiTarget.AccessLocal
 		targets = append(targets, Target{
-			Path:       apiTarget.Path,
-			Host:       apiTarget.Host,
-			Port:       apiTarget.Port,
-			Protocol:   string(apiTarget.Protocol),
-			TargetId:   apiTarget.TargetId,
-			TargetType: string(apiTarget.TargetType),
-			Enabled:    apiTarget.Enabled,
+			Path:        apiTarget.Path,
+			Host:        apiTarget.Host,
+			Port:        apiTarget.Port,
+			Protocol:    string(apiTarget.Protocol),
+			TargetId:    apiTarget.TargetId,
+			TargetType:  string(apiTarget.TargetType),
+			Enabled:     apiTarget.Enabled,
+			AccessLocal: accessLocal,
 		})
 	}
 	r.Targets = targets

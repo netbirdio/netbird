@@ -310,10 +310,10 @@ func (a *Account) GetPeerNetworkMap(
 	var authorizedUsers map[string]map[string]struct{}
 	var enableSSH bool
 	if peer.ProxyEmbedded {
-		aclPeers, firewallRules = a.GetProxyConnectionResources(ctx, exposedServices)
+		aclPeers = a.GetProxyConnectionResources(ctx, exposedServices)
 	} else {
 		aclPeers, firewallRules, authorizedUsers, enableSSH = a.GetPeerConnectionResources(ctx, peer, validatedPeersMap, groupIDToUserIDs)
-		proxyAclPeers, proxyFirewallRules := a.GetPeerProxyResources(exposedServices[peerID], proxyPeers)
+		proxyAclPeers, proxyFirewallRules := a.GetPeerProxyResources(peerID, exposedServices[peerID], proxyPeers)
 		aclPeers = append(aclPeers, proxyAclPeers...)
 		firewallRules = append(firewallRules, proxyFirewallRules...)
 	}
@@ -408,9 +408,11 @@ func (a *Account) GetPeerNetworkMap(
 	return nm
 }
 
-func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.ReverseProxy) ([]*nbpeer.Peer, []*FirewallRule) {
+// GetProxyConnectionResources returns ACL peers for the proxy-embedded peer based on exposed services.
+// No firewall rules are generated here; the proxy peer is always a new on-demand client with a stateful
+// firewall, so OUT rules are unnecessary. Inbound rules are handled on the target/router peer side.
+func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.ReverseProxy) []*nbpeer.Peer {
 	var aclPeers []*nbpeer.Peer
-	var firewallRules []*FirewallRule
 
 	for _, peerServices := range exposedServices {
 		for _, service := range peerServices {
@@ -427,23 +429,18 @@ func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServic
 						continue
 					}
 					aclPeers = append(aclPeers, tpeer)
-					firewallRules = append(firewallRules, &FirewallRule{
-						PolicyID:  "proxy-" + service.ID,
-						PeerIP:    tpeer.IP.String(),
-						Direction: FirewallRuleDirectionOUT,
-						Action:    "allow",
-						Protocol:  string(PolicyRuleProtocolTCP),
-						PortRange: RulePortRange{Start: uint16(target.Port), End: uint16(target.Port)},
-					})
 				}
 			}
 		}
 	}
 
-	return aclPeers, firewallRules
+	return aclPeers
 }
 
-func (a *Account) GetPeerProxyResources(services []*reverseproxy.ReverseProxy, proxyPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*FirewallRule) {
+// GetPeerProxyResources returns ACL peers and inbound firewall rules for a peer that is targeted by reverse proxy services.
+// Only IN rules are generated; OUT rules are omitted since proxy peers are always new clients with stateful firewalls.
+// Rules use PortRange only (not the legacy Port field) as this feature only targets current peer versions.
+func (a *Account) GetPeerProxyResources(peerID string, services []*reverseproxy.ReverseProxy, proxyPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*FirewallRule) {
 	var aclPeers []*nbpeer.Peer
 	var firewallRules []*FirewallRule
 
@@ -455,7 +452,24 @@ func (a *Account) GetPeerProxyResources(services []*reverseproxy.ReverseProxy, p
 			if !target.Enabled {
 				continue
 			}
+
 			aclPeers = proxyPeers
+
+			needsPeerRules := (target.TargetType == reverseproxy.TargetTypePeer && target.TargetId == peerID) ||
+				(target.TargetType == reverseproxy.TargetTypeResource && target.AccessLocal)
+
+			if needsPeerRules {
+				for _, proxyPeer := range proxyPeers {
+					firewallRules = append(firewallRules, &FirewallRule{
+						PolicyID:  "proxy-" + service.ID,
+						PeerIP:    proxyPeer.IP.String(),
+						Direction: FirewallRuleDirectionIN,
+						Action:    "allow",
+						Protocol:  string(PolicyRuleProtocolTCP),
+						PortRange: RulePortRange{Start: uint16(target.Port), End: uint16(target.Port)},
+					})
+				}
+			}
 		}
 	}
 
@@ -1914,7 +1928,7 @@ func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, pro
 	for _, proxyPerResource := range proxies {
 		for _, proxy := range proxyPerResource {
 			for _, target := range proxy.Targets {
-				if target.TargetType == reverseproxy.TargetTypeResource {
+				if target.TargetType == reverseproxy.TargetTypeResource && !target.AccessLocal {
 					resource, ok := resourcesMap[target.TargetId]
 					if !ok {
 						log.WithContext(ctx).Warnf("proxy target %s not found in resources map", target.TargetId)
