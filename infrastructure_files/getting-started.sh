@@ -184,7 +184,7 @@ get_upstream_host() {
 
 wait_management() {
   set +e
-  echo -n "Waiting for Management server to become ready"
+  echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
     # Check the embedded IdP endpoint
@@ -209,7 +209,7 @@ wait_management() {
 wait_management_direct() {
   set +e
   local upstream_host=$(get_upstream_host)
-  echo -n "Waiting for Management server to become ready"
+  echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
     # Check the embedded IdP endpoint directly (no reverse proxy)
@@ -458,13 +458,13 @@ render_caddyfile() {
 :80${CADDY_SECURE_DOMAIN} {
     import security_headers
     # Combined server handles relay, signal, management, and OAuth2
-    reverse_proxy /relay* netbird:80
-    reverse_proxy /ws-proxy/signal* netbird:80
-    reverse_proxy /signalexchange.SignalExchange/* h2c://netbird:80
-    reverse_proxy /api/* netbird:80
-    reverse_proxy /ws-proxy/management* netbird:80
-    reverse_proxy /management.ManagementService/* h2c://netbird:80
-    reverse_proxy /oauth2/* netbird:80
+    reverse_proxy /relay* netbird-server:80
+    reverse_proxy /ws-proxy/signal* netbird-server:80
+    reverse_proxy /signalexchange.SignalExchange/* h2c://netbird-server:80
+    reverse_proxy /api/* netbird-server:80
+    reverse_proxy /ws-proxy/management* netbird-server:80
+    reverse_proxy /management.ManagementService/* h2c://netbird-server:80
+    reverse_proxy /oauth2/* netbird-server:80
     # Dashboard
     reverse_proxy /* dashboard:80
 }
@@ -569,7 +569,7 @@ services:
         max-file: "2"
 
   # Combined server (Management + Signal + Relay + STUN)
-  netbird:
+  netbird-server:
     image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
@@ -634,7 +634,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
         max-file: "2"
 
   # Combined server (Management + Signal + Relay + STUN)
-  netbird:
+  netbird-server:
     image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
@@ -743,7 +743,7 @@ services:
         max-file: "2"
 
   # Combined server (Management + Signal + Relay + STUN)
-  netbird:
+  netbird-server:
     image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
