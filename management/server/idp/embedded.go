@@ -9,7 +9,6 @@ import (
 
 	"github.com/dexidp/dex/storage"
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
@@ -95,7 +94,8 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	// Build dashboard redirect URIs including the OAuth callback for proxy authentication
 	dashboardRedirectURIs := c.DashboardRedirectURIs
 	baseURL := strings.TrimSuffix(c.Issuer, "/oauth2")
-	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+types.ProxyCallbackEndpoint)
+	// todo: resolve import cycle
+	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+"/api/reverse-proxy/callback")
 
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
