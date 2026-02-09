@@ -214,7 +214,10 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 		return nil
 	}
 
-	mgmtConfig := cfg.ToManagementConfig()
+	mgmtConfig, err := cfg.ToManagementConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create management config: %w", err)
+	}
 
 	_, portStr, portErr := net.SplitHostPort(cfg.Server.ListenAddress)
 	if portErr != nil {
@@ -234,7 +237,6 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 
 	LogConfigInfo(mgmtConfig)
 
-	var err error
 	s.mgmtSrv, err = createManagementServer(cfg, mgmtConfig)
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)

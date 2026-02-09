@@ -543,7 +543,7 @@ func stripSignalProtocol(uri string) string {
 }
 
 // ToManagementConfig converts CombinedConfig to management server config
-func (c *CombinedConfig) ToManagementConfig() *nbconfig.Config {
+func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	mgmt := c.Management
 
 	// Build STUN hosts
@@ -560,7 +560,14 @@ func (c *CombinedConfig) ToManagementConfig() *nbconfig.Config {
 	// Build relay config
 	var relayConfig *nbconfig.Relay
 	if len(mgmt.Relays.Addresses) > 0 || mgmt.Relays.Secret != "" {
-		ttl, _ := time.ParseDuration(mgmt.Relays.CredentialsTTL)
+		var ttl time.Duration
+		if mgmt.Relays.CredentialsTTL != "" {
+			var err error
+			ttl, err = time.ParseDuration(mgmt.Relays.CredentialsTTL)
+			if err != nil {
+				return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", mgmt.Relays.CredentialsTTL, err)
+			}
+		}
 		relayConfig = &nbconfig.Relay{
 			Addresses:      mgmt.Relays.Addresses,
 			CredentialsTTL: util.Duration{Duration: ttl},
@@ -646,7 +653,7 @@ func (c *CombinedConfig) ToManagementConfig() *nbconfig.Config {
 		ReverseProxy:           reverseProxy,
 		DisableDefaultPolicy:   mgmt.DisableDefaultPolicy,
 		EmbeddedIdP:            embeddedIdP,
-	}
+	}, nil
 }
 
 // ApplyEmbeddedIdPConfig applies embedded IdP configuration to the management config.
