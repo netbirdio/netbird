@@ -1965,6 +1965,12 @@ func (a *Account) InjectProxyPolicies() {
 							Bidirectional: false,
 							Protocol:      PolicyRuleProtocolTCP,
 							Action:        PolicyTrafficActionAccept,
+							PortRanges: []RulePortRange{
+								{
+									Start: uint16(target.Port),
+									End:   uint16(target.Port),
+								},
+							},
 						},
 					},
 				})
