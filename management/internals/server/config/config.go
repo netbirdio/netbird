@@ -119,6 +119,8 @@ type HttpServerConfig struct {
 	IdpSignKeyRefreshEnabled bool
 	// Extra audience
 	ExtraAuthAudience string
+	// AuthCallbackDomain contains the callback domain
+	AuthCallbackURL string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)

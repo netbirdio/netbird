@@ -213,11 +213,14 @@ func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	// Set HttpConfig values from EmbeddedIdP
 	cfg.HttpConfig.AuthIssuer = issuer
 	cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	cfg.HttpConfig.AuthClientID = cfg.HttpConfig.AuthAudience
 	cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
 	cfg.HttpConfig.AuthUserIDClaim = "sub"
 	cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
 	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
 	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
+	callbackURL := strings.TrimSuffix(cfg.HttpConfig.AuthIssuer, "/oauth2")
+	cfg.HttpConfig.AuthCallbackURL = callbackURL + "/api/oauth/callback"
 
 	return nil
 }

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
-	"strings"
 	"time"
 
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
@@ -174,19 +173,12 @@ func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 
 func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 	return Create(s, func() nbgrpc.ProxyOIDCConfig {
-		// TODO: this is weird, double check
-		// Build callback URL - this should be the management server's callback endpoint
-		// For embedded IdP, derive from issuer. For external, use a configured value or derive from issuer.
-		// The callback URL should be registered in the IdP's allowed redirect URIs for the dashboard client.
-		callbackURL := strings.TrimSuffix(s.Config.HttpConfig.AuthIssuer, "/oauth2")
-		callbackURL = callbackURL + "/api/oauth/callback"
-
 		return nbgrpc.ProxyOIDCConfig{
 			Issuer: s.Config.HttpConfig.AuthIssuer,
 			// todo: double check auth clientID value
 			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
 			Scopes:       []string{"openid", "profile", "email"},
-			CallbackURL:  callbackURL,
+			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
 			Audience:     s.Config.HttpConfig.AuthAudience,
 			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
