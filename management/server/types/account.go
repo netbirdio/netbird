@@ -1956,7 +1956,11 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 					}
 				}
 
-				policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, target.Path)
+				path := ""
+				if target.Path != nil {
+					path = *target.Path
+				}
+				policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
 				a.Policies = append(a.Policies, &Policy{
 					ID:      policyID,
 					Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
