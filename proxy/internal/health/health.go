@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	maxConcurrentChecks    = 3
-	maxClientCheckTimeout  = 5 * time.Minute
+	maxConcurrentChecks   = 3
+	maxClientCheckTimeout = 5 * time.Minute
 )
 
 // clientProvider provides access to NetBird clients for health checks.
@@ -34,6 +34,7 @@ type Checker struct {
 	mu                  sync.RWMutex
 	managementConnected bool
 	initialSyncComplete bool
+	shuttingDown        bool
 
 	// checkSem limits concurrent client health checks.
 	checkSem chan struct{}
@@ -75,6 +76,14 @@ func (c *Checker) SetInitialSyncComplete() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.initialSyncComplete = true
+}
+
+// SetShuttingDown marks the server as shutting down.
+// This causes ReadinessProbe to return false so load balancers stop routing traffic.
+func (c *Checker) SetShuttingDown() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shuttingDown = true
 }
 
 // CheckClientsConnected verifies all clients are connected to management/signal/relay.
@@ -145,6 +154,9 @@ func (c *Checker) LivenessProbe() bool {
 func (c *Checker) ReadinessProbe() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if c.shuttingDown {
+		return false
+	}
 	return c.managementConnected
 }
 

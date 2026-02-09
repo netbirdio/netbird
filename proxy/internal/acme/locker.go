@@ -68,6 +68,9 @@ type flockLocker struct {
 }
 
 func newFlockLocker(certDir string, logger *log.Logger) *flockLocker {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
 	return &flockLocker{certDir: certDir, logger: logger}
 }
 

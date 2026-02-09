@@ -32,6 +32,9 @@ func Lock(ctx context.Context, path string) (*os.File, error) {
 		return nil, fmt.Errorf("open lock file %s: %w", path, err)
 	}
 
+	timer := time.NewTimer(retryInterval)
+	defer timer.Stop()
+
 	for {
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
 			return f, nil
@@ -48,7 +51,8 @@ func Lock(ctx context.Context, path string) (*os.File, error) {
 				log.Debugf("close lock file %s: %v", path, cerr)
 			}
 			return nil, ctx.Err()
-		case <-time.After(retryInterval):
+		case <-timer.C:
+			timer.Reset(retryInterval)
 		}
 	}
 }

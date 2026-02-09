@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme"
 
 	"github.com/netbirdio/netbird/proxy"
+	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -47,6 +50,7 @@ var (
 	trustedProxies    string
 	certFile          string
 	certKeyFile       string
+	certLockMethod    string
 )
 
 var rootCmd = &cobra.Command{
@@ -78,6 +82,7 @@ func init() {
 	rootCmd.Flags().StringVar(&trustedProxies, "trusted-proxies", envStringOrDefault("NB_PROXY_TRUSTED_PROXIES", ""), "Comma-separated list of trusted upstream proxy CIDR ranges (e.g. '10.0.0.0/8,192.168.1.1')")
 	rootCmd.Flags().StringVar(&certFile, "cert-file", envStringOrDefault("NB_PROXY_CERTIFICATE_FILE", "tls.crt"), "TLS certificate filename within the certificate directory")
 	rootCmd.Flags().StringVar(&certKeyFile, "cert-key-file", envStringOrDefault("NB_PROXY_CERTIFICATE_KEY_FILE", "tls.key"), "TLS certificate key filename within the certificate directory")
+	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
 }
 
 // Execute runs the root command.
@@ -145,9 +150,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 		OIDCScopes:               strings.Split(oidcScopes, ","),
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
+		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 	}
 
-	if err := srv.ListenAndServe(context.TODO(), addr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	if err := srv.ListenAndServe(ctx, addr); err != nil {
 		log.Fatal(err)
 	}
 	return nil
