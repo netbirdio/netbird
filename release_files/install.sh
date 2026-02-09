@@ -390,7 +390,7 @@ fi
 if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
-          OS_TYPE=LINUX
+          OS_TYPE=$LINUX
           UNAME_OUTPUT="$(uname -a)"
           if echo "$UNAME_OUTPUT" | grep -qi "synology"; then
             OS_NAME="synology"
@@ -441,7 +441,7 @@ if type uname >/dev/null 2>&1; then
 		;;
 		Darwin)
             OS_NAME="macos"
-            OS_TYPE=DARWIN
+            OS_TYPE=$DARWIN
             INSTALL_DIR="/usr/local/bin"
 
             # Check the availability of a compatible package manager
