@@ -59,13 +59,13 @@ download_release_binary() {
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
     # for Darwin, download the signed NetBird-UI
-    if [ "$OS_TYPE" = DARWIN ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$1" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
     if [ "$1" = "$UI_APP" ]; then
        BINARY_NAME="$1-${OS_TYPE}_${BINARY_BASE_NAME}"
-       if [ "$OS_TYPE" = DARWIN ]; then
+       if [ "$OS_TYPE" = "$DARWIN" ]; then
          BINARY_NAME="$1_${BINARY_BASE_NAME}"
        fi
     else
@@ -82,7 +82,7 @@ download_release_binary() {
     fi
 
 
-    if [ "$OS_TYPE" = DARWIN ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
         if test -d "$INSTALL_DIR" ; then
@@ -390,7 +390,7 @@ fi
 if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
-          OS_TYPE=$LINUX
+          OS_TYPE="$LINUX"
           UNAME_OUTPUT="$(uname -a)"
           if echo "$UNAME_OUTPUT" | grep -qi "synology"; then
             OS_NAME="synology"
@@ -441,7 +441,7 @@ if type uname >/dev/null 2>&1; then
 		;;
 		Darwin)
             OS_NAME="macos"
-            OS_TYPE=$DARWIN
+            OS_TYPE="$DARWIN"
             INSTALL_DIR="/usr/local/bin"
 
             # Check the availability of a compatible package manager
