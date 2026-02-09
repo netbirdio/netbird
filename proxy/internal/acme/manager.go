@@ -146,11 +146,13 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	now := time.Now()
 	if cert != nil && cert.Leaf != nil {
 		leaf := cert.Leaf
-		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notAfter=%s",
+		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notBefore=%s, notAfter=%s, now=%s",
 			name, elapsed.Round(time.Millisecond),
 			leaf.SerialNumber.Text(16),
 			leaf.DNSNames,
+			leaf.NotBefore.UTC().Format(time.RFC3339),
 			leaf.NotAfter.UTC().Format(time.RFC3339),
+			now.UTC().Format(time.RFC3339),
 		)
 		mgr.logCertificateDetails(name, leaf, now)
 	} else {
