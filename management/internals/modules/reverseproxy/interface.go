@@ -12,4 +12,9 @@ type Manager interface {
 	DeleteReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) error
 	SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error
 	SetStatus(ctx context.Context, accountID, reverseProxyID string, status ProxyStatus) error
+	ReloadAllReverseProxiesForAccount(ctx context.Context, accountID string) error
+	ReloadReverseProxy(ctx context.Context, accountID, reverseProxyID string) error
+	GetGlobalReverseProxies(ctx context.Context) ([]*ReverseProxy, error)
+	GetProxyByID(ctx context.Context, accountID, reverseProxyID string) (*ReverseProxy, error)
+	GetAccountReverseProxies(ctx context.Context, accountID string) ([]*ReverseProxy, error)
 }

@@ -54,7 +54,43 @@ func (m *managerImpl) GetAllReverseProxies(ctx context.Context, accountID, userI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+	proxies, err := m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reverse proxies: %w", err)
+	}
+
+	for _, proxy := range proxies {
+		err = m.replaceHostByLookup(ctx, accountID, proxy)
+		if err != nil {
+			return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+		}
+	}
+
+	return proxies, nil
+}
+
+func (m *managerImpl) replaceHostByLookup(ctx context.Context, accountID string, proxy *reverseproxy.ReverseProxy) error {
+	for _, target := range proxy.Targets {
+		switch target.TargetType {
+		case reverseproxy.TargetTypePeer:
+			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+			if err != nil {
+				return fmt.Errorf("failed to get peer by id: %w", err)
+			}
+			target.Host = peer.IP.String()
+		case reverseproxy.TargetTypeHost, reverseproxy.TargetTypeDomain:
+			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+			if err != nil {
+				return fmt.Errorf("failed to get resource by id: %w", err)
+			}
+			target.Host = resource.Address
+		case reverseproxy.TargetTypeSubnet:
+			// For subnets we do not do any lookups on the resource
+		default:
+			return fmt.Errorf("unknown target type: %s", target.TargetType)
+		}
+	}
+	return nil
 }
 
 func (m *managerImpl) GetReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) (*reverseproxy.ReverseProxy, error) {
@@ -66,7 +102,16 @@ func (m *managerImpl) GetReverseProxy(ctx context.Context, accountID, userID, re
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, reverseProxyID)
+	proxy, err := m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, reverseProxyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reverse proxy: %w", err)
+	}
+
+	err = m.replaceHostByLookup(ctx, accountID, proxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+	}
+	return proxy, nil
 }
 
 func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID string, reverseProxy *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
@@ -149,6 +194,7 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	var oldCluster string
 	var domainChanged bool
+	var reverseProxyEnabledChanged bool
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existingReverseProxy, err := transaction.GetReverseProxyByID(ctx, store.LockingStrengthUpdate, accountID, reverseProxy.ID)
@@ -184,6 +230,7 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 		reverseProxy.Meta = existingReverseProxy.Meta
 		reverseProxy.SessionPrivateKey = existingReverseProxy.SessionPrivateKey
 		reverseProxy.SessionPublicKey = existingReverseProxy.SessionPublicKey
+		reverseProxyEnabledChanged = existingReverseProxy.Enabled != reverseProxy.Enabled
 
 		if err = validateTargetReferences(ctx, transaction, accountID, reverseProxy.Targets); err != nil {
 			return err
@@ -201,12 +248,19 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
 
+	token, err := m.tokenStore.GenerateToken(accountID, reverseProxy.ID, 5*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate authentication token: %w", err)
+	}
+
 	switch {
 	case domainChanged && oldCluster != reverseProxy.ProxyCluster:
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), oldCluster)
-		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
-	case !reverseProxy.Enabled:
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
+	case !reverseProxy.Enabled && reverseProxyEnabledChanged:
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
+	case reverseProxy.Enabled && reverseProxyEnabledChanged:
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 	default:
 		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 
@@ -217,7 +271,7 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 }
 
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
-func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []reverseproxy.Target) error {
+func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []*reverseproxy.Target) error {
 	for _, target := range targets {
 		switch target.TargetType {
 		case reverseproxy.TargetTypePeer:
@@ -310,4 +364,87 @@ func (m *managerImpl) SetStatus(ctx context.Context, accountID, reverseProxyID s
 
 		return nil
 	})
+}
+
+func (m *managerImpl) ReloadReverseProxy(ctx context.Context, accountID, reverseProxyID string) error {
+	proxy, err := m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, reverseProxyID)
+	if err != nil {
+		return fmt.Errorf("failed to get reverse proxy: %w", err)
+	}
+
+	err = m.replaceHostByLookup(ctx, accountID, proxy)
+	if err != nil {
+		return fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+	}
+
+	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(proxy.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), proxy.ProxyCluster)
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *managerImpl) ReloadAllReverseProxiesForAccount(ctx context.Context, accountID string) error {
+	proxies, err := m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get reverse proxies: %w", err)
+	}
+
+	for _, proxy := range proxies {
+		err = m.replaceHostByLookup(ctx, accountID, proxy)
+		if err != nil {
+			return fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+		}
+		m.proxyGRPCServer.SendReverseProxyUpdateToCluster(proxy.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), proxy.ProxyCluster)
+	}
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *managerImpl) GetGlobalReverseProxies(ctx context.Context) ([]*reverseproxy.ReverseProxy, error) {
+	proxies, err := m.store.GetReverseProxies(ctx, store.LockingStrengthNone)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reverse proxies: %w", err)
+	}
+
+	for _, proxy := range proxies {
+		err = m.replaceHostByLookup(ctx, proxy.AccountID, proxy)
+		if err != nil {
+			return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+		}
+	}
+
+	return proxies, nil
+}
+
+func (m *managerImpl) GetProxyByID(ctx context.Context, accountID, reverseProxyID string) (*reverseproxy.ReverseProxy, error) {
+	proxy, err := m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, reverseProxyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reverse proxy: %w", err)
+	}
+
+	err = m.replaceHostByLookup(ctx, accountID, proxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+	}
+
+	return proxy, nil
+}
+
+func (m *managerImpl) GetAccountReverseProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
+	proxies, err := m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reverse proxies: %w", err)
+	}
+
+	for _, proxy := range proxies {
+		err = m.replaceHostByLookup(ctx, accountID, proxy)
+		if err != nil {
+			return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", proxy.ID, err)
+		}
+	}
+
+	return proxies, nil
 }

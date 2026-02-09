@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
-	"github.com/netbirdio/netbird/management/server/store"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -40,17 +39,6 @@ type ProxyOIDCConfig struct {
 
 	Audience     string
 	KeysLocation string
-}
-
-type reverseProxyStore interface {
-	GetReverseProxies(ctx context.Context, lockStrength store.LockingStrength) ([]*reverseproxy.ReverseProxy, error)
-	GetAccountReverseProxies(ctx context.Context, lockStrength store.LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error)
-	GetReverseProxyByID(ctx context.Context, lockStrength store.LockingStrength, accountID string, serviceID string) (*reverseproxy.ReverseProxy, error)
-}
-
-type reverseProxyManager interface {
-	SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error
-	SetStatus(ctx context.Context, accountID, reverseProxyID string, status reverseproxy.ProxyStatus) error
 }
 
 // ClusterInfo contains information about a proxy cluster.
@@ -72,14 +60,11 @@ type ProxyServiceServer struct {
 	// Channel for broadcasting reverse proxy updates to all proxies
 	updatesChan chan *proto.ProxyMapping
 
-	// Store of reverse proxies
-	reverseProxyStore reverseProxyStore
-
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
 	// Manager for reverse proxy operations
-	reverseProxyManager reverseProxyManager
+	reverseProxyManager reverseproxy.Manager
 
 	// Manager for peers
 	peersManager peers.Manager
@@ -106,18 +91,17 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(store reverseProxyStore, accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager) *ProxyServiceServer {
 	return &ProxyServiceServer{
-		updatesChan:       make(chan *proto.ProxyMapping, 100),
-		reverseProxyStore: store,
-		accessLogManager:  accessLogMgr,
-		oidcConfig:        oidcConfig,
-		tokenStore:        tokenStore,
-		peersManager:      peersManager,
+		updatesChan:      make(chan *proto.ProxyMapping, 100),
+		accessLogManager: accessLogMgr,
+		oidcConfig:       oidcConfig,
+		tokenStore:       tokenStore,
+		peersManager:     peersManager,
 	}
 }
 
-func (s *ProxyServiceServer) SetProxyManager(manager reverseProxyManager) {
+func (s *ProxyServiceServer) SetProxyManager(manager reverseproxy.Manager) {
 	s.reverseProxyManager = manager
 }
 
@@ -189,7 +173,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 // sendSnapshot sends the initial snapshot of reverse proxies to the connecting proxy.
 // Only reverse proxies matching the proxy's cluster address are sent.
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	reverseProxies, err := s.reverseProxyStore.GetReverseProxies(ctx, store.LockingStrengthNone)
+	reverseProxies, err := s.reverseProxyManager.GetGlobalReverseProxies(ctx)
 	if err != nil {
 		return fmt.Errorf("get reverse proxies from store: %w", err)
 	}
@@ -434,7 +418,7 @@ func (s *ProxyServiceServer) GetAvailableClusters() []ClusterInfo {
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-	proxy, err := s.reverseProxyStore.GetReverseProxyByID(ctx, store.LockingStrengthNone, req.GetAccountId(), req.GetId())
+	proxy, err := s.reverseProxyManager.GetProxyByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {
 		// TODO: log the error
 		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
@@ -613,7 +597,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		return nil, status.Errorf(codes.InvalidArgument, "failed to parse redirect url: %v", err)
 	}
 	// Validate redirectURL against known proxy endpoints to avoid abuse of OIDC redirection.
-	proxies, err := s.reverseProxyStore.GetAccountReverseProxies(ctx, store.LockingStrengthNone, req.GetAccountId())
+	proxies, err := s.reverseProxyManager.GetAccountReverseProxies(ctx, req.GetAccountId())
 	if err != nil {
 		// TODO: log
 		return nil, status.Errorf(codes.FailedPrecondition, "failed to get reverse proxy from store: %v", err)
@@ -719,7 +703,7 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 // GenerateSessionToken creates a signed session JWT for the given domain and user.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	// Find the proxy by domain to get its signing key
-	proxies, err := s.reverseProxyStore.GetReverseProxies(ctx, store.LockingStrengthNone)
+	proxies, err := s.reverseProxyManager.GetGlobalReverseProxies(ctx)
 	if err != nil {
 		return "", fmt.Errorf("get reverse proxies: %w", err)
 	}

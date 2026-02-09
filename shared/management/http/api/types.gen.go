@@ -2084,12 +2084,12 @@ type ReverseProxyTarget struct {
 	Enabled bool `json:"enabled"`
 
 	// Host Backend ip or domain for this target
-	Host string `json:"host"`
+	Host *string `json:"host,omitempty"`
 
 	// Path URL path prefix for this target
 	Path *string `json:"path,omitempty"`
 
-	// Port Backend port for this target
+	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
 	Port int `json:"port"`
 
 	// Protocol Protocol to use when connecting to the backend

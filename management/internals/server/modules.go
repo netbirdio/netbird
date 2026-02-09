@@ -157,7 +157,7 @@ func (s *BaseServer) GroupsManager() groups.Manager {
 
 func (s *BaseServer) ResourcesManager() resources.Manager {
 	return Create(s, func() resources.Manager {
-		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager())
+		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ReverseProxyManager())
 	})
 }
 

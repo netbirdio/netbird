@@ -2972,7 +2972,6 @@ components:
         - target_id
         - target_type
         - protocol
-        - host
         - port
         - enabled
     ReverseProxyAuthConfig:

@@ -43,7 +43,7 @@ const (
 
 type Target struct {
 	Path       *string `json:"path,omitempty"`
-	Host       string  `json:"host"`
+	Host       string  `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
 	Port       int     `json:"port"`
 	Protocol   string  `json:"protocol"`
 	TargetId   string  `json:"target_id"`
@@ -92,9 +92,9 @@ type ReverseProxy struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string   `gorm:"index"`
-	ProxyCluster      string   `gorm:"index"`
-	Targets           []Target `gorm:"serializer:json"`
+	Domain            string    `gorm:"index"`
+	ProxyCluster      string    `gorm:"index"`
+	Targets           []*Target `gorm:"serializer:json"`
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
@@ -104,7 +104,7 @@ type ReverseProxy struct {
 	SessionPublicKey  string           `gorm:"column:session_public_key"`
 }
 
-func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []Target, enabled bool) *ReverseProxy {
+func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *ReverseProxy {
 	rp := &ReverseProxy{
 		AccountID:    accountID,
 		Name:         name,
@@ -157,7 +157,7 @@ func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
 	for _, target := range r.Targets {
 		apiTargets = append(apiTargets, api.ReverseProxyTarget{
 			Path:        target.Path,
-			Host:        target.Host,
+			Host:        &target.Host,
 			Port:        target.Port,
 			Protocol:    api.ReverseProxyTargetProtocol(target.Protocol),
 			TargetId:    target.TargetId,
@@ -280,19 +280,22 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 	r.Domain = req.Domain
 	r.AccountID = accountID
 
-	targets := make([]Target, 0, len(req.Targets))
+	targets := make([]*Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
 		accessLocal := apiTarget.AccessLocal != nil && *apiTarget.AccessLocal
-		targets = append(targets, Target{
+		target := &Target{
 			Path:        apiTarget.Path,
-			Host:        apiTarget.Host,
 			Port:        apiTarget.Port,
 			Protocol:    string(apiTarget.Protocol),
 			TargetId:    apiTarget.TargetId,
 			TargetType:  string(apiTarget.TargetType),
 			Enabled:     apiTarget.Enabled,
 			AccessLocal: accessLocal,
-		})
+		}
+		if apiTarget.Host != nil {
+			target.Host = *apiTarget.Host
+		}
+		targets = append(targets, target)
 	}
 	r.Targets = targets
 
@@ -349,8 +352,14 @@ func (r *ReverseProxy) Validate() error {
 
 	for i, target := range r.Targets {
 		switch target.TargetType {
-		case TargetTypePeer, TargetTypeHost, TargetTypeSubnet, TargetTypeDomain:
-			// valid resource types
+		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
+			if target.Host != "" {
+				return fmt.Errorf("target %d has host specified but target_type is %q", i, target.TargetType)
+			}
+		case TargetTypeSubnet:
+			if target.Host == "" {
+				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
+			}
 		default:
 			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
 		}
@@ -367,7 +376,7 @@ func (r *ReverseProxy) EventMeta() map[string]any {
 }
 
 func (r *ReverseProxy) Copy() *ReverseProxy {
-	targets := make([]Target, len(r.Targets))
+	targets := make([]*Target, len(r.Targets))
 	copy(targets, r.Targets)
 
 	return &ReverseProxy{

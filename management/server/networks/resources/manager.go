@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -30,21 +33,23 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store              store.Store
-	permissionsManager permissions.Manager
-	groupsManager      groups.Manager
-	accountManager     account.Manager
+	store               store.Store
+	permissionsManager  permissions.Manager
+	groupsManager       groups.Manager
+	accountManager      account.Manager
+	reverseProxyManager reverseproxy.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager reverseproxy.Manager) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		groupsManager:      groupsManager,
-		accountManager:     accountManager,
+		store:               store,
+		permissionsManager:  permissionsManager,
+		groupsManager:       groupsManager,
+		accountManager:      accountManager,
+		reverseProxyManager: reverseproxyManager,
 	}
 }
 
@@ -256,6 +261,14 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	for _, event := range eventsToStore {
 		event()
 	}
+
+	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	go func() {
+		err := m.reverseProxyManager.ReloadAllReverseProxiesForAccount(ctx, resource.AccountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+		}
+	}()
 
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
 
