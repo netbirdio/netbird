@@ -227,7 +227,7 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 				}
 				return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
 			}
-		case reverseproxy.TargetTypeResource:
+		case reverseproxy.TargetTypeHost, reverseproxy.TargetTypeSubnet, reverseproxy.TargetTypeDomain:
 			if _, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
 				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 					return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)

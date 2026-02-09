@@ -16,9 +16,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/server"

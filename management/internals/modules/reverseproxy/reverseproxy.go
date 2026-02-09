@@ -35,8 +35,10 @@ const (
 	StatusCertificateFailed  ProxyStatus = "certificate_failed"
 	StatusError              ProxyStatus = "error"
 
-	TargetTypePeer     = "peer"
-	TargetTypeResource = "resource"
+	TargetTypePeer   = "peer"
+	TargetTypeHost   = "host"
+	TargetTypeDomain = "domain"
+	TargetTypeSubnet = "subnet"
 )
 
 type Target struct {
@@ -346,8 +348,11 @@ func (r *ReverseProxy) Validate() error {
 	}
 
 	for i, target := range r.Targets {
-		if target.TargetType != TargetTypePeer && target.TargetType != TargetTypeResource {
-			return fmt.Errorf("target %d has invalid target_type %q, must be %q or %q", i, target.TargetType, TargetTypePeer, TargetTypeResource)
+		switch target.TargetType {
+		case TargetTypePeer, TargetTypeHost, TargetTypeSubnet, TargetTypeDomain:
+			// valid resource types
+		default:
+			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
 		}
 		if target.TargetId == "" {
 			return fmt.Errorf("target %d has empty target_id", i)
