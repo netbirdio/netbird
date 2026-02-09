@@ -704,7 +704,8 @@ func EnsureEncryptionKey(ctx context.Context, cfg *nbconfig.Config) error {
 		return fmt.Errorf("failed to generate datastore encryption key: %v", err)
 	}
 	cfg.DataStoreEncryptionKey = key
-	log.WithContext(ctx).Warnf("DataStoreEncryptionKey generated. Add it to your config file to persist: encryptionKey: %q", key)
+	keyPreview := key[:8] + "..."
+	log.WithContext(ctx).Warnf("DataStoreEncryptionKey generated (%s); add it to your config file under 'server.store.encryptionKey' to persist across restarts", keyPreview)
 
 	return nil
 }
