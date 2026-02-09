@@ -34,28 +34,27 @@ func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *E
 	}
 }
 
-// ConfigureWGEndpoint sets up the WireGuard endpoint configuration.
-// The initiator immediately configures the endpoint, while the non-initiator
-// waits for a fallback period before configuring to avoid handshake congestion.
-func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key, setEndpointNow bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.initiator {
-		e.log.Debugf("configure up WireGuard as initiatr")
-		return e.updateWireGuardPeer(addr, presharedKey)
+		e.log.Debugf("configure up WireGuard as initiator")
+		return e.configureAsInitiator(addr, presharedKey)
 	}
+
+	e.log.Debugf("configure up WireGuard as responder")
+	return e.configureAsResponder(addr, presharedKey, setEndpointNow)
+}
+
+func (e *EndpointUpdater) SwitchWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	// prevent to run new update while cancel the previous update
 	e.waitForCloseTheDelayedUpdate()
 
-	var ctx context.Context
-	ctx, e.cancelFunc = context.WithCancel(context.Background())
-	e.updateWg.Add(1)
-	go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
-
-	e.log.Debugf("configure up WireGuard and wait for handshake")
-	return e.updateWireGuardPeer(nil, presharedKey)
+	return e.updateWireGuardPeer(addr, presharedKey)
 }
 
 func (e *EndpointUpdater) RemoveWgPeer() error {
@@ -64,6 +63,44 @@ func (e *EndpointUpdater) RemoveWgPeer() error {
 
 	e.waitForCloseTheDelayedUpdate()
 	return e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey)
+}
+
+func (e *EndpointUpdater) RemoveEndpointAddress() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.waitForCloseTheDelayedUpdate()
+	return e.wgConfig.WgInterface.RemoveEndpointAddress(e.wgConfig.RemoteKey)
+}
+
+func (e *EndpointUpdater) configureAsInitiator(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+	if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *EndpointUpdater) configureAsResponder(addr *net.UDPAddr, presharedKey *wgtypes.Key, setEndpointNow bool) error {
+	// prevent to run new update while cancel the previous update
+	e.waitForCloseTheDelayedUpdate()
+
+	e.log.Debugf("configure up WireGuard and wait for handshake")
+	if setEndpointNow {
+		if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
+			return err
+		}
+	} else {
+		var ctx context.Context
+		ctx, e.cancelFunc = context.WithCancel(context.Background())
+		e.updateWg.Add(1)
+		go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
+
+		if err := e.updateWireGuardPeer(nil, presharedKey); err != nil {
+			e.waitForCloseTheDelayedUpdate()
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *EndpointUpdater) waitForCloseTheDelayedUpdate() {
@@ -100,4 +137,10 @@ func (e *EndpointUpdater) updateWireGuardPeer(endpoint *net.UDPAddr, presharedKe
 		endpoint,
 		presharedKey,
 	)
+}
+
+// wgConfigWorkaround is a workaround for the issue with WireGuard configuration update
+// When update a peer configuration in near to each other time, the second update can be ignored by WireGuard
+func wgConfigWorkaround() {
+	time.Sleep(100 * time.Millisecond)
 }

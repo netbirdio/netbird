@@ -40,7 +40,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caddyserver/certmagic v0.21.3
 	github.com/cilium/ebpf v0.15.0
-	github.com/coder/websocket v1.8.13
+	github.com/coder/websocket v1.8.14
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.24
 	github.com/dexidp/dex v0.0.0-00010101000000-000000000000

@@ -392,8 +392,10 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.Log.Infof("configure WireGuard endpoint to: %s", ep.String())
 	conn.enableWgWatcherIfNeeded()
 
+	hasRelayBackup := conn.wgProxyRelay != nil
+
 	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey)
-	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey); err != nil {
+	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey, hasRelayBackup); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
@@ -430,14 +432,10 @@ func (conn *Conn) onICEStateDisconnected() {
 	if conn.isReadyToUpgrade() {
 		conn.Log.Infof("ICE disconnected, set Relay to active connection")
 		conn.dumpState.SwitchToRelay()
-		conn.wgProxyRelay.Work()
-
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
-		if err := conn.endpointUpdater.ConfigureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
+		if err := conn.endpointUpdater.ConfigureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey, true); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
-
-		conn.wgProxyRelay.Work()
 		conn.currentConnPriority = conntype.Relay
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
@@ -499,20 +497,22 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
-	wgProxy.Work()
-	presharedKey := conn.presharedKey(rci.rosenpassPubKey)
+	setEndpointNow := isController(conn.config)
 
+	if setEndpointNow {
+		wgProxy.Work()
+	}
 	conn.enableWgWatcherIfNeeded()
-
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), presharedKey); err != nil {
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey), setEndpointNow); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
 		conn.Log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
-
-	wgConfigWorkaround()
+	if !setEndpointNow {
+		wgProxy.Work()
+	}
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
@@ -861,10 +861,4 @@ func isController(config ConnConfig) bool {
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
-}
-
-// wgConfigWorkaround is a workaround for the issue with WireGuard configuration update
-// When update a peer configuration in near to each other time, the second update can be ignored by WireGuard
-func wgConfigWorkaround() {
-	time.Sleep(100 * time.Millisecond)
 }
