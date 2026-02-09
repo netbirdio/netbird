@@ -65,7 +65,7 @@ type MicroTime struct {
 const microTimeFormat = "2006-01-02T15:04:05.000000Z"
 
 // MarshalJSON implements json.Marshaler with k8s MicroTime format.
-func (t MicroTime) MarshalJSON() ([]byte, error) {
+func (t *MicroTime) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.UTC().Format(microTimeFormat))
 }
 
@@ -148,7 +148,7 @@ func (c *LeaseClient) Get(ctx context.Context, name string) (*Lease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
@@ -179,7 +179,7 @@ func (c *LeaseClient) Create(ctx context.Context, lease *Lease) (*Lease, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusConflict {
 		return nil, ErrConflict
@@ -208,7 +208,7 @@ func (c *LeaseClient) Update(ctx context.Context, lease *Lease) (*Lease, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusConflict {
 		return nil, ErrConflict

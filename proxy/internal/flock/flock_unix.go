@@ -63,7 +63,11 @@ func Unlock(f *os.File) error {
 		return nil
 	}
 
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			log.Debugf("close lock file: %v", cerr)
+		}
+	}()
 
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
 		return fmt.Errorf("release lock: %w", err)

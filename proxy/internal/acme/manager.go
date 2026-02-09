@@ -8,12 +8,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // OID for the SCT list extension (1.3.6.1.4.1.11129.2.4.2)
@@ -23,19 +26,31 @@ type certificateNotifier interface {
 	NotifyCertificateIssued(ctx context.Context, accountID, reverseProxyID, domain string) error
 }
 
+type domainState int
+
+const (
+	domainPending domainState = iota
+	domainReady
+	domainFailed
+)
+
+type domainInfo struct {
+	accountID      string
+	reverseProxyID string
+	state          domainState
+	err            string
+}
+
 // Manager wraps autocert.Manager with domain tracking and cross-replica
 // coordination via a pluggable locking strategy. The locker prevents
 // duplicate ACME requests when multiple replicas share a certificate cache.
 type Manager struct {
 	*autocert.Manager
 
-	certDir    string
-	locker     certLocker
-	domainsMux sync.RWMutex
-	domains    map[string]struct {
-		accountID      string
-		reverseProxyID string
-	}
+	certDir string
+	locker  certLocker
+	mu      sync.RWMutex
+	domains map[domain.Domain]*domainInfo
 
 	certNotifier certificateNotifier
 	logger       *log.Logger
@@ -49,12 +64,9 @@ func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *l
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
-		certDir: certDir,
-		locker:  newCertLocker(lockMethod, certDir, logger),
-		domains: make(map[string]struct {
-			accountID      string
-			reverseProxyID string
-		}),
+		certDir:      certDir,
+		locker:       newCertLocker(lockMethod, certDir, logger),
+		domains:      make(map[domain.Domain]*domainInfo),
 		certNotifier: notifier,
 		logger:       logger,
 	}
@@ -73,49 +85,50 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	mgr.domainsMux.RLock()
-	_, exists := mgr.domains[host]
-	mgr.domainsMux.RUnlock()
+	mgr.mu.RLock()
+	_, exists := mgr.domains[domain.Domain(host)]
+	mgr.mu.RUnlock()
 	if !exists {
 		return fmt.Errorf("unknown domain %q", host)
 	}
 	return nil
 }
 
-func (mgr *Manager) AddDomain(domain, accountID, reverseProxyID string) {
-	mgr.domainsMux.Lock()
-	mgr.domains[domain] = struct {
-		accountID      string
-		reverseProxyID string
-	}{
+// AddDomain registers a domain for ACME certificate prefetching.
+func (mgr *Manager) AddDomain(d domain.Domain, accountID, reverseProxyID string) {
+	mgr.mu.Lock()
+	mgr.domains[d] = &domainInfo{
 		accountID:      accountID,
 		reverseProxyID: reverseProxyID,
+		state:          domainPending,
 	}
-	mgr.domainsMux.Unlock()
+	mgr.mu.Unlock()
 
-	go mgr.prefetchCertificate(domain)
+	go mgr.prefetchCertificate(d)
 }
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
 // It acquires a distributed lock to prevent multiple replicas from issuing
 // duplicate ACME requests. The second replica will block until the first
 // finishes, then find the certificate in the cache.
-func (mgr *Manager) prefetchCertificate(domain string) {
+func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	mgr.logger.Infof("acquiring cert lock for domain %q", domain)
+	name := d.PunycodeString()
+
+	mgr.logger.Infof("acquiring cert lock for domain %q", name)
 	lockStart := time.Now()
-	unlock, err := mgr.locker.Lock(ctx, domain)
+	unlock, err := mgr.locker.Lock(ctx, name)
 	if err != nil {
-		mgr.logger.Warnf("acquire cert lock for domain %q, proceeding without lock: %v", domain, err)
+		mgr.logger.Warnf("acquire cert lock for domain %q, proceeding without lock: %v", name, err)
 	} else {
-		mgr.logger.Infof("acquired cert lock for domain %q in %s", domain, time.Since(lockStart))
+		mgr.logger.Infof("acquired cert lock for domain %q in %s", name, time.Since(lockStart))
 		defer unlock()
 	}
 
 	hello := &tls.ClientHelloInfo{
-		ServerName: domain,
+		ServerName: name,
 		Conn:       &dummyConn{ctx: ctx},
 	}
 
@@ -123,32 +136,44 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 	cert, err := mgr.GetCertificate(hello)
 	elapsed := time.Since(start)
 	if err != nil {
-		mgr.logger.Warnf("prefetch certificate for domain %q: %v", domain, err)
+		mgr.logger.Warnf("prefetch certificate for domain %q: %v", name, err)
+		mgr.setDomainState(d, domainFailed, err.Error())
 		return
 	}
+
+	mgr.setDomainState(d, domainReady, "")
 
 	now := time.Now()
 	if cert != nil && cert.Leaf != nil {
 		leaf := cert.Leaf
 		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notAfter=%s",
-			domain, elapsed.Round(time.Millisecond),
+			name, elapsed.Round(time.Millisecond),
 			leaf.SerialNumber.Text(16),
 			leaf.DNSNames,
 			leaf.NotAfter.UTC().Format(time.RFC3339),
 		)
-		mgr.logCertificateDetails(domain, leaf, now)
+		mgr.logCertificateDetails(name, leaf, now)
 	} else {
-		mgr.logger.Infof("certificate for domain %q ready in %s", domain, elapsed.Round(time.Millisecond))
+		mgr.logger.Infof("certificate for domain %q ready in %s", name, elapsed.Round(time.Millisecond))
 	}
 
-	mgr.domainsMux.RLock()
-	info, exists := mgr.domains[domain]
-	mgr.domainsMux.RUnlock()
+	mgr.mu.RLock()
+	info := mgr.domains[d]
+	mgr.mu.RUnlock()
 
-	if exists && mgr.certNotifier != nil {
-		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.reverseProxyID, domain); err != nil {
-			mgr.logger.Warnf("notify certificate ready for domain %q: %v", domain, err)
+	if info != nil && mgr.certNotifier != nil {
+		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.reverseProxyID, name); err != nil {
+			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
 		}
+	}
+}
+
+func (mgr *Manager) setDomainState(d domain.Domain, state domainState, errMsg string) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if info, ok := mgr.domains[d]; ok {
+		info.state = state
+		info.err = errMsg
 	}
 }
 
@@ -245,8 +270,65 @@ func (c *dummyConn) SetDeadline(t time.Time) error      { return nil }
 func (c *dummyConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *dummyConn) SetWriteDeadline(t time.Time) error { return nil }
 
-func (mgr *Manager) RemoveDomain(domain string) {
-	mgr.domainsMux.Lock()
-	defer mgr.domainsMux.Unlock()
-	delete(mgr.domains, domain)
+// RemoveDomain removes a domain from tracking.
+func (mgr *Manager) RemoveDomain(d domain.Domain) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	delete(mgr.domains, d)
+}
+
+// PendingCerts returns the number of certificates currently being prefetched.
+func (mgr *Manager) PendingCerts() int {
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	var n int
+	for _, info := range mgr.domains {
+		if info.state == domainPending {
+			n++
+		}
+	}
+	return n
+}
+
+// TotalDomains returns the total number of registered domains.
+func (mgr *Manager) TotalDomains() int {
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	return len(mgr.domains)
+}
+
+// PendingDomains returns the domain names currently being prefetched.
+func (mgr *Manager) PendingDomains() []string {
+	return mgr.domainsByState(domainPending)
+}
+
+// ReadyDomains returns domain names that have successfully obtained certificates.
+func (mgr *Manager) ReadyDomains() []string {
+	return mgr.domainsByState(domainReady)
+}
+
+// FailedDomains returns domain names that failed certificate prefetch, mapped to their error.
+func (mgr *Manager) FailedDomains() map[string]string {
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	result := make(map[string]string)
+	for d, info := range mgr.domains {
+		if info.state == domainFailed {
+			result[d.PunycodeString()] = info.err
+		}
+	}
+	return result
+}
+
+func (mgr *Manager) domainsByState(state domainState) []string {
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	var domains []string
+	for d, info := range mgr.domains {
+		if info.state == state {
+			domains = append(domains, d.PunycodeString())
+		}
+	}
+	slices.Sort(domains)
+	return domains
 }

@@ -56,6 +56,33 @@ func (c *Client) printHealth(data map[string]any) {
 	_, _ = fmt.Fprintf(c.out, "Management Connected: %s\n", boolIcon(data["management_connected"]))
 	_, _ = fmt.Fprintf(c.out, "All Clients Healthy:  %s\n", boolIcon(data["all_clients_healthy"]))
 
+	total, _ := data["certs_total"].(float64)
+	ready, _ := data["certs_ready"].(float64)
+	pending, _ := data["certs_pending"].(float64)
+	failed, _ := data["certs_failed"].(float64)
+	if total > 0 {
+		_, _ = fmt.Fprintf(c.out, "Certificates:         %d ready, %d pending, %d failed (%d total)\n",
+			int(ready), int(pending), int(failed), int(total))
+	}
+	if domains, ok := data["certs_ready_domains"].([]any); ok && len(domains) > 0 {
+		_, _ = fmt.Fprintf(c.out, "  Ready:\n")
+		for _, d := range domains {
+			_, _ = fmt.Fprintf(c.out, "    %v\n", d)
+		}
+	}
+	if domains, ok := data["certs_pending_domains"].([]any); ok && len(domains) > 0 {
+		_, _ = fmt.Fprintf(c.out, "  Pending:\n")
+		for _, d := range domains {
+			_, _ = fmt.Fprintf(c.out, "    %v\n", d)
+		}
+	}
+	if domains, ok := data["certs_failed_domains"].(map[string]any); ok && len(domains) > 0 {
+		_, _ = fmt.Fprintf(c.out, "  Failed:\n")
+		for d, errMsg := range domains {
+			_, _ = fmt.Fprintf(c.out, "    %s: %v\n", d, errMsg)
+		}
+	}
+
 	clients, ok := data["clients"].(map[string]any)
 	if !ok || len(clients) == 0 {
 		return
@@ -328,7 +355,7 @@ func (c *Client) fetch(ctx context.Context, path string) (map[string]any, []byte
 	if err != nil {
 		return nil, nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -346,4 +373,3 @@ func (c *Client) fetch(ctx context.Context, path string) (map[string]any, []byte
 
 	return data, body, nil
 }
-

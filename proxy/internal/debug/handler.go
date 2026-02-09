@@ -2,12 +2,15 @@
 package debug
 
 import (
+	"cmp"
 	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +50,10 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
+func sortedAccountIDs(m map[types.AccountID]roundtrip.ClientDebugInfo) []types.AccountID {
+	return slices.Sorted(maps.Keys(m))
+}
+
 // clientProvider provides access to NetBird clients.
 type clientProvider interface {
 	GetClient(accountID types.AccountID) (*nbembed.Client, bool)
@@ -60,10 +67,18 @@ type healthChecker interface {
 	CheckClientsConnected(ctx context.Context) (bool, map[types.AccountID]health.ClientHealth)
 }
 
+type certStatus interface {
+	TotalDomains() int
+	PendingDomains() []string
+	ReadyDomains() []string
+	FailedDomains() map[string]string
+}
+
 // Handler provides HTTP debug endpoints.
 type Handler struct {
 	provider   clientProvider
 	health     healthChecker
+	certStatus certStatus
 	logger     *log.Logger
 	startTime  time.Time
 	templates  *template.Template
@@ -85,6 +100,11 @@ func NewHandler(provider clientProvider, healthChecker healthChecker, logger *lo
 		logger.Errorf("failed to load embedded templates: %v", err)
 	}
 	return h
+}
+
+// SetCertStatus sets the certificate status provider for ACME prefetch observability.
+func (h *Handler) SetCertStatus(cs certStatus) {
+	h.certStatus = cs
 }
 
 func (h *Handler) loadTemplates() error {
@@ -160,12 +180,24 @@ func (h *Handler) handleClientRoutes(w http.ResponseWriter, r *http.Request, pat
 	return true
 }
 
+type failedDomain struct {
+	Domain string
+	Error  string
+}
+
 type indexData struct {
-	Version      string
-	Uptime       string
-	ClientCount  int
-	TotalDomains int
-	Clients      []clientData
+	Version             string
+	Uptime              string
+	ClientCount         int
+	TotalDomains        int
+	CertsTotal          int
+	CertsReady          int
+	CertsPending        int
+	CertsFailed         int
+	CertsPendingDomains []string
+	CertsReadyDomains   []string
+	CertsFailedDomains  []failedDomain
+	Clients             []clientData
 }
 
 type clientData struct {
@@ -177,15 +209,30 @@ type clientData struct {
 
 func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON bool) {
 	clients := h.provider.ListClientsForDebug()
+	sortedIDs := sortedAccountIDs(clients)
 
 	totalDomains := 0
 	for _, info := range clients {
 		totalDomains += info.DomainCount
 	}
 
+	var certsTotal, certsReady, certsPending, certsFailed int
+	var certsPendingDomains, certsReadyDomains []string
+	var certsFailedDomains map[string]string
+	if h.certStatus != nil {
+		certsTotal = h.certStatus.TotalDomains()
+		certsPendingDomains = h.certStatus.PendingDomains()
+		certsReadyDomains = h.certStatus.ReadyDomains()
+		certsFailedDomains = h.certStatus.FailedDomains()
+		certsReady = len(certsReadyDomains)
+		certsPending = len(certsPendingDomains)
+		certsFailed = len(certsFailedDomains)
+	}
+
 	if wantJSON {
 		clientsJSON := make([]map[string]interface{}, 0, len(clients))
-		for _, info := range clients {
+		for _, id := range sortedIDs {
+			info := clients[id]
 			clientsJSON = append(clientsJSON, map[string]interface{}{
 				"account_id":   info.AccountID,
 				"domain_count": info.DomainCount,
@@ -195,25 +242,55 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 				"age":          time.Since(info.CreatedAt).Round(time.Second).String(),
 			})
 		}
-		h.writeJSON(w, map[string]interface{}{
+		resp := map[string]interface{}{
 			"version":       version.NetbirdVersion(),
 			"uptime":        time.Since(h.startTime).Round(time.Second).String(),
 			"client_count":  len(clients),
 			"total_domains": totalDomains,
+			"certs_total":   certsTotal,
+			"certs_ready":   certsReady,
+			"certs_pending": certsPending,
+			"certs_failed":  certsFailed,
 			"clients":       clientsJSON,
-		})
+		}
+		if len(certsPendingDomains) > 0 {
+			resp["certs_pending_domains"] = certsPendingDomains
+		}
+		if len(certsReadyDomains) > 0 {
+			resp["certs_ready_domains"] = certsReadyDomains
+		}
+		if len(certsFailedDomains) > 0 {
+			resp["certs_failed_domains"] = certsFailedDomains
+		}
+		h.writeJSON(w, resp)
 		return
 	}
 
+	sortedFailed := make([]failedDomain, 0, len(certsFailedDomains))
+	for d, e := range certsFailedDomains {
+		sortedFailed = append(sortedFailed, failedDomain{Domain: d, Error: e})
+	}
+	slices.SortFunc(sortedFailed, func(a, b failedDomain) int {
+		return cmp.Compare(a.Domain, b.Domain)
+	})
+
 	data := indexData{
-		Version:      version.NetbirdVersion(),
-		Uptime:       time.Since(h.startTime).Round(time.Second).String(),
-		ClientCount:  len(clients),
-		TotalDomains: totalDomains,
-		Clients:      make([]clientData, 0, len(clients)),
+		Version:             version.NetbirdVersion(),
+		Uptime:              time.Since(h.startTime).Round(time.Second).String(),
+		ClientCount:         len(clients),
+		TotalDomains:        totalDomains,
+		CertsTotal:          certsTotal,
+		CertsReady:          certsReady,
+		CertsPending:        certsPending,
+		CertsFailed:         certsFailed,
+		CertsPendingDomains: certsPendingDomains,
+		CertsReadyDomains:   certsReadyDomains,
+		CertsFailedDomains:  sortedFailed,
+		Clients:             make([]clientData, 0, len(clients)),
 	}
 
-	for _, info := range clients {
+	for _, id := range sortedIDs {
+		info := clients[id]
 		domains := info.Domains.SafeString()
 		if domains == "" {
 			domains = "-"
@@ -240,10 +317,12 @@ type clientsData struct {
 
 func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, wantJSON bool) {
 	clients := h.provider.ListClientsForDebug()
+	sortedIDs := sortedAccountIDs(clients)
 
 	if wantJSON {
 		clientsJSON := make([]map[string]interface{}, 0, len(clients))
-		for _, info := range clients {
+		for _, id := range sortedIDs {
+			info := clients[id]
 			clientsJSON = append(clientsJSON, map[string]interface{}{
 				"account_id":   info.AccountID,
 				"domain_count": info.DomainCount,
@@ -266,7 +345,8 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 		Clients: make([]clientData, 0, len(clients)),
 	}
 
-	for _, info := range clients {
+	for _, id := range sortedIDs {
+		info := clients[id]
 		domains := info.Domains.SafeString()
 		if domains == "" {
 			domains = "-"
@@ -556,15 +636,12 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 	})
 }
 
-type healthData struct {
-	Uptime              string
-	Status              string
-	ManagementReady     bool
-	AllClientsHealthy   bool
-	Clients             map[types.AccountID]health.ClientHealth
-}
-
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON bool) {
+	if !wantJSON {
+		http.Redirect(w, r, "/debug", http.StatusSeeOther)
+		return
+	}
+
 	uptime := time.Since(h.startTime).Round(10 * time.Millisecond).String()
 
 	ready := h.health.ReadinessProbe()
@@ -575,26 +652,40 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON 
 		status = "degraded"
 	}
 
-	if wantJSON {
-		h.writeJSON(w, map[string]interface{}{
-			"status":               status,
-			"uptime":               uptime,
-			"management_connected": ready,
-			"all_clients_healthy":  allHealthy,
-			"clients":              clientHealth,
-		})
-		return
+	var certsTotal, certsReady, certsPending, certsFailed int
+	var certsPendingDomains, certsReadyDomains []string
+	var certsFailedDomains map[string]string
+	if h.certStatus != nil {
+		certsTotal = h.certStatus.TotalDomains()
+		certsPendingDomains = h.certStatus.PendingDomains()
+		certsReadyDomains = h.certStatus.ReadyDomains()
+		certsFailedDomains = h.certStatus.FailedDomains()
+		certsReady = len(certsReadyDomains)
+		certsPending = len(certsPendingDomains)
+		certsFailed = len(certsFailedDomains)
 	}
 
-	data := healthData{
-		Uptime:            time.Since(h.startTime).Round(time.Second).String(),
-		Status:            status,
-		ManagementReady:   ready,
-		AllClientsHealthy: allHealthy,
-		Clients:           clientHealth,
+	resp := map[string]any{
+		"status":               status,
+		"uptime":               uptime,
+		"management_connected": ready,
+		"all_clients_healthy":  allHealthy,
+		"certs_total":          certsTotal,
+		"certs_ready":          certsReady,
+		"certs_pending":        certsPending,
+		"certs_failed":         certsFailed,
+		"clients":              clientHealth,
 	}
-
-	h.renderTemplate(w, "health", data)
+	if len(certsPendingDomains) > 0 {
+		resp["certs_pending_domains"] = certsPendingDomains
+	}
+	if len(certsReadyDomains) > 0 {
+		resp["certs_ready_domains"] = certsReadyDomains
+	}
+	if len(certsFailedDomains) > 0 {
+		resp["certs_failed_domains"] = certsFailedDomains
+	}
+	h.writeJSON(w, resp)
 }
 
 func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data interface{}) {

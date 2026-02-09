@@ -247,6 +247,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	if s.DebugEndpointEnabled {
 		debugAddr := debugEndpointAddr(s.DebugEndpointAddress)
 		debugHandler := debug.NewHandler(s.netbird, s.healthChecker, s.Logger)
+		if s.acme != nil {
+			debugHandler.SetCertStatus(s.acme)
+		}
 		s.debug = &http.Server{
 			Addr:    debugAddr,
 			Handler: debugHandler,
@@ -359,7 +362,7 @@ func (s *Server) shutdownServices() {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), shutdownServiceTimeout)
 			defer cancel()
-			if err := shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := shutdown(ctx); err != nil {
 				s.Logger.Debugf("%s shutdown: %v", name, err)
 			}
 		}()
@@ -516,7 +519,7 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
 	if s.acme != nil {
-		s.acme.AddDomain(string(d), string(accountID), reverseProxyID)
+		s.acme.AddDomain(d, string(accountID), reverseProxyID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the
@@ -562,7 +565,7 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		}).Error("Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist")
 	}
 	if s.acme != nil {
-		s.acme.RemoveDomain(mapping.GetDomain())
+		s.acme.RemoveDomain(d)
 	}
 	s.auth.RemoveDomain(mapping.GetDomain())
 	s.proxy.RemoveMapping(s.protoToMapping(mapping))
