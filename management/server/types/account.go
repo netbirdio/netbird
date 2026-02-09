@@ -1980,8 +1980,8 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 							Action:        PolicyTrafficActionAccept,
 							PortRanges: []RulePortRange{
 								{
-									Start: uint16(target.Port),
-									End:   uint16(target.Port),
+									Start: uint16(port),
+									End:   uint16(port),
 								},
 							},
 						},
