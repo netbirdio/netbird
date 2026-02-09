@@ -1312,7 +1312,7 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 
 func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
 	peer := a.GetPeer(resource.ID)
-	if peer == nil || peer.ProxyEmbedded {
+	if peer == nil {
 		return []*nbpeer.Peer{}, false
 	}
 
