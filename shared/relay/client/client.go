@@ -130,6 +130,7 @@ type Client struct {
 
 	relayConn        net.Conn
 	conns            map[messages.PeerID]*connContainer
+	earlyMsgs        *earlyMsgBuffer
 	serviceIsRunning bool
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
@@ -164,6 +165,8 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 		},
 		conns: make(map[messages.PeerID]*connContainer),
 	}
+
+	c.earlyMsgs = newEarlyMsgBuffer()
 
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
@@ -236,7 +239,13 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 	conn := NewConn(c, peerID, msgChannel, instanceURL)
 	container := newConnContainer(c.log, conn, msgChannel)
 	c.conns[peerID] = container
+	earlyMsg, hasEarly := c.earlyMsgs.pop(peerID)
 	c.mu.Unlock()
+
+	if hasEarly {
+		container.writeMsg(earlyMsg)
+		c.log.Tracef("flushed buffered early message for peer: %s", peerID)
+	}
 
 	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
 		c.log.Errorf("peer not available: %s, %s", peerID, err)
@@ -466,10 +475,20 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		return false
 	}
 	container, ok := c.conns[*peerID]
+	earlyBuf := c.earlyMsgs
 	c.mu.Unlock()
 	if !ok {
-		c.log.Errorf("peer not found: %s", peerID.String())
-		c.bufPool.Put(bufPtr)
+		msg := Msg{
+			bufPool: c.bufPool,
+			bufPtr:  bufPtr,
+			Payload: payload,
+		}
+		if earlyBuf == nil || !earlyBuf.put(*peerID, msg) {
+			c.log.Warnf("failed to buffer early message for peer: %s", peerID.String())
+			c.bufPool.Put(bufPtr)
+		} else {
+			c.log.Debugf("buffered early transport message for peer: %s", peerID.String())
+		}
 		return true
 	}
 	msg := Msg{
@@ -537,6 +556,9 @@ func (c *Client) closeAllConns() {
 		container.close()
 	}
 	c.conns = make(map[messages.PeerID]*connContainer)
+
+	c.earlyMsgs.close()
+	c.earlyMsgs = newEarlyMsgBuffer()
 }
 
 func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
