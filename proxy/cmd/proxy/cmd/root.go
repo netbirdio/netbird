@@ -45,6 +45,8 @@ var (
 	oidcScopes        string
 	forwardedProto    string
 	trustedProxies    string
+	certFile          string
+	certKeyFile       string
 )
 
 var rootCmd = &cobra.Command{
@@ -74,6 +76,8 @@ func init() {
 	rootCmd.Flags().StringVar(&oidcScopes, "oidc-scopes", envStringOrDefault("NB_PROXY_OIDC_SCOPES", "openid,profile,email"), "The OAuth2 scopes for OIDC User Authentication, comma separated")
 	rootCmd.Flags().StringVar(&forwardedProto, "forwarded-proto", envStringOrDefault("NB_PROXY_FORWARDED_PROTO", "auto"), "X-Forwarded-Proto value for backends: auto, http, or https")
 	rootCmd.Flags().StringVar(&trustedProxies, "trusted-proxies", envStringOrDefault("NB_PROXY_TRUSTED_PROXIES", ""), "Comma-separated list of trusted upstream proxy CIDR ranges (e.g. '10.0.0.0/8,192.168.1.1')")
+	rootCmd.Flags().StringVar(&certFile, "cert-file", envStringOrDefault("NB_PROXY_CERTIFICATE_FILE", "tls.crt"), "TLS certificate filename within the certificate directory")
+	rootCmd.Flags().StringVar(&certKeyFile, "cert-key-file", envStringOrDefault("NB_PROXY_CERTIFICATE_KEY_FILE", "tls.key"), "TLS certificate key filename within the certificate directory")
 }
 
 // Execute runs the root command.
@@ -127,6 +131,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ProxyURL:                 proxyURL,
 		ProxyToken:               proxyToken,
 		CertificateDirectory:     certDir,
+		CertificateFile:          certFile,
+		CertificateKeyFile:       certKeyFile,
 		GenerateACMECertificates: acmeCerts,
 		ACMEChallengeAddress:     acmeAddr,
 		ACMEDirectory:            acmeDir,

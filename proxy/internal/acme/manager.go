@@ -23,9 +23,14 @@ type certificateNotifier interface {
 	NotifyCertificateIssued(ctx context.Context, accountID, reverseProxyID, domain string) error
 }
 
+// Manager wraps autocert.Manager with domain tracking and cross-replica
+// coordination via a pluggable locking strategy. The locker prevents
+// duplicate ACME requests when multiple replicas share a certificate cache.
 type Manager struct {
 	*autocert.Manager
 
+	certDir    string
+	locker     certLocker
 	domainsMux sync.RWMutex
 	domains    map[string]struct {
 		accountID      string
@@ -36,11 +41,16 @@ type Manager struct {
 	logger       *log.Logger
 }
 
-func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *log.Logger) *Manager {
+// NewManager creates a new ACME certificate manager. The certDir is used
+// for caching certificates. The lockMethod controls cross-replica
+// coordination strategy (see CertLockMethod constants).
+func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod) *Manager {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
+		certDir: certDir,
+		locker:  newCertLocker(lockMethod, certDir, logger),
 		domains: make(map[string]struct {
 			accountID      string
 			reverseProxyID string
@@ -59,12 +69,15 @@ func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *l
 	return mgr
 }
 
-func (mgr *Manager) hostPolicy(ctx context.Context, domain string) error {
+func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
 	mgr.domainsMux.RLock()
-	_, exists := mgr.domains[domain]
+	_, exists := mgr.domains[host]
 	mgr.domainsMux.RUnlock()
 	if !exists {
-		return fmt.Errorf("unknown domain %q", domain)
+		return fmt.Errorf("unknown domain %q", host)
 	}
 	return nil
 }
@@ -84,17 +97,31 @@ func (mgr *Manager) AddDomain(domain, accountID, reverseProxyID string) {
 }
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
+// It acquires a distributed lock to prevent multiple replicas from issuing
+// duplicate ACME requests. The second replica will block until the first
+// finishes, then find the certificate in the cache.
 func (mgr *Manager) prefetchCertificate(domain string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	mgr.logger.Infof("acquiring cert lock for domain %q", domain)
+	lockStart := time.Now()
+	unlock, err := mgr.locker.Lock(ctx, domain)
+	if err != nil {
+		mgr.logger.Warnf("acquire cert lock for domain %q, proceeding without lock: %v", domain, err)
+	} else {
+		mgr.logger.Infof("acquired cert lock for domain %q in %s", domain, time.Since(lockStart))
+		defer unlock()
+	}
 
 	hello := &tls.ClientHelloInfo{
 		ServerName: domain,
 		Conn:       &dummyConn{ctx: ctx},
 	}
 
-	mgr.logger.Infof("prefetching certificate for domain %q", domain)
+	start := time.Now()
 	cert, err := mgr.GetCertificate(hello)
+	elapsed := time.Since(start)
 	if err != nil {
 		mgr.logger.Warnf("prefetch certificate for domain %q: %v", domain, err)
 		return
@@ -102,10 +129,17 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 
 	now := time.Now()
 	if cert != nil && cert.Leaf != nil {
-		mgr.logCertificateDetails(domain, cert.Leaf, now)
+		leaf := cert.Leaf
+		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notAfter=%s",
+			domain, elapsed.Round(time.Millisecond),
+			leaf.SerialNumber.Text(16),
+			leaf.DNSNames,
+			leaf.NotAfter.UTC().Format(time.RFC3339),
+		)
+		mgr.logCertificateDetails(domain, leaf, now)
+	} else {
+		mgr.logger.Infof("certificate for domain %q ready in %s", domain, elapsed.Round(time.Millisecond))
 	}
-
-	mgr.logger.Infof("certificate for domain %q is ready", domain)
 
 	mgr.domainsMux.RLock()
 	info, exists := mgr.domains[domain]
@@ -120,18 +154,12 @@ func (mgr *Manager) prefetchCertificate(domain string) {
 
 // logCertificateDetails logs certificate validity and SCT timestamps.
 func (mgr *Manager) logCertificateDetails(domain string, cert *x509.Certificate, now time.Time) {
-	mgr.logger.Infof("certificate for %q: NotBefore=%v, NotAfter=%v, now=%v",
-		domain, cert.NotBefore.UTC(), cert.NotAfter.UTC(), now.UTC())
-
 	if cert.NotBefore.After(now) {
 		mgr.logger.Warnf("certificate for %q NotBefore is in the future by %v", domain, cert.NotBefore.Sub(now))
-	} else {
-		mgr.logger.Infof("certificate for %q NotBefore is %v in the past", domain, now.Sub(cert.NotBefore))
 	}
 
 	sctTimestamps := mgr.parseSCTTimestamps(cert)
 	if len(sctTimestamps) == 0 {
-		mgr.logger.Warnf("certificate for %q has no embedded SCTs", domain)
 		return
 	}
 
@@ -140,7 +168,7 @@ func (mgr *Manager) logCertificateDetails(domain string, cert *x509.Certificate,
 			mgr.logger.Warnf("certificate for %q SCT[%d] timestamp is in the future: %v (by %v)",
 				domain, i, sctTime.UTC(), sctTime.Sub(now))
 		} else {
-			mgr.logger.Infof("certificate for %q SCT[%d] timestamp: %v (%v in the past)",
+			mgr.logger.Debugf("certificate for %q SCT[%d] timestamp: %v (%v in the past)",
 				domain, i, sctTime.UTC(), now.Sub(sctTime))
 		}
 	}

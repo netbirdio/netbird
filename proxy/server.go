@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
+	"github.com/netbirdio/netbird/proxy/internal/certwatch"
 	"github.com/netbirdio/netbird/proxy/internal/debug"
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
@@ -65,6 +66,8 @@ type Server struct {
 	ProxyURL                 string
 	ManagementAddress        string
 	CertificateDirectory     string
+	CertificateFile          string
+	CertificateKeyFile       string
 	GenerateACMECertificates bool
 	ACMEChallengeAddress     string
 	ACMEDirectory            string
@@ -210,16 +213,17 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			"ServerName": s.ProxyURL,
 		}).Debug("started ACME challenge server")
 	} else {
-		s.Logger.Debug("ACME certificates disabled, using static certificates")
-		// Otherwise pull some certificates from expected locations.
-		cert, err := tls.LoadX509KeyPair(
-			filepath.Join(s.CertificateDirectory, "tls.crt"),
-			filepath.Join(s.CertificateDirectory, "tls.key"),
-		)
+		s.Logger.Debug("ACME certificates disabled, using static certificates with file watching")
+		certPath := filepath.Join(s.CertificateDirectory, s.CertificateFile)
+		keyPath := filepath.Join(s.CertificateDirectory, s.CertificateKeyFile)
+
+		certWatcher, err := certwatch.NewWatcher(certPath, keyPath, s.Logger)
 		if err != nil {
-			return fmt.Errorf("load provided certificate: %w", err)
+			return fmt.Errorf("initialize certificate watcher: %w", err)
 		}
-		tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
+		go certWatcher.Watch(ctx)
+
+		tlsConfig.GetCertificate = certWatcher.GetCertificate
 	}
 
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
