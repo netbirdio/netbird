@@ -174,7 +174,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
 
-	account.InjectProxyPolicies()
+	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -327,7 +327,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("failed to get validated peers: %v", err)
 	}
 
-	account.InjectProxyPolicies()
+	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -443,7 +443,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		}
 	}
 
-	account.InjectProxyPolicies()
+	account.InjectProxyPolicies(ctx)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -851,7 +851,7 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	if c.experimentalNetworkMap(peer.AccountID) {
 		networkMap = c.getPeerNetworkMapExp(ctx, peer.AccountID, peerID, validatedPeers, peersCustomZone, accountZones, nil)
 	} else {
-		account.InjectProxyPolicies()
+		account.InjectProxyPolicies(ctx)
 		resourcePolicies := account.GetResourcePoliciesMap()
 		routers := account.GetResourceRoutersMap()
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, peersCustomZone, accountZones, validatedPeers, resourcePolicies, routers, nil, account.GetActiveGroupUsers())

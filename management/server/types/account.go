@@ -1923,7 +1923,7 @@ func (a *Account) GetResourcesMap() map[string]*resourceTypes.NetworkResource {
 	return resourcesMap
 }
 
-func (a *Account) InjectProxyPolicies() {
+func (a *Account) InjectProxyPolicies(ctx context.Context) {
 	if len(a.ReverseProxies) == 0 {
 		return
 	}
@@ -1941,6 +1941,19 @@ func (a *Account) InjectProxyPolicies() {
 			for _, target := range service.Targets {
 				if !target.Enabled {
 					continue
+				}
+
+				port := target.Port
+				if port == 0 {
+					switch target.Protocol {
+					case "https":
+						port = 443
+					case "http":
+						port = 80
+					default:
+						log.WithContext(ctx).Warnf("unsupported protocol %s for proxy target %s, skipping policy injection", target.Protocol, target.TargetId)
+						continue
+					}
 				}
 
 				policyID := fmt.Sprintf("proxy-access-%s-%s", service.ID, proxyPeer.ID)
