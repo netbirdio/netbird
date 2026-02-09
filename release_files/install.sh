@@ -52,7 +52,7 @@ get_release() {
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
-	echo "Using the following tag name for binary installation: ${TAG_NAME}"
+    echo "Using the following version for binary installation: ${VERSION}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
