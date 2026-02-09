@@ -131,8 +131,10 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		userAuth.AccountId = impersonate[0]
-		userAuth.IsChild = ok
+		if integrations.IsValidChildAccount(ctx, userAuth.AccountId, impersonate[0]) {
+			userAuth.AccountId = impersonate[0]
+			userAuth.IsChild = true
+		}
 	}
 
 	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
