@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 
@@ -83,7 +84,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	// OAuth callback for proxy authentication
-	if err := bypass.AddBypassPath("/api/oauth/callback"); err != nil {
+	if err := bypass.AddBypassPath(types.ProxyCallbackEndpoint); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 
