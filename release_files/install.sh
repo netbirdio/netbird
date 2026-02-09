@@ -78,7 +78,7 @@ download_release_binary() {
     if [ -n "$GITHUB_TOKEN" ]; then
       cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" --header "Authorization: token ${GITHUB_TOKEN}" "$DOWNLOAD_URL"
     else
-      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL" || curl --fail --silent --show-error --location --remote-name --dns-servers 8.8.8.8 --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL"
+      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL" || curl --fail --silent --show-error --location --remote-name --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
