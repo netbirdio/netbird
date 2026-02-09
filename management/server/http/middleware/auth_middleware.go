@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
@@ -207,8 +208,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		userAuth.AccountId = impersonate[0]
-		userAuth.IsChild = ok
+		if integrations.IsValidChildAccount(r.Context(), userAuth.AccountId, impersonate[0]) {
+			userAuth.AccountId = impersonate[0]
+			userAuth.IsChild = true
+		}
 	}
 
 	return nbcontext.SetUserAuthInRequest(r, userAuth), nil

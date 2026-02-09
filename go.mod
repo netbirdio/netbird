@@ -68,7 +68,7 @@ require (
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20260122111742-a6f99668844f
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20260209164319-54777b202484
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
