@@ -353,9 +353,7 @@ func (r *ReverseProxy) Validate() error {
 	for i, target := range r.Targets {
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-			if target.Host != "" {
-				return fmt.Errorf("target %d has host specified but target_type is %q", i, target.TargetType)
-			}
+			// host field will be ignored
 		case TargetTypeSubnet:
 			if target.Host == "" {
 				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
