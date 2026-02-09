@@ -78,12 +78,18 @@ func (m *managerImpl) replaceHostByLookup(ctx context.Context, accountID string,
 				return fmt.Errorf("failed to get peer by id: %w", err)
 			}
 			target.Host = peer.IP.String()
-		case reverseproxy.TargetTypeHost, reverseproxy.TargetTypeDomain:
+		case reverseproxy.TargetTypeHost:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
 				return fmt.Errorf("failed to get resource by id: %w", err)
 			}
-			target.Host = resource.Address
+			target.Host = resource.Prefix.Addr().String()
+		case reverseproxy.TargetTypeDomain:
+			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+			if err != nil {
+				return fmt.Errorf("failed to get resource by id: %w", err)
+			}
+			target.Host = resource.Domain
 		case reverseproxy.TargetTypeSubnet:
 			// For subnets we do not do any lookups on the resource
 		default:
@@ -176,6 +182,11 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyCreated, reverseProxy.EventMeta())
 
+	err = m.replaceHostByLookup(ctx, accountID, reverseProxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", reverseProxy.ID, err)
+	}
+
 	m.proxyGRPCServer.SendReverseProxyUpdateToCluster(reverseProxy.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), reverseProxy.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
@@ -247,6 +258,11 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, reverseProxy.ID, accountID, activity.ReverseProxyUpdated, reverseProxy.EventMeta())
+
+	err = m.replaceHostByLookup(ctx, accountID, reverseProxy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to replace host by lookup for proxy %s: %w", reverseProxy.ID, err)
+	}
 
 	token, err := m.tokenStore.GenerateToken(accountID, reverseProxy.ID, 5*time.Minute)
 	if err != nil {
