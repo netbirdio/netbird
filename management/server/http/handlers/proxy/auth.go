@@ -7,6 +7,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
@@ -25,7 +26,7 @@ func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer) *AuthCallba
 }
 
 func (h *AuthCallbackHandler) RegisterEndpoints(router *mux.Router) {
-	router.HandleFunc("/oauth/callback", h.handleCallback).Methods(http.MethodGet)
+	router.HandleFunc(types.ProxyCallbackEndpoint, h.handleCallback).Methods(http.MethodGet)
 }
 
 func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Request) {

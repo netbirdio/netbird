@@ -84,7 +84,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	// OAuth callback for proxy authentication
-	if err := bypass.AddBypassPath(types.ProxyCallbackEndpoint); err != nil {
+	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 

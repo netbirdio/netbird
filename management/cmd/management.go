@@ -221,7 +221,7 @@ func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
 	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
 	callbackURL := strings.TrimSuffix(cfg.HttpConfig.AuthIssuer, "/oauth2")
-	cfg.HttpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpoint
+	cfg.HttpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return nil
 }
