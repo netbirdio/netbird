@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -44,6 +45,14 @@ type DomainConfig struct {
 	Schemes           []Scheme
 	SessionPublicKey  ed25519.PublicKey
 	SessionExpiration time.Duration
+	AccountID         string
+	ServiceID         string
+}
+
+type validationResult struct {
+	UserID       string
+	Valid        bool
+	DeniedReason string
 }
 
 type Middleware struct {
@@ -94,6 +103,12 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
+		// Set account and service IDs in captured data for access logging.
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetAccountId(types.AccountID(config.AccountID))
+			cd.SetServiceId(config.ServiceID)
+		}
+
 		// Check for error from OAuth callback (e.g., access denied)
 		if errCode := r.URL.Query().Get("error"); errCode != "" {
 			var requestID string
@@ -126,7 +141,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		for _, scheme := range config.Schemes {
 			token, promptData := scheme.Authenticate(r)
 			if token != "" {
-				userID, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
+				result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
 				if err != nil {
 					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 						cd.SetOrigin(proxy.OriginAuth)
@@ -134,10 +149,12 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
-				if userID == "" {
+				if !result.Valid {
 					var requestID string
 					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 						cd.SetOrigin(proxy.OriginAuth)
+						cd.SetUserID(result.UserID)
+						cd.SetAuthMethod(scheme.Type().String())
 						requestID = cd.GetRequestID()
 					}
 					web.ServeAccessDeniedPage(w, r, http.StatusForbidden, "Access Denied", "You are not authorized to access this service", requestID)
@@ -161,6 +178,8 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 				// The browser will follow with a GET carrying the new session cookie.
 				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 					cd.SetOrigin(proxy.OriginAuth)
+					cd.SetUserID(result.UserID)
+					cd.SetAuthMethod(scheme.Type().String())
 				}
 				redirectURL := stripSessionTokenParam(r.URL)
 				http.Redirect(w, r, redirectURL, http.StatusSeeOther)
@@ -181,11 +200,14 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 // session JWTs. Returns an error if the key is missing or invalid.
 // Callers must not serve the domain if this returns an error, to avoid
 // exposing an unauthenticated service.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration) error {
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID, serviceID string) error {
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()
-		mw.domains[domain] = DomainConfig{}
+		mw.domains[domain] = DomainConfig{
+			AccountID: accountID,
+			ServiceID: serviceID,
+		}
 		return nil
 	}
 
@@ -203,6 +225,8 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		Schemes:           schemes,
 		SessionPublicKey:  pubKeyBytes,
 		SessionExpiration: expiration,
+		AccountID:         accountID,
+		ServiceID:         serviceID,
 	}
 	return nil
 }
@@ -216,8 +240,8 @@ func (mw *Middleware) RemoveDomain(domain string) {
 // validateSessionToken validates a session token, optionally checking group access via gRPC.
 // For OIDC tokens with a configured validator, it calls ValidateSession to check group access.
 // For other auth methods (PIN, password), it validates the JWT locally.
-// Returns the user ID if valid, empty string if access denied, or error for invalid tokens.
-func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, publicKey ed25519.PublicKey, method auth.Method) (string, error) {
+// Returns a validationResult with user ID and validity status, or error for invalid tokens.
+func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, publicKey ed25519.PublicKey, method auth.Method) (*validationResult, error) {
 	// For OIDC with a session validator, call the gRPC service to check group access
 	if method == auth.MethodOIDC && mw.sessionValidator != nil {
 		resp, err := mw.sessionValidator.ValidateSession(ctx, &proto.ValidateSessionRequest{
@@ -226,7 +250,7 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 		})
 		if err != nil {
 			mw.logger.WithError(err).Error("ValidateSession gRPC call failed")
-			return "", fmt.Errorf("session validation failed")
+			return nil, fmt.Errorf("session validation failed")
 		}
 		if !resp.Valid {
 			mw.logger.WithFields(log.Fields{
@@ -234,17 +258,21 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 				"denied_reason": resp.DeniedReason,
 				"user_id":       resp.UserId,
 			}).Debug("Session validation denied")
-			return "", nil
+			return &validationResult{
+				UserID:       resp.UserId,
+				Valid:        false,
+				DeniedReason: resp.DeniedReason,
+			}, nil
 		}
-		return resp.UserId, nil
+		return &validationResult{UserID: resp.UserId, Valid: true}, nil
 	}
 
 	// For non-OIDC methods or when no validator is configured, validate JWT locally
 	userID, _, err := auth.ValidateSessionJWT(token, host, publicKey)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return userID, nil
+	return &validationResult{UserID: userID, Valid: true}, nil
 }
 
 // stripSessionTokenParam returns the request URI with the session_token query

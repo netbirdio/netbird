@@ -3,15 +3,23 @@ package accesslog
 import (
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
+	"github.com/netbirdio/netbird/proxy/web"
 )
 
 func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip logging for internal proxy assets (CSS, JS, etc.)
+		if strings.HasPrefix(r.URL.Path, web.PathPrefix+"/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Generate request ID early so it can be used by error pages and log correlation.
 		requestID := xid.New().String()
 
