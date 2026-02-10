@@ -627,15 +627,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token accesses child",
+			name:       "PAT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 				IsPAT:          true,
 			},
 		},
@@ -652,15 +651,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 
 		{
-			name:       "Valid JWT Token with child",
+			name:       "JWT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Bearer " + JWT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 			},
 		},
 	}
