@@ -258,14 +258,16 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 			return ruleIndex, fmt.Errorf("configure DNS Local policy for rule %d: %w", ruleIndex, err)
 		}
 
+		// Increment immediately so the caller's cleanup path knows about this rule
+		ruleIndex++
+
 		if r.gpo {
 			if err := r.configureDNSPolicy(gpoPath, batchDomains, ip); err != nil {
-				return ruleIndex, fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex, err)
+				return ruleIndex, fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex-1, err)
 			}
 		}
 
-		log.Debugf("added NRPT rule %d with %d domains", ruleIndex, len(batchDomains))
-		ruleIndex++
+		log.Debugf("added NRPT rule %d with %d domains", ruleIndex-1, len(batchDomains))
 	}
 
 	if r.gpo {
