@@ -96,7 +96,7 @@ func TestManager_CreateMapping(t *testing.T) {
 	m, cancel := setupTestManager(t)
 	defer cancel()
 
-	err := m.createMapping()
+	err := m.createMapping(nil)
 	require.NoError(t, err)
 
 	mapping := m.GetMapping()

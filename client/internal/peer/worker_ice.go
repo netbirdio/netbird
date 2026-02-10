@@ -385,7 +385,7 @@ func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
 	w.muxAgent.Unlock()
 
 	pfManager := w.conn.portForwardManager
-	if pfManager == nil || !pfManager.IsAvailable() {
+	if pfManager == nil {
 		return
 	}
 
