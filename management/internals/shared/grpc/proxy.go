@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
+	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -69,6 +70,9 @@ type ProxyServiceServer struct {
 	// Manager for peers
 	peersManager peers.Manager
 
+	// Manager for users
+	usersManager users.Manager
+
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
 
@@ -90,14 +94,15 @@ type proxyConnection struct {
 	mu       sync.RWMutex
 }
 
-// NewProxyServiceServer creates a new proxy service server
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager) *ProxyServiceServer {
+// NewProxyServiceServer creates a new proxy service server.
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
 	return &ProxyServiceServer{
 		updatesChan:      make(chan *proto.ProxyMapping, 100),
 		accessLogManager: accessLogMgr,
 		oidcConfig:       oidcConfig,
 		tokenStore:       tokenStore,
 		peersManager:     peersManager,
+		usersManager:     usersManager,
 	}
 }
 
@@ -732,4 +737,61 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		method,
 		proxyauth.DefaultSessionExpiry,
 	)
+}
+
+// ValidateUserGroupAccess checks if a user has access to a reverse proxy.
+// It looks up the proxy within the user's account only, then optionally checks
+// group membership if BearerAuth with DistributionGroups is configured.
+func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain, userID string) error {
+	user, err := s.usersManager.GetUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	proxy, err := s.getAccountProxyByDomain(ctx, user.AccountID, domain)
+	if err != nil {
+		return err
+	}
+
+	if proxy.Auth.BearerAuth == nil || !proxy.Auth.BearerAuth.Enabled {
+		return nil
+	}
+
+	allowedGroups := proxy.Auth.BearerAuth.DistributionGroups
+	if len(allowedGroups) == 0 {
+		return nil
+	}
+
+	allowedSet := make(map[string]bool, len(allowedGroups))
+	for _, groupID := range allowedGroups {
+		allowedSet[groupID] = true
+	}
+
+	for _, groupID := range user.AutoGroups {
+		if allowedSet[groupID] {
+			log.WithFields(log.Fields{
+				"user_id":  user.Id,
+				"group_id": groupID,
+				"domain":   domain,
+			}).Debug("User granted access via group membership")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("user %s not in allowed groups for domain %s", user.Id, domain)
+}
+
+func (s *ProxyServiceServer) getAccountProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error) {
+	proxies, err := s.reverseProxyManager.GetAccountReverseProxies(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get account reverse proxies: %w", err)
+	}
+
+	for _, proxy := range proxies {
+		if proxy.Domain == domain {
+			return proxy, nil
+		}
+	}
+
+	return nil, fmt.Errorf("reverse proxy not found for domain %s in account %s", domain, accountID)
 }

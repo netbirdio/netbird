@@ -7,24 +7,27 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/proxy/auth"
 )
 
+// AuthCallbackHandler handles OAuth callbacks for proxy authentication.
 type AuthCallbackHandler struct {
 	proxyService *nbgrpc.ProxyServiceServer
 }
 
+// NewAuthCallbackHandler creates a new OAuth callback handler.
 func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer) *AuthCallbackHandler {
 	return &AuthCallbackHandler{
 		proxyService: proxyService,
 	}
 }
 
+// RegisterEndpoints registers the OAuth callback endpoint.
 func (h *AuthCallbackHandler) RegisterEndpoints(router *mux.Router) {
 	router.HandleFunc(types.ProxyCallbackEndpoint, h.handleCallback).Methods(http.MethodGet)
 }
@@ -46,10 +49,8 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get OIDC configuration
 	oidcConfig := h.proxyService.GetOIDCConfig()
 
-	// Create OIDC provider to discover endpoints
 	provider, err := oidc.NewProvider(r.Context(), oidcConfig.Issuer)
 	if err != nil {
 		log.WithError(err).Error("Failed to create OIDC provider")
@@ -68,7 +69,6 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Extract user ID from the OIDC token
 	userID := extractUserIDFromToken(r.Context(), provider, oidcConfig, token)
 	if userID == "" {
 		log.Error("Failed to extract user ID from OIDC token")
@@ -76,7 +76,22 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Generate session JWT instead of passing OIDC access_token
+	if err := h.proxyService.ValidateUserGroupAccess(r.Context(), redirectURL.Hostname(), userID); err != nil {
+		log.WithFields(log.Fields{
+			"user_id": userID,
+			"domain":  redirectURL.Hostname(),
+			"error":   err.Error(),
+		}).Warn("User denied access to reverse proxy")
+
+		redirectURL.Scheme = "https"
+		query := redirectURL.Query()
+		query.Set("error", "access_denied")
+		query.Set("error_description", "You are not authorized to access this service")
+		redirectURL.RawQuery = query.Encode()
+		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+		return
+	}
+
 	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
 	if err != nil {
 		log.WithError(err).Error("Failed to create session token")
@@ -84,13 +99,8 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Redirect must be HTTPS, regardless of what was originally intended (which should always be HTTPS but better to double-check here).
 	redirectURL.Scheme = "https"
 
-	// Pass the session token in the URL query parameter. The proxy middleware will
-	// extract it, validate it, set its own cookie, and redirect to remove the token from the URL.
-	// We cannot set the cookie here because cookies are domain-scoped (RFC 6265) and the
-	// management server cannot set cookies for the proxy's domain.
 	query := redirectURL.Query()
 	query.Set("session_token", sessionToken)
 	redirectURL.RawQuery = query.Encode()
@@ -99,9 +109,7 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
-// extractUserIDFromToken extracts the user ID from an OIDC token.
 func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) string {
-	// Try to get ID token from the oauth2 token extras
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		log.Warn("No id_token in OIDC response")
@@ -118,27 +126,13 @@ func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config
 		return ""
 	}
 
-	// Extract claims
 	var claims struct {
 		Subject string `json:"sub"`
-		Email   string `json:"email"`
-		UserID  string `json:"user_id"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		log.WithError(err).Warn("Failed to extract claims from ID token")
 		return ""
 	}
 
-	// Prefer subject, fall back to user_id or email
-	if claims.Subject != "" {
-		return claims.Subject
-	}
-	if claims.UserID != "" {
-		return claims.UserID
-	}
-	if claims.Email != "" {
-		return claims.Email
-	}
-
-	return ""
+	return claims.Subject
 }

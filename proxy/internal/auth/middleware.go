@@ -84,6 +84,21 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
+		// Check for error from OAuth callback (e.g., access denied)
+		if errCode := r.URL.Query().Get("error"); errCode != "" {
+			var requestID string
+			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+				cd.SetOrigin(proxy.OriginAuth)
+				requestID = cd.GetRequestID()
+			}
+			errDesc := r.URL.Query().Get("error_description")
+			if errDesc == "" {
+				errDesc = "An error occurred during authentication"
+			}
+			web.ServeErrorPage(w, r, http.StatusForbidden, "Access Denied", errDesc, requestID, web.ErrorStatus{Proxy: true, Destination: true})
+			return
+		}
+
 		// Check for an existing session cookie (contains JWT)
 		if cookie, err := r.Cookie(auth.SessionCookieName); err == nil {
 			if userID, method, err := auth.ValidateSessionJWT(cookie.Value, host, config.SessionPublicKey); err == nil {
