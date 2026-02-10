@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -124,7 +125,8 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 					cd.SetOrigin(proxy.OriginAuth)
 				}
-				http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
+				redirectURL := stripSessionTokenParam(r.URL)
+				http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 				return
 			}
 			methods[scheme.Type().String()] = promptData
@@ -172,4 +174,17 @@ func (mw *Middleware) RemoveDomain(domain string) {
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
 	delete(mw.domains, domain)
+}
+
+// stripSessionTokenParam returns the request URI with the session_token query
+// parameter removed so it doesn't linger in the browser's address bar or history.
+func stripSessionTokenParam(u *url.URL) string {
+	q := u.Query()
+	if !q.Has("session_token") {
+		return u.RequestURI()
+	}
+	q.Del("session_token")
+	clean := *u
+	clean.RawQuery = q.Encode()
+	return clean.RequestURI()
 }
