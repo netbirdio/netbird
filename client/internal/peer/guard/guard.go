@@ -25,9 +25,10 @@ type Guard struct {
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
+	onTimeout               func()
 }
 
-func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher, onTimeout func()) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
@@ -35,6 +36,7 @@ func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Durati
 		srWatcher:               srWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
+		onTimeout:               onTimeout,
 	}
 }
 
@@ -73,6 +75,9 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 		case t := <-tickerChannel:
 			if t.IsZero() {
 				g.log.Infof("retry timed out, stop periodic offer sending")
+				if g.onTimeout != nil {
+					g.onTimeout()
+				}
 				// after backoff timeout the ticker.C will be closed. We need to a dummy channel to avoid loop
 				tickerChannel = make(<-chan time.Time)
 				continue
@@ -113,6 +118,7 @@ func (g *Guard) initialTicker(ctx context.Context) *backoff.Ticker {
 		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         g.timeout,
+		MaxElapsedTime:      g.timeout * 2,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -126,6 +132,7 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         g.timeout,
+		MaxElapsedTime:      g.timeout * 2,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)

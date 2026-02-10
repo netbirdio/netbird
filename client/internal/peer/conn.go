@@ -185,7 +185,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher, conn.onGuardTimeout)
 
 	conn.wg.Add(1)
 	go func() {
@@ -691,6 +691,10 @@ func (conn *Conn) evalStatus() ConnStatus {
 		return StatusConnected
 	}
 
+	if conn.statusRelay.Get() == worker.StatusDisconnected && conn.statusICE.Get() == worker.StatusDisconnected {
+		return StatusIdle
+	}
+
 	return StatusConnecting
 }
 
@@ -853,6 +857,23 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 		return nil, err
 	}
 	return &key, nil
+}
+
+func (conn *Conn) onGuardTimeout() {
+	conn.Log.Infof("connection timeout reached, marking peer as idle")
+
+	// Only set to idle if not currently connected
+	if conn.statusRelay.Get() != worker.StatusConnected && conn.statusICE.Get() != worker.StatusConnected {
+		peerState := State{
+			PubKey:           conn.config.Key,
+			ConnStatus:       StatusIdle,
+			ConnStatusUpdate: time.Now(),
+			Mux:              new(sync.RWMutex),
+		}
+		if err := conn.statusRecorder.UpdatePeerState(peerState); err != nil {
+			conn.Log.Debugf("error while updating peer's state to idle, err: %v", err)
+		}
+	}
 }
 
 func isController(config ConnConfig) bool {
