@@ -51,6 +51,7 @@ var (
 	certFile          string
 	certKeyFile       string
 	certLockMethod    string
+	wgPort            int
 )
 
 var rootCmd = &cobra.Command{
@@ -83,6 +84,7 @@ func init() {
 	rootCmd.Flags().StringVar(&certFile, "cert-file", envStringOrDefault("NB_PROXY_CERTIFICATE_FILE", "tls.crt"), "TLS certificate filename within the certificate directory")
 	rootCmd.Flags().StringVar(&certKeyFile, "cert-key-file", envStringOrDefault("NB_PROXY_CERTIFICATE_KEY_FILE", "tls.key"), "TLS certificate key filename within the certificate directory")
 	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
+	rootCmd.Flags().IntVar(&wgPort, "wg-port", envIntOrDefault("NB_PROXY_WG_PORT", 0), "WireGuard listen port (0 = random). Fixed port only works with single-account deployments")
 }
 
 // Execute runs the root command.
@@ -151,6 +153,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
+		WireguardPort:            wgPort,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -180,4 +183,16 @@ func envStringOrDefault(key string, def string) string {
 		return def
 	}
 	return v
+}
+
+func envIntOrDefault(key string, def int) int {
+	v, exists := os.LookupEnv(key)
+	if !exists {
+		return def
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return parsed
 }

@@ -61,6 +61,7 @@ type managementClient interface {
 type NetBird struct {
 	mgmtAddr   string
 	proxyID    string
+	wgPort     int
 	logger     *log.Logger
 	mgmtClient managementClient
 
@@ -162,16 +163,15 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 		}
 	})
 
-	// Create embedded NetBird client with the generated private key
-	// The peer has already been created via CreateProxyPeer RPC with the public key
-	wgPort := 0
+	// Create embedded NetBird client with the generated private key.
+	// The peer has already been created via CreateProxyPeer RPC with the public key.
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + n.proxyID,
 		ManagementURL: n.mgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  true,
-		WireguardPort: &wgPort,
+		WireguardPort: &n.wgPort,
 	})
 	if err != nil {
 		n.clientsMux.Unlock()
@@ -478,14 +478,17 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 	return result
 }
 
-// NewNetBird creates a new NetBird transport.
-func NewNetBird(mgmtAddr, proxyID string, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+// NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
+// OS-assigned port. A fixed port only works with single-account deployments;
+// multiple accounts will fail to bind the same port.
+func NewNetBird(mgmtAddr, proxyID string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
 		mgmtAddr:       mgmtAddr,
 		proxyID:        proxyID,
+		wgPort:         wgPort,
 		logger:         logger,
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,

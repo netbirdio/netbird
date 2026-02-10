@@ -96,6 +96,10 @@ type Server struct {
 	// When set, forwarding headers from these sources are preserved and
 	// appended to instead of being stripped.
 	TrustedProxies []netip.Prefix
+	// WireguardPort is the port for the WireGuard interface. Use 0 for a
+	// random OS-assigned port. A fixed port only works with single-account
+	// deployments; multiple accounts will fail to bind the same port.
+	WireguardPort int
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -188,7 +192,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.Logger, s, s.mgmtClient)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.WireguardPort, s.Logger, s, s.mgmtClient)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
