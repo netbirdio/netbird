@@ -29,8 +29,9 @@ type PacketFilter interface {
 type FilteredDevice struct {
 	tun.Device
 
-	filter PacketFilter
-	mutex  sync.RWMutex
+	filter    PacketFilter
+	mutex     sync.RWMutex
+	closeOnce sync.Once
 }
 
 // newDeviceFilter constructor function
@@ -38,6 +39,20 @@ func newDeviceFilter(device tun.Device) *FilteredDevice {
 	return &FilteredDevice{
 		Device: device,
 	}
+}
+
+// Close closes the underlying tun device exactly once.
+// wireguard-go's netTun.Close() panics on double-close due to a bare close(channel),
+// and multiple code paths can trigger Close on the same device.
+func (d *FilteredDevice) Close() error {
+	var err error
+	d.closeOnce.Do(func() {
+		err = d.Device.Close()
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Read wraps read method with filtering feature
