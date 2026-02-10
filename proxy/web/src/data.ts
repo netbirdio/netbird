@@ -10,7 +10,6 @@ export interface ErrorData {
   title: string
   message: string
   proxy?: boolean
-  peer?: boolean
   destination?: boolean
   requestId?: string
 }
@@ -44,7 +43,6 @@ export function getData(): Data {
           title: 'Service Unavailable',
           message: 'The service you are trying to access is temporarily unavailable. Please try again later.',
           proxy: true,
-          peer: false,
           destination: false,
         },
       }

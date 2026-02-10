@@ -143,7 +143,6 @@ func setContentType(w http.ResponseWriter, filePath string) {
 // ErrorStatus represents the connection status for each component in the error page.
 type ErrorStatus struct {
 	Proxy       bool
-	Peer        bool
 	Destination bool
 }
 
@@ -156,7 +155,6 @@ func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, mes
 			"title":       title,
 			"message":     message,
 			"proxy":       status.Proxy,
-			"peer":        status.Peer,
 			"destination": status.Destination,
 			"requestId":   requestID,
 		},

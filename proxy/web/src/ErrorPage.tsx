@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import {BookText, RotateCw, Server, Globe, UserIcon, WaypointsIcon} from "lucide-react";
+import {BookText, RotateCw, Globe, UserIcon, WaypointsIcon} from "lucide-react";
 import { Title } from "@/components/Title";
 import { Description } from "@/components/Description";
 import Button from "@/components/Button";
@@ -7,7 +7,7 @@ import { PoweredByNetBird } from "@/components/PoweredByNetBird";
 import { StatusCard } from "@/components/StatusCard";
 import type { ErrorData } from "@/data";
 
-export function ErrorPage({ code, title, message, proxy = true, peer = true, destination = true, requestId }: ErrorData) {
+export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId }: ErrorData) {
   useEffect(() => {
     document.title = `${title} - NetBird Service`;
   }, [title]);
@@ -31,7 +31,6 @@ export function ErrorPage({ code, title, message, proxy = true, peer = true, des
       <div className="hidden sm:flex items-start justify-center w-full mt-6 mb-16 z-10 relative">
         <StatusCard icon={UserIcon} label="You" line={false} />
         <StatusCard icon={WaypointsIcon} label="Proxy" success={proxy} />
-        <StatusCard icon={Server} label="Peer" success={peer} />
         <StatusCard icon={Globe} label="Destination" success={destination} />
       </div>
 

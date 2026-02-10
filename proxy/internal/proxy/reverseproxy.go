@@ -61,7 +61,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestID := getRequestID(r)
 		web.ServeErrorPage(w, r, http.StatusNotFound, "Service Not Found",
 			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.",
-			requestID, web.ErrorStatus{Proxy: true, Peer: false, Destination: false})
+			requestID, web.ErrorStatus{Proxy: true, Destination: false})
 		return
 	}
 
@@ -324,50 +324,50 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 		return "Request Timeout",
 			"The request timed out while trying to reach the service. Please refresh the page and try again.",
 			http.StatusGatewayTimeout,
-			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
+			web.ErrorStatus{Proxy: true, Destination: false}
 
 	case errors.Is(err, context.Canceled):
 		return "Request Canceled",
 			"The request was canceled before it could be completed. Please refresh the page and try again.",
 			http.StatusBadGateway,
-			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
+			web.ErrorStatus{Proxy: true, Destination: false}
 
 	case errors.Is(err, roundtrip.ErrNoAccountID):
 		return "Configuration Error",
 			"The request could not be processed due to a configuration issue. Please refresh the page and try again.",
 			http.StatusInternalServerError,
-			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
+			web.ErrorStatus{Proxy: false, Destination: false}
 
 	case errors.Is(err, roundtrip.ErrNoPeerConnection),
 		errors.Is(err, roundtrip.ErrClientStartFailed):
 		return "Proxy Not Connected",
 			"The proxy is not connected to the NetBird network. Please try again later or contact your administrator.",
 			http.StatusBadGateway,
-			web.ErrorStatus{Proxy: false, Peer: false, Destination: false}
+			web.ErrorStatus{Proxy: false, Destination: false}
 
 	case isConnectionRefused(err):
 		return "Service Unavailable",
 			"The connection to the service was refused. Please verify that the service is running and try again.",
 			http.StatusBadGateway,
-			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
+			web.ErrorStatus{Proxy: true, Destination: false}
 
 	case isHostUnreachable(err):
 		return "Peer Not Connected",
 			"The connection to the peer could not be established. Please ensure the peer is running and connected to the NetBird network.",
 			http.StatusBadGateway,
-			web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
+			web.ErrorStatus{Proxy: true, Destination: false}
 
 	case isNetTimeout(err):
 		return "Request Timeout",
 			"The request timed out while trying to reach the service. Please refresh the page and try again.",
 			http.StatusGatewayTimeout,
-			web.ErrorStatus{Proxy: true, Peer: true, Destination: false}
+			web.ErrorStatus{Proxy: true, Destination: false}
 	}
 
 	return "Connection Error",
 		"An unexpected error occurred while connecting to the service. Please try again later.",
 		http.StatusBadGateway,
-		web.ErrorStatus{Proxy: true, Peer: false, Destination: false}
+		web.ErrorStatus{Proxy: true, Destination: false}
 }
 
 // isConnectionRefused checks for connection refused errors by inspecting
