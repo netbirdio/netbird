@@ -24,6 +24,11 @@ type authenticator interface {
 	Authenticate(ctx context.Context, in *proto.AuthenticateRequest, opts ...grpc.CallOption) (*proto.AuthenticateResponse, error)
 }
 
+// SessionValidator validates session tokens and checks user access permissions.
+type SessionValidator interface {
+	ValidateSession(ctx context.Context, in *proto.ValidateSessionRequest, opts ...grpc.CallOption) (*proto.ValidateSessionResponse, error)
+}
+
 type Scheme interface {
 	Type() auth.Method
 	// Authenticate should check the passed request and determine whether
@@ -42,18 +47,23 @@ type DomainConfig struct {
 }
 
 type Middleware struct {
-	domainsMux sync.RWMutex
-	domains    map[string]DomainConfig
-	logger     *log.Logger
+	domainsMux       sync.RWMutex
+	domains          map[string]DomainConfig
+	logger           *log.Logger
+	sessionValidator SessionValidator
 }
 
-func NewMiddleware(logger *log.Logger) *Middleware {
+// NewMiddleware creates a new authentication middleware.
+// The sessionValidator is optional; if nil, OIDC session tokens will be validated
+// locally without group access checks.
+func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator) *Middleware {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &Middleware{
-		domains: make(map[string]DomainConfig),
-		logger:  logger,
+		domains:          make(map[string]DomainConfig),
+		logger:           logger,
+		sessionValidator: sessionValidator,
 	}
 }
 
@@ -102,9 +112,11 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		// Check for an existing session cookie (contains JWT)
 		if cookie, err := r.Cookie(auth.SessionCookieName); err == nil {
 			if userID, method, err := auth.ValidateSessionJWT(cookie.Value, host, config.SessionPublicKey); err == nil {
-				ctx := withAuthMethod(r.Context(), auth.Method(method))
-				ctx = withAuthUser(ctx, userID)
-				next.ServeHTTP(w, r.WithContext(ctx))
+				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+					cd.SetUserID(userID)
+					cd.SetAuthMethod(method)
+				}
+				next.ServeHTTP(w, r)
 				return
 			}
 		}
@@ -114,11 +126,21 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		for _, scheme := range config.Schemes {
 			token, promptData := scheme.Authenticate(r)
 			if token != "" {
-				if _, _, err := auth.ValidateSessionJWT(token, host, config.SessionPublicKey); err != nil {
+				userID, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
+				if err != nil {
 					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 						cd.SetOrigin(proxy.OriginAuth)
 					}
 					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if userID == "" {
+					var requestID string
+					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+						cd.SetOrigin(proxy.OriginAuth)
+						requestID = cd.GetRequestID()
+					}
+					web.ServeAccessDeniedPage(w, r, http.StatusForbidden, "Access Denied", "You are not authorized to access this service", requestID)
 					return
 				}
 
@@ -189,6 +211,40 @@ func (mw *Middleware) RemoveDomain(domain string) {
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
 	delete(mw.domains, domain)
+}
+
+// validateSessionToken validates a session token, optionally checking group access via gRPC.
+// For OIDC tokens with a configured validator, it calls ValidateSession to check group access.
+// For other auth methods (PIN, password), it validates the JWT locally.
+// Returns the user ID if valid, empty string if access denied, or error for invalid tokens.
+func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, publicKey ed25519.PublicKey, method auth.Method) (string, error) {
+	// For OIDC with a session validator, call the gRPC service to check group access
+	if method == auth.MethodOIDC && mw.sessionValidator != nil {
+		resp, err := mw.sessionValidator.ValidateSession(ctx, &proto.ValidateSessionRequest{
+			Domain:       host,
+			SessionToken: token,
+		})
+		if err != nil {
+			mw.logger.WithError(err).Error("ValidateSession gRPC call failed")
+			return "", fmt.Errorf("session validation failed")
+		}
+		if !resp.Valid {
+			mw.logger.WithFields(log.Fields{
+				"domain":        host,
+				"denied_reason": resp.DeniedReason,
+				"user_id":       resp.UserId,
+			}).Debug("Session validation denied")
+			return "", nil
+		}
+		return resp.UserId, nil
+	}
+
+	// For non-OIDC methods or when no validator is configured, validate JWT locally
+	userID, _, err := auth.ValidateSessionJWT(token, host, publicKey)
+	if err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 // stripSessionTokenParam returns the request URI with the session_token query

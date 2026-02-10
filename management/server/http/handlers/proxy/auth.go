@@ -76,26 +76,18 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.proxyService.ValidateUserGroupAccess(r.Context(), redirectURL.Hostname(), userID); err != nil {
-		log.WithFields(log.Fields{
-			"user_id": userID,
-			"domain":  redirectURL.Hostname(),
-			"error":   err.Error(),
-		}).Warn("User denied access to reverse proxy")
-
-		redirectURL.Scheme = "https"
-		query := redirectURL.Query()
-		query.Set("error", "access_denied")
-		query.Set("error_description", "You are not authorized to access this service")
-		redirectURL.RawQuery = query.Encode()
-		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-		return
-	}
+	// Group validation is performed by the proxy via ValidateSession gRPC call.
+	// This allows the proxy to show 403 pages directly without redirect dance.
 
 	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
 	if err != nil {
 		log.WithError(err).Error("Failed to create session token")
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		redirectURL.Scheme = "https"
+		query := redirectURL.Query()
+		query.Set("error", "access_denied")
+		query.Set("error_description", "Service configuration error")
+		redirectURL.RawQuery = query.Encode()
+		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 		return
 	}
 

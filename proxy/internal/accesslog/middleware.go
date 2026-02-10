@@ -7,7 +7,6 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 )
 
@@ -55,8 +54,8 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			Method:        r.Method,
 			ResponseCode:  int32(sw.status),
 			SourceIp:      sourceIp,
-			AuthMechanism: auth.MethodFromContext(r.Context()).String(),
-			UserId:        auth.UserFromContext(r.Context()),
+			AuthMechanism: capturedData.GetAuthMethod(),
+			UserId:        capturedData.GetUserID(),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",

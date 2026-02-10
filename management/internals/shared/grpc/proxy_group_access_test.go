@@ -68,6 +68,10 @@ func (m *mockReverseProxyManager) GetProxyByID(ctx context.Context, accountID, r
 	return nil, nil
 }
 
+func (m *mockReverseProxyManager) GetProxyIDByTargetID(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+
 type mockUsersManager struct {
 	users map[string]*types.User
 	err   error

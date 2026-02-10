@@ -45,12 +45,14 @@ func (o ResponseOrigin) String() string {
 // CapturedData is a mutable struct that allows downstream handlers
 // to pass data back up the middleware chain.
 type CapturedData struct {
-	mu        sync.RWMutex
-	RequestID string
-	ServiceId string
-	AccountId types.AccountID
-	Origin    ResponseOrigin
-	ClientIP  string
+	mu         sync.RWMutex
+	RequestID  string
+	ServiceId  string
+	AccountId  types.AccountID
+	Origin     ResponseOrigin
+	ClientIP   string
+	UserID     string
+	AuthMethod string
 }
 
 // GetRequestID safely gets the request ID
@@ -114,6 +116,34 @@ func (c *CapturedData) GetClientIP() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ClientIP
+}
+
+// SetUserID safely sets the authenticated user ID.
+func (c *CapturedData) SetUserID(userID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.UserID = userID
+}
+
+// GetUserID safely gets the authenticated user ID.
+func (c *CapturedData) GetUserID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UserID
+}
+
+// SetAuthMethod safely sets the authentication method used.
+func (c *CapturedData) SetAuthMethod(method string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AuthMethod = method
+}
+
+// GetAuthMethod safely gets the authentication method used.
+func (c *CapturedData) GetAuthMethod() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AuthMethod
 }
 
 // WithCapturedData adds a CapturedData struct to the context

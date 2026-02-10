@@ -20,6 +20,10 @@ service ProxyService {
   rpc CreateProxyPeer(CreateProxyPeerRequest) returns (CreateProxyPeerResponse);
 
   rpc GetOIDCURL(GetOIDCURLRequest) returns (GetOIDCURLResponse);
+
+  // ValidateSession validates a session token and checks user access permissions.
+  // Called by the proxy after receiving a session token from OIDC callback.
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -163,4 +167,16 @@ message GetOIDCURLRequest {
 
 message GetOIDCURLResponse {
   string url = 1;
+}
+
+message ValidateSessionRequest {
+  string domain = 1;
+  string session_token = 2;
+}
+
+message ValidateSessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string user_email = 3;
+  string denied_reason = 4;
 }

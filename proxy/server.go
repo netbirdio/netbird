@@ -240,8 +240,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
 	s.proxy = proxy.NewReverseProxy(s.netbird, s.ForwardedProto, s.TrustedProxies, s.Logger)
 
-	// Configure the authentication middleware.
-	s.auth = auth.NewMiddleware(s.Logger)
+	// Configure the authentication middleware with session validator for OIDC group checks.
+	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient)
 
 	// Configure Access logs to management server.
 	accessLog := accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)

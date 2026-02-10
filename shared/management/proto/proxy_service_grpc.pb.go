@@ -24,6 +24,9 @@ type ProxyServiceClient interface {
 	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
 	CreateProxyPeer(ctx context.Context, in *CreateProxyPeerRequest, opts ...grpc.CallOption) (*CreateProxyPeerResponse, error)
 	GetOIDCURL(ctx context.Context, in *GetOIDCURLRequest, opts ...grpc.CallOption) (*GetOIDCURLResponse, error)
+	// ValidateSession validates a session token and checks user access permissions.
+	// Called by the proxy after receiving a session token from OIDC callback.
+	ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -111,6 +114,15 @@ func (c *proxyServiceClient) GetOIDCURL(ctx context.Context, in *GetOIDCURLReque
 	return out, nil
 }
 
+func (c *proxyServiceClient) ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error) {
+	out := new(ValidateSessionResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/ValidateSession", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -121,6 +133,9 @@ type ProxyServiceServer interface {
 	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
 	CreateProxyPeer(context.Context, *CreateProxyPeerRequest) (*CreateProxyPeerResponse, error)
 	GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error)
+	// ValidateSession validates a session token and checks user access permissions.
+	// Called by the proxy after receiving a session token from OIDC callback.
+	ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -145,6 +160,9 @@ func (UnimplementedProxyServiceServer) CreateProxyPeer(context.Context, *CreateP
 }
 func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRequest) (*GetOIDCURLResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOIDCURL not implemented")
+}
+func (UnimplementedProxyServiceServer) ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateSession not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -270,6 +288,24 @@ func _ProxyService_GetOIDCURL_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_ValidateSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).ValidateSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/ValidateSession",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).ValidateSession(ctx, req.(*ValidateSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -296,6 +332,10 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetOIDCURL",
 			Handler:    _ProxyService_GetOIDCURL_Handler,
+		},
+		{
+			MethodName: "ValidateSession",
+			Handler:    _ProxyService_ValidateSession_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
