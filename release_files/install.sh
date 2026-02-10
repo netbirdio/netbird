@@ -77,9 +77,9 @@ download_release_binary() {
 
     echo "Installing $APP_TYPE from $DOWNLOAD_URL"
     if [ -n "$GITHUB_TOKEN" ]; then
-      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" --header "Authorization: token ${GITHUB_TOKEN}" "$DOWNLOAD_URL"
+      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --remote-time --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" --header "Authorization: token ${GITHUB_TOKEN}" "$DOWNLOAD_URL"
     else
-      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL" || curl --fail --silent --show-error --location --remote-name --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --remote-time --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL" || curl --fail --silent --show-error --location --remote-name --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -188,7 +188,7 @@ install_pkg() {
 
   PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  curl --fail --silent --show-error --location --time-cond "${TMPDIR:-/tmp}/netbird.pkg" --output "${TMPDIR:-/tmp}/netbird.pkg" "${PKG_URL}"
+  curl --fail --silent --show-error --location --remote-time --time-cond "${TMPDIR:-/tmp}/netbird.pkg" --output "${TMPDIR:-/tmp}/netbird.pkg" "${PKG_URL}"
   ${SUDO} installer -pkg "${TMPDIR:-/tmp}/netbird.pkg" -target /
 }
 
