@@ -131,7 +131,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if integrations.IsValidChildAccount(ctx, userAuth.AccountId, impersonate[0]) {
+		if integrations.IsValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
 			userAuth.AccountId = impersonate[0]
 			userAuth.IsChild = true
 		}
@@ -210,7 +210,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if integrations.IsValidChildAccount(r.Context(), userAuth.AccountId, impersonate[0]) {
+		if integrations.IsValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
 			userAuth.AccountId = impersonate[0]
 			userAuth.IsChild = true
 		}
