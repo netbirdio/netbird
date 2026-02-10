@@ -13,6 +13,7 @@ export interface ErrorData {
   destination?: boolean
   requestId?: string
   simple?: boolean
+  retryUrl?: string
 }
 
 // Data injected by Go templates

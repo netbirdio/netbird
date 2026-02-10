@@ -7,7 +7,7 @@ import { PoweredByNetBird } from "@/components/PoweredByNetBird";
 import { StatusCard } from "@/components/StatusCard";
 import type { ErrorData } from "@/data";
 
-export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId, simple = false }: ErrorData) {
+export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId, simple = false, retryUrl }: ErrorData) {
   useEffect(() => {
     document.title = `${title} - NetBird Service`;
   }, [title]);
@@ -38,7 +38,7 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
 
       {/* Buttons */}
       <div className="flex gap-3 justify-center items-center mb-6 z-10 relative">
-        <Button variant="primary" onClick={() => window.location.reload()}>
+        <Button variant="primary" onClick={() => retryUrl ? window.location.href = retryUrl : window.location.reload()}>
           <RotateCw size={16} />
           Refresh Page
         </Button>

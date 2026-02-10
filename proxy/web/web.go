@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 )
@@ -171,6 +172,18 @@ func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, tit
 			"message":   message,
 			"requestId": requestID,
 			"simple":    true,
+			"retryUrl":  stripAuthParams(r.URL),
 		},
 	}, code)
+}
+
+// stripAuthParams returns the request URI with auth-related query parameters removed.
+func stripAuthParams(u *url.URL) string {
+	q := u.Query()
+	q.Del("session_token")
+	q.Del("error")
+	q.Del("error_description")
+	clean := *u
+	clean.RawQuery = q.Encode()
+	return clean.RequestURI()
 }
