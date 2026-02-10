@@ -1881,7 +1881,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID, time.Now().UTC())
 	require.NoError(t, err, "unable to mark peer connected")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
@@ -1952,7 +1952,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	require.NoError(t, err, "unable to get the account")
 
 	// when we mark peer as connected, the peer login expiration routine should trigger
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID, time.Now().UTC())
 	require.NoError(t, err, "unable to mark peer connected")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1979,7 +1979,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 	require.NoError(t, err, "unable to add peer")
 
 	t.Run("disconnect peer when streamStartTime is after LastSeen", func(t *testing.T) {
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID, time.Now().UTC())
 		require.NoError(t, err, "unable to mark peer connected")
 
 		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -1997,7 +1997,7 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 	})
 
 	t.Run("skip disconnect when LastSeen is after streamStartTime (zombie stream protection)", func(t *testing.T) {
-		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID, time.Now().UTC())
 		require.NoError(t, err, "unable to mark peer connected")
 
 		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
@@ -2013,6 +2013,27 @@ func TestDefaultAccountManager_OnPeerDisconnected_LastSeenCheck(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, peer.Status.Connected,
 			"peer should remain connected because LastSeen > streamStartTime (zombie stream protection)")
+	})
+
+	t.Run("skip stale connect when peer already has newer LastSeen (blocked goroutine protection)", func(t *testing.T) {
+		node2SyncTime := time.Now().UTC()
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID, node2SyncTime)
+		require.NoError(t, err, "node 2 should connect peer")
+
+		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
+		require.NoError(t, err)
+		require.True(t, peer.Status.Connected, "peer should be connected")
+		require.Equal(t, node2SyncTime.Unix(), peer.Status.LastSeen.Unix(), "LastSeen should be node2SyncTime")
+
+		node1StaleSyncTime := node2SyncTime.Add(-1 * time.Minute)
+		err = manager.MarkPeerConnected(context.Background(), peerPubKey, true, nil, accountID, node1StaleSyncTime)
+		require.NoError(t, err, "stale connect should not return error")
+
+		peer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
+		require.NoError(t, err)
+		require.True(t, peer.Status.Connected, "peer should still be connected")
+		require.Equal(t, node2SyncTime.Unix(), peer.Status.LastSeen.Unix(),
+			"LastSeen should NOT be overwritten by stale syncTime from blocked goroutine")
 	})
 }
 
@@ -2038,7 +2059,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	account, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "unable to get the account")
 
-	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
+	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID, time.Now().UTC())
 	require.NoError(t, err, "unable to mark peer connected")
 
 	wg := &sync.WaitGroup{}
@@ -3231,7 +3252,7 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_, _, _, _, err := manager.SyncAndMarkPeer(context.Background(), account.Id, account.Peers["peer-1"].Key, nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)}, net.IP{1, 1, 1, 1})
+				_, _, _, _, err := manager.SyncAndMarkPeer(context.Background(), account.Id, account.Peers["peer-1"].Key, nbpeer.PeerSystemMeta{Hostname: strconv.Itoa(i)}, net.IP{1, 1, 1, 1}, time.Now().UTC())
 				assert.NoError(b, err)
 			}
 
