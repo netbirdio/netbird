@@ -828,6 +828,10 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	started := time.Now()
+	defer func() {
+		log.Infof("sync finished in %s", time.Since(started))
+	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -1017,7 +1021,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
-	state.KernelInterface = device.WireGuardModuleIsLoaded()
+	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
 
 	e.statusRecorder.UpdateLocalPeerState(state)

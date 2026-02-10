@@ -1,12 +1,9 @@
 package uspfilter
 
 import (
-	"context"
 	"fmt"
-	"net/netip"
 	"os/exec"
 	"syscall"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -26,33 +23,7 @@ func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[netip.Addr]RuleSet)
-	m.incomingDenyRules = make(map[netip.Addr]RuleSet)
-	m.incomingRules = make(map[netip.Addr]RuleSet)
-
-	if m.udpTracker != nil {
-		m.udpTracker.Close()
-	}
-
-	if m.icmpTracker != nil {
-		m.icmpTracker.Close()
-	}
-
-	if m.tcpTracker != nil {
-		m.tcpTracker.Close()
-	}
-
-	if fwder := m.forwarder.Load(); fwder != nil {
-		fwder.Stop()
-	}
-
-	if m.logger != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		if err := m.logger.Stop(ctx); err != nil {
-			log.Errorf("failed to shutdown logger: %v", err)
-		}
-	}
+	m.resetState()
 
 	if !isWindowsFirewallReachable() {
 		return nil
