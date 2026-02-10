@@ -195,7 +195,7 @@ wait_management() {
       echo ""
       echo "Taking too long. Checking logs..."
       $DOCKER_COMPOSE_COMMAND logs --tail=20 caddy
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
     sleep 2
@@ -219,7 +219,7 @@ wait_management_direct() {
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
     sleep 2
