@@ -19,6 +19,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+const unknownHostPlaceholder = "unknown"
+
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, domain string) (string, error)
@@ -75,19 +77,25 @@ func (m *managerImpl) replaceHostByLookup(ctx context.Context, accountID string,
 		case reverseproxy.TargetTypePeer:
 			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				return fmt.Errorf("failed to get peer by id: %w", err)
+				log.WithContext(ctx).Warnf("failed to get peer by id %s for reverse proxy %s: %v", target.TargetId, proxy.ID, err)
+				target.Host = unknownHostPlaceholder
+				continue
 			}
 			target.Host = peer.IP.String()
 		case reverseproxy.TargetTypeHost:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				return fmt.Errorf("failed to get resource by id: %w", err)
+				log.WithContext(ctx).Warnf("failed to get resource by id %s for reverse proxy %s: %v", target.TargetId, proxy.ID, err)
+				target.Host = unknownHostPlaceholder
+				continue
 			}
 			target.Host = resource.Prefix.Addr().String()
 		case reverseproxy.TargetTypeDomain:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				return fmt.Errorf("failed to get resource by id: %w", err)
+				log.WithContext(ctx).Warnf("failed to get resource by id %s for reverse proxy %s: %v", target.TargetId, proxy.ID, err)
+				target.Host = unknownHostPlaceholder
+				continue
 			}
 			target.Host = resource.Domain
 		case reverseproxy.TargetTypeSubnet:
