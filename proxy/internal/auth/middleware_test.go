@@ -509,3 +509,152 @@ func TestAddDomain_InvalidKeyDoesNotCorruptExistingConfig(t *testing.T) {
 	assert.Len(t, config.Schemes, 1)
 	assert.Equal(t, time.Hour, config.SessionExpiration)
 }
+
+func TestProtect_FailedPinAuthCapturesAuthMethod(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil)
+	kp := generateTestKeyPair(t)
+
+	// Scheme that always fails authentication (returns empty token)
+	scheme := &stubScheme{
+		method: auth.MethodPIN,
+		authFn: func(_ *http.Request) (string, string) {
+			return "", "pin"
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
+
+	capturedData := &proxy.CapturedData{}
+	handler := mw.Protect(newPassthroughHandler())
+
+	// Submit wrong PIN - should capture auth method
+	form := url.Values{"pin": {"wrong-pin"}}
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, "pin", capturedData.GetAuthMethod(), "Auth method should be captured for failed PIN auth")
+}
+
+func TestProtect_FailedPasswordAuthCapturesAuthMethod(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{
+		method: auth.MethodPassword,
+		authFn: func(_ *http.Request) (string, string) {
+			return "", "password"
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
+
+	capturedData := &proxy.CapturedData{}
+	handler := mw.Protect(newPassthroughHandler())
+
+	// Submit wrong password - should capture auth method
+	form := url.Values{"password": {"wrong-password"}}
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, "password", capturedData.GetAuthMethod(), "Auth method should be captured for failed password auth")
+}
+
+func TestProtect_NoCredentialsDoesNotCaptureAuthMethod(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{
+		method: auth.MethodPIN,
+		authFn: func(_ *http.Request) (string, string) {
+			return "", "pin"
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
+
+	capturedData := &proxy.CapturedData{}
+	handler := mw.Protect(newPassthroughHandler())
+
+	// No credentials submitted - should not capture auth method
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Empty(t, capturedData.GetAuthMethod(), "Auth method should not be captured when no credentials submitted")
+}
+
+func TestWasCredentialSubmitted(t *testing.T) {
+	tests := []struct {
+		name     string
+		method   auth.Method
+		formData url.Values
+		query    url.Values
+		expected bool
+	}{
+		{
+			name:     "PIN submitted",
+			method:   auth.MethodPIN,
+			formData: url.Values{"pin": {"123456"}},
+			expected: true,
+		},
+		{
+			name:     "PIN not submitted",
+			method:   auth.MethodPIN,
+			formData: url.Values{},
+			expected: false,
+		},
+		{
+			name:     "Password submitted",
+			method:   auth.MethodPassword,
+			formData: url.Values{"password": {"secret"}},
+			expected: true,
+		},
+		{
+			name:     "Password not submitted",
+			method:   auth.MethodPassword,
+			formData: url.Values{},
+			expected: false,
+		},
+		{
+			name:     "OIDC token in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{"session_token": {"abc123"}},
+			expected: true,
+		},
+		{
+			name:     "OIDC token not in query",
+			method:   auth.MethodOIDC,
+			query:    url.Values{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqURL := "http://example.com/"
+			if len(tt.query) > 0 {
+				reqURL += "?" + tt.query.Encode()
+			}
+
+			var body *strings.Reader
+			if len(tt.formData) > 0 {
+				body = strings.NewReader(tt.formData.Encode())
+			} else {
+				body = strings.NewReader("")
+			}
+
+			req := httptest.NewRequest(http.MethodPost, reqURL, body)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			result := wasCredentialSubmitted(req, tt.method)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

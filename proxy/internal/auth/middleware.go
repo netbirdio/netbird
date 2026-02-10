@@ -114,6 +114,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			var requestID string
 			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 				cd.SetOrigin(proxy.OriginAuth)
+				cd.SetAuthMethod(auth.MethodOIDC.String())
 				requestID = cd.GetRequestID()
 			}
 			errDesc := r.URL.Query().Get("error_description")
@@ -138,13 +139,21 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		// Try to authenticate with each scheme.
 		methods := make(map[string]string)
+		var attemptedMethod string
 		for _, scheme := range config.Schemes {
 			token, promptData := scheme.Authenticate(r)
+
+			// Track if credentials were submitted but auth failed
+			if token == "" && wasCredentialSubmitted(r, scheme.Type()) {
+				attemptedMethod = scheme.Type().String()
+			}
+
 			if token != "" {
 				result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
 				if err != nil {
 					if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 						cd.SetOrigin(proxy.OriginAuth)
+						cd.SetAuthMethod(scheme.Type().String())
 					}
 					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
@@ -190,9 +199,25 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetOrigin(proxy.OriginAuth)
+			if attemptedMethod != "" {
+				cd.SetAuthMethod(attemptedMethod)
+			}
 		}
 		web.ServeHTTP(w, r, map[string]any{"methods": methods}, http.StatusUnauthorized)
 	})
+}
+
+// wasCredentialSubmitted checks if credentials were submitted for the given auth method.
+func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
+	switch method {
+	case auth.MethodPIN:
+		return r.FormValue("pin") != ""
+	case auth.MethodPassword:
+		return r.FormValue("password") != ""
+	case auth.MethodOIDC:
+		return r.URL.Query().Get("session_token") != ""
+	}
+	return false
 }
 
 // AddDomain registers authentication schemes for the given domain.
