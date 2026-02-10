@@ -95,7 +95,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if errDesc == "" {
 				errDesc = "An error occurred during authentication"
 			}
-			web.ServeErrorPage(w, r, http.StatusForbidden, "Access Denied", errDesc, requestID, web.ErrorStatus{Proxy: true, Destination: true})
+			web.ServeAccessDeniedPage(w, r, http.StatusForbidden, "Access Denied", errDesc, requestID)
 			return
 		}
 

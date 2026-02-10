@@ -12,6 +12,7 @@ export interface ErrorData {
   proxy?: boolean
   destination?: boolean
   requestId?: string
+  simple?: boolean
 }
 
 // Data injected by Go templates

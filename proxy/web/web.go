@@ -160,3 +160,17 @@ func ServeErrorPage(w http.ResponseWriter, r *http.Request, code int, title, mes
 		},
 	}, code)
 }
+
+// ServeAccessDeniedPage renders a simple access denied page without the connection status graph.
+func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, title, message, requestID string) {
+	ServeHTTP(w, r, map[string]any{
+		"page": "error",
+		"error": map[string]any{
+			"code":      code,
+			"title":     title,
+			"message":   message,
+			"requestId": requestID,
+			"simple":    true,
+		},
+	}, code)
+}

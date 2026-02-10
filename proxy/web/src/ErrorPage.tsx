@@ -7,7 +7,7 @@ import { PoweredByNetBird } from "@/components/PoweredByNetBird";
 import { StatusCard } from "@/components/StatusCard";
 import type { ErrorData } from "@/data";
 
-export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId }: ErrorData) {
+export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId, simple = false }: ErrorData) {
   useEffect(() => {
     document.title = `${title} - NetBird Service`;
   }, [title]);
@@ -27,12 +27,14 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
       {/* Description */}
       <Description className="mt-2 mb-8 max-w-md">{message}</Description>
 
-      {/* Status Cards */}
-      <div className="hidden sm:flex items-start justify-center w-full mt-6 mb-16 z-10 relative">
-        <StatusCard icon={UserIcon} label="You" line={false} />
-        <StatusCard icon={WaypointsIcon} label="Proxy" success={proxy} />
-        <StatusCard icon={Globe} label="Destination" success={destination} />
-      </div>
+      {/* Status Cards - hidden in simple mode */}
+      {!simple && (
+        <div className="hidden sm:flex items-start justify-center w-full mt-6 mb-16 z-10 relative">
+          <StatusCard icon={UserIcon} label="You" line={false} />
+          <StatusCard icon={WaypointsIcon} label="Proxy" success={proxy} />
+          <StatusCard icon={Globe} label="Destination" success={destination} />
+        </div>
+      )}
 
       {/* Buttons */}
       <div className="flex gap-3 justify-center items-center mb-6 z-10 relative">
