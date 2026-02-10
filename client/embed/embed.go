@@ -69,6 +69,10 @@ type Options struct {
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
+	// BlockInbound blocks all inbound connections from peers
+	BlockInbound bool
+	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
+	WireguardPort *int
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -137,6 +141,8 @@ func New(opts Options) (*Client, error) {
 		PreSharedKey:        &opts.PreSharedKey,
 		DisableServerRoutes: &t,
 		DisableClientRoutes: &opts.DisableClientRoutes,
+		BlockInbound:        &opts.BlockInbound,
+		WireguardPort:       opts.WireguardPort,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)

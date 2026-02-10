@@ -584,9 +584,11 @@ func (e *Engine) createFirewall() error {
 
 	var err error
 	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
-	if err != nil || e.firewall == nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-		return nil
+	if err != nil {
+		return fmt.Errorf("create firewall manager: %w", err)
+	}
+	if e.firewall == nil {
+		return fmt.Errorf("create firewall manager: received nil manager")
 	}
 
 	if err := e.initFirewall(); err != nil {
@@ -837,6 +839,10 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	started := time.Now()
+	defer func() {
+		log.Infof("sync finished in %s", time.Since(started))
+	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -1026,7 +1032,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
-	state.KernelInterface = device.WireGuardModuleIsLoaded()
+	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
 
 	e.statusRecorder.UpdateLocalPeerState(state)

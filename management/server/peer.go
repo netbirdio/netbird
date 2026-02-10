@@ -103,11 +103,13 @@ func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, acc
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string) error {
+// syncTime is used as the LastSeen timestamp and for stale request detection
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string, syncTime time.Time) error {
 	var peer *nbpeer.Peer
 	var settings *types.Settings
 	var expired bool
 	var err error
+	var skipped bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
@@ -115,9 +117,19 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 			return err
 		}
 
-		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID)
+		if connected && !syncTime.After(peer.Status.LastSeen) {
+			log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s >= syncTime=%s), skipping connect",
+				peer.ID, peer.Status.LastSeen.Format(time.RFC3339), syncTime.Format(time.RFC3339))
+			skipped = true
+			return nil
+		}
+
+		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID, syncTime)
 		return err
 	})
+	if skipped {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -147,10 +159,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
-func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string) (bool, error) {
+func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string, syncTime time.Time) (bool, error) {
 	oldStatus := peer.Status.Copy()
 	newStatus := oldStatus
-	newStatus.LastSeen = time.Now().UTC()
+	newStatus.LastSeen = syncTime
 	newStatus.Connected = connected
 	// whenever peer got connected that means that it logged in successfully
 	if newStatus.Connected {
@@ -728,11 +740,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
-			if temporary {
-				// we should track ephemeral peers to be able to clean them if the peer don't sync and be marked as connected
-				am.networkMapController.TrackEphemeralPeer(ctx, newPeer)
-			}
-
 			if addedByUser {
 				err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 				if err != nil {
@@ -758,6 +765,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to increment network serial: %w", err)
+			}
+
+			if ephemeral {
+				// we should track ephemeral peers to be able to clean them if the peer doesn't sync and isn't marked as connected
+				am.networkMapController.TrackEphemeralPeer(ctx, newPeer)
 			}
 
 			log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)

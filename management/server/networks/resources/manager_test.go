@@ -203,7 +203,7 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 		NetworkID:   "testNetworkId",
 		Name:        "testResourceId",
 		Description: "description",
-		Address:     "invalid-address",
+		Address:     "-invalid",
 	}
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
@@ -227,9 +227,9 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 	resource := &types.NetworkResource{
 		AccountID:   "testAccountId",
 		NetworkID:   "testNetworkId",
-		Name:        "testResourceId",
+		Name:        "used-name",
 		Description: "description",
-		Address:     "invalid-address",
+		Address:     "example.com",
 	}
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())

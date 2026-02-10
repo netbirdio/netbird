@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"errors"
-	"regexp"
+	"fmt"
+	"strings"
 	"unicode/utf8"
 
-	"github.com/miekg/dns"
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -15,10 +15,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
 
 var errInvalidDomainName = errors.New("invalid domain name")
 
@@ -305,16 +304,18 @@ func validateGroups(list []string, groups map[string]*types.Group) error {
 	return nil
 }
 
-var domainMatcher = regexp.MustCompile(domainPattern)
-
-func validateDomain(domain string) error {
-	if !domainMatcher.MatchString(domain) {
-		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
+// validateDomain validates a nameserver match domain.
+// Converts unicode to punycode. Wildcards are not allowed for nameservers.
+func validateDomain(d string) error {
+	if strings.HasPrefix(d, "*.") {
+		return errors.New("wildcards not allowed")
 	}
 
-	_, valid := dns.IsDomainName(domain)
-	if !valid {
-		return errInvalidDomainName
+	// Nameservers allow trailing dot (FQDN format)
+	toValidate := strings.TrimSuffix(d, ".")
+
+	if _, err := nbdomain.ValidateDomains([]string{toValidate}); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidDomainName, err)
 	}
 
 	return nil

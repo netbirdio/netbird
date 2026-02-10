@@ -73,7 +73,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager, settings.IdpConfig{})
 	peersManager := peers.NewManager(store, permissionsManager)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)

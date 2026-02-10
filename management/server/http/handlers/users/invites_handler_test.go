@@ -206,6 +206,14 @@ func TestCreateInvite(t *testing.T) {
 			},
 		},
 		{
+			name:           "local auth disabled",
+			requestBody:    `{"email":"test@example.com","name":"Test User","role":"user","auto_groups":[]}`,
+			expectedStatus: http.StatusPreconditionFailed,
+			mockFunc: func(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
+				return nil, status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+			},
+		},
+		{
 			name:           "invalid JSON",
 			requestBody:    `{invalid json}`,
 			expectedStatus: http.StatusBadRequest,
@@ -374,6 +382,15 @@ func TestAcceptInvite(t *testing.T) {
 			expectedStatus: http.StatusPreconditionFailed,
 			mockFunc: func(ctx context.Context, token, password string) error {
 				return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+			},
+		},
+		{
+			name:           "local auth disabled",
+			token:          testInviteToken,
+			requestBody:    `{"password":"SecurePass123!"}`,
+			expectedStatus: http.StatusPreconditionFailed,
+			mockFunc: func(ctx context.Context, token, password string) error {
+				return status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
 			},
 		},
 		{

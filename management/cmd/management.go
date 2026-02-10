@@ -16,13 +16,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -78,9 +78,8 @@ var (
 				}
 			}
 
-			_, valid := dns.IsDomainName(dnsDomain)
-			if !valid || len(dnsDomain) > 192 {
-				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Length: %d", valid, len(dnsDomain))
+			if !nbdomain.IsValidDomainNoWildcard(dnsDomain) {
+				return fmt.Errorf("invalid dns-domain: %s", dnsDomain)
 			}
 
 			return nil
