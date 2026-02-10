@@ -54,27 +54,28 @@ get_release() {
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
+    APP_TYPE=$1
 	echo "Using the following tag name for binary installation: ${TAG_NAME}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
     # for Darwin, download the signed NetBird-UI
-    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
-    if [ "$1" = "$UI_APP" ]; then
-       BINARY_NAME="$1-${OS_TYPE}_${BINARY_BASE_NAME}"
+    if [ "$APP_TYPE" = "$UI_APP" ]; then
+       BINARY_NAME="${APP_TYPE}-${OS_TYPE}_${BINARY_BASE_NAME}"
        if [ "$OS_TYPE" = "$DARWIN" ]; then
-         BINARY_NAME="$1_${BINARY_BASE_NAME}"
+         BINARY_NAME="${APP_TYPE}_${BINARY_BASE_NAME}"
        fi
     else
-       BINARY_NAME="$1_${BINARY_BASE_NAME}"
+       BINARY_NAME="${APP_TYPE}_${BINARY_BASE_NAME}"
     fi
 
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
-    echo "Installing $1 from $DOWNLOAD_URL"
+    echo "Installing $APP_TYPE from $DOWNLOAD_URL"
     if [ -n "$GITHUB_TOKEN" ]; then
       cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" --header "Authorization: token ${GITHUB_TOKEN}" "$DOWNLOAD_URL"
     else
@@ -82,7 +83,7 @@ download_release_binary() {
     fi
 
 
-    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
         if test -d "$INSTALL_DIR" ; then
@@ -96,7 +97,7 @@ download_release_binary() {
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        ${SUDO} mv "${APP_TYPE%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
