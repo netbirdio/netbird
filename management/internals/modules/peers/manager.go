@@ -33,7 +33,7 @@ type Manager interface {
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
 	SetAccountManager(accountManager account.Manager)
 	GetPeerID(ctx context.Context, peerKey string) (string, error)
-	CreateProxyPeer(ctx context.Context, accountID string, peerKey string) error
+	CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error
 }
 
 type managerImpl struct {
@@ -185,7 +185,7 @@ func (m *managerImpl) GetPeerID(ctx context.Context, peerKey string) (string, er
 	return m.store.GetPeerIDByKey(ctx, store.LockingStrengthNone, peerKey)
 }
 
-func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, peerKey string) error {
+func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error {
 	existingPeerID, err := m.store.GetPeerIDByKey(ctx, store.LockingStrengthNone, peerKey)
 	if err == nil && existingPeerID != "" {
 		// Peer already exists
@@ -194,8 +194,11 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 
 	name := fmt.Sprintf("proxy-%s", xid.New().String())
 	peer := &peer.Peer{
-		Ephemeral:                   true,
-		ProxyEmbedded:               true,
+		Ephemeral: true,
+		ProxyMeta: peer.ProxyMeta{
+			Cluster:  cluster,
+			Embedded: true,
+		},
 		Name:                        name,
 		Key:                         peerKey,
 		LoginExpirationEnabled:      false,

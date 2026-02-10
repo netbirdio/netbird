@@ -146,6 +146,7 @@ message CreateProxyPeerRequest {
   string account_id = 2;
   string token = 3;
   string wireguard_public_key = 4;
+  string cluster = 5;
 }
 
 // CreateProxyPeerResponse contains the result of peer creation

@@ -2077,9 +2077,6 @@ type ReverseProxyRequest struct {
 
 // ReverseProxyTarget defines model for ReverseProxyTarget.
 type ReverseProxyTarget struct {
-	// AccessLocal Whether the resource is served locally on the router peer, requiring direct peer-level access
-	AccessLocal *bool `json:"access_local,omitempty"`
-
 	// Enabled Whether this target is enabled
 	Enabled bool `json:"enabled"`
 

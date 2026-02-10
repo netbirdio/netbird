@@ -24,6 +24,8 @@ type Peer struct {
 	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	// ProxyMeta is metadata related to proxy peers
+	ProxyMeta ProxyMeta `gorm:"embedded;embeddedPrefix:proxy_meta_"`
 	// Name is peer's name (machine name)
 	Name string `gorm:"index"`
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
@@ -48,8 +50,7 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool `gorm:"index"`
-	// ProxyEmbedded indicates whether the peer is embedded in a reverse proxy
-	ProxyEmbedded bool `gorm:"index"`
+
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
@@ -57,6 +58,11 @@ type Peer struct {
 	ExtraDNSLabels []string `gorm:"serializer:json"`
 	// AllowExtraDNSLabels indicates whether the peer allows extra DNS labels to be used for resolving the peer
 	AllowExtraDNSLabels bool
+}
+
+type ProxyMeta struct {
+	Embedded bool   `gorm:"index"`
+	Cluster  string `gorm:"index"`
 }
 
 type PeerStatus struct { //nolint:revive
@@ -226,7 +232,7 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:                   p.LastLogin,
 		CreatedAt:                   p.CreatedAt,
 		Ephemeral:                   p.Ephemeral,
-		ProxyEmbedded:               p.ProxyEmbedded,
+		ProxyMeta:                   p.ProxyMeta,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),

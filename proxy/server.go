@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	backoff "github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -192,7 +192,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.WireguardPort, s.Logger, s, s.mgmtClient)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}

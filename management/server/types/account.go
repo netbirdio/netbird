@@ -422,7 +422,7 @@ func (a *Account) GetPeerProxyResources(peerID string, services []*reverseproxy.
 			aclPeers = proxyPeers
 
 			needsPeerRules := (target.TargetType == reverseproxy.TargetTypePeer && target.TargetId == peerID) ||
-				((target.TargetType == reverseproxy.TargetTypeHost || target.TargetType == reverseproxy.TargetTypeSubnet || target.TargetType == reverseproxy.TargetTypeDomain) && target.AccessLocal)
+				(target.TargetType == reverseproxy.TargetTypeHost || target.TargetType == reverseproxy.TargetTypeSubnet || target.TargetType == reverseproxy.TargetTypeDomain)
 
 			if needsPeerRules {
 				for _, proxyPeer := range proxyPeers {
@@ -1285,7 +1285,7 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
 	for _, p := range uniquePeerIDs {
 		peer, ok := a.Peers[p]
-		if !ok || peer == nil || peer.ProxyEmbedded {
+		if !ok || peer == nil || peer.ProxyMeta.Embedded {
 			continue
 		}
 
@@ -1848,11 +1848,11 @@ func (a *Account) GetActiveGroupUsers() map[string][]string {
 	return groups
 }
 
-func (a *Account) GetProxyPeers() []*nbpeer.Peer {
-	var proxyPeers []*nbpeer.Peer
+func (a *Account) GetProxyPeers() map[string][]*nbpeer.Peer {
+	proxyPeers := make(map[string][]*nbpeer.Peer)
 	for _, peer := range a.Peers {
-		if peer.ProxyEmbedded {
-			proxyPeers = append(proxyPeers, peer)
+		if peer.ProxyMeta.Embedded {
+			proxyPeers[peer.ProxyMeta.Cluster] = append(proxyPeers[peer.ProxyMeta.Cluster], peer)
 		}
 	}
 	return proxyPeers
@@ -1928,21 +1928,21 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		return
 	}
 
-	proxyPeers := a.GetProxyPeers()
-	if len(proxyPeers) == 0 {
+	proxyPeersByCluster := a.GetProxyPeers()
+	if len(proxyPeersByCluster) == 0 {
 		return
 	}
 
-	for _, proxyPeer := range proxyPeers {
-		for _, service := range a.ReverseProxies {
-			if !service.Enabled {
+	for _, service := range a.ReverseProxies {
+		if !service.Enabled {
+			continue
+		}
+		for _, target := range service.Targets {
+			if !target.Enabled {
 				continue
 			}
-			for _, target := range service.Targets {
-				if !target.Enabled {
-					continue
-				}
 
+			for _, proxyPeer := range proxyPeersByCluster[service.ProxyCluster] {
 				port := target.Port
 				if port == 0 {
 					switch target.Protocol {

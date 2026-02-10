@@ -2965,9 +2965,6 @@ components:
         enabled:
           type: boolean
           description: Whether this target is enabled
-        access_local:
-          type: boolean
-          description: Whether the resource is served locally on the router peer, requiring direct peer-level access
       required:
         - target_id
         - target_type

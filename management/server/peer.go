@@ -557,7 +557,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	if setupKey == "" && userID == "" && !peer.ProxyEmbedded {
+	if setupKey == "" && userID == "" && !peer.ProxyMeta.Embedded {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 	}
@@ -637,7 +637,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
 		}
 	default:
-		if peer.ProxyEmbedded {
+		if peer.ProxyMeta.Embedded {
 			log.WithContext(ctx).Debugf("adding peer for proxy embedded, accountID: %s", accountID)
 		} else {
 			log.WithContext(ctx).Warnf("adding peer without setup key or userID, accountID: %s", accountID)
@@ -677,7 +677,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
-		ProxyEmbedded:               peer.ProxyEmbedded,
+		ProxyMeta:                   peer.ProxyMeta,
 		Location:                    peer.Location,
 		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
@@ -744,7 +744,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				}
 			}
 
-			if !peer.ProxyEmbedded {
+			if !peer.ProxyMeta.Embedded {
 				err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 				if err != nil {
 					return fmt.Errorf("failed adding peer to All group: %w", err)

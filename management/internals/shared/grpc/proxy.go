@@ -542,11 +542,13 @@ func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.Cre
 	reverseProxyID := req.GetReverseProxyId()
 	accountID := req.GetAccountId()
 	token := req.GetToken()
+	cluster := req.GetCluster()
 	key := req.WireguardPublicKey
 
 	log.WithFields(log.Fields{
 		"reverse_proxy_id": reverseProxyID,
 		"account_id":       accountID,
+		"cluster":          cluster,
 	}).Debug("CreateProxyPeer request received")
 
 	if reverseProxyID == "" || accountID == "" || token == "" {
@@ -568,7 +570,7 @@ func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.Cre
 		}, status.Errorf(codes.Unauthenticated, "token validation failed: %v", err)
 	}
 
-	err := s.peersManager.CreateProxyPeer(ctx, accountID, key)
+	err := s.peersManager.CreateProxyPeer(ctx, accountID, key, cluster)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"reverse_proxy_id": reverseProxyID,

@@ -1690,7 +1690,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
 	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
-	location_geo_name_id, proxy_embedded FROM peers WHERE account_id = $1`
+	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1708,7 +1708,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
-			locationCountryCode, locationCityName                                                           sql.NullString
+			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
 		)
 
@@ -1718,7 +1718,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
 			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded)
+			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1803,7 +1803,10 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 				p.Location.GeoNameID = uint(locationGeoNameID.Int64)
 			}
 			if proxyEmbedded.Valid {
-				p.ProxyEmbedded = proxyEmbedded.Bool
+				p.ProxyMeta.Embedded = proxyEmbedded.Bool
+			}
+			if proxyCluster.Valid {
+				p.ProxyMeta.Cluster = proxyCluster.String
 			}
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)
