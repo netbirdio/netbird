@@ -322,6 +322,14 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
+	proxyID, err := m.reverseProxyManager.GetProxyIDByTargetID(ctx, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to check if resource is used by reverse proxy: %w", err)
+	}
+	if proxyID != "" {
+		return status.NewResourceInUseError(resourceID, proxyID)
+	}
+
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)

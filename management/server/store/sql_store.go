@@ -131,7 +131,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.ReverseProxy{}, &reverseproxy.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{},
 	)
 	if err != nil {
@@ -2064,45 +2064,51 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 }
 
 func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
-	const query = `SELECT id, account_id, name, domain, targets, enabled, auth,
-		meta_created_at, meta_certificate_issued_at, meta_status
+	const proxyQuery = `SELECT id, account_id, name, domain, enabled, auth,
+		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
+		pass_host_header, rewrite_redirects, session_private_key, session_public_key
 		FROM reverse_proxies WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+
+	const targetsQuery = `SELECT id, account_id, reverse_proxy_id, path, host, port, protocol,
+		target_id, target_type, enabled
+		FROM targets WHERE reverse_proxy_id = ANY($1)`
+
+	proxyRows, err := s.pool.Query(ctx, proxyQuery, accountID)
 	if err != nil {
 		return nil, err
 	}
-	proxies, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*reverseproxy.ReverseProxy, error) {
+
+	proxies, err := pgx.CollectRows(proxyRows, func(row pgx.CollectableRow) (*reverseproxy.ReverseProxy, error) {
 		var p reverseproxy.ReverseProxy
 		var auth []byte
-		var targets []byte
 		var createdAt, certIssuedAt sql.NullTime
-		var status sql.NullString
+		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		err := row.Scan(
 			&p.ID,
 			&p.AccountID,
 			&p.Name,
 			&p.Domain,
-			&targets,
 			&p.Enabled,
 			&auth,
 			&createdAt,
 			&certIssuedAt,
 			&status,
+			&proxyCluster,
+			&p.PassHostHeader,
+			&p.RewriteRedirects,
+			&sessionPrivateKey,
+			&sessionPublicKey,
 		)
 		if err != nil {
 			return nil, err
 		}
-		// Unmarshal JSON fields
+
 		if auth != nil {
 			if err := json.Unmarshal(auth, &p.Auth); err != nil {
 				return nil, err
 			}
 		}
-		if targets != nil {
-			if err := json.Unmarshal(targets, &p.Targets); err != nil {
-				return nil, err
-			}
-		}
+
 		p.Meta = reverseproxy.ReverseProxyMeta{}
 		if createdAt.Valid {
 			p.Meta.CreatedAt = createdAt.Time
@@ -2113,12 +2119,72 @@ func (s *SqlStore) getProxies(ctx context.Context, accountID string) ([]*reverse
 		if status.Valid {
 			p.Meta.Status = status.String
 		}
+		if proxyCluster.Valid {
+			p.ProxyCluster = proxyCluster.String
+		}
+		if sessionPrivateKey.Valid {
+			p.SessionPrivateKey = sessionPrivateKey.String
+		}
+		if sessionPublicKey.Valid {
+			p.SessionPublicKey = sessionPublicKey.String
+		}
 
+		p.Targets = []*reverseproxy.Target{}
 		return &p, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	if len(proxies) == 0 {
+		return proxies, nil
+	}
+
+	proxyIDs := make([]string, len(proxies))
+	proxyMap := make(map[string]*reverseproxy.ReverseProxy)
+	for i, p := range proxies {
+		proxyIDs[i] = p.ID
+		proxyMap[p.ID] = p
+	}
+
+	targetRows, err := s.pool.Query(ctx, targetsQuery, proxyIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	targets, err := pgx.CollectRows(targetRows, func(row pgx.CollectableRow) (*reverseproxy.Target, error) {
+		var t reverseproxy.Target
+		var path sql.NullString
+		err := row.Scan(
+			&t.ID,
+			&t.AccountID,
+			&t.ReverseProxyID,
+			&path,
+			&t.Host,
+			&t.Port,
+			&t.Protocol,
+			&t.TargetId,
+			&t.TargetType,
+			&t.Enabled,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if path.Valid {
+			t.Path = &path.String
+		}
+		return &t, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, target := range targets {
+		if proxy, ok := proxyMap[target.ReverseProxyID]; ok {
+			proxy.Targets = append(proxy.Targets, target)
+		}
+	}
+
 	return proxies, nil
 }
 
@@ -4778,9 +4844,24 @@ func (s *SqlStore) UpdateReverseProxy(ctx context.Context, proxy *reverseproxy.R
 	if err := proxyCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt reverse proxy data: %w", err)
 	}
-	result := s.db.Select("*").Save(proxyCopy)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to update reverse proxy to store: %v", result.Error)
+
+	// Use a transaction to ensure atomic updates of the proxy and its targets
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Delete existing targets
+		if err := tx.Where("reverse_proxy_id = ?", proxyCopy.ID).Delete(&reverseproxy.Target{}).Error; err != nil {
+			return err
+		}
+
+		// Update the proxy and create new targets
+		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Save(proxyCopy).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to update reverse proxy to store: %v", err)
 		return status.Errorf(status.Internal, "failed to update reverse proxy to store")
 	}
 
@@ -4802,7 +4883,7 @@ func (s *SqlStore) DeleteReverseProxy(ctx context.Context, accountID, proxyID st
 }
 
 func (s *SqlStore) GetReverseProxyByID(ctx context.Context, lockStrength LockingStrength, accountID, proxyID string) (*reverseproxy.ReverseProxy, error) {
-	tx := s.db
+	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -4827,7 +4908,7 @@ func (s *SqlStore) GetReverseProxyByID(ctx context.Context, lockStrength Locking
 
 func (s *SqlStore) GetReverseProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error) {
 	var proxy *reverseproxy.ReverseProxy
-	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&proxy)
+	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&proxy)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "reverse proxy with domain %s not found", domain)
@@ -4845,7 +4926,7 @@ func (s *SqlStore) GetReverseProxyByDomain(ctx context.Context, accountID, domai
 }
 
 func (s *SqlStore) GetReverseProxies(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.ReverseProxy, error) {
-	tx := s.db
+	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -4867,7 +4948,7 @@ func (s *SqlStore) GetReverseProxies(ctx context.Context, lockStrength LockingSt
 }
 
 func (s *SqlStore) GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error) {
-	tx := s.db
+	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -5000,4 +5081,24 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	}
 
 	return logs, nil
+}
+
+func (s *SqlStore) GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var target *reverseproxy.Target
+	result := tx.Take(&target, "account_id = ? AND target_id = ?", accountID, targetID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "reverse proxy target with ID %s not found", targetID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get reverse proxy target from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy target from store")
+	}
+
+	return target, nil
 }

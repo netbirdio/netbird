@@ -115,6 +115,10 @@ type DefaultAccountManager struct {
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
 
+func (am *DefaultAccountManager) SetReverseProxyManager(reverseProxyManager reverseproxy.Manager) {
+	am.reverseProxyManager = reverseProxyManager
+}
+
 func isUniqueConstraintError(err error) bool {
 	switch {
 	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),

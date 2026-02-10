@@ -42,13 +42,16 @@ const (
 )
 
 type Target struct {
-	Path       *string `json:"path,omitempty"`
-	Host       string  `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
-	Port       int     `json:"port"`
-	Protocol   string  `json:"protocol"`
-	TargetId   string  `json:"target_id"`
-	TargetType string  `json:"target_type"`
-	Enabled    bool    `json:"enabled"`
+	ID             uint    `gorm:"primaryKey" json:"-"`
+	AccountID      string  `gorm:"index:idx_target_account;not null" json:"-"`
+	ReverseProxyID string  `gorm:"index:idx_reverse_proxy_targets;not null" json:"-"`
+	Path           *string `json:"path,omitempty"`
+	Host           string  `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
+	Port           int     `gorm:"index:idx_target_port" json:"port"`
+	Protocol       string  `gorm:"index:idx_target_protocol" json:"protocol"`
+	TargetId       string  `gorm:"index:idx_target_id" json:"target_id"`
+	TargetType     string  `gorm:"index:idx_target_type" json:"target_type"`
+	Enabled        bool    `gorm:"index:idx_target_enabled" json:"enabled"`
 }
 
 type PasswordAuthConfig struct {
@@ -91,7 +94,7 @@ type ReverseProxy struct {
 	Name              string
 	Domain            string    `gorm:"index"`
 	ProxyCluster      string    `gorm:"index"`
-	Targets           []*Target `gorm:"serializer:json"`
+	Targets           []*Target `gorm:"foreignKey:ReverseProxyID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
@@ -102,6 +105,10 @@ type ReverseProxy struct {
 }
 
 func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *ReverseProxy {
+	for _, target := range targets {
+		target.AccountID = accountID
+	}
+
 	rp := &ReverseProxy{
 		AccountID:    accountID,
 		Name:         name,
@@ -198,23 +205,22 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 			continue
 		}
 
-		path := "/"
-		if target.Path != nil {
-			path = *target.Path
-		}
-
 		// TODO: Make path prefix stripping configurable per-target.
 		// Currently the matching prefix is baked into the target URL path,
 		// so the proxy strips-then-re-adds it (effectively a no-op).
 		targetURL := url.URL{
 			Scheme: target.Protocol,
 			Host:   target.Host,
-			Path:   path,
+			Path:   "/", // TODO: support service path
 		}
 		if target.Port > 0 && !isDefaultPort(target.Protocol, target.Port) {
 			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.Itoa(target.Port))
 		}
 
+		path := "/"
+		if target.Path != nil {
+			path = *target.Path
+		}
 		pathMappings = append(pathMappings, &proto.PathMapping{
 			Path:   path,
 			Target: targetURL.String(),
@@ -279,6 +285,7 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 	targets := make([]*Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
 		target := &Target{
+			AccountID:  accountID,
 			Path:       apiTarget.Path,
 			Port:       apiTarget.Port,
 			Protocol:   string(apiTarget.Protocol),
@@ -369,7 +376,10 @@ func (r *ReverseProxy) EventMeta() map[string]any {
 
 func (r *ReverseProxy) Copy() *ReverseProxy {
 	targets := make([]*Target, len(r.Targets))
-	copy(targets, r.Targets)
+	for i, target := range r.Targets {
+		targetCopy := *target
+		targets[i] = &targetCopy
+	}
 
 	return &ReverseProxy{
 		ID:                r.ID,

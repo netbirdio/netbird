@@ -472,3 +472,16 @@ func (m *managerImpl) GetAccountReverseProxies(ctx context.Context, accountID st
 
 	return proxies, nil
 }
+
+func (m *managerImpl) GetProxyIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error) {
+	target, err := m.store.GetReverseProxyTargetByTargetID(ctx, store.LockingStrengthNone, accountID, resourceID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get reverse proxy target by resource ID: %w", err)
+	}
+
+	if target == nil {
+		return "", nil
+	}
+
+	return target.ReverseProxyID, nil
+}

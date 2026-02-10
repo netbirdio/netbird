@@ -267,6 +267,7 @@ type Store interface {
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*accesslogs.AccessLogEntry, error)
+	GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 }
 
 const (

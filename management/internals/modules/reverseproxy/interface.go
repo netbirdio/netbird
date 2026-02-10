@@ -17,4 +17,5 @@ type Manager interface {
 	GetGlobalReverseProxies(ctx context.Context) ([]*ReverseProxy, error)
 	GetProxyByID(ctx context.Context, accountID, reverseProxyID string) (*ReverseProxy, error)
 	GetAccountReverseProxies(ctx context.Context, accountID string) ([]*ReverseProxy, error)
+	GetProxyIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
 }
