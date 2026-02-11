@@ -648,48 +648,18 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
     command: ["--config", "/etc/netbird/config.yaml"]
     labels:
       - traefik.enable=true
-      # Relay router
-      - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
-      - traefik.http.routers.netbird-relay.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-relay.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-relay.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-relay.service=netbird-server
-      # Signal WebSocket router
-      - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/signal\`)
-      - traefik.http.routers.netbird-signal-ws.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-signal-ws.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-ws.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-signal-ws.service=netbird-server
-      # Signal gRPC router
-      - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
-      - traefik.http.routers.netbird-signal-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-signal-grpc.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-grpc.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-signal-grpc.service=netbird-server-h2c
-      # API router
-      - traefik.http.routers.netbird-api.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/api\`)
-      - traefik.http.routers.netbird-api.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-api.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-api.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-api.service=netbird-server
-      # Management WebSocket router
-      - traefik.http.routers.netbird-mgmt-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/management\`)
-      - traefik.http.routers.netbird-mgmt-ws.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-mgmt-ws.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-ws.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-mgmt-ws.service=netbird-server
-      # Management gRPC router
-      - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
-      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-mgmt-grpc.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-grpc.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-mgmt-grpc.service=netbird-server-h2c
-      # OAuth2 router (embedded IdP)
-      - traefik.http.routers.netbird-oauth2.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/oauth2\`)
-      - traefik.http.routers.netbird-oauth2.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-oauth2.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-oauth2.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-oauth2.service=netbird-server
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
+      - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-grpc.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-grpc.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
+      # Backend router (relay, WebSocket, API, OAuth2)
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-backend.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-backend.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-backend.service=netbird-server
       # Services
       - traefik.http.services.netbird-server.loadbalancer.server.port=80
       - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
@@ -850,8 +820,8 @@ server {
     proxy_set_header X-Forwarded-Host \$host;
     grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 
-    # Relay (WebSocket)
-    location /relay {
+    # WebSocket connections (relay, signal, management)
+    location ~ ^/(relay|ws-proxy/) {
         proxy_pass http://netbird_server;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -860,50 +830,16 @@ server {
         proxy_read_timeout 1d;
     }
 
-    # Signal WebSocket
-    location /ws-proxy/signal {
-        proxy_pass http://netbird_server;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host \$host;
-        proxy_read_timeout 1d;
-    }
-
-    # Signal gRPC
-    location /signalexchange.SignalExchange/ {
+    # Native gRPC (signal + management)
+    location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
         grpc_pass grpc://netbird_server;
         grpc_read_timeout 1d;
         grpc_send_timeout 1d;
         grpc_socket_keepalive on;
     }
 
-    # Management API
-    location /api/ {
-        proxy_pass http://netbird_server;
-        proxy_set_header Host \$host;
-    }
-
-    # Management WebSocket
-    location /ws-proxy/management {
-        proxy_pass http://netbird_server;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host \$host;
-        proxy_read_timeout 1d;
-    }
-
-    # Management gRPC
-    location /management.ManagementService/ {
-        grpc_pass grpc://netbird_server;
-        grpc_read_timeout 1d;
-        grpc_send_timeout 1d;
-        grpc_socket_keepalive on;
-    }
-
-    # Embedded IdP OAuth2
-    location /oauth2/ {
+    # HTTP routes (API + OAuth2)
+    location ~ ^/(api|oauth2)/ {
         proxy_pass http://netbird_server;
         proxy_set_header Host \$host;
     }
@@ -972,8 +908,8 @@ render_npm_advanced_config() {
 client_header_timeout 1d;
 client_body_timeout 1d;
 
-# Relay WebSocket
-location /relay {
+# WebSocket connections (relay, signal, management)
+location ~ ^/(relay|ws-proxy/) {
     proxy_pass http://${server_addr};
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
@@ -985,64 +921,21 @@ location /relay {
     proxy_read_timeout 1d;
 }
 
-# Signal WebSocket
-location /ws-proxy/signal {
-    proxy_pass http://${server_addr};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_read_timeout 1d;
-}
-
-# Management WebSocket
-location /ws-proxy/management {
-    proxy_pass http://${server_addr};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_read_timeout 1d;
-}
-
-# API routes
-location /api/ {
-    proxy_pass http://${server_addr};
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-}
-
-# OAuth2/IdP routes
-location /oauth2/ {
-    proxy_pass http://${server_addr};
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-}
-
-# gRPC for Signal service
-location /signalexchange.SignalExchange/ {
+# Native gRPC (signal + management)
+location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
     grpc_pass grpc://${server_addr};
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
 }
 
-# gRPC for Management service
-location /management.ManagementService/ {
-    grpc_pass grpc://${server_addr};
-    grpc_read_timeout 1d;
-    grpc_send_timeout 1d;
-    grpc_socket_keepalive on;
+# HTTP routes (API + OAuth2)
+location ~ ^/(api|oauth2)/ {
+    proxy_pass http://${server_addr};
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
 }
 EOF
   return 0
@@ -1217,34 +1110,25 @@ print_manual_instructions() {
   echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
   echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services: management, signal, relay)"
   echo ""
-  echo "Configure your reverse proxy with these routes:"
+  echo "Configure your reverse proxy with these routes (all go to the same backend):"
   echo ""
-  echo "  /relay*                          -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
+  echo "  WebSocket (relay, signal, management WS proxy):"
+  echo "    /relay*, /ws-proxy/*           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    (HTTP with WebSocket upgrade, extended timeout)"
   echo ""
-  echo "  /ws-proxy/signal*                -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
-  echo ""
-  echo "  /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "  Native gRPC (signal + management):"
+  echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    /management.ManagementService/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (gRPC/h2c - plaintext HTTP/2)"
   echo ""
-  echo "  /api/*                           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP)"
+  echo "  HTTP (API + embedded IdP):"
+  echo "    /api/*, /oauth2/*              -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo ""
-  echo "  /ws-proxy/management*            -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
-  echo ""
-  echo "  /management.ManagementService/*  -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (gRPC/h2c - plaintext HTTP/2)"
-  echo ""
-  echo "  /oauth2/*                        -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP - embedded IdP)"
-  echo ""
-  echo "  /*                               -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
-  echo "    (HTTP - catch-all for dashboard)"
+  echo "  Dashboard (catch-all):"
+  echo "    /*                             -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
   echo ""
   echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
-  echo "Long-running connections need extended timeouts (recommend 1 day)."
+  echo "WebSocket and gRPC connections need extended timeouts (recommend 1 day)."
   return 0
 }
 
