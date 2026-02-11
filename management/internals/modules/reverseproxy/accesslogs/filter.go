@@ -21,7 +21,7 @@ type AccessLogFilter struct {
 	PageSize int
 
 	// Filtering parameters
-	Search     *string    // General search across host, path, source IP, and user fields
+	Search     *string    // General search across log ID, host, path, source IP, and user fields
 	SourceIP   *string    // Filter by source IP address
 	Host       *string    // Filter by host header
 	Path       *string    // Filter by request path (supports LIKE pattern)

@@ -6393,7 +6393,7 @@ paths:
           name: search
           schema:
             type: string
-          description: General search across host, path, source IP, user email, and user name
+          description: General search across request ID, host, path, source IP, user email, and user name
         - in: query
           name: source_ip
           schema:
