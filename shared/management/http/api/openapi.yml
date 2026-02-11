@@ -6389,6 +6389,61 @@ paths:
             minimum: 1
             maximum: 100
           description: Number of items per page (max 100)
+        - in: query
+          name: source_ip
+          schema:
+            type: string
+          description: Filter by source IP address
+        - in: query
+          name: host
+          schema:
+            type: string
+          description: Filter by host header
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path (supports partial matching)
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID
+        - in: query
+          name: user_email
+          schema:
+            type: string
+          description: Filter by user email (partial matching)
+        - in: query
+          name: user_name
+          schema:
+            type: string
+          description: Filter by user name (partial matching)
+        - in: query
+          name: method
+          schema:
+            type: string
+            enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+          description: Filter by HTTP method
+        - in: query
+          name: status_code
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
+          description: Filter by HTTP status code
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format)
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format)
       responses:
         "200":
           description: Paginated list of reverse proxy access logs

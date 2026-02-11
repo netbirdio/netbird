@@ -30,11 +30,10 @@ func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse pagination parameters from request
 	var filter accesslogs.AccessLogFilter
 	filter.ParseFromRequest(r)
 
-	logs, totalCount, err := h.manager.GetAllAccessLogs(r.Context(), userAuth.AccountId, userAuth.UserId, filter)
+	logs, totalCount, err := h.manager.GetAllAccessLogs(r.Context(), userAuth.AccountId, userAuth.UserId, &filter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -45,7 +44,6 @@ func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request) {
 		apiLogs = append(apiLogs, *log.ToAPIResponse())
 	}
 
-	// Return paginated response
 	response := &api.ProxyAccessLogsResponse{
 		Data:         apiLogs,
 		Page:         filter.Page,
