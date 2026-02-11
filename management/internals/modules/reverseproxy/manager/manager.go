@@ -497,6 +497,9 @@ func (m *managerImpl) GetAccountServices(ctx context.Context, accountID string) 
 func (m *managerImpl) GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error) {
 	target, err := m.store.GetServiceTargetByTargetID(ctx, store.LockingStrengthNone, accountID, resourceID)
 	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			return "", nil
+		}
 		return "", fmt.Errorf("failed to get service target by resource ID: %w", err)
 	}
 

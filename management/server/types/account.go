@@ -974,6 +974,11 @@ func (a *Account) Copy() *Account {
 		networkResources = append(networkResources, resource.Copy())
 	}
 
+	services := []*reverseproxy.Service{}
+	for _, service := range a.Services {
+		services = append(services, service.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -995,6 +1000,7 @@ func (a *Account) Copy() *Account {
 		Networks:               nets,
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
+		Services:               services,
 		Onboarding:             a.Onboarding,
 		NetworkMapCache:        a.NetworkMapCache,
 		nmapInitOnce:           a.nmapInitOnce,

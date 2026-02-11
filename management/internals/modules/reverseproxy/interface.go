@@ -1,5 +1,7 @@
 package reverseproxy
 
+//go:generate go run github.com/golang/mock/mockgen -package reverseproxy -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+
 import (
 	"context"
 )

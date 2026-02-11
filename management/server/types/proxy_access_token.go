@@ -36,7 +36,7 @@ type PlainProxyToken string
 type ProxyAccessToken struct {
 	ID          string `gorm:"primaryKey"`
 	Name        string
-	HashedToken HashedProxyToken `gorm:"uniqueIndex"`
+	HashedToken HashedProxyToken `gorm:"type:varchar(255);uniqueIndex"`
 	// AccountID is nil for management-wide tokens, set for account-scoped tokens
 	AccountID *string `gorm:"index"`
 	ExpiresAt *time.Time
