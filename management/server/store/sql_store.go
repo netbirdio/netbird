@@ -5105,8 +5105,8 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 	if filter.Search != nil {
 		searchPattern := "%" + *filter.Search + "%"
 		query = query.Where(
-			"location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
-			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+			"location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR CONCAT(host, path) LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
 		)
 	}
 
@@ -5129,6 +5129,14 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 
 	if filter.Method != nil {
 		query = query.Where("method = ?", *filter.Method)
+	}
+
+	if filter.Status != nil {
+		if *filter.Status == "success" {
+			query = query.Where("status_code >= ? AND status_code < ?", 200, 400)
+		} else if *filter.Status == "failed" {
+			query = query.Where("status_code < ? OR status_code >= ?", 200, 400)
+		}
 	}
 
 	if filter.StatusCode != nil {

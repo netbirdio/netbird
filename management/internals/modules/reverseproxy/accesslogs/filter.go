@@ -29,6 +29,7 @@ type AccessLogFilter struct {
 	UserEmail  *string    // Filter by user email (requires user lookup)
 	UserName   *string    // Filter by user name (requires user lookup)
 	Method     *string    // Filter by HTTP method
+	Status     *string    // Filter by status: "success" (2xx/3xx) or "failed" (1xx/4xx/5xx)
 	StatusCode *int       // Filter by HTTP status code
 	StartDate  *time.Time // Filter by timestamp >= start_date
 	EndDate    *time.Time // Filter by timestamp <= end_date
@@ -85,6 +86,10 @@ func (f *AccessLogFilter) ParseFromRequest(r *http.Request) {
 
 	if method := queryParams.Get("method"); method != "" {
 		f.Method = &method
+	}
+
+	if status := queryParams.Get("status"); status != "" {
+		f.Status = &status
 	}
 
 	if statusCodeStr := queryParams.Get("status_code"); statusCodeStr != "" {

@@ -6431,6 +6431,12 @@ paths:
             enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
           description: Filter by HTTP method
         - in: query
+          name: status
+          schema:
+            type: string
+            enum: [success, failed]
+          description: Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+        - in: query
           name: status_code
           schema:
             type: integer
