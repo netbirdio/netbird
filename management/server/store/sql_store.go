@@ -5061,14 +5061,31 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 	return nil
 }
 
-// GetAccountAccessLogs retrieves all access logs for a given account
-func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*accesslogs.AccessLogEntry, error) {
+// GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
+func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	var logs []*accesslogs.AccessLogEntry
+	var totalCount int64
+
+	baseQuery := s.db.WithContext(ctx).
+		Model(&accesslogs.AccessLogEntry{}).
+		Where(accountIDCondition, accountID)
+
+	baseQuery = s.applyAccessLogFilters(baseQuery, filter)
+
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count access logs: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count access logs")
+	}
 
 	query := s.db.WithContext(ctx).
-		Where(accountIDCondition, accountID).
+		Where(accountIDCondition, accountID)
+
+	query = s.applyAccessLogFilters(query, filter)
+
+	query = query.
 		Order("timestamp DESC").
-		Limit(1000)
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
 
 	if lockStrength != LockingStrengthNone {
 		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -5077,10 +5094,64 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	result := query.Find(&logs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get access logs from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get access logs from store")
+		return nil, 0, status.Errorf(status.Internal, "failed to get access logs from store")
 	}
 
-	return logs, nil
+	return logs, totalCount, nil
+}
+
+// applyAccessLogFilters applies filter conditions to the query
+func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.AccessLogFilter) *gorm.DB {
+	if filter.Search != nil {
+		searchPattern := "%" + *filter.Search + "%"
+		query = query.Where(
+			"location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR CONCAT(host, path) LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+		)
+	}
+
+	if filter.SourceIP != nil {
+		query = query.Where("location_connection_ip = ?", *filter.SourceIP)
+	}
+
+	if filter.Host != nil {
+		query = query.Where("host = ?", *filter.Host)
+	}
+
+	if filter.Path != nil {
+		// Support LIKE pattern for path filtering
+		query = query.Where("path LIKE ?", "%"+*filter.Path+"%")
+	}
+
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+
+	if filter.Method != nil {
+		query = query.Where("method = ?", *filter.Method)
+	}
+
+	if filter.Status != nil {
+		if *filter.Status == "success" {
+			query = query.Where("status_code >= ? AND status_code < ?", 200, 400)
+		} else if *filter.Status == "failed" {
+			query = query.Where("status_code < ? OR status_code >= ?", 200, 400)
+		}
+	}
+
+	if filter.StatusCode != nil {
+		query = query.Where("status_code = ?", *filter.StatusCode)
+	}
+
+	if filter.StartDate != nil {
+		query = query.Where("timestamp >= ?", *filter.StartDate)
+	}
+
+	if filter.EndDate != nil {
+		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+
+	return query
 }
 
 func (s *SqlStore) GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error) {

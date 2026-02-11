@@ -16,14 +16,14 @@ type AccessLogEntry struct {
 	ProxyID        string        `gorm:"index"`
 	Timestamp      time.Time     `gorm:"index"`
 	GeoLocation    peer.Location `gorm:"embedded;embeddedPrefix:location_"`
-	Method         string
-	Host           string
-	Path           string
-	Duration       time.Duration
-	StatusCode     int
+	Method         string        `gorm:"index"`
+	Host           string        `gorm:"index"`
+	Path           string        `gorm:"index"`
+	Duration       time.Duration `gorm:"index"`
+	StatusCode     int           `gorm:"index"`
 	Reason         string
-	UserId         string
-	AuthMethodUsed string
+	UserId         string `gorm:"index"`
+	AuthMethodUsed string `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog

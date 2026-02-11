@@ -30,7 +30,10 @@ func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs, err := h.manager.GetAllAccessLogs(r.Context(), userAuth.AccountId, userAuth.UserId)
+	var filter accesslogs.AccessLogFilter
+	filter.ParseFromRequest(r)
+
+	logs, totalCount, err := h.manager.GetAllAccessLogs(r.Context(), userAuth.AccountId, userAuth.UserId, &filter)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -41,5 +44,21 @@ func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request) {
 		apiLogs = append(apiLogs, *log.ToAPIResponse())
 	}
 
-	util.WriteJSONObject(r.Context(), w, apiLogs)
+	response := &api.ProxyAccessLogsResponse{
+		Data:         apiLogs,
+		Page:         filter.Page,
+		PageSize:     filter.PageSize,
+		TotalRecords: int(totalCount),
+		TotalPages:   getTotalPageCount(int(totalCount), filter.PageSize),
+	}
+
+	util.WriteJSONObject(r.Context(), w, response)
+}
+
+// getTotalPageCount calculates the total number of pages
+func getTotalPageCount(totalCount, pageSize int) int {
+	if pageSize <= 0 {
+		return 0
+	}
+	return (totalCount + pageSize - 1) / pageSize
 }

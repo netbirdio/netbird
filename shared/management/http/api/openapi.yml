@@ -2773,6 +2773,36 @@ components:
         - path
         - duration_ms
         - status_code
+    ProxyAccessLogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of proxy access log entries
+          items:
+            $ref: "#/components/schemas/ProxyAccessLog"
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        page_size:
+          type: integer
+          description: Number of items per page
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of log records available
+          example: 523
+        total_pages:
+          type: integer
+          description: Total number of pages available
+          example: 11
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
     IdentityProviderType:
       type: string
       description: Type of identity provider
@@ -6341,17 +6371,97 @@ paths:
   /api/events/proxy:
     get:
       summary: List all Reverse Proxy Access Logs
-      description: Returns a list of all reverse proxy access log entries
+      description: Returns a paginated list of all reverse proxy access log entries
       tags: [ Events ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of items per page (max 100)
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across host, path, source IP, user email, and user name
+        - in: query
+          name: source_ip
+          schema:
+            type: string
+          description: Filter by source IP address
+        - in: query
+          name: host
+          schema:
+            type: string
+          description: Filter by host header
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path (supports partial matching)
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID
+        - in: query
+          name: user_email
+          schema:
+            type: string
+          description: Filter by user email (partial matching)
+        - in: query
+          name: user_name
+          schema:
+            type: string
+          description: Filter by user name (partial matching)
+        - in: query
+          name: method
+          schema:
+            type: string
+            enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+          description: Filter by HTTP method
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [success, failed]
+          description: Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+        - in: query
+          name: status_code
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
+          description: Filter by HTTP status code
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format)
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format)
       responses:
         "200":
-          description: List of reverse proxy access logs
+          description: Paginated list of reverse proxy access logs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ProxyAccessLog"
+                $ref: "#/components/schemas/ProxyAccessLogsResponse"
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':

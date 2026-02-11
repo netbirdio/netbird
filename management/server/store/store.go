@@ -266,7 +266,7 @@ type Store interface {
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
-	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*accesslogs.AccessLogEntry, error)
+	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 }
 
