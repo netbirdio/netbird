@@ -66,7 +66,6 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -252,13 +251,8 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
 	stateManager *statemanager.Manager,
+	clientMetrics *metrics.ClientMetrics,
 ) *Engine {
-	// Initialize metrics based on deployment type
-	var deploymentType metrics.DeploymentType
-	if mgmClient != nil {
-		deploymentType = metrics.DetermineDeploymentType(mgmClient.GetServerURL())
-	}
-
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -279,11 +273,8 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
+		clientMetrics:  clientMetrics,
 	}
-
-	engine.clientMetrics = metrics.NewClientMetrics(metrics.AgentInfo{
-		DeploymentType: deploymentType,
-		Version:        version.NetbirdVersion()})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine

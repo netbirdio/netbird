@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -49,8 +50,9 @@ type ConnectClient struct {
 	statusRecorder      *peer.Status
 	doInitialAutoUpdate bool
 
-	engine      *Engine
-	engineMutex sync.Mutex
+	engine        *Engine
+	engineMutex   sync.Mutex
+	clientMetrics *metrics.ClientMetrics
 
 	persistSyncResponse bool
 }
@@ -131,9 +133,33 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 	}()
 
+	// Stop metrics push on exit
+	defer func() {
+		if c.clientMetrics != nil {
+			c.clientMetrics.StopPush()
+		}
+	}()
+
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	nbnet.Init()
+
+	// Initialize metrics once at startup
+	if c.clientMetrics == nil {
+		// Start with unknown deployment type, will be updated on first successful connection
+		agentInfo := metrics.AgentInfo{
+			DeploymentType: metrics.DeploymentTypeUnknown,
+			Version:        version.NetbirdVersion(),
+			OS:             runtime.GOOS,
+		}
+		c.clientMetrics = metrics.NewClientMetrics(agentInfo)
+		log.Debugf("initialized client metrics")
+
+		// Start metrics push if enabled (uses daemon context, persists across engine restarts)
+		if metrics.IsMetricsPushEnabled() {
+			c.clientMetrics.StartPush(c.ctx, metrics.DefaultPushConfig)
+		}
+	}
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -222,6 +248,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
 		mgmClient.SetConnStateListener(mgmNotifier)
 
+		// Update metrics with actual deployment type after connection
+		deploymentType := metrics.DetermineDeploymentType(mgmClient.GetServerURL())
+		agentInfo := metrics.AgentInfo{
+			DeploymentType: deploymentType,
+			Version:        version.NetbirdVersion(),
+			OS:             runtime.GOOS,
+		}
+		c.clientMetrics.UpdateAgentInfo(agentInfo)
+
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
 			if err = mgmClient.Close(); err != nil {
@@ -308,7 +343,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager, c.clientMetrics)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
 		c.engineMutex.Unlock()
