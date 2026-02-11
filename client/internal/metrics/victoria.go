@@ -52,8 +52,13 @@ func (m *victoriaMetrics) RecordConnectionStages(
 		connectionToHandshake = timestamps.WgHandshakeSuccess.Sub(timestamps.ConnectionReady).Seconds()
 	}
 
+	// Calculate total duration:
+	// For initial connections: Created → WgHandshakeSuccess
+	// For reconnections: Signaling → WgHandshakeSuccess (since Created is not tracked)
 	if !timestamps.Created.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
 		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.Created).Seconds()
+	} else if !timestamps.Signaling.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
+		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.Signaling).Seconds()
 	}
 
 	// Determine attempt type
@@ -112,7 +117,7 @@ func (m *victoriaMetrics) RecordSyncDuration(ctx context.Context, duration time.
 	m.set.GetOrCreateHistogram(metricName).Update(duration.Seconds())
 }
 
-// Export writes metrics in Prometheus text format
+// Export writes metrics in Prometheus text format with HELP comments
 func (m *victoriaMetrics) Export(w io.Writer) error {
 	if m.set == nil {
 		return fmt.Errorf("metrics set not initialized")
