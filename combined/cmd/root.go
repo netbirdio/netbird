@@ -131,6 +131,7 @@ func initializeConfig() error {
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
+	logEnvVars()
 	return nil
 }
 
@@ -625,6 +626,27 @@ func logManagementConfig(cfg *CombinedConfig) {
 		log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
 		log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
 	}
+}
+
+// logEnvVars logs all NB_ environment variables that are currently set
+func logEnvVars() {
+	log.Info("=== Environment Variables ===")
+	found := false
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "NB_") {
+			key, _, _ := strings.Cut(env, "=")
+			value := os.Getenv(key)
+			if strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") {
+				value = maskSecret(value)
+			}
+			log.Infof("  %s=%s", key, value)
+			found = true
+		}
+	}
+	if !found {
+		log.Info("  (none set)")
+	}
+	log.Info("=== End Environment Variables ===")
 }
 
 // maskSecret returns first 4 chars of secret followed by "..."
