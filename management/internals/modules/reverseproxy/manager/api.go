@@ -26,16 +26,16 @@ func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manage
 		manager: manager,
 	}
 
-	domainRouter := router.PathPrefix("/services").Subrouter()
+	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
 	domain.RegisterEndpoints(domainRouter, domainManager)
 
 	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
 
-	router.HandleFunc("/services", h.getAllServices).Methods("GET", "OPTIONS")
-	router.HandleFunc("/services", h.createService).Methods("POST", "OPTIONS")
-	router.HandleFunc("/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
-	router.HandleFunc("/services/{serviceId}", h.updateService).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/services/{serviceId}", h.deleteService).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services", h.getAllServices).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services", h.createService).Methods("POST", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.updateService).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.deleteService).Methods("DELETE", "OPTIONS")
 }
 
 func (h *handler) getAllServices(w http.ResponseWriter, r *http.Request) {

@@ -7030,7 +7030,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/services/domains/{domainId}:
+  /api/reverse-proxies/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
       description: Delete an existing service custom domain
@@ -7058,7 +7058,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/services/domains/{domainId}/validate:
+  /api/reverse-proxies/domains/{domainId}/validate:
     get:
       summary: Validate a custom domain
       description: Trigger domain ownership validation for a custom domain

@@ -120,7 +120,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 				"user1": {Id: "user1", AccountID: "account1"},
 			},
 			expectErr:    true,
-			expectErrMsg: "reverse proxy not found",
+			expectErrMsg: "service not found",
 		},
 		{
 			name:   "proxy exists in different account - not accessible",
@@ -133,7 +133,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 				"user1": {Id: "user1", AccountID: "account1"},
 			},
 			expectErr:    true,
-			expectErrMsg: "reverse proxy not found",
+			expectErrMsg: "service not found",
 		},
 		{
 			name:   "no bearer auth configured - same account allows access",
@@ -260,7 +260,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 				"user1": {Id: "user1", AccountID: "account1"},
 			},
 			expectErr:    true,
-			expectErrMsg: "get account reverse proxies",
+			expectErrMsg: "get account services",
 		},
 		{
 			name:   "multiple proxies in account - finds correct one",
@@ -366,7 +366,7 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 				},
 			}
 
-			proxy, err := server.getAccountProxyByDomain(context.Background(), tt.accountID, tt.domain)
+			proxy, err := server.getAccountServiceByDomain(context.Background(), tt.accountID, tt.domain)
 
 			if tt.expectErr {
 				require.Error(t, err)
