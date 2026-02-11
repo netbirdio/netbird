@@ -457,15 +457,16 @@ render_caddyfile() {
 
 :80${CADDY_SECURE_DOMAIN} {
     import security_headers
-    # Combined server handles relay, signal, management, and OAuth2
-    reverse_proxy /relay* netbird-server:80
-    reverse_proxy /ws-proxy/signal* netbird-server:80
-    reverse_proxy /signalexchange.SignalExchange/* h2c://netbird-server:80
-    reverse_proxy /api/* netbird-server:80
-    reverse_proxy /ws-proxy/management* netbird-server:80
-    reverse_proxy /management.ManagementService/* h2c://netbird-server:80
-    reverse_proxy /oauth2/* netbird-server:80
-    # Dashboard
+
+    # Native gRPC (needs HTTP/2 cleartext to backend)
+    @grpc header Content-Type application/grpc*
+    reverse_proxy @grpc h2c://netbird-server:80
+
+    # Combined server paths (relay, signal, management, OAuth2)
+    @backend path /relay* /ws-proxy/* /api/* /oauth2/*
+    reverse_proxy @backend netbird-server:80
+
+    # Dashboard (everything else)
     reverse_proxy /* dashboard:80
 }
 EOF
@@ -937,16 +938,15 @@ render_external_caddyfile() {
 ${install_note}
 
 $NETBIRD_DOMAIN {
-    # Combined server handles relay, signal, management, and OAuth2
-    reverse_proxy /relay* ${server_addr}
-    reverse_proxy /ws-proxy/signal* ${server_addr}
-    reverse_proxy /signalexchange.SignalExchange/* h2c://${server_addr}
-    reverse_proxy /api/* ${server_addr}
-    reverse_proxy /ws-proxy/management* ${server_addr}
-    reverse_proxy /management.ManagementService/* h2c://${server_addr}
-    reverse_proxy /oauth2/* ${server_addr}
+    # Native gRPC (needs HTTP/2 cleartext to backend)
+    @grpc header Content-Type application/grpc*
+    reverse_proxy @grpc h2c://${server_addr}
 
-    # Dashboard (catch-all)
+    # Combined server paths (relay, signal, management, OAuth2)
+    @backend path /relay* /ws-proxy/* /api/* /oauth2/*
+    reverse_proxy @backend ${server_addr}
+
+    # Dashboard (everything else)
     reverse_proxy /* ${dashboard_addr}
 }
 EOF
