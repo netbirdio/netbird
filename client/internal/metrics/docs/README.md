@@ -82,18 +82,18 @@ Labels:
 | `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8428/api/v1/import/prometheus` | VictoriaMetrics endpoint                |
 | `NB_METRICS_INTERVAL` |  | Push interval (e.g., "1m", "30m", "4h") |
 
-t### Configuration Precedence
+### Configuration Precedence
 
 For URL and Interval, the precedence is:
 1. **Config parameter** - Explicitly passed to `StartPush()`
 2. **Environment variable** - `NB_METRICS_SERVER_URL` / `NB_METRICS_INTERVAL`
-3. **Default value** - From `metrics.DefaultPushConfig` (4h interval)
+3. **Default value** - From `metrics.DefaultPushConfig`
 
 ## Push Behavior
 
-1. `StartPush()` spawns background goroutine with ticker (4h)
+1. `StartPush()` spawns background goroutine with ticker
 2. First push happens immediately on startup
-3. Every 4 hours: `push()` → `Export()` → HTTP POST
+3. Periodically: `push()` → `Export()` → HTTP POST
 4. On failure: log error, continue (non-blocking)
 5. On success: log debug message
 6. `StopPush()` cancels context and waits for goroutine
@@ -126,7 +126,7 @@ docker-compose -f docker-compose.victoria.yml logs -f
 ```bash
 export NB_METRICS_ENABLED=true
 export NB_METRICS_SERVER_URL=http://localhost:8428/api/v1/import/prometheus
-export NB_METRICS_INTERVAL=1h  # Optional: push every hour instead of default 4h
+export NB_METRICS_INTERVAL=1m  
 
 # Run client
 cd ../../../..
