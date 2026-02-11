@@ -6,7 +6,7 @@ Internal documentation for the NetBird client metrics system.
 
 Client metrics track connection performance and sync durations. Metrics are:
 - Collected in-memory using VictoriaMetrics histograms
-- Pushed periodically (every 4 hours) to a VictoriaMetrics server
+- Pushed periodically to a VictoriaMetrics server
 - Disabled by default (opt-in via environment variable)
 - Managed at daemon layer (survives engine restarts)
 
@@ -30,7 +30,7 @@ Engine Layer (engine.go)
 ```
 NetBird Client
   ├─ Records metrics in memory (histograms)
-  ├─ Push every 4h to VictoriaMetrics via HTTP POST
+  ├─ Push to VictoriaMetrics via HTTP POST
   └─ Metrics endpoint: /api/v1/import/prometheus
       │
       ▼
