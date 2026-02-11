@@ -13,14 +13,16 @@ import (
 type victoriaMetrics struct {
 	// Static attributes applied to all metrics
 	deploymentType DeploymentType
+	version        string
 
 	// Metrics set for managing all metrics
 	set *metrics.Set
 }
 
-func newVictoriaMetrics(deploymentType DeploymentType) metricsImplementation {
+func newVictoriaMetrics(deploymentType DeploymentType, version string) metricsImplementation {
 	return &victoriaMetrics{
 		deploymentType: deploymentType,
+		version:        version,
 		set:            metrics.NewSet(),
 	}
 }
@@ -92,11 +94,12 @@ func (m *victoriaMetrics) RecordConnectionStages(
 
 // getMetricName constructs a metric name with labels
 func (m *victoriaMetrics) getMetricName(baseName, connectionType, attemptType string) string {
-	return fmt.Sprintf(`%s{deployment_type=%q,connection_type=%q,attempt_type=%q}`,
+	return fmt.Sprintf(`%s{deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q}`,
 		baseName,
 		m.deploymentType.String(),
 		connectionType,
 		attemptType,
+		m.version,
 	)
 }
 

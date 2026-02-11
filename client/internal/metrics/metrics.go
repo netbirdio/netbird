@@ -36,12 +36,12 @@ type ConnectionStageTimestamps struct {
 // NewClientMetrics creates a new ClientMetrics instance
 // If enabled is true, uses an OpenTelemetry implementation
 // If enabled is false, uses a no-op implementation
-func NewClientMetrics(deploymentType DeploymentType, enabled bool) *ClientMetrics {
+func NewClientMetrics(deploymentType DeploymentType, version string, enabled bool) *ClientMetrics {
 	var impl metricsImplementation
 	if !enabled {
 		impl = &noopMetrics{}
 	} else {
-		impl = newVictoriaMetrics(deploymentType)
+		impl = newVictoriaMetrics(deploymentType, version)
 	}
 	return &ClientMetrics{impl: impl}
 }
