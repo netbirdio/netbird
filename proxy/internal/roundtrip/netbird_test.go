@@ -23,7 +23,7 @@ func (m *mockMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxy
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("http://invalid.test:9999", "test-proxy", 0, nil, nil, &mockMgmtClient{})
+	return NewNetBird("http://invalid.test:9999", "test-proxy", "localhost", 0, nil, nil, &mockMgmtClient{}, nil)
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {

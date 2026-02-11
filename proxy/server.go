@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -38,6 +40,7 @@ import (
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
+	"github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -146,6 +149,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		s.Logger = log.StandardLogger()
 	}
 
+	// Start up metrics gathering
+	reg := prometheus.NewRegistry()
+	meter := metrics.New(reg)
+
 	// The very first thing to do should be to connect to the Management server.
 	// Without this connection, the Proxy cannot do anything.
 	mgmtURL, err := url.Parse(s.ManagementAddress)
@@ -192,7 +199,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient, meter.CompleteRoundTrip)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
@@ -271,7 +278,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	if healthAddr == "" {
 		healthAddr = "localhost:8080"
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger)
+	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	healthListener, err := net.Listen("tcp", healthAddr)
 	if err != nil {
 		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
@@ -285,7 +292,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Start the reverse proxy HTTPS server.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy))),
+		Handler:   meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
 		TLSConfig: tlsConfig,
 	}
 

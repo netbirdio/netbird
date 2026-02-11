@@ -300,14 +300,24 @@ func NewChecker(logger *log.Logger, provider clientProvider) *Checker {
 }
 
 // NewServer creates a new health probe server.
-func NewServer(addr string, checker *Checker, logger *log.Logger) *Server {
+// If metricsHandler is non-nil, it is mounted at /metrics on the same port.
+func NewServer(addr string, checker *Checker, logger *log.Logger, metricsHandler http.Handler) *Server {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
+
+	handler := checker.Handler()
+	if metricsHandler != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metricsHandler)
+		mux.Handle("/", checker.Handler())
+		handler = mux
+	}
+
 	return &Server{
 		server: &http.Server{
 			Addr:         addr,
-			Handler:      checker.Handler(),
+			Handler:      handler,
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 5 * time.Second,
 		},
