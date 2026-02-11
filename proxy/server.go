@@ -106,14 +106,14 @@ type Server struct {
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
-func (s *Server) NotifyStatus(ctx context.Context, accountID, reverseProxyID, domain string, connected bool) error {
+func (s *Server) NotifyStatus(ctx context.Context, accountID, serviceID, domain string, connected bool) error {
 	status := proto.ProxyStatus_PROXY_STATUS_TUNNEL_NOT_CREATED
 	if connected {
 		status = proto.ProxyStatus_PROXY_STATUS_ACTIVE
 	}
 
 	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
-		ReverseProxyId:    reverseProxyID,
+		ServiceId:         serviceID,
 		AccountId:         accountID,
 		Status:            status,
 		CertificateIssued: false,
@@ -122,9 +122,9 @@ func (s *Server) NotifyStatus(ctx context.Context, accountID, reverseProxyID, do
 }
 
 // NotifyCertificateIssued sends a notification to management that a certificate was issued
-func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, reverseProxyID, domain string) error {
+func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, serviceID, domain string) error {
 	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
-		ReverseProxyId:    reverseProxyID,
+		ServiceId:         serviceID,
 		AccountId:         accountID,
 		Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
 		CertificateIssued: true,
@@ -523,14 +523,14 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	d := domain.Domain(mapping.GetDomain())
 	accountID := types.AccountID(mapping.GetAccountId())
-	reverseProxyID := mapping.GetId()
+	serviceID := mapping.GetId()
 	authToken := mapping.GetAuthToken()
 
-	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, reverseProxyID); err != nil {
+	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, serviceID); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
 	if s.acme != nil {
-		s.acme.AddDomain(d, string(accountID), reverseProxyID)
+		s.acme.AddDomain(d, string(accountID), serviceID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the

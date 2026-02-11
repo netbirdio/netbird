@@ -198,7 +198,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 		usersManager,
 	)
 
-	proxyService.SetProxyManager(&testReverseProxyManager{store: testStore})
+	proxyService.SetProxyManager(&testServiceManager{store: testStore})
 
 	handler := NewAuthCallbackHandler(proxyService)
 
@@ -227,7 +227,7 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	pubKey := base64.StdEncoding.EncodeToString(pub)
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
-	testProxy := &reverseproxy.ReverseProxy{
+	testProxy := &reverseproxy.Service{
 		ID:        "testProxyId",
 		AccountID: "testAccountId",
 		Name:      "Test Proxy",
@@ -251,9 +251,9 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 		SessionPrivateKey: privKey,
 		SessionPublicKey:  pubKey,
 	}
-	require.NoError(t, testStore.CreateReverseProxy(ctx, testProxy))
+	require.NoError(t, testStore.CreateService(ctx, testProxy))
 
-	restrictedProxy := &reverseproxy.ReverseProxy{
+	restrictedProxy := &reverseproxy.Service{
 		ID:        "restrictedProxyId",
 		AccountID: "testAccountId",
 		Name:      "Restricted Proxy",
@@ -277,9 +277,9 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 		SessionPrivateKey: privKey,
 		SessionPublicKey:  pubKey,
 	}
-	require.NoError(t, testStore.CreateReverseProxy(ctx, restrictedProxy))
+	require.NoError(t, testStore.CreateService(ctx, restrictedProxy))
 
-	noAuthProxy := &reverseproxy.ReverseProxy{
+	noAuthProxy := &reverseproxy.Service{
 		ID:        "noAuthProxyId",
 		AccountID: "testAccountId",
 		Name:      "No Auth Proxy",
@@ -302,7 +302,7 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 		SessionPrivateKey: privKey,
 		SessionPublicKey:  pubKey,
 	}
-	require.NoError(t, testStore.CreateReverseProxy(ctx, noAuthProxy))
+	require.NoError(t, testStore.CreateService(ctx, noAuthProxy))
 }
 
 func strPtr(s string) *string {
@@ -340,60 +340,60 @@ func createTestAccountsAndUsers(t *testing.T, ctx context.Context, testStore sto
 	require.NoError(t, testStore.SaveUser(ctx, allowedUser))
 }
 
-// testReverseProxyManager is a minimal implementation for testing.
-type testReverseProxyManager struct {
+// testServiceManager is a minimal implementation for testing.
+type testServiceManager struct {
 	store store.Store
 }
 
-func (m *testReverseProxyManager) GetAllReverseProxies(_ context.Context, _, _ string) ([]*reverseproxy.ReverseProxy, error) {
+func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testReverseProxyManager) GetReverseProxy(_ context.Context, _, _, _ string) (*reverseproxy.ReverseProxy, error) {
+func (m *testServiceManager) GetService(_ context.Context, _, _, _ string) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testReverseProxyManager) CreateReverseProxy(_ context.Context, _, _ string, _ *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *testServiceManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testReverseProxyManager) UpdateReverseProxy(_ context.Context, _, _ string, _ *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *testServiceManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testReverseProxyManager) DeleteReverseProxy(_ context.Context, _, _, _ string) error {
+func (m *testServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *testReverseProxyManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
+func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testReverseProxyManager) SetStatus(_ context.Context, _, _ string, _ reverseproxy.ProxyStatus) error {
+func (m *testServiceManager) SetStatus(_ context.Context, _, _ string, _ reverseproxy.ProxyStatus) error {
 	return nil
 }
 
-func (m *testReverseProxyManager) ReloadAllReverseProxiesForAccount(_ context.Context, _ string) error {
+func (m *testServiceManager) ReloadAllServicesForAccount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *testReverseProxyManager) ReloadReverseProxy(_ context.Context, _, _ string) error {
+func (m *testServiceManager) ReloadService(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testReverseProxyManager) GetGlobalReverseProxies(ctx context.Context) ([]*reverseproxy.ReverseProxy, error) {
+func (m *testServiceManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
 	return m.store.GetReverseProxies(ctx, store.LockingStrengthNone)
 }
 
-func (m *testReverseProxyManager) GetProxyByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.ReverseProxy, error) {
-	return m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, proxyID)
+func (m *testServiceManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.Service, error) {
+	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, proxyID)
 }
 
-func (m *testReverseProxyManager) GetAccountReverseProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
-	return m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+func (m *testServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
-func (m *testReverseProxyManager) GetProxyIDByTargetID(_ context.Context, _, _ string) (string, error) {
+func (m *testServiceManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
 
@@ -446,7 +446,7 @@ func TestAuthCallback_ProxyNotFound(t *testing.T) {
 
 	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/")
 
-	require.NoError(t, setup.store.DeleteReverseProxy(context.Background(), "testAccountId", "testProxyId"))
+	require.NoError(t, setup.store.DeleteService(context.Background(), "testAccountId", "testProxyId"))
 
 	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
 	rec := httptest.NewRecorder()

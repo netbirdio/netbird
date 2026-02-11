@@ -31,7 +31,7 @@ func BenchmarkHasClient(b *testing.B) {
 		nb.clients[id] = &clientEntry{
 			domains: map[domain.Domain]domainInfo{
 				domain.Domain(rand.Text()): {
-					reverseProxyID: rand.Text(),
+					serviceID: rand.Text(),
 				},
 			},
 			createdAt: time.Now(),
@@ -72,7 +72,7 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 		nb.clients[id] = &clientEntry{
 			domains: map[domain.Domain]domainInfo{
 				domain.Domain(rand.Text()): {
-					reverseProxyID: rand.Text(),
+					serviceID: rand.Text(),
 				},
 			},
 			createdAt: time.Now(),

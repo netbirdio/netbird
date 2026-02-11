@@ -5,17 +5,17 @@ import (
 )
 
 type Manager interface {
-	GetAllReverseProxies(ctx context.Context, accountID, userID string) ([]*ReverseProxy, error)
-	GetReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) (*ReverseProxy, error)
-	CreateReverseProxy(ctx context.Context, accountID, userID string, reverseProxy *ReverseProxy) (*ReverseProxy, error)
-	UpdateReverseProxy(ctx context.Context, accountID, userID string, reverseProxy *ReverseProxy) (*ReverseProxy, error)
-	DeleteReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) error
-	SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error
-	SetStatus(ctx context.Context, accountID, reverseProxyID string, status ProxyStatus) error
-	ReloadAllReverseProxiesForAccount(ctx context.Context, accountID string) error
-	ReloadReverseProxy(ctx context.Context, accountID, reverseProxyID string) error
-	GetGlobalReverseProxies(ctx context.Context) ([]*ReverseProxy, error)
-	GetProxyByID(ctx context.Context, accountID, reverseProxyID string) (*ReverseProxy, error)
-	GetAccountReverseProxies(ctx context.Context, accountID string) ([]*ReverseProxy, error)
-	GetProxyIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
+	GetAllServices(ctx context.Context, accountID, userID string) ([]*Service, error)
+	GetService(ctx context.Context, accountID, userID, serviceID string) (*Service, error)
+	CreateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
+	UpdateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
+	DeleteService(ctx context.Context, accountID, userID, serviceID string) error
+	SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error
+	SetStatus(ctx context.Context, accountID, serviceID string, status ProxyStatus) error
+	ReloadAllServicesForAccount(ctx context.Context, accountID string) error
+	ReloadService(ctx context.Context, accountID, serviceID string) error
+	GetGlobalServices(ctx context.Context) ([]*Service, error)
+	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
+	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
+	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
 }

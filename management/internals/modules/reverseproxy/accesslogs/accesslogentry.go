@@ -13,7 +13,7 @@ import (
 type AccessLogEntry struct {
 	ID             string        `gorm:"primaryKey"`
 	AccountID      string        `gorm:"index"`
-	ProxyID        string        `gorm:"index"`
+	ServiceID      string        `gorm:"index"`
 	Timestamp      time.Time     `gorm:"index"`
 	GeoLocation    peer.Location `gorm:"embedded;embeddedPrefix:location_"`
 	Method         string        `gorm:"index"`
@@ -27,28 +27,28 @@ type AccessLogEntry struct {
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
-func (a *AccessLogEntry) FromProto(proxyLog *proto.AccessLog) {
-	a.ID = proxyLog.GetLogId()
-	a.ProxyID = proxyLog.GetServiceId()
-	a.Timestamp = proxyLog.GetTimestamp().AsTime()
-	a.Method = proxyLog.GetMethod()
-	a.Host = proxyLog.GetHost()
-	a.Path = proxyLog.GetPath()
-	a.Duration = time.Duration(proxyLog.GetDurationMs()) * time.Millisecond
-	a.StatusCode = int(proxyLog.GetResponseCode())
-	a.UserId = proxyLog.GetUserId()
-	a.AuthMethodUsed = proxyLog.GetAuthMechanism()
-	a.AccountID = proxyLog.GetAccountId()
+func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
+	a.ID = serviceLog.GetLogId()
+	a.ServiceID = serviceLog.GetServiceId()
+	a.Timestamp = serviceLog.GetTimestamp().AsTime()
+	a.Method = serviceLog.GetMethod()
+	a.Host = serviceLog.GetHost()
+	a.Path = serviceLog.GetPath()
+	a.Duration = time.Duration(serviceLog.GetDurationMs()) * time.Millisecond
+	a.StatusCode = int(serviceLog.GetResponseCode())
+	a.UserId = serviceLog.GetUserId()
+	a.AuthMethodUsed = serviceLog.GetAuthMechanism()
+	a.AccountID = serviceLog.GetAccountId()
 
-	if sourceIP := proxyLog.GetSourceIp(); sourceIP != "" {
+	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
 		if ip, err := netip.ParseAddr(sourceIP); err == nil {
 			a.GeoLocation.ConnectionIP = net.IP(ip.AsSlice())
 		}
 	}
 
-	if !proxyLog.GetAuthSuccess() {
+	if !serviceLog.GetAuthSuccess() {
 		a.Reason = "Authentication failed"
-	} else if proxyLog.GetResponseCode() >= 400 {
+	} else if serviceLog.GetResponseCode() >= 400 {
 		a.Reason = "Request failed"
 	}
 }
@@ -88,7 +88,7 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 
 	return &api.ProxyAccessLog{
 		Id:             a.ID,
-		ProxyId:        a.ProxyID,
+		ServiceId:      a.ServiceID,
 		Timestamp:      a.Timestamp,
 		Method:         a.Method,
 		Host:           a.Host,

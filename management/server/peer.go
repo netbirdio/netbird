@@ -489,12 +489,12 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var settings *types.Settings
 	var eventsToStore []func()
 
-	proxyID, err := am.reverseProxyManager.GetProxyIDByTargetID(ctx, accountID, peerID)
+	serviceID, err := am.reverseProxyManager.GetServiceIDByTargetID(ctx, accountID, peerID)
 	if err != nil {
-		return fmt.Errorf("failed to check if resource is used by reverse proxy: %w", err)
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
 	}
-	if proxyID != "" {
-		return status.NewPeerInUseError(peerID, proxyID)
+	if serviceID != "" {
+		return status.NewPeerInUseError(peerID, serviceID)
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {

@@ -23,7 +23,7 @@ import (
 var oidSCTList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
 
 type certificateNotifier interface {
-	NotifyCertificateIssued(ctx context.Context, accountID, reverseProxyID, domain string) error
+	NotifyCertificateIssued(ctx context.Context, accountID, serviceID, domain string) error
 }
 
 type domainState int
@@ -35,10 +35,10 @@ const (
 )
 
 type domainInfo struct {
-	accountID      string
-	reverseProxyID string
-	state          domainState
-	err            string
+	accountID string
+	serviceID string
+	state     domainState
+	err       string
 }
 
 // Manager wraps autocert.Manager with domain tracking and cross-replica
@@ -95,12 +95,12 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 }
 
 // AddDomain registers a domain for ACME certificate prefetching.
-func (mgr *Manager) AddDomain(d domain.Domain, accountID, reverseProxyID string) {
+func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 	mgr.mu.Lock()
 	mgr.domains[d] = &domainInfo{
-		accountID:      accountID,
-		reverseProxyID: reverseProxyID,
-		state:          domainPending,
+		accountID: accountID,
+		serviceID: serviceID,
+		state:     domainPending,
 	}
 	mgr.mu.Unlock()
 
@@ -164,7 +164,7 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	mgr.mu.RUnlock()
 
 	if info != nil && mgr.certNotifier != nil {
-		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.reverseProxyID, name); err != nil {
+		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name); err != nil {
 			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
 		}
 	}

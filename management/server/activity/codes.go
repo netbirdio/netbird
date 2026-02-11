@@ -204,9 +204,9 @@ const (
 	UserInviteLinkRegenerated Activity = 106
 	UserInviteLinkDeleted     Activity = 107
 
-	ReverseProxyCreated Activity = 108
-	ReverseProxyUpdated Activity = 109
-	ReverseProxyDeleted Activity = 110
+	ServiceCreated Activity = 108
+	ServiceUpdated Activity = 109
+	ServiceDeleted Activity = 110
 
 	AccountDeleted Activity = 99999
 )
@@ -342,9 +342,9 @@ var activityMap = map[Activity]Code{
 	UserInviteLinkRegenerated: {"User invite link regenerated", "user.invite.link.regenerate"},
 	UserInviteLinkDeleted:     {"User invite link deleted", "user.invite.link.delete"},
 
-	ReverseProxyCreated: {"Reverse proxy created", "reverseproxy.create"},
-	ReverseProxyUpdated: {"Reverse proxy updated", "reverseproxy.update"},
-	ReverseProxyDeleted: {"Reverse proxy deleted", "reverseproxy.delete"},
+	ServiceCreated: {"Service created", "service.create"},
+	ServiceUpdated: {"Service updated", "service.update"},
+	ServiceDeleted: {"Service deleted", "service.delete"},
 }
 
 // StringCode returns a string code of the activity

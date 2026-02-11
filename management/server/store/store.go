@@ -250,13 +250,13 @@ type Store interface {
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
-	CreateReverseProxy(ctx context.Context, service *reverseproxy.ReverseProxy) error
-	UpdateReverseProxy(ctx context.Context, service *reverseproxy.ReverseProxy) error
-	DeleteReverseProxy(ctx context.Context, accountID, serviceID string) error
-	GetReverseProxyByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.ReverseProxy, error)
-	GetReverseProxyByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.ReverseProxy, error)
-	GetReverseProxies(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.ReverseProxy, error)
-	GetAccountReverseProxies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.ReverseProxy, error)
+	CreateService(ctx context.Context, service *reverseproxy.Service) error
+	UpdateService(ctx context.Context, service *reverseproxy.Service) error
+	DeleteService(ctx context.Context, accountID, serviceID string) error
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
@@ -267,7 +267,7 @@ type Store interface {
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
-	GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 }
 
 const (

@@ -133,7 +133,7 @@ enum ProxyStatus {
 
 // SendStatusUpdateRequest is sent by the proxy to update its status
 message SendStatusUpdateRequest {
-  string reverse_proxy_id = 1;
+  string service_id = 1;
   string account_id = 2;
   ProxyStatus status = 3;
   bool certificate_issued = 4;
@@ -146,7 +146,7 @@ message SendStatusUpdateResponse {}
 // CreateProxyPeerRequest is sent by the proxy to create a peer connection
 // The token is a one-time authentication token sent via ProxyMapping
 message CreateProxyPeerRequest {
-  string reverse_proxy_id = 1;
+  string service_id = 1;
   string account_id = 2;
   string token = 3;
   string wireguard_public_key = 4;

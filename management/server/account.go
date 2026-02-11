@@ -115,8 +115,8 @@ type DefaultAccountManager struct {
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
 
-func (am *DefaultAccountManager) SetReverseProxyManager(reverseProxyManager reverseproxy.Manager) {
-	am.reverseProxyManager = reverseProxyManager
+func (am *DefaultAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+	am.reverseProxyManager = serviceManager
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -327,8 +327,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
-			if err = am.reverseProxyManager.ReloadAllReverseProxiesForAccount(ctx, accountID); err != nil {
-				log.WithContext(ctx).Warnf("failed to reload all reverse proxy for account %s: %v", accountID, err)
+			if err = am.reverseProxyManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+				log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
 			}
 			updateAccountPeers = true
 		}

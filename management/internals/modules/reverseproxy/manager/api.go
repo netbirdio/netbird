@@ -20,148 +20,148 @@ type handler struct {
 	manager reverseproxy.Manager
 }
 
-// RegisterEndpoints registers all reverse proxy HTTP endpoints.
+// RegisterEndpoints registers all service HTTP endpoints.
 func RegisterEndpoints(manager reverseproxy.Manager, domainManager domain.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
 
-	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
+	domainRouter := router.PathPrefix("/services").Subrouter()
 	domain.RegisterEndpoints(domainRouter, domainManager)
 
 	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
 
-	router.HandleFunc("/reverse-proxies", h.getAllReverseProxies).Methods("GET", "OPTIONS")
-	router.HandleFunc("/reverse-proxies", h.createReverseProxy).Methods("POST", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{proxyId}", h.getReverseProxy).Methods("GET", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{proxyId}", h.updateReverseProxy).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/{proxyId}", h.deleteReverseProxy).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/services", h.getAllServices).Methods("GET", "OPTIONS")
+	router.HandleFunc("/services", h.createService).Methods("POST", "OPTIONS")
+	router.HandleFunc("/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
+	router.HandleFunc("/services/{serviceId}", h.updateService).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/services/{serviceId}", h.deleteService).Methods("DELETE", "OPTIONS")
 }
 
-func (h *handler) getAllReverseProxies(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAllServices(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	allReverseProxies, err := h.manager.GetAllReverseProxies(r.Context(), userAuth.AccountId, userAuth.UserId)
+	allServices, err := h.manager.GetAllServices(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	apiReverseProxies := make([]*api.ReverseProxy, 0, len(allReverseProxies))
-	for _, reverseProxy := range allReverseProxies {
-		apiReverseProxies = append(apiReverseProxies, reverseProxy.ToAPIResponse())
+	apiServices := make([]*api.Service, 0, len(allServices))
+	for _, service := range allServices {
+		apiServices = append(apiServices, service.ToAPIResponse())
 	}
 
-	util.WriteJSONObject(r.Context(), w, apiReverseProxies)
+	util.WriteJSONObject(r.Context(), w, apiServices)
 }
 
-func (h *handler) createReverseProxy(w http.ResponseWriter, r *http.Request) {
+func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	var req api.ReverseProxyRequest
+	var req api.ServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
-	reverseProxy := new(reverseproxy.ReverseProxy)
-	reverseProxy.FromAPIRequest(&req, userAuth.AccountId)
+	service := new(reverseproxy.Service)
+	service.FromAPIRequest(&req, userAuth.AccountId)
 
-	if err = reverseProxy.Validate(); err != nil {
+	if err = service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
-	createdReverseProxy, err := h.manager.CreateReverseProxy(r.Context(), userAuth.AccountId, userAuth.UserId, reverseProxy)
+	createdService, err := h.manager.CreateService(r.Context(), userAuth.AccountId, userAuth.UserId, service)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, createdReverseProxy.ToAPIResponse())
+	util.WriteJSONObject(r.Context(), w, createdService.ToAPIResponse())
 }
 
-func (h *handler) getReverseProxy(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getService(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	reverseProxyID := mux.Vars(r)["proxyId"]
-	if reverseProxyID == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "reverse proxy ID is required"), w)
+	serviceID := mux.Vars(r)["serviceId"]
+	if serviceID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)
 		return
 	}
 
-	reverseProxy, err := h.manager.GetReverseProxy(r.Context(), userAuth.AccountId, userAuth.UserId, reverseProxyID)
+	service, err := h.manager.GetService(r.Context(), userAuth.AccountId, userAuth.UserId, serviceID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, reverseProxy.ToAPIResponse())
+	util.WriteJSONObject(r.Context(), w, service.ToAPIResponse())
 }
 
-func (h *handler) updateReverseProxy(w http.ResponseWriter, r *http.Request) {
+func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	reverseProxyID := mux.Vars(r)["proxyId"]
-	if reverseProxyID == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "reverse proxy ID is required"), w)
+	serviceID := mux.Vars(r)["serviceId"]
+	if serviceID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)
 		return
 	}
 
-	var req api.ReverseProxyRequest
+	var req api.ServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
-	reverseProxy := new(reverseproxy.ReverseProxy)
-	reverseProxy.ID = reverseProxyID
-	reverseProxy.FromAPIRequest(&req, userAuth.AccountId)
+	service := new(reverseproxy.Service)
+	service.ID = serviceID
+	service.FromAPIRequest(&req, userAuth.AccountId)
 
-	if err = reverseProxy.Validate(); err != nil {
+	if err = service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
-	updatedReverseProxy, err := h.manager.UpdateReverseProxy(r.Context(), userAuth.AccountId, userAuth.UserId, reverseProxy)
+	updatedService, err := h.manager.UpdateService(r.Context(), userAuth.AccountId, userAuth.UserId, service)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, updatedReverseProxy.ToAPIResponse())
+	util.WriteJSONObject(r.Context(), w, updatedService.ToAPIResponse())
 }
 
-func (h *handler) deleteReverseProxy(w http.ResponseWriter, r *http.Request) {
+func (h *handler) deleteService(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	reverseProxyID := mux.Vars(r)["proxyId"]
-	if reverseProxyID == "" {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "reverse proxy ID is required"), w)
+	serviceID := mux.Vars(r)["serviceId"]
+	if serviceID == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)
 		return
 	}
 
-	if err := h.manager.DeleteReverseProxy(r.Context(), userAuth.AccountId, userAuth.UserId, reverseProxyID); err != nil {
+	if err := h.manager.DeleteService(r.Context(), userAuth.AccountId, userAuth.UserId, serviceID); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}

@@ -35,7 +35,7 @@ var (
 
 // domainInfo holds metadata about a registered domain.
 type domainInfo struct {
-	reverseProxyID string
+	serviceID string
 }
 
 // clientEntry holds an embedded NetBird client and tracks which domains use it.
@@ -48,7 +48,7 @@ type clientEntry struct {
 }
 
 type statusNotifier interface {
-	NotifyStatus(ctx context.Context, accountID, reverseProxyID, domain string, connected bool) error
+	NotifyStatus(ctx context.Context, accountID, serviceID, domain string, connected bool) error
 }
 
 type managementClient interface {
@@ -91,13 +91,13 @@ type accountIDContextKey struct{}
 // AddPeer registers a domain for an account. If the account doesn't have a client yet,
 // one is created by authenticating with the management server using the provided token.
 // Multiple domains can share the same client.
-func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d domain.Domain, authToken, reverseProxyID string) error {
+func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d domain.Domain, authToken, serviceID string) error {
 	n.clientsMux.Lock()
 
 	entry, exists := n.clients[accountID]
 	if exists {
 		// Client already exists for this account, just register the domain
-		entry.domains[d] = domainInfo{reverseProxyID: reverseProxyID}
+		entry.domains[d] = domainInfo{serviceID: serviceID}
 		started := entry.started
 		n.clientsMux.Unlock()
 
@@ -108,7 +108,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 
 		// If client is already started, notify this domain as connected immediately
 		if started && n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), reverseProxyID, string(d), true); err != nil {
+			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), serviceID, string(d), true); err != nil {
 				n.logger.WithFields(log.Fields{
 					"account_id": accountID,
 					"domain":     d,
@@ -119,8 +119,8 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 	}
 
 	n.logger.WithFields(log.Fields{
-		"account_id":       accountID,
-		"reverse_proxy_id": reverseProxyID,
+		"account_id": accountID,
+		"service_id": serviceID,
 	}).Debug("generating WireGuard keypair for new peer")
 
 	privateKey, err := wgtypes.GeneratePrivateKey()
@@ -131,14 +131,14 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 	publicKey := privateKey.PublicKey()
 
 	n.logger.WithFields(log.Fields{
-		"account_id":       accountID,
-		"reverse_proxy_id": reverseProxyID,
-		"public_key":       publicKey.String(),
+		"account_id": accountID,
+		"service_id": serviceID,
+		"public_key": publicKey.String(),
 	}).Debug("authenticating new proxy peer with management")
 
 	// Authenticate with management using the one-time token and send public key
 	resp, err := n.mgmtClient.CreateProxyPeer(ctx, &proto.CreateProxyPeerRequest{
-		ReverseProxyId:     reverseProxyID,
+		ServiceId:          serviceID,
 		AccountId:          string(accountID),
 		Token:              authToken,
 		WireguardPublicKey: publicKey.String(),
@@ -158,9 +158,9 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 	}
 
 	n.logger.WithFields(log.Fields{
-		"account_id":       accountID,
-		"reverse_proxy_id": reverseProxyID,
-		"public_key":       publicKey.String(),
+		"account_id": accountID,
+		"service_id": serviceID,
+		"public_key": publicKey.String(),
 	}).Info("proxy peer authenticated successfully with management")
 
 	n.initLogOnce.Do(func() {
@@ -189,7 +189,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 	// not work with reverse proxied requests.
 	entry = &clientEntry{
 		client:  client,
-		domains: map[domain.Domain]domainInfo{d: {reverseProxyID: reverseProxyID}},
+		domains: map[domain.Domain]domainInfo{d: {serviceID: serviceID}},
 		transport: &http.Transport{
 			DialContext:           client.DialContext,
 			ForceAttemptHTTP2:     true,
@@ -237,15 +237,15 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 		}
 		// Copy domain info while holding lock
 		var domainsToNotify []struct {
-			domain         domain.Domain
-			reverseProxyID string
+			domain    domain.Domain
+			serviceID string
 		}
 		if exists {
 			for dom, info := range entry.domains {
 				domainsToNotify = append(domainsToNotify, struct {
-					domain         domain.Domain
-					reverseProxyID string
-				}{domain: dom, reverseProxyID: info.reverseProxyID})
+					domain    domain.Domain
+					serviceID string
+				}{domain: dom, serviceID: info.serviceID})
 			}
 		}
 		n.clientsMux.Unlock()
@@ -253,7 +253,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 		// Notify all domains that they're connected
 		if n.statusNotifier != nil {
 			for _, domInfo := range domainsToNotify {
-				if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.reverseProxyID, string(domInfo.domain), true); err != nil {
+				if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.serviceID, string(domInfo.domain), true); err != nil {
 					n.logger.WithFields(log.Fields{
 						"account_id": accountID,
 						"domain":     domInfo.domain,
@@ -303,7 +303,7 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 
 		// Notify this domain as disconnected
 		if n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.reverseProxyID, string(d), false); err != nil {
+			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.serviceID, string(d), false); err != nil {
 				n.logger.WithFields(log.Fields{
 					"account_id": accountID,
 					"domain":     d,
@@ -325,7 +325,7 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 
 	// Notify disconnection before stopping
 	if n.statusNotifier != nil {
-		if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.reverseProxyID, string(d), false); err != nil {
+		if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), domInfo.serviceID, string(d), false); err != nil {
 			n.logger.WithFields(log.Fields{
 				"account_id": accountID,
 				"domain":     d,

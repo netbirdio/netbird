@@ -13,8 +13,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-func validProxy() *ReverseProxy {
-	return &ReverseProxy{
+func validProxy() *Service {
+	return &Service{
 		Name:   "test",
 		Domain: "example.com",
 		Targets: []*Target{
@@ -170,7 +170,7 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rp := &ReverseProxy{
+			rp := &Service{
 				ID:        "test-id",
 				AccountID: "acc-1",
 				Domain:    "example.com",
@@ -193,7 +193,7 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 }
 
 func TestToProtoMapping_DisabledTargetSkipped(t *testing.T) {
-	rp := &ReverseProxy{
+	rp := &Service{
 		ID:        "test-id",
 		AccountID: "acc-1",
 		Domain:    "example.com",

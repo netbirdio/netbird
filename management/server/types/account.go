@@ -100,7 +100,7 @@ type Account struct {
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
-	ReverseProxies         []*reverseproxy.ReverseProxy      `gorm:"foreignKey:AccountID;references:id"`
+	Services               []*reverseproxy.Service           `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings         *Settings                        `gorm:"embedded;embeddedPrefix:settings_"`
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
@@ -377,7 +377,7 @@ func (a *Account) GetPeerNetworkMap(
 // GetProxyConnectionResources returns ACL peers for the proxy-embedded peer based on exposed services.
 // No firewall rules are generated here; the proxy peer is always a new on-demand client with a stateful
 // firewall, so OUT rules are unnecessary. Inbound rules are handled on the target/router peer side.
-func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.ReverseProxy) []*nbpeer.Peer {
+func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.Service) []*nbpeer.Peer {
 	var aclPeers []*nbpeer.Peer
 
 	for _, peerServices := range exposedServices {
@@ -406,7 +406,7 @@ func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServic
 // GetPeerProxyResources returns ACL peers and inbound firewall rules for a peer that is targeted by reverse proxy services.
 // Only IN rules are generated; OUT rules are omitted since proxy peers are always new clients with stateful firewalls.
 // Rules use PortRange only (not the legacy Port field) as this feature only targets current peer versions.
-func (a *Account) GetPeerProxyResources(peerID string, services []*reverseproxy.ReverseProxy, proxyPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*FirewallRule) {
+func (a *Account) GetPeerProxyResources(peerID string, services []*reverseproxy.Service, proxyPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*FirewallRule) {
 	var aclPeers []*nbpeer.Peer
 	var firewallRules []*FirewallRule
 
@@ -1858,7 +1858,7 @@ func (a *Account) GetProxyPeers() map[string][]*nbpeer.Peer {
 	return proxyPeers
 }
 
-func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, proxies map[string][]*reverseproxy.ReverseProxy, resourcesMap map[string]*resourceTypes.NetworkResource, routers map[string]map[string]*routerTypes.NetworkRouter, proxyPeers []*nbpeer.Peer) ([]*route.Route, []*RouteFirewallRule, []*nbpeer.Peer) {
+func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, proxies map[string][]*reverseproxy.Service, resourcesMap map[string]*resourceTypes.NetworkResource, routers map[string]map[string]*routerTypes.NetworkRouter, proxyPeers []*nbpeer.Peer) ([]*route.Route, []*RouteFirewallRule, []*nbpeer.Peer) {
 	sourceRanges := make([]string, 0, len(proxyPeers))
 	for _, proxyPeer := range proxyPeers {
 		sourceRanges = append(sourceRanges, fmt.Sprintf(AllowedIPsFormat, proxyPeer.IP))
@@ -1924,7 +1924,7 @@ func (a *Account) GetResourcesMap() map[string]*resourceTypes.NetworkResource {
 }
 
 func (a *Account) InjectProxyPolicies(ctx context.Context) {
-	if len(a.ReverseProxies) == 0 {
+	if len(a.Services) == 0 {
 		return
 	}
 
@@ -1933,7 +1933,7 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		return
 	}
 
-	for _, service := range a.ReverseProxies {
+	for _, service := range a.Services {
 		if !service.Enabled {
 			continue
 		}

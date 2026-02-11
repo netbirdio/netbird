@@ -54,7 +54,7 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 
 	pubKey, privKey := generateSessionKeyPair(t)
 
-	testProxy := &reverseproxy.ReverseProxy{
+	testProxy := &reverseproxy.Service{
 		ID:                "testProxyId",
 		AccountID:         "testAccountId",
 		Name:              "Test Proxy",
@@ -68,9 +68,9 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 			},
 		},
 	}
-	require.NoError(t, testStore.CreateReverseProxy(ctx, testProxy))
+	require.NoError(t, testStore.CreateService(ctx, testProxy))
 
-	restrictedProxy := &reverseproxy.ReverseProxy{
+	restrictedProxy := &reverseproxy.Service{
 		ID:                "restrictedProxyId",
 		AccountID:         "testAccountId",
 		Name:              "Restricted Proxy",
@@ -85,7 +85,7 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 			},
 		},
 	}
-	require.NoError(t, testStore.CreateReverseProxy(ctx, restrictedProxy))
+	require.NoError(t, testStore.CreateService(ctx, restrictedProxy))
 }
 
 func generateSessionKeyPair(t *testing.T) (string, string) {
@@ -106,7 +106,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 	setup := setupValidateSessionTest(t)
 	defer setup.cleanup()
 
-	proxy, err := setup.store.GetReverseProxyByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
 	require.NoError(t, err)
 
 	token := createSessionToken(t, proxy.SessionPrivateKey, "allowedUserId", "test-proxy.example.com")
@@ -126,7 +126,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 	setup := setupValidateSessionTest(t)
 	defer setup.cleanup()
 
-	proxy, err := setup.store.GetReverseProxyByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
 	require.NoError(t, err)
 
 	token := createSessionToken(t, proxy.SessionPrivateKey, "nonGroupUserId", "restricted-proxy.example.com")
@@ -146,7 +146,7 @@ func TestValidateSession_UserInDifferentAccount(t *testing.T) {
 	setup := setupValidateSessionTest(t)
 	defer setup.cleanup()
 
-	proxy, err := setup.store.GetReverseProxyByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
 	require.NoError(t, err)
 
 	token := createSessionToken(t, proxy.SessionPrivateKey, "otherAccountUserId", "test-proxy.example.com")
@@ -165,7 +165,7 @@ func TestValidateSession_UserNotFound(t *testing.T) {
 	setup := setupValidateSessionTest(t)
 	defer setup.cleanup()
 
-	proxy, err := setup.store.GetReverseProxyByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
 	require.NoError(t, err)
 
 	token := createSessionToken(t, proxy.SessionPrivateKey, "nonExistentUserId", "test-proxy.example.com")
@@ -184,7 +184,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 	setup := setupValidateSessionTest(t)
 	defer setup.cleanup()
 
-	proxy, err := setup.store.GetReverseProxyByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
 	require.NoError(t, err)
 
 	token := createSessionToken(t, proxy.SessionPrivateKey, "allowedUserId", "unknown-proxy.example.com")
@@ -243,23 +243,23 @@ type testValidateSessionProxyManager struct {
 	store store.Store
 }
 
-func (m *testValidateSessionProxyManager) GetAllReverseProxies(_ context.Context, _, _ string) ([]*reverseproxy.ReverseProxy, error) {
+func (m *testValidateSessionProxyManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) GetReverseProxy(_ context.Context, _, _, _ string) (*reverseproxy.ReverseProxy, error) {
+func (m *testValidateSessionProxyManager) GetService(_ context.Context, _, _, _ string) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) CreateReverseProxy(_ context.Context, _, _ string, _ *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *testValidateSessionProxyManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) UpdateReverseProxy(_ context.Context, _, _ string, _ *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *testValidateSessionProxyManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) DeleteReverseProxy(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionProxyManager) DeleteService(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
@@ -271,27 +271,27 @@ func (m *testValidateSessionProxyManager) SetStatus(_ context.Context, _, _ stri
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) ReloadAllReverseProxiesForAccount(_ context.Context, _ string) error {
+func (m *testValidateSessionProxyManager) ReloadAllServicesForAccount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) ReloadReverseProxy(_ context.Context, _, _ string) error {
+func (m *testValidateSessionProxyManager) ReloadService(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) GetGlobalReverseProxies(ctx context.Context) ([]*reverseproxy.ReverseProxy, error) {
-	return m.store.GetReverseProxies(ctx, store.LockingStrengthNone)
+func (m *testValidateSessionProxyManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
+	return m.store.GetServices(ctx, store.LockingStrengthNone)
 }
 
-func (m *testValidateSessionProxyManager) GetProxyByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.ReverseProxy, error) {
-	return m.store.GetReverseProxyByID(ctx, store.LockingStrengthNone, accountID, proxyID)
+func (m *testValidateSessionProxyManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.Service, error) {
+	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, proxyID)
 }
 
-func (m *testValidateSessionProxyManager) GetAccountReverseProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
-	return m.store.GetAccountReverseProxies(ctx, store.LockingStrengthNone, accountID)
+func (m *testValidateSessionProxyManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
-func (m *testValidateSessionProxyManager) GetProxyIDByTargetID(_ context.Context, _, _ string) (string, error) {
+func (m *testValidateSessionProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
 

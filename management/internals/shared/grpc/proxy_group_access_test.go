@@ -13,38 +13,38 @@ import (
 )
 
 type mockReverseProxyManager struct {
-	proxiesByAccount map[string][]*reverseproxy.ReverseProxy
+	proxiesByAccount map[string][]*reverseproxy.Service
 	err              error
 }
 
-func (m *mockReverseProxyManager) GetAccountReverseProxies(ctx context.Context, accountID string) ([]*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.proxiesByAccount[accountID], nil
 }
 
-func (m *mockReverseProxyManager) GetGlobalReverseProxies(ctx context.Context) ([]*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) GetAllReverseProxies(ctx context.Context, accountID, userID string) ([]*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) GetReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) (*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) GetService(ctx context.Context, accountID, userID, reverseProxyID string) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) CreateReverseProxy(ctx context.Context, accountID, userID string, rp *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) CreateService(ctx context.Context, accountID, userID string, rp *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) UpdateReverseProxy(ctx context.Context, accountID, userID string, rp *reverseproxy.ReverseProxy) (*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) UpdateService(ctx context.Context, accountID, userID string, rp *reverseproxy.Service) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) DeleteReverseProxy(ctx context.Context, accountID, userID, reverseProxyID string) error {
+func (m *mockReverseProxyManager) DeleteService(ctx context.Context, accountID, userID, reverseProxyID string) error {
 	return nil
 }
 
@@ -56,19 +56,19 @@ func (m *mockReverseProxyManager) SetStatus(ctx context.Context, accountID, reve
 	return nil
 }
 
-func (m *mockReverseProxyManager) ReloadAllReverseProxiesForAccount(ctx context.Context, accountID string) error {
+func (m *mockReverseProxyManager) ReloadAllServicesForAccount(ctx context.Context, accountID string) error {
 	return nil
 }
 
-func (m *mockReverseProxyManager) ReloadReverseProxy(ctx context.Context, accountID, reverseProxyID string) error {
+func (m *mockReverseProxyManager) ReloadService(ctx context.Context, accountID, reverseProxyID string) error {
 	return nil
 }
 
-func (m *mockReverseProxyManager) GetProxyByID(ctx context.Context, accountID, reverseProxyID string) (*reverseproxy.ReverseProxy, error) {
+func (m *mockReverseProxyManager) GetServiceByID(ctx context.Context, accountID, reverseProxyID string) (*reverseproxy.Service, error) {
 	return nil, nil
 }
 
-func (m *mockReverseProxyManager) GetProxyIDByTargetID(_ context.Context, _, _ string) (string, error) {
+func (m *mockReverseProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
 
@@ -93,7 +93,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 		name             string
 		domain           string
 		userID           string
-		proxiesByAccount map[string][]*reverseproxy.ReverseProxy
+		proxiesByAccount map[string][]*reverseproxy.Service
 		users            map[string]*types.User
 		proxyErr         error
 		userErr          error
@@ -104,7 +104,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "user not found",
 			domain: "app.example.com",
 			userID: "unknown-user",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{Domain: "app.example.com", AccountID: "account1"}},
 			},
 			users:        map[string]*types.User{},
@@ -115,7 +115,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:             "proxy not found in user's account",
 			domain:           "app.example.com",
 			userID:           "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{},
+			proxiesByAccount: map[string][]*reverseproxy.Service{},
 			users: map[string]*types.User{
 				"user1": {Id: "user1", AccountID: "account1"},
 			},
@@ -126,7 +126,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "proxy exists in different account - not accessible",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account2": {{Domain: "app.example.com", AccountID: "account2"}},
 			},
 			users: map[string]*types.User{
@@ -139,7 +139,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "no bearer auth configured - same account allows access",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{Domain: "app.example.com", AccountID: "account1", Auth: reverseproxy.AuthConfig{}}},
 			},
 			users: map[string]*types.User{
@@ -151,7 +151,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "bearer auth disabled - same account allows access",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{
 					Domain:    "app.example.com",
 					AccountID: "account1",
@@ -169,7 +169,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "bearer auth enabled but no groups configured - same account allows access",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{
 					Domain:    "app.example.com",
 					AccountID: "account1",
@@ -190,7 +190,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "user not in allowed groups",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{
 					Domain:    "app.example.com",
 					AccountID: "account1",
@@ -212,7 +212,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "user in one of the allowed groups - allow access",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{
 					Domain:    "app.example.com",
 					AccountID: "account1",
@@ -233,7 +233,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "user in all allowed groups - allow access",
 			domain: "app.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{
 					Domain:    "app.example.com",
 					AccountID: "account1",
@@ -266,7 +266,7 @@ func TestValidateUserGroupAccess(t *testing.T) {
 			name:   "multiple proxies in account - finds correct one",
 			domain: "app2.example.com",
 			userID: "user1",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {
 					{Domain: "app1.example.com", AccountID: "account1"},
 					{Domain: "app2.example.com", AccountID: "account1", Auth: reverseproxy.AuthConfig{}},
@@ -310,7 +310,7 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 		name             string
 		accountID        string
 		domain           string
-		proxiesByAccount map[string][]*reverseproxy.ReverseProxy
+		proxiesByAccount map[string][]*reverseproxy.Service
 		err              error
 		expectProxy      bool
 		expectErr        bool
@@ -319,7 +319,7 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 			name:      "proxy found",
 			accountID: "account1",
 			domain:    "app.example.com",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {
 					{Domain: "other.example.com", AccountID: "account1"},
 					{Domain: "app.example.com", AccountID: "account1"},
@@ -332,7 +332,7 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 			name:      "proxy not found in account",
 			accountID: "account1",
 			domain:    "unknown.example.com",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{
+			proxiesByAccount: map[string][]*reverseproxy.Service{
 				"account1": {{Domain: "app.example.com", AccountID: "account1"}},
 			},
 			expectProxy: false,
@@ -342,7 +342,7 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 			name:             "empty proxy list for account",
 			accountID:        "account1",
 			domain:           "app.example.com",
-			proxiesByAccount: map[string][]*reverseproxy.ReverseProxy{},
+			proxiesByAccount: map[string][]*reverseproxy.Service{},
 			expectProxy:      false,
 			expectErr:        true,
 		},

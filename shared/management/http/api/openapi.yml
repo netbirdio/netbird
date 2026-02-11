@@ -36,8 +36,8 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
-  - name: Reverse Proxy
-    description: Interact with and view information about reverse proxies.
+  - name: Services
+    description: Interact with and view information about reverse proxy services.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
   - name: Jobs
@@ -2711,9 +2711,9 @@ components:
           type: string
           description: "Unique identifier for the access log entry"
           example: "ch8i4ug6lnn4g9hqv7m0"
-        proxy_id:
+        service_id:
           type: string
-          description: "ID of the reverse proxy that handled the request"
+          description: "ID of the service that handled the request"
           example: "ch8i4ug6lnn4g9hqv7m0"
         timestamp:
           type: string
@@ -2766,7 +2766,7 @@ components:
           example: "San Francisco"
       required:
         - id
-        - proxy_id
+        - service_id
         - timestamp
         - method
         - host
@@ -2868,30 +2868,30 @@ components:
         - issuer
         - client_id
         - client_secret
-    ReverseProxy:
+    Service:
       type: object
       properties:
         id:
           type: string
-          description: Reverse proxy ID
+          description: Service ID
         name:
           type: string
-          description: Reverse proxy name
+          description: Service name
         domain:
           type: string
-          description: Domain for the reverse proxy
+          description: Domain for the service
         proxy_cluster:
           type: string
-          description: The proxy cluster handling this reverse proxy (derived from domain)
+          description: The proxy cluster handling this service (derived from domain)
           example: "eu.proxy.netbird.io"
         targets:
           type: array
           items:
-            $ref: '#/components/schemas/ReverseProxyTarget'
-          description: List of target backends for this reverse proxy
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
         enabled:
           type: boolean
-          description: Whether the reverse proxy is enabled
+          description: Whether the service is enabled
         pass_host_header:
           type: boolean
           description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
@@ -2899,9 +2899,9 @@ components:
           type: boolean
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
-          $ref: '#/components/schemas/ReverseProxyAuthConfig'
+          $ref: '#/components/schemas/ServiceAuthConfig'
         meta:
-          $ref: '#/components/schemas/ReverseProxyMeta'
+          $ref: '#/components/schemas/ServiceMeta'
       required:
         - id
         - name
@@ -2910,13 +2910,13 @@ components:
         - enabled
         - auth
         - meta
-    ReverseProxyMeta:
+    ServiceMeta:
       type: object
       properties:
         created_at:
           type: string
           format: date-time
-          description: Timestamp when the reverse proxy was created
+          description: Timestamp when the service was created
           example: "2024-02-03T10:30:00Z"
         certificate_issued_at:
           type: string
@@ -2932,28 +2932,28 @@ components:
             - certificate_pending
             - certificate_failed
             - error
-          description: Current status of the reverse proxy
+          description: Current status of the service
           example: "active"
       required:
         - created_at
         - status
-    ReverseProxyRequest:
+    ServiceRequest:
       type: object
       properties:
         name:
           type: string
-          description: Reverse proxy name
+          description: Service name
         domain:
           type: string
-          description: Domain for the reverse proxy
+          description: Domain for the service
         targets:
           type: array
           items:
-            $ref: '#/components/schemas/ReverseProxyTarget'
-          description: List of target backends for this reverse proxy
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
         enabled:
           type: boolean
-          description: Whether the reverse proxy is enabled
+          description: Whether the service is enabled
           default: true
         pass_host_header:
           type: boolean
@@ -2962,14 +2962,14 @@ components:
           type: boolean
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
-          $ref: '#/components/schemas/ReverseProxyAuthConfig'
+          $ref: '#/components/schemas/ServiceAuthConfig'
       required:
         - name
         - domain
         - targets
         - auth
         - enabled
-    ReverseProxyTarget:
+    ServiceTarget:
       type: object
       properties:
         target_id:
@@ -3001,7 +3001,7 @@ components:
         - protocol
         - port
         - enabled
-    ReverseProxyAuthConfig:
+    ServiceAuthConfig:
       type: object
       properties:
         password_auth:
@@ -6803,23 +6803,23 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies:
+  /api/reverse-proxies/services:
     get:
-      summary: List all Reverse Proxies
-      description: Returns a list of all reverse proxies
-      tags: [ Reverse Proxy ]
+      summary: List all Services
+      description: Returns a list of all reverse proxy services
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       responses:
         '200':
-          description: A JSON Array of reverse proxies
+          description: A JSON Array of services
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ReverseProxy'
+                  $ref: '#/components/schemas/Service'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':
@@ -6827,25 +6827,25 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a Reverse Proxy
-      description: Creates a new reverse proxy
-      tags: [ Reverse Proxy ]
+      summary: Create a Service
+      description: Creates a new reverse proxy service
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       requestBody:
-        description: New reverse proxy request
+        description: New service request
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReverseProxyRequest'
+              $ref: '#/components/schemas/ServiceRequest'
       responses:
         '200':
-          description: Reverse proxy created
+          description: Service created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReverseProxy'
+                $ref: '#/components/schemas/Service'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -6858,7 +6858,7 @@ paths:
     get:
       summary: List available proxy clusters
       description: Returns a list of available proxy clusters with their connection status
-      tags: [ Reverse Proxy ]
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -6877,28 +6877,28 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies/{proxyId}:
+  /api/reverse-proxies/services/{serviceId}:
     get:
-      summary: Retrieve a Reverse Proxy
-      description: Get information about a specific reverse proxy
-      tags: [ Reverse Proxy ]
+      summary: Retrieve a Service
+      description: Get information about a specific reverse proxy service
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: serviceId
           required: true
           schema:
             type: string
-          description: The unique identifier of a reverse proxy
+          description: The unique identifier of a service
       responses:
         '200':
-          description: A reverse proxy object
+          description: A service object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReverseProxy'
+                $ref: '#/components/schemas/Service'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -6910,32 +6910,32 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a Reverse Proxy
-      description: Update an existing reverse proxy
-      tags: [ Reverse Proxy ]
+      summary: Update a Service
+      description: Update an existing service
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: serviceId
           required: true
           schema:
             type: string
-          description: The unique identifier of a reverse proxy
+          description: The unique identifier of a service
       requestBody:
-        description: Reverse proxy update request
+        description: Service update request
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReverseProxyRequest'
+              $ref: '#/components/schemas/ServiceRequest'
       responses:
         '200':
-          description: Reverse proxy updated
+          description: Service updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReverseProxy'
+                $ref: '#/components/schemas/Service'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -6947,22 +6947,22 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a Reverse Proxy
-      description: Delete an existing reverse proxy
-      tags: [ Reverse Proxy ]
+      summary: Delete a Service
+      description: Delete an existing service
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: proxyId
+          name: serviceId
           required: true
           schema:
             type: string
-          description: The unique identifier of a reverse proxy
+          description: The unique identifier of a service
       responses:
         '200':
-          description: Reverse proxy deleted
+          description: Service deleted
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -6975,9 +6975,9 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/domains:
     get:
-      summary: Retrieve Reverse Proxy Domains
-      description: Get information about domains that can be used for Reverse Proxy endpoints.
-      tags: [ Reverse Proxy ]
+      summary: Retrieve Service Domains
+      description: Get information about domains that can be used for service endpoints.
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -7002,8 +7002,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Create a Custom domain
-      description: Create a new Custom domain for use with Reverse Proxy endpoints, this will trigger an initial validation check
-      tags: [ Reverse Proxy ]
+      description: Create a new Custom domain for use with service endpoints, this will trigger an initial validation check
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -7015,11 +7015,11 @@ paths:
               $ref: '#/components/schemas/ReverseProxyDomainRequest'
       responses:
         '200':
-          description: Reverse proxy created
+          description: Service created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReverseProxy'
+                $ref: '#/components/schemas/Service'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -7030,11 +7030,11 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies/domains/{domainId}:
+  /api/services/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
-      description: Delete an existing reverse proxy custom domain
-      tags: [ Reverse Proxy ]
+      description: Delete an existing service custom domain
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -7047,7 +7047,7 @@ paths:
           description: The custom domain ID
       responses:
         '204':
-          description: Reverse proxy custom domain deleted
+          description: Service custom domain deleted
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -7058,11 +7058,11 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies/domains/{domainId}/validate:
+  /api/services/domains/{domainId}/validate:
     get:
       summary: Validate a custom domain
       description: Trigger domain ownership validation for a custom domain
-      tags: [ Reverse Proxy ]
+      tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]

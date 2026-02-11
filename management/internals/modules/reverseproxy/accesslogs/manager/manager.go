@@ -44,11 +44,11 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 
 	if err := m.store.CreateAccessLog(ctx, logEntry); err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
-			"proxy_id": logEntry.ProxyID,
-			"method":   logEntry.Method,
-			"host":     logEntry.Host,
-			"path":     logEntry.Path,
-			"status":   logEntry.StatusCode,
+			"service_id": logEntry.ServiceID,
+			"method":     logEntry.Method,
+			"host":       logEntry.Host,
+			"path":       logEntry.Path,
+			"status":     logEntry.StatusCode,
 		}).Errorf("failed to save access log: %v", err)
 		return err
 	}

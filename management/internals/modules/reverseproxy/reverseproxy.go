@@ -43,16 +43,16 @@ const (
 )
 
 type Target struct {
-	ID             uint    `gorm:"primaryKey" json:"-"`
-	AccountID      string  `gorm:"index:idx_target_account;not null" json:"-"`
-	ReverseProxyID string  `gorm:"index:idx_reverse_proxy_targets;not null" json:"-"`
-	Path           *string `json:"path,omitempty"`
-	Host           string  `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
-	Port           int     `gorm:"index:idx_target_port" json:"port"`
-	Protocol       string  `gorm:"index:idx_target_protocol" json:"protocol"`
-	TargetId       string  `gorm:"index:idx_target_id" json:"target_id"`
-	TargetType     string  `gorm:"index:idx_target_type" json:"target_type"`
-	Enabled        bool    `gorm:"index:idx_target_enabled" json:"enabled"`
+	ID         uint    `gorm:"primaryKey" json:"-"`
+	AccountID  string  `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID  string  `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path       *string `json:"path,omitempty"`
+	Host       string  `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
+	Port       int     `gorm:"index:idx_target_port" json:"port"`
+	Protocol   string  `gorm:"index:idx_target_protocol" json:"protocol"`
+	TargetId   string  `gorm:"index:idx_target_id" json:"target_id"`
+	TargetType string  `gorm:"index:idx_target_type" json:"target_type"`
+	Enabled    bool    `gorm:"index:idx_target_enabled" json:"enabled"`
 }
 
 type PasswordAuthConfig struct {
@@ -112,34 +112,34 @@ type OIDCValidationConfig struct {
 	MaxTokenAgeSeconds int64
 }
 
-type ReverseProxyMeta struct {
+type ServiceMeta struct {
 	CreatedAt           time.Time
 	CertificateIssuedAt time.Time
 	Status              string
 }
 
-type ReverseProxy struct {
+type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
 	Domain            string    `gorm:"index"`
 	ProxyCluster      string    `gorm:"index"`
-	Targets           []*Target `gorm:"foreignKey:ReverseProxyID;constraint:OnDelete:CASCADE"`
+	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig       `gorm:"serializer:json"`
-	Meta              ReverseProxyMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	SessionPrivateKey string           `gorm:"column:session_private_key"`
-	SessionPublicKey  string           `gorm:"column:session_public_key"`
+	Auth              AuthConfig  `gorm:"serializer:json"`
+	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string      `gorm:"column:session_private_key"`
+	SessionPublicKey  string      `gorm:"column:session_public_key"`
 }
 
-func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *ReverseProxy {
+func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
 	for _, target := range targets {
 		target.AccountID = accountID
 	}
 
-	rp := &ReverseProxy{
+	s := &Service{
 		AccountID:    accountID,
 		Name:         name,
 		Domain:       domain,
@@ -147,92 +147,92 @@ func NewReverseProxy(accountID, name, domain, proxyCluster string, targets []*Ta
 		Targets:      targets,
 		Enabled:      enabled,
 	}
-	rp.InitNewRecord()
-	return rp
+	s.InitNewRecord()
+	return s
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
-// ReverseProxy record. This overwrites any existing ID and Meta fields and should
+// Service record. This overwrites any existing ID and Meta fields and should
 // only be called during initial creation, not for updates.
-func (r *ReverseProxy) InitNewRecord() {
-	r.ID = xid.New().String()
-	r.Meta = ReverseProxyMeta{
+func (s *Service) InitNewRecord() {
+	s.ID = xid.New().String()
+	s.Meta = ServiceMeta{
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
 }
 
-func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
-	r.Auth.ClearSecrets()
+func (s *Service) ToAPIResponse() *api.Service {
+	s.Auth.ClearSecrets()
 
-	authConfig := api.ReverseProxyAuthConfig{}
+	authConfig := api.ServiceAuthConfig{}
 
-	if r.Auth.PasswordAuth != nil {
+	if s.Auth.PasswordAuth != nil {
 		authConfig.PasswordAuth = &api.PasswordAuthConfig{
-			Enabled:  r.Auth.PasswordAuth.Enabled,
-			Password: r.Auth.PasswordAuth.Password,
+			Enabled:  s.Auth.PasswordAuth.Enabled,
+			Password: s.Auth.PasswordAuth.Password,
 		}
 	}
 
-	if r.Auth.PinAuth != nil {
+	if s.Auth.PinAuth != nil {
 		authConfig.PinAuth = &api.PINAuthConfig{
-			Enabled: r.Auth.PinAuth.Enabled,
-			Pin:     r.Auth.PinAuth.Pin,
+			Enabled: s.Auth.PinAuth.Enabled,
+			Pin:     s.Auth.PinAuth.Pin,
 		}
 	}
 
-	if r.Auth.BearerAuth != nil {
+	if s.Auth.BearerAuth != nil {
 		authConfig.BearerAuth = &api.BearerAuthConfig{
-			Enabled:            r.Auth.BearerAuth.Enabled,
-			DistributionGroups: &r.Auth.BearerAuth.DistributionGroups,
+			Enabled:            s.Auth.BearerAuth.Enabled,
+			DistributionGroups: &s.Auth.BearerAuth.DistributionGroups,
 		}
 	}
 
 	// Convert internal targets to API targets
-	apiTargets := make([]api.ReverseProxyTarget, 0, len(r.Targets))
-	for _, target := range r.Targets {
-		apiTargets = append(apiTargets, api.ReverseProxyTarget{
+	apiTargets := make([]api.ServiceTarget, 0, len(s.Targets))
+	for _, target := range s.Targets {
+		apiTargets = append(apiTargets, api.ServiceTarget{
 			Path:       target.Path,
 			Host:       &target.Host,
 			Port:       target.Port,
-			Protocol:   api.ReverseProxyTargetProtocol(target.Protocol),
+			Protocol:   api.ServiceTargetProtocol(target.Protocol),
 			TargetId:   target.TargetId,
-			TargetType: api.ReverseProxyTargetTargetType(target.TargetType),
+			TargetType: api.ServiceTargetTargetType(target.TargetType),
 			Enabled:    target.Enabled,
 		})
 	}
 
-	meta := api.ReverseProxyMeta{
-		CreatedAt: r.Meta.CreatedAt,
-		Status:    api.ReverseProxyMetaStatus(r.Meta.Status),
+	meta := api.ServiceMeta{
+		CreatedAt: s.Meta.CreatedAt,
+		Status:    api.ServiceMetaStatus(s.Meta.Status),
 	}
 
-	if !r.Meta.CertificateIssuedAt.IsZero() {
-		meta.CertificateIssuedAt = &r.Meta.CertificateIssuedAt
+	if !s.Meta.CertificateIssuedAt.IsZero() {
+		meta.CertificateIssuedAt = &s.Meta.CertificateIssuedAt
 	}
 
-	resp := &api.ReverseProxy{
-		Id:               r.ID,
-		Name:             r.Name,
-		Domain:           r.Domain,
+	resp := &api.Service{
+		Id:               s.ID,
+		Name:             s.Name,
+		Domain:           s.Domain,
 		Targets:          apiTargets,
-		Enabled:          r.Enabled,
-		PassHostHeader:   &r.PassHostHeader,
-		RewriteRedirects: &r.RewriteRedirects,
+		Enabled:          s.Enabled,
+		PassHostHeader:   &s.PassHostHeader,
+		RewriteRedirects: &s.RewriteRedirects,
 		Auth:             authConfig,
 		Meta:             meta,
 	}
 
-	if r.ProxyCluster != "" {
-		resp.ProxyCluster = &r.ProxyCluster
+	if s.ProxyCluster != "" {
+		resp.ProxyCluster = &s.ProxyCluster
 	}
 
 	return resp
 }
 
-func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
-	pathMappings := make([]*proto.PathMapping, 0, len(r.Targets))
-	for _, target := range r.Targets {
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
+	for _, target := range s.Targets {
 		if !target.Enabled {
 			continue
 		}
@@ -260,32 +260,32 @@ func (r *ReverseProxy) ToProtoMapping(operation Operation, authToken string, oid
 	}
 
 	auth := &proto.Authentication{
-		SessionKey:           r.SessionPublicKey,
+		SessionKey:           s.SessionPublicKey,
 		MaxSessionAgeSeconds: int64((time.Hour * 24).Seconds()),
 	}
 
-	if r.Auth.PasswordAuth != nil && r.Auth.PasswordAuth.Enabled {
+	if s.Auth.PasswordAuth != nil && s.Auth.PasswordAuth.Enabled {
 		auth.Password = true
 	}
 
-	if r.Auth.PinAuth != nil && r.Auth.PinAuth.Enabled {
+	if s.Auth.PinAuth != nil && s.Auth.PinAuth.Enabled {
 		auth.Pin = true
 	}
 
-	if r.Auth.BearerAuth != nil && r.Auth.BearerAuth.Enabled {
+	if s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled {
 		auth.Oidc = true
 	}
 
 	return &proto.ProxyMapping{
 		Type:             operationToProtoType(operation),
-		Id:               r.ID,
-		Domain:           r.Domain,
+		Id:               s.ID,
+		Domain:           s.Domain,
 		Path:             pathMappings,
 		AuthToken:        authToken,
 		Auth:             auth,
-		AccountId:        r.AccountID,
-		PassHostHeader:   r.PassHostHeader,
-		RewriteRedirects: r.RewriteRedirects,
+		AccountId:        s.AccountID,
+		PassHostHeader:   s.PassHostHeader,
+		RewriteRedirects: s.RewriteRedirects,
 	}
 }
 
@@ -309,10 +309,10 @@ func isDefaultPort(scheme string, port int) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
-func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID string) {
-	r.Name = req.Name
-	r.Domain = req.Domain
-	r.AccountID = accountID
+func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {
+	s.Name = req.Name
+	s.Domain = req.Domain
+	s.AccountID = accountID
 
 	targets := make([]*Target, 0, len(req.Targets))
 	for _, apiTarget := range req.Targets {
@@ -330,27 +330,27 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 		}
 		targets = append(targets, target)
 	}
-	r.Targets = targets
+	s.Targets = targets
 
-	r.Enabled = req.Enabled
+	s.Enabled = req.Enabled
 
 	if req.PassHostHeader != nil {
-		r.PassHostHeader = *req.PassHostHeader
+		s.PassHostHeader = *req.PassHostHeader
 	}
 
 	if req.RewriteRedirects != nil {
-		r.RewriteRedirects = *req.RewriteRedirects
+		s.RewriteRedirects = *req.RewriteRedirects
 	}
 
 	if req.Auth.PasswordAuth != nil {
-		r.Auth.PasswordAuth = &PasswordAuthConfig{
+		s.Auth.PasswordAuth = &PasswordAuthConfig{
 			Enabled:  req.Auth.PasswordAuth.Enabled,
 			Password: req.Auth.PasswordAuth.Password,
 		}
 	}
 
 	if req.Auth.PinAuth != nil {
-		r.Auth.PinAuth = &PINAuthConfig{
+		s.Auth.PinAuth = &PINAuthConfig{
 			Enabled: req.Auth.PinAuth.Enabled,
 			Pin:     req.Auth.PinAuth.Pin,
 		}
@@ -363,27 +363,27 @@ func (r *ReverseProxy) FromAPIRequest(req *api.ReverseProxyRequest, accountID st
 		if req.Auth.BearerAuth.DistributionGroups != nil {
 			bearerAuth.DistributionGroups = *req.Auth.BearerAuth.DistributionGroups
 		}
-		r.Auth.BearerAuth = bearerAuth
+		s.Auth.BearerAuth = bearerAuth
 	}
 }
 
-func (r *ReverseProxy) Validate() error {
-	if r.Name == "" {
-		return errors.New("reverse proxy name is required")
+func (s *Service) Validate() error {
+	if s.Name == "" {
+		return errors.New("service name is required")
 	}
-	if len(r.Name) > 255 {
-		return errors.New("reverse proxy name exceeds maximum length of 255 characters")
-	}
-
-	if r.Domain == "" {
-		return errors.New("reverse proxy domain is required")
+	if len(s.Name) > 255 {
+		return errors.New("service name exceeds maximum length of 255 characters")
 	}
 
-	if len(r.Targets) == 0 {
+	if s.Domain == "" {
+		return errors.New("service domain is required")
+	}
+
+	if len(s.Targets) == 0 {
 		return errors.New("at least one target is required")
 	}
 
-	for i, target := range r.Targets {
+	for i, target := range s.Targets {
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
 			// host field will be ignored
@@ -402,42 +402,42 @@ func (r *ReverseProxy) Validate() error {
 	return nil
 }
 
-func (r *ReverseProxy) EventMeta() map[string]any {
-	return map[string]any{"name": r.Name, "domain": r.Domain, "proxy_cluster": r.ProxyCluster}
+func (s *Service) EventMeta() map[string]any {
+	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster}
 }
 
-func (r *ReverseProxy) Copy() *ReverseProxy {
-	targets := make([]*Target, len(r.Targets))
-	for i, target := range r.Targets {
+func (s *Service) Copy() *Service {
+	targets := make([]*Target, len(s.Targets))
+	for i, target := range s.Targets {
 		targetCopy := *target
 		targets[i] = &targetCopy
 	}
 
-	return &ReverseProxy{
-		ID:                r.ID,
-		AccountID:         r.AccountID,
-		Name:              r.Name,
-		Domain:            r.Domain,
-		ProxyCluster:      r.ProxyCluster,
+	return &Service{
+		ID:                s.ID,
+		AccountID:         s.AccountID,
+		Name:              s.Name,
+		Domain:            s.Domain,
+		ProxyCluster:      s.ProxyCluster,
 		Targets:           targets,
-		Enabled:           r.Enabled,
-		PassHostHeader:    r.PassHostHeader,
-		RewriteRedirects:  r.RewriteRedirects,
-		Auth:              r.Auth,
-		Meta:              r.Meta,
-		SessionPrivateKey: r.SessionPrivateKey,
-		SessionPublicKey:  r.SessionPublicKey,
+		Enabled:           s.Enabled,
+		PassHostHeader:    s.PassHostHeader,
+		RewriteRedirects:  s.RewriteRedirects,
+		Auth:              s.Auth,
+		Meta:              s.Meta,
+		SessionPrivateKey: s.SessionPrivateKey,
+		SessionPublicKey:  s.SessionPublicKey,
 	}
 }
 
-func (r *ReverseProxy) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
+func (s *Service) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}
 
-	if r.SessionPrivateKey != "" {
+	if s.SessionPrivateKey != "" {
 		var err error
-		r.SessionPrivateKey, err = enc.Encrypt(r.SessionPrivateKey)
+		s.SessionPrivateKey, err = enc.Encrypt(s.SessionPrivateKey)
 		if err != nil {
 			return err
 		}
@@ -446,14 +446,14 @@ func (r *ReverseProxy) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
-func (r *ReverseProxy) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
+func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
 		return nil
 	}
 
-	if r.SessionPrivateKey != "" {
+	if s.SessionPrivateKey != "" {
 		var err error
-		r.SessionPrivateKey, err = enc.Decrypt(r.SessionPrivateKey)
+		s.SessionPrivateKey, err = enc.Decrypt(s.SessionPrivateKey)
 		if err != nil {
 			return err
 		}

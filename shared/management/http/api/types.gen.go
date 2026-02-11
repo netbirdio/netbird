@@ -275,26 +275,26 @@ const (
 	ReverseProxyDomainTypeFree   ReverseProxyDomainType = "free"
 )
 
-// Defines values for ReverseProxyMetaStatus.
+// Defines values for ServiceMetaStatus.
 const (
-	ReverseProxyMetaStatusActive             ReverseProxyMetaStatus = "active"
-	ReverseProxyMetaStatusCertificateFailed  ReverseProxyMetaStatus = "certificate_failed"
-	ReverseProxyMetaStatusCertificatePending ReverseProxyMetaStatus = "certificate_pending"
-	ReverseProxyMetaStatusError              ReverseProxyMetaStatus = "error"
-	ReverseProxyMetaStatusPending            ReverseProxyMetaStatus = "pending"
-	ReverseProxyMetaStatusTunnelNotCreated   ReverseProxyMetaStatus = "tunnel_not_created"
+	ServiceMetaStatusActive             ServiceMetaStatus = "active"
+	ServiceMetaStatusCertificateFailed  ServiceMetaStatus = "certificate_failed"
+	ServiceMetaStatusCertificatePending ServiceMetaStatus = "certificate_pending"
+	ServiceMetaStatusError              ServiceMetaStatus = "error"
+	ServiceMetaStatusPending            ServiceMetaStatus = "pending"
+	ServiceMetaStatusTunnelNotCreated   ServiceMetaStatus = "tunnel_not_created"
 )
 
-// Defines values for ReverseProxyTargetProtocol.
+// Defines values for ServiceTargetProtocol.
 const (
-	ReverseProxyTargetProtocolHttp  ReverseProxyTargetProtocol = "http"
-	ReverseProxyTargetProtocolHttps ReverseProxyTargetProtocol = "https"
+	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
+	ServiceTargetProtocolHttps ServiceTargetProtocol = "https"
 )
 
-// Defines values for ReverseProxyTargetTargetType.
+// Defines values for ServiceTargetTargetType.
 const (
-	ReverseProxyTargetTargetTypePeer     ReverseProxyTargetTargetType = "peer"
-	ReverseProxyTargetTargetTypeResource ReverseProxyTargetTargetType = "resource"
+	ServiceTargetTargetTypePeer     ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
 )
 
 // Defines values for UserStatus.
@@ -328,6 +328,23 @@ const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
 	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
 	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
+)
+
+// Defines values for GetApiEventsProxyParamsMethod.
+const (
+	GetApiEventsProxyParamsMethodDELETE  GetApiEventsProxyParamsMethod = "DELETE"
+	GetApiEventsProxyParamsMethodGET     GetApiEventsProxyParamsMethod = "GET"
+	GetApiEventsProxyParamsMethodHEAD    GetApiEventsProxyParamsMethod = "HEAD"
+	GetApiEventsProxyParamsMethodOPTIONS GetApiEventsProxyParamsMethod = "OPTIONS"
+	GetApiEventsProxyParamsMethodPATCH   GetApiEventsProxyParamsMethod = "PATCH"
+	GetApiEventsProxyParamsMethodPOST    GetApiEventsProxyParamsMethod = "POST"
+	GetApiEventsProxyParamsMethodPUT     GetApiEventsProxyParamsMethod = "PUT"
+)
+
+// Defines values for GetApiEventsProxyParamsStatus.
+const (
+	GetApiEventsProxyParamsStatusFailed  GetApiEventsProxyParamsStatus = "failed"
+	GetApiEventsProxyParamsStatusSuccess GetApiEventsProxyParamsStatus = "success"
 )
 
 // AccessiblePeer defines model for AccessiblePeer.
@@ -1931,11 +1948,11 @@ type ProxyAccessLog struct {
 	// Path Path of the request
 	Path string `json:"path"`
 
-	// ProxyId ID of the reverse proxy that handled the request
-	ProxyId string `json:"proxy_id"`
-
 	// Reason Reason for the request result (e.g., authentication failure)
 	Reason *string `json:"reason,omitempty"`
+
+	// ServiceId ID of the service that handled the request
+	ServiceId string `json:"service_id"`
 
 	// SourceIp Source IP address of the request
 	SourceIp *string `json:"source_ip,omitempty"`
@@ -1987,44 +2004,6 @@ type Resource struct {
 // ResourceType defines model for ResourceType.
 type ResourceType string
 
-// ReverseProxy defines model for ReverseProxy.
-type ReverseProxy struct {
-	Auth ReverseProxyAuthConfig `json:"auth"`
-
-	// Domain Domain for the reverse proxy
-	Domain string `json:"domain"`
-
-	// Enabled Whether the reverse proxy is enabled
-	Enabled bool `json:"enabled"`
-
-	// Id Reverse proxy ID
-	Id   string           `json:"id"`
-	Meta ReverseProxyMeta `json:"meta"`
-
-	// Name Reverse proxy name
-	Name string `json:"name"`
-
-	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
-	PassHostHeader *bool `json:"pass_host_header,omitempty"`
-
-	// ProxyCluster The proxy cluster handling this reverse proxy (derived from domain)
-	ProxyCluster *string `json:"proxy_cluster,omitempty"`
-
-	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
-	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
-
-	// Targets List of target backends for this reverse proxy
-	Targets []ReverseProxyTarget `json:"targets"`
-}
-
-// ReverseProxyAuthConfig defines model for ReverseProxyAuthConfig.
-type ReverseProxyAuthConfig struct {
-	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
-	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
-	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
-	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
-}
-
 // ReverseProxyDomain defines model for ReverseProxyDomain.
 type ReverseProxyDomain struct {
 	// Domain Domain name
@@ -2054,74 +2033,6 @@ type ReverseProxyDomainRequest struct {
 
 // ReverseProxyDomainType Type of Reverse Proxy Domain
 type ReverseProxyDomainType string
-
-// ReverseProxyMeta defines model for ReverseProxyMeta.
-type ReverseProxyMeta struct {
-	// CertificateIssuedAt Timestamp when the certificate was issued (empty if not yet issued)
-	CertificateIssuedAt *time.Time `json:"certificate_issued_at,omitempty"`
-
-	// CreatedAt Timestamp when the reverse proxy was created
-	CreatedAt time.Time `json:"created_at"`
-
-	// Status Current status of the reverse proxy
-	Status ReverseProxyMetaStatus `json:"status"`
-}
-
-// ReverseProxyMetaStatus Current status of the reverse proxy
-type ReverseProxyMetaStatus string
-
-// ReverseProxyRequest defines model for ReverseProxyRequest.
-type ReverseProxyRequest struct {
-	Auth ReverseProxyAuthConfig `json:"auth"`
-
-	// Domain Domain for the reverse proxy
-	Domain string `json:"domain"`
-
-	// Enabled Whether the reverse proxy is enabled
-	Enabled bool `json:"enabled"`
-
-	// Name Reverse proxy name
-	Name string `json:"name"`
-
-	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
-	PassHostHeader *bool `json:"pass_host_header,omitempty"`
-
-	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
-	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
-
-	// Targets List of target backends for this reverse proxy
-	Targets []ReverseProxyTarget `json:"targets"`
-}
-
-// ReverseProxyTarget defines model for ReverseProxyTarget.
-type ReverseProxyTarget struct {
-	// Enabled Whether this target is enabled
-	Enabled bool `json:"enabled"`
-
-	// Host Backend ip or domain for this target
-	Host *string `json:"host,omitempty"`
-
-	// Path URL path prefix for this target
-	Path *string `json:"path,omitempty"`
-
-	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
-	Port int `json:"port"`
-
-	// Protocol Protocol to use when connecting to the backend
-	Protocol ReverseProxyTargetProtocol `json:"protocol"`
-
-	// TargetId Target ID
-	TargetId string `json:"target_id"`
-
-	// TargetType Target type (e.g., "peer", "resource")
-	TargetType ReverseProxyTargetTargetType `json:"target_type"`
-}
-
-// ReverseProxyTargetProtocol Protocol to use when connecting to the backend
-type ReverseProxyTargetProtocol string
-
-// ReverseProxyTargetTargetType Target type (e.g., "peer", "resource")
-type ReverseProxyTargetTargetType string
 
 // Route defines model for Route.
 type Route struct {
@@ -2221,6 +2132,112 @@ type RulePortRange struct {
 	// Start The starting port of the range
 	Start int `json:"start"`
 }
+
+// Service defines model for Service.
+type Service struct {
+	Auth ServiceAuthConfig `json:"auth"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id Service ID
+	Id   string      `json:"id"`
+	Meta ServiceMeta `json:"meta"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// ProxyCluster The proxy cluster handling this service (derived from domain)
+	ProxyCluster *string `json:"proxy_cluster,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceAuthConfig defines model for ServiceAuthConfig.
+type ServiceAuthConfig struct {
+	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
+	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
+	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
+}
+
+// ServiceMeta defines model for ServiceMeta.
+type ServiceMeta struct {
+	// CertificateIssuedAt Timestamp when the certificate was issued (empty if not yet issued)
+	CertificateIssuedAt *time.Time `json:"certificate_issued_at,omitempty"`
+
+	// CreatedAt Timestamp when the service was created
+	CreatedAt time.Time `json:"created_at"`
+
+	// Status Current status of the service
+	Status ServiceMetaStatus `json:"status"`
+}
+
+// ServiceMetaStatus Current status of the service
+type ServiceMetaStatus string
+
+// ServiceRequest defines model for ServiceRequest.
+type ServiceRequest struct {
+	Auth ServiceAuthConfig `json:"auth"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceTarget defines model for ServiceTarget.
+type ServiceTarget struct {
+	// Enabled Whether this target is enabled
+	Enabled bool `json:"enabled"`
+
+	// Host Backend ip or domain for this target
+	Host *string `json:"host,omitempty"`
+
+	// Path URL path prefix for this target
+	Path *string `json:"path,omitempty"`
+
+	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+	Port int `json:"port"`
+
+	// Protocol Protocol to use when connecting to the backend
+	Protocol ServiceTargetProtocol `json:"protocol"`
+
+	// TargetId Target ID
+	TargetId string `json:"target_id"`
+
+	// TargetType Target type (e.g., "peer", "resource")
+	TargetType ServiceTargetTargetType `json:"target_type"`
+}
+
+// ServiceTargetProtocol Protocol to use when connecting to the backend
+type ServiceTargetProtocol string
+
+// ServiceTargetTargetType Target type (e.g., "peer", "resource")
+type ServiceTargetTargetType string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
@@ -2680,7 +2697,49 @@ type GetApiEventsProxyParams struct {
 
 	// PageSize Number of items per page (max 100)
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Search General search across request ID, host, path, source IP, user email, and user name
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// SourceIp Filter by source IP address
+	SourceIp *string `form:"source_ip,omitempty" json:"source_ip,omitempty"`
+
+	// Host Filter by host header
+	Host *string `form:"host,omitempty" json:"host,omitempty"`
+
+	// Path Filter by request path (supports partial matching)
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// UserId Filter by authenticated user ID
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// UserEmail Filter by user email (partial matching)
+	UserEmail *string `form:"user_email,omitempty" json:"user_email,omitempty"`
+
+	// UserName Filter by user name (partial matching)
+	UserName *string `form:"user_name,omitempty" json:"user_name,omitempty"`
+
+	// Method Filter by HTTP method
+	Method *GetApiEventsProxyParamsMethod `form:"method,omitempty" json:"method,omitempty"`
+
+	// Status Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+	Status *GetApiEventsProxyParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// StatusCode Filter by HTTP status code
+	StatusCode *int `form:"status_code,omitempty" json:"status_code,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format)
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format)
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
 }
+
+// GetApiEventsProxyParamsMethod defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsMethod string
+
+// GetApiEventsProxyParamsStatus defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsStatus string
 
 // GetApiGroupsParams defines parameters for GetApiGroups.
 type GetApiGroupsParams struct {
@@ -2796,14 +2855,14 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
-// PostApiReverseProxiesJSONRequestBody defines body for PostApiReverseProxies for application/json ContentType.
-type PostApiReverseProxiesJSONRequestBody = ReverseProxyRequest
-
 // PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
 type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest
 
-// PutApiReverseProxiesProxyIdJSONRequestBody defines body for PutApiReverseProxiesProxyId for application/json ContentType.
-type PutApiReverseProxiesProxyIdJSONRequestBody = ReverseProxyRequest
+// PostApiReverseProxiesServicesJSONRequestBody defines body for PostApiReverseProxiesServices for application/json ContentType.
+type PostApiReverseProxiesServicesJSONRequestBody = ServiceRequest
+
+// PutApiReverseProxiesServicesServiceIdJSONRequestBody defines body for PutApiReverseProxiesServicesServiceId for application/json ContentType.
+type PutApiReverseProxiesServicesServiceIdJSONRequestBody = ServiceRequest
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

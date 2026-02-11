@@ -264,7 +264,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
 	go func() {
-		err := m.reverseProxyManager.ReloadAllReverseProxiesForAccount(ctx, resource.AccountID)
+		err := m.reverseProxyManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
 		if err != nil {
 			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
 		}
@@ -322,12 +322,12 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
-	proxyID, err := m.reverseProxyManager.GetProxyIDByTargetID(ctx, accountID, resourceID)
+	serviceID, err := m.reverseProxyManager.GetServiceIDByTargetID(ctx, accountID, resourceID)
 	if err != nil {
-		return fmt.Errorf("failed to check if resource is used by reverse proxy: %w", err)
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
 	}
-	if proxyID != "" {
-		return status.NewResourceInUseError(resourceID, proxyID)
+	if serviceID != "" {
+		return status.NewResourceInUseError(resourceID, serviceID)
 	}
 
 	var events []func()

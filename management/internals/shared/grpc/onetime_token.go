@@ -13,7 +13,7 @@ import (
 
 // OneTimeTokenStore manages short-lived, single-use authentication tokens
 // for proxy-to-management RPC authentication. Tokens are generated when
-// a reverse proxy is created and must be used exactly once by the proxy
+// a service is created and must be used exactly once by the proxy
 // to authenticate a subsequent RPC call.
 type OneTimeTokenStore struct {
 	tokens      map[string]*tokenMetadata
@@ -24,10 +24,10 @@ type OneTimeTokenStore struct {
 
 // tokenMetadata stores information about a one-time token
 type tokenMetadata struct {
-	ReverseProxyID string
-	AccountID      string
-	ExpiresAt      time.Time
-	CreatedAt      time.Time
+	ServiceID string
+	AccountID string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 // NewOneTimeTokenStore creates a new token store with automatic cleanup
@@ -48,10 +48,10 @@ func NewOneTimeTokenStore(cleanupInterval time.Duration) *OneTimeTokenStore {
 
 // GenerateToken creates a new cryptographically secure one-time token
 // with the specified TTL. The token is associated with a specific
-// accountID and reverseProxyID for validation purposes.
+// accountID and serviceID for validation purposes.
 //
 // Returns the generated token string or an error if random generation fails.
-func (s *OneTimeTokenStore) GenerateToken(accountID, reverseProxyID string, ttl time.Duration) (string, error) {
+func (s *OneTimeTokenStore) GenerateToken(accountID, serviceID string, ttl time.Duration) (string, error) {
 	// Generate 32 bytes (256 bits) of cryptographically secure random data
 	randomBytes := make([]byte, 32)
 	if _, err := rand.Read(randomBytes); err != nil {
@@ -65,20 +65,20 @@ func (s *OneTimeTokenStore) GenerateToken(accountID, reverseProxyID string, ttl 
 	defer s.mu.Unlock()
 
 	s.tokens[token] = &tokenMetadata{
-		ReverseProxyID: reverseProxyID,
-		AccountID:      accountID,
-		ExpiresAt:      time.Now().Add(ttl),
-		CreatedAt:      time.Now(),
+		ServiceID: serviceID,
+		AccountID: accountID,
+		ExpiresAt: time.Now().Add(ttl),
+		CreatedAt: time.Now(),
 	}
 
 	log.Debugf("Generated one-time token for proxy %s in account %s (expires in %s)",
-		reverseProxyID, accountID, ttl)
+		serviceID, accountID, ttl)
 
 	return token, nil
 }
 
 // ValidateAndConsume verifies the token against the provided accountID and
-// reverseProxyID, checks expiration, and then deletes it to enforce single-use.
+// serviceID, checks expiration, and then deletes it to enforce single-use.
 //
 // This method uses constant-time comparison to prevent timing attacks.
 //
@@ -87,14 +87,14 @@ func (s *OneTimeTokenStore) GenerateToken(accountID, reverseProxyID string, ttl 
 // - Token has expired
 // - Account ID doesn't match
 // - Reverse proxy ID doesn't match
-func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, reverseProxyID string) error {
+func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, serviceID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	metadata, exists := s.tokens[token]
 	if !exists {
 		log.Warnf("Token validation failed: token not found (proxy: %s, account: %s)",
-			reverseProxyID, accountID)
+			serviceID, accountID)
 		return fmt.Errorf("invalid token")
 	}
 
@@ -102,7 +102,7 @@ func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, reverseProxyID 
 	if time.Now().After(metadata.ExpiresAt) {
 		delete(s.tokens, token)
 		log.Warnf("Token validation failed: token expired (proxy: %s, account: %s)",
-			reverseProxyID, accountID)
+			serviceID, accountID)
 		return fmt.Errorf("token expired")
 	}
 
@@ -113,18 +113,18 @@ func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, reverseProxyID 
 		return fmt.Errorf("account ID mismatch")
 	}
 
-	// Validate reverse proxy ID using constant-time comparison
-	if subtle.ConstantTimeCompare([]byte(metadata.ReverseProxyID), []byte(reverseProxyID)) != 1 {
-		log.Warnf("Token validation failed: reverse proxy ID mismatch (expected: %s, got: %s)",
-			metadata.ReverseProxyID, reverseProxyID)
-		return fmt.Errorf("reverse proxy ID mismatch")
+	// Validate service ID using constant-time comparison
+	if subtle.ConstantTimeCompare([]byte(metadata.ServiceID), []byte(serviceID)) != 1 {
+		log.Warnf("Token validation failed: service ID mismatch (expected: %s, got: %s)",
+			metadata.ServiceID, serviceID)
+		return fmt.Errorf("service ID mismatch")
 	}
 
 	// Delete token immediately to enforce single-use
 	delete(s.tokens, token)
 
 	log.Infof("Token validated and consumed for proxy %s in account %s",
-		reverseProxyID, accountID)
+		serviceID, accountID)
 
 	return nil
 }

@@ -103,7 +103,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 		}
 
 		s.AfterInit(func(s *BaseServer) {
-			accountManager.SetReverseProxyManager(s.ReverseProxyManager())
+			accountManager.SetServiceManager(s.ReverseProxyManager())
 		})
 
 		return accountManager
