@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -75,6 +76,35 @@ type AuthConfig struct {
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty" gorm:"serializer:json"`
 }
 
+func (a *AuthConfig) HashSecrets() error {
+	if a.PasswordAuth != nil && a.PasswordAuth.Enabled && a.PasswordAuth.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(a.PasswordAuth.Password), 12)
+		if err != nil {
+			return err
+		}
+		a.PasswordAuth.Password = string(hash)
+	}
+
+	if a.PinAuth != nil && a.PinAuth.Enabled && a.PinAuth.Pin != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(a.PinAuth.Pin), 12)
+		if err != nil {
+			return err
+		}
+		a.PinAuth.Pin = string(hash)
+	}
+
+	return nil
+}
+
+func (a *AuthConfig) ClearSecrets() {
+	if a.PasswordAuth != nil {
+		a.PasswordAuth.Password = ""
+	}
+	if a.PinAuth != nil {
+		a.PinAuth.Pin = ""
+	}
+}
+
 type OIDCValidationConfig struct {
 	Issuer             string
 	Audiences          []string
@@ -133,6 +163,8 @@ func (r *ReverseProxy) InitNewRecord() {
 }
 
 func (r *ReverseProxy) ToAPIResponse() *api.ReverseProxy {
+	r.Auth.ClearSecrets()
+
 	authConfig := api.ReverseProxyAuthConfig{}
 
 	if r.Auth.PasswordAuth != nil {

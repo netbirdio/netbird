@@ -148,6 +148,10 @@ func (m *managerImpl) CreateReverseProxy(ctx context.Context, accountID, userID 
 	reverseProxy.AccountID = accountID
 	reverseProxy.ProxyCluster = proxyCluster
 	reverseProxy.InitNewRecord()
+	err = reverseProxy.Auth.HashSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("hash secrets: %w", err)
+	}
 
 	// Generate session JWT signing keys
 	keyPair, err := sessionkey.GenerateKeyPair()
@@ -215,6 +219,11 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 	var domainChanged bool
 	var reverseProxyEnabledChanged bool
 
+	err = reverseProxy.Auth.HashSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("hash secrets: %w", err)
+	}
+
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existingReverseProxy, err := transaction.GetReverseProxyByID(ctx, store.LockingStrengthUpdate, accountID, reverseProxy.ID)
 		if err != nil {
@@ -244,6 +253,18 @@ func (m *managerImpl) UpdateReverseProxy(ctx context.Context, accountID, userID 
 			}
 		} else {
 			reverseProxy.ProxyCluster = existingReverseProxy.ProxyCluster
+		}
+
+		if reverseProxy.Auth.PasswordAuth != nil && reverseProxy.Auth.PasswordAuth.Enabled &&
+			existingReverseProxy.Auth.PasswordAuth != nil && existingReverseProxy.Auth.PasswordAuth.Enabled &&
+			reverseProxy.Auth.PasswordAuth.Password == "" {
+			reverseProxy.Auth.PasswordAuth = existingReverseProxy.Auth.PasswordAuth
+		}
+
+		if reverseProxy.Auth.PinAuth != nil && reverseProxy.Auth.PinAuth.Enabled &&
+			existingReverseProxy.Auth.PinAuth != nil && existingReverseProxy.Auth.PinAuth.Enabled &&
+			reverseProxy.Auth.PinAuth.Pin == "" {
+			reverseProxy.Auth.PinAuth = existingReverseProxy.Auth.PinAuth
 		}
 
 		reverseProxy.Meta = existingReverseProxy.Meta

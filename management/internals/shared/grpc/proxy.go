@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -441,7 +441,16 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			// Break here and use the default authenticated == false.
 			break
 		}
-		authenticated = subtle.ConstantTimeCompare([]byte(auth.Pin), []byte(v.Pin.GetPin())) == 1
+		err = bcrypt.CompareHashAndPassword([]byte(auth.Pin), []byte(v.Pin.GetPin()))
+		if err != nil {
+			if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+				log.WithContext(ctx).Tracef("PIN authentication failed: invalid PIN")
+			} else {
+				log.WithContext(ctx).Errorf("PIN authentication error: %v", err)
+			}
+			break
+		}
+		authenticated = true
 		userId = "pin-user"
 		method = proxyauth.MethodPIN
 	case *proto.AuthenticateRequest_Password:
@@ -451,7 +460,16 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			// Break here and use the default authenticated == false.
 			break
 		}
-		authenticated = subtle.ConstantTimeCompare([]byte(auth.Password), []byte(v.Password.GetPassword())) == 1
+		err = bcrypt.CompareHashAndPassword([]byte(auth.Password), []byte(v.Password.GetPassword()))
+		if err != nil {
+			if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+				log.WithContext(ctx).Tracef("Password authentication failed: invalid password")
+			} else {
+				log.WithContext(ctx).Errorf("Password authentication error: %v", err)
+			}
+			break
+		}
+		authenticated = true
 		userId = "password-user"
 		method = proxyauth.MethodPassword
 	}
