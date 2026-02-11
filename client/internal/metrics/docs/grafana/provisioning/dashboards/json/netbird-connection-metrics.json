@@ -1,0 +1,245 @@
+{
+  "title": "NetBird Client Connection Metrics",
+  "tags": ["netbird", "connections"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Connection Stage Durations (Average)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(netbird_peer_connection_stage_creation_to_semaphore_sum / netbird_peer_connection_stage_creation_to_semaphore_count) * 1000",
+          "legendFormat": "1. Creation→Semaphore ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "refId": "A"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_semaphore_to_signaling_sum / netbird_peer_connection_stage_semaphore_to_signaling_count) * 1000",
+          "legendFormat": "2. Semaphore→Signaling ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "refId": "B"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum / netbird_peer_connection_stage_signaling_to_connection_count) * 1000",
+          "legendFormat": "3. Signaling→Connection ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "refId": "C"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_connection_to_handshake_sum / netbird_peer_connection_stage_connection_to_handshake_count) * 1000",
+          "legendFormat": "4. Connection→Handshake ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Sync Duration (Average)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "(rate(netbird_sync_duration_seconds_sum[5m]) / rate(netbird_sync_duration_seconds_count[5m])) * 1000",
+          "legendFormat": "{{deployment_type}}/{{os}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Sync Rate",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "rate(netbird_sync_duration_seconds_count[5m]) * 60",
+          "legendFormat": "{{deployment_type}}/{{os}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops/min",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Total Connection Time (Average)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "(netbird_peer_connection_total_creation_to_handshake_sum / netbird_peer_connection_total_creation_to_handshake_count) * 1000",
+          "legendFormat": "{{connection_type}}/{{attempt_type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Initial Connection - Average Time by Stage",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "(netbird_peer_connection_stage_creation_to_semaphore_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_creation_to_semaphore_count{attempt_type=\"initial\"}) * 1000",
+          "legendFormat": "Creation→Semaphore",
+          "refId": "A"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_semaphore_to_signaling_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_semaphore_to_signaling_count{attempt_type=\"initial\"}) * 1000",
+          "legendFormat": "Semaphore→Signaling",
+          "refId": "B"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_signaling_to_connection_count{attempt_type=\"initial\"}) * 1000",
+          "legendFormat": "Signaling→Connection",
+          "refId": "C"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_connection_to_handshake_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_connection_to_handshake_count{attempt_type=\"initial\"}) * 1000",
+          "legendFormat": "Connection→Handshake",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Reconnection - Average Time by Stage",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum{attempt_type=\"reconnection\"} / netbird_peer_connection_stage_signaling_to_connection_count{attempt_type=\"reconnection\"}) * 1000",
+          "legendFormat": "Signaling→Connection",
+          "refId": "A"
+        },
+        {
+          "expr": "(netbird_peer_connection_stage_connection_to_handshake_sum{attempt_type=\"reconnection\"} / netbird_peer_connection_stage_connection_to_handshake_count{attempt_type=\"reconnection\"}) * 1000",
+          "legendFormat": "Connection→Handshake",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Total Connections",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "expr": "netbird_peer_connection_total_creation_to_handshake_count",
+          "legendFormat": "{{connection_type}}/{{attempt_type}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 6,
+      "title": "ICE vs Relay",
+      "type": "piechart",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "targets": [
+        {
+          "expr": "sum(netbird_peer_connection_total_creation_to_handshake_count) by (connection_type)",
+          "legendFormat": "{{connection_type}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 27,
+  "version": 3,
+  "refresh": "30s"
+}
