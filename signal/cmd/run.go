@@ -18,7 +18,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/shared/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/signal/proto"

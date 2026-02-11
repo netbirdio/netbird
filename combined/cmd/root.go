@@ -21,15 +21,16 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -101,14 +102,14 @@ func execute(cmd *cobra.Command, _ []string) error {
 
 	// Start all other servers
 	wg := sync.WaitGroup{}
-	startServers(&wg, servers.relaySrv, servers.healthcheck, servers.stunServer)
+	startServers(&wg, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.metricsServer)
 
 	waitForExitSignal()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv)
+	err = shutdownServers(ctx, servers.relaySrv, servers.healthcheck, servers.stunServer, servers.mgmtSrv, servers.metricsServer)
 	wg.Wait()
 	return err
 }
@@ -152,13 +153,17 @@ type serverInstances struct {
 	healthcheck   *healthcheck.Server
 	stunServer    *stun.Server
 	stunListeners []*net.UDPConn
-	noopMeter     metric.Meter
+	metricsServer *sharedMetrics.Metrics
 }
 
 // createAllServers creates all server instances based on configuration.
 func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstances, error) {
+	metricsServer, err := sharedMetrics.NewServer(cfg.Server.MetricsPort, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metrics server: %w", err)
+	}
 	servers := &serverInstances{
-		noopMeter: noop.NewMeterProvider().Meter("noop"),
+		metricsServer: metricsServer,
 	}
 
 	_, tlsSupport, err := handleTLSConfig(cfg)
@@ -200,6 +205,7 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
 	relayCfg := relayServer.Config{
+		Meter:          s.metricsServer.Meter,
 		ExposedAddress: cfg.Relay.ExposedAddress,
 		AuthValidator:  authenticator,
 		TLSSupport:     tlsSupport,
@@ -253,6 +259,14 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 		return fmt.Errorf("failed to create management server: %w", err)
 	}
 
+	// Inject externally-managed AppMetrics so management uses the shared metrics server
+	appMetrics, err := telemetry.NewAppMetricsWithMeter(ctx, s.metricsServer.Meter)
+	if err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to create management app metrics: %w", err)
+	}
+	mgmtServer.Inject[telemetry.AppMetrics](s.mgmtSrv, appMetrics)
+
 	log.Infof("Management server created")
 	return nil
 }
@@ -263,7 +277,7 @@ func (s *serverInstances) createSignalServer(ctx context.Context, cfg *CombinedC
 	}
 
 	var err error
-	s.signalSrv, err = signalServer.NewServer(ctx, s.noopMeter)
+	s.signalSrv, err = signalServer.NewServer(ctx, s.metricsServer.Meter, "signal_")
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create signal server: %w", err)
@@ -298,19 +312,28 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 			log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
 		}
 
-		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), servers.relaySrv, servers.noopMeter, cfg))
+		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
 		if servers.relaySrv != nil {
 			log.Infof("Relay WebSocket handler added (path: /relay)")
 		}
 	})
 }
 
-func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
+func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {
 	if srv != nil {
 		instanceURL := srv.InstanceURL()
 		log.Infof("Relay server instance URL: %s", instanceURL.String())
 		log.Infof("Relay WebSocket multiplexed on management port (no separate relay listener)")
 	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
+		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("failed to start metrics server: %v", err)
+		}
+	}()
 
 	wg.Add(1)
 	go func() {
@@ -334,7 +357,7 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 	}
 }
 
-func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -357,6 +380,13 @@ func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthche
 		log.Infof("shutting down management and signal servers")
 		if err := mgmtSrv.Stop(); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to close management server: %w", err))
+		}
+	}
+
+	if metricsServer != nil {
+		log.Infof("shutting down metrics server")
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed to close metrics server: %w", err))
 		}
 	}
 
