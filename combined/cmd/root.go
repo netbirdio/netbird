@@ -616,6 +616,9 @@ func logManagementConfig(cfg *CombinedConfig) {
 	log.Infof("  Single account mode domain: %s", cfg.Management.SingleAccountModeDomain)
 	log.Infof("  Disable single account mode: %v", cfg.Management.DisableSingleAccountMode)
 	log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
+	if cfg.Server.Store.DSN != "" {
+		log.Infof("  Store DSN: %s", maskDSNPassword(cfg.Server.Store.DSN))
+	}
 
 	if cfg.Management.Auth.Enabled {
 		log.Info("  Auth (embedded IdP):")
@@ -656,6 +659,31 @@ func logEnvVars() {
 		log.Info("  (none set)")
 	}
 	log.Info("=== End Environment Variables ===")
+}
+
+// maskDSNPassword masks the password in a DSN string.
+// Handles both key=value format ("password=secret") and URI format ("user:secret@host").
+func maskDSNPassword(dsn string) string {
+	// Key=value format: "host=localhost user=nb password=secret dbname=nb"
+	if strings.Contains(dsn, "password=") {
+		parts := strings.Fields(dsn)
+		for i, p := range parts {
+			if strings.HasPrefix(p, "password=") {
+				parts[i] = "password=****"
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+
+	// URI format: "user:password@host..."
+	if atIdx := strings.Index(dsn, "@"); atIdx != -1 {
+		prefix := dsn[:atIdx]
+		if colonIdx := strings.Index(prefix, ":"); colonIdx != -1 {
+			return prefix[:colonIdx+1] + "****" + dsn[atIdx:]
+		}
+	}
+
+	return dsn
 }
 
 // maskSecret returns first 4 chars of secret followed by "..."
