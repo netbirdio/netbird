@@ -5105,13 +5105,13 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 	if filter.Search != nil {
 		searchPattern := "%" + *filter.Search + "%"
 		query = query.Where(
-			"source_ip LIKE ? OR host LIKE ? OR path LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
+			"location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
 			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
 		)
 	}
 
 	if filter.SourceIP != nil {
-		query = query.Where("source_ip = ?", *filter.SourceIP)
+		query = query.Where("location_connection_ip = ?", *filter.SourceIP)
 	}
 
 	if filter.Host != nil {
