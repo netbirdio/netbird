@@ -279,7 +279,10 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
-		clientMetrics:  metrics.NewClientMetrics(deploymentType, version.NetbirdVersion(), true),
+		clientMetrics: metrics.NewClientMetrics(metrics.AgentInfo{
+			DeploymentType: deploymentType,
+			Version:        version.NetbirdVersion(),
+		}, true),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -842,7 +845,9 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
-		log.Infof("sync finished in %s", time.Since(started))
+		duration := time.Since(started)
+		log.Infof("sync finished in %s", duration)
+		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
 	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()

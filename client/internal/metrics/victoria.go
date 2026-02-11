@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 	log "github.com/sirupsen/logrus"
@@ -11,19 +12,17 @@ import (
 
 // victoriaMetrics is the VictoriaMetrics implementation of ClientMetrics
 type victoriaMetrics struct {
-	// Static attributes applied to all metrics
-	deploymentType DeploymentType
-	version        string
+	// Static agent information applied to all metrics
+	agentInfo AgentInfo
 
 	// Metrics set for managing all metrics
 	set *metrics.Set
 }
 
-func newVictoriaMetrics(deploymentType DeploymentType, version string) metricsImplementation {
+func newVictoriaMetrics(agentInfo AgentInfo) metricsImplementation {
 	return &victoriaMetrics{
-		deploymentType: deploymentType,
-		version:        version,
-		set:            metrics.NewSet(),
+		agentInfo: agentInfo,
+		set:       metrics.NewSet(),
 	}
 }
 
@@ -87,7 +86,7 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	).Update(totalDuration)
 
 	log.Tracef("peer connection metrics [%s, %s, %s]: creation→semaphore: %.3fs, semaphore→signaling: %.3fs, signaling→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
-		m.deploymentType.String(), connTypeStr, attemptType,
+		m.agentInfo.DeploymentType.String(), connTypeStr, attemptType,
 		creationToSemaphore, semaphoreToSignaling, signalingToConnection, connectionToHandshake,
 		totalDuration)
 }
@@ -96,11 +95,21 @@ func (m *victoriaMetrics) RecordConnectionStages(
 func (m *victoriaMetrics) getMetricName(baseName, connectionType, attemptType string) string {
 	return fmt.Sprintf(`%s{deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q}`,
 		baseName,
-		m.deploymentType.String(),
+		m.agentInfo.DeploymentType.String(),
 		connectionType,
 		attemptType,
-		m.version,
+		m.agentInfo.Version,
 	)
+}
+
+// RecordSyncDuration records the duration of sync message processing
+func (m *victoriaMetrics) RecordSyncDuration(ctx context.Context, duration time.Duration) {
+	metricName := fmt.Sprintf(`netbird_sync_duration_seconds{deployment_type=%q,version=%q}`,
+		m.agentInfo.DeploymentType.String(),
+		m.agentInfo.Version,
+	)
+
+	m.set.GetOrCreateHistogram(metricName).Update(duration.Seconds())
 }
 
 // Export writes metrics in Prometheus text format

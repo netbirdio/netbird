@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// AgentInfo holds static information about the agent
+type AgentInfo struct {
+	DeploymentType DeploymentType
+	Version        string
+}
+
 // metricsImplementation defines the internal interface for metrics implementations
 type metricsImplementation interface {
 	// RecordConnectionStages records connection stage metrics from timestamps
@@ -15,6 +21,9 @@ type metricsImplementation interface {
 		isReconnection bool,
 		timestamps ConnectionStageTimestamps,
 	)
+
+	// RecordSyncDuration records how long it took to process a sync message
+	RecordSyncDuration(ctx context.Context, duration time.Duration)
 
 	// Export exports metrics in Prometheus format
 	Export(w io.Writer) error
@@ -36,12 +45,12 @@ type ConnectionStageTimestamps struct {
 // NewClientMetrics creates a new ClientMetrics instance
 // If enabled is true, uses an OpenTelemetry implementation
 // If enabled is false, uses a no-op implementation
-func NewClientMetrics(deploymentType DeploymentType, version string, enabled bool) *ClientMetrics {
+func NewClientMetrics(agentInfo AgentInfo, enabled bool) *ClientMetrics {
 	var impl metricsImplementation
 	if !enabled {
 		impl = &noopMetrics{}
 	} else {
-		impl = newVictoriaMetrics(deploymentType, version)
+		impl = newVictoriaMetrics(agentInfo)
 	}
 	return &ClientMetrics{impl: impl}
 }
@@ -54,6 +63,11 @@ func (c *ClientMetrics) RecordConnectionStages(
 	timestamps ConnectionStageTimestamps,
 ) {
 	c.impl.RecordConnectionStages(ctx, connectionType, isReconnection, timestamps)
+}
+
+// RecordSyncDuration records the duration of sync message processing
+func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Duration) {
+	c.impl.RecordSyncDuration(ctx, duration)
 }
 
 // Export exports metrics to the writer

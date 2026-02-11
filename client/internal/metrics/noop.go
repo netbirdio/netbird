@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // noopMetrics is a no-op implementation of metricsImplementation
@@ -14,6 +15,10 @@ func (s *noopMetrics) RecordConnectionStages(
 	_ bool,
 	_ ConnectionStageTimestamps,
 ) {
+	// No-op
+}
+
+func (s *noopMetrics) RecordSyncDuration(_ context.Context, _ time.Duration) {
 	// No-op
 }
 
