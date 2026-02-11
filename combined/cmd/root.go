@@ -129,6 +129,15 @@ func initializeConfig() error {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
+	if dsn := config.Server.Store.DSN; dsn != "" {
+		switch strings.ToLower(config.Server.Store.Engine) {
+		case "postgres":
+			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
+		case "mysql":
+			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
+		}
+	}
+
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
 	logEnvVars()

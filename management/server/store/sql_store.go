@@ -2643,7 +2643,7 @@ func getGormConfig() *gorm.Config {
 
 // newPostgresStore initializes a new Postgres store.
 func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
@@ -2652,7 +2652,7 @@ func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMig
 
 // newMysqlStore initializes a new MySQL store.
 func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}

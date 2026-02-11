@@ -177,6 +177,7 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
+	DSN           string `yaml:"dsn"` // Connection string for postgres or mysql engines
 }
 
 // ReverseProxyConfig contains reverse proxy settings
