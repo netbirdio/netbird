@@ -279,11 +279,11 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
-		clientMetrics: metrics.NewClientMetrics(metrics.AgentInfo{
-			DeploymentType: deploymentType,
-			Version:        version.NetbirdVersion(),
-		}, true),
 	}
+
+	engine.clientMetrics = metrics.NewClientMetrics(metrics.AgentInfo{
+		DeploymentType: deploymentType,
+		Version:        version.NetbirdVersion()})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine

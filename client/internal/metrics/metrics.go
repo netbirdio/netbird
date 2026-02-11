@@ -43,16 +43,8 @@ type ConnectionStageTimestamps struct {
 }
 
 // NewClientMetrics creates a new ClientMetrics instance
-// If enabled is true, uses an OpenTelemetry implementation
-// If enabled is false, uses a no-op implementation
-func NewClientMetrics(agentInfo AgentInfo, enabled bool) *ClientMetrics {
-	var impl metricsImplementation
-	if !enabled {
-		impl = &noopMetrics{}
-	} else {
-		impl = newVictoriaMetrics(agentInfo)
-	}
-	return &ClientMetrics{impl: impl}
+func NewClientMetrics(agentInfo AgentInfo) *ClientMetrics {
+	return &ClientMetrics{impl: newVictoriaMetrics(agentInfo)}
 }
 
 // RecordConnectionStages calculates stage durations from timestamps and records them
@@ -62,15 +54,24 @@ func (c *ClientMetrics) RecordConnectionStages(
 	isReconnection bool,
 	timestamps ConnectionStageTimestamps,
 ) {
+	if c == nil {
+		return
+	}
 	c.impl.RecordConnectionStages(ctx, connectionType, isReconnection, timestamps)
 }
 
 // RecordSyncDuration records the duration of sync message processing
 func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Duration) {
+	if c == nil {
+		return
+	}
 	c.impl.RecordSyncDuration(ctx, duration)
 }
 
 // Export exports metrics to the writer
 func (c *ClientMetrics) Export(w io.Writer) error {
+	if c == nil {
+		return nil
+	}
 	return c.impl.Export(w)
 }
