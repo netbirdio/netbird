@@ -37,4 +37,5 @@ var All = map[Module]struct{}{
 	SetupKeys:         {},
 	Pats:              {},
 	IdentityProviders: {},
+	Services:          {},
 }
