@@ -55,20 +55,20 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 	return nil
 }
 
-// GetAllAccessLogs retrieves all access logs for an account
-func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string) ([]*accesslogs.AccessLogEntry, error) {
+// GetAllAccessLogs retrieves access logs for an account with pagination
+func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
+		return nil, 0, status.NewPermissionValidationError(err)
 	}
 	if !ok {
-		return nil, status.NewPermissionDeniedError()
+		return nil, 0, status.NewPermissionDeniedError()
 	}
 
-	logs, err := m.store.GetAccountAccessLogs(ctx, store.LockingStrengthNone, accountID)
+	logs, totalCount, err := m.store.GetAccountAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return logs, nil
+	return logs, totalCount, nil
 }

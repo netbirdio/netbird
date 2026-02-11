@@ -1950,6 +1950,24 @@ type ProxyAccessLog struct {
 	UserId *string `json:"user_id,omitempty"`
 }
 
+// ProxyAccessLogsResponse defines model for ProxyAccessLogsResponse.
+type ProxyAccessLogsResponse struct {
+	// Data List of proxy access log entries
+	Data []ProxyAccessLog `json:"data"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of log records available
+	TotalRecords int `json:"total_records"`
+}
+
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
 	// Address Cluster address used for CNAME targets
@@ -2654,6 +2672,15 @@ type GetApiEventsNetworkTrafficParamsConnectionType string
 
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string
+
+// GetApiEventsProxyParams defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParams struct {
+	// Page Page number for pagination (1-indexed)
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page (max 100)
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
 
 // GetApiGroupsParams defines parameters for GetApiGroups.
 type GetApiGroupsParams struct {

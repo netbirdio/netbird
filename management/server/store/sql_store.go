@@ -5061,14 +5061,27 @@ func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.Acc
 	return nil
 }
 
-// GetAccountAccessLogs retrieves all access logs for a given account
-func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*accesslogs.AccessLogEntry, error) {
+// GetAccountAccessLogs retrieves access logs for a given account with pagination
+func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	var logs []*accesslogs.AccessLogEntry
+	var totalCount int64
 
+	// Count total records for pagination metadata
+	countQuery := s.db.WithContext(ctx).
+		Model(&accesslogs.AccessLogEntry{}).
+		Where(accountIDCondition, accountID)
+
+	if err := countQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count access logs: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count access logs")
+	}
+
+	// Query with pagination
 	query := s.db.WithContext(ctx).
 		Where(accountIDCondition, accountID).
 		Order("timestamp DESC").
-		Limit(1000)
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
 
 	if lockStrength != LockingStrengthNone {
 		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -5077,10 +5090,10 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	result := query.Find(&logs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get access logs from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get access logs from store")
+		return nil, 0, status.Errorf(status.Internal, "failed to get access logs from store")
 	}
 
-	return logs, nil
+	return logs, totalCount, nil
 }
 
 func (s *SqlStore) GetReverseProxyTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error) {
