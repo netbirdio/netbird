@@ -6390,6 +6390,11 @@ paths:
             maximum: 100
           description: Number of items per page (max 100)
         - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across host, path, source IP, user email, and user name
+        - in: query
           name: source_ip
           schema:
             type: string
