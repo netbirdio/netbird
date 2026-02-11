@@ -76,11 +76,11 @@ Labels:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NB_METRICS_ENABLED` | `false` | Enable metrics push |
-| `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8428/api/v1/import/prometheus` | VictoriaMetrics endpoint |
-| `NB_METRICS_INTERVAL` | `4h` | Push interval (e.g., "1h", "30m", "4h") |
+| Variable | Default | Description                             |
+|----------|---------|-----------------------------------------|
+| `NB_METRICS_ENABLED` | `false` | Enable metrics push                     |
+| `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8428/api/v1/import/prometheus` | VictoriaMetrics endpoint                |
+| `NB_METRICS_INTERVAL` |  | Push interval (e.g., "1m", "30m", "4h") |
 
 t### Configuration Precedence
 
