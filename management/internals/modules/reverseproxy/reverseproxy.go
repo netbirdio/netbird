@@ -10,8 +10,8 @@ import (
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -78,19 +78,19 @@ type AuthConfig struct {
 
 func (a *AuthConfig) HashSecrets() error {
 	if a.PasswordAuth != nil && a.PasswordAuth.Enabled && a.PasswordAuth.Password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(a.PasswordAuth.Password), 12)
+		hashedPassword, err := argon2id.Hash(a.PasswordAuth.Password)
 		if err != nil {
-			return err
+			return fmt.Errorf("hash password: %w", err)
 		}
-		a.PasswordAuth.Password = string(hash)
+		a.PasswordAuth.Password = hashedPassword
 	}
 
 	if a.PinAuth != nil && a.PinAuth.Enabled && a.PinAuth.Pin != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(a.PinAuth.Pin), 12)
+		hashedPin, err := argon2id.Hash(a.PinAuth.Pin)
 		if err != nil {
-			return err
+			return fmt.Errorf("hash pin: %w", err)
 		}
-		a.PinAuth.Pin = string(hash)
+		a.PinAuth.Pin = hashedPin
 	}
 
 	return nil

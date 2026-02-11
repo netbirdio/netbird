@@ -16,7 +16,6 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -29,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -441,9 +441,9 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			// Break here and use the default authenticated == false.
 			break
 		}
-		err = bcrypt.CompareHashAndPassword([]byte(auth.Pin), []byte(v.Pin.GetPin()))
+		err = argon2id.Verify(v.Pin.GetPin(), auth.Pin)
 		if err != nil {
-			if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
 				log.WithContext(ctx).Tracef("PIN authentication failed: invalid PIN")
 			} else {
 				log.WithContext(ctx).Errorf("PIN authentication error: %v", err)
@@ -460,9 +460,9 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			// Break here and use the default authenticated == false.
 			break
 		}
-		err = bcrypt.CompareHashAndPassword([]byte(auth.Password), []byte(v.Password.GetPassword()))
+		err = argon2id.Verify(v.Password.GetPassword(), auth.Password)
 		if err != nil {
-			if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
 				log.WithContext(ctx).Tracef("Password authentication failed: invalid password")
 			} else {
 				log.WithContext(ctx).Errorf("Password authentication error: %v", err)
