@@ -73,6 +73,9 @@ type Server struct {
 	GenerateACMECertificates bool
 	ACMEChallengeAddress     string
 	ACMEDirectory            string
+	// ACMEChallengeType specifies the ACME challenge type: "http-01" or "tls-alpn-01".
+	// Defaults to "tls-alpn-01" if not specified.
+	ACMEChallengeType string
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
 	CertLockMethod   acme.CertLockMethod
@@ -197,17 +200,28 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
 	if s.GenerateACMECertificates {
-		s.Logger.WithField("acme_server", s.ACMEDirectory).Debug("ACME certificates enabled, configuring certificate manager")
-		s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s, s.Logger, s.CertLockMethod)
-		s.http = &http.Server{
-			Addr:    s.ACMEChallengeAddress,
-			Handler: s.acme.HTTPHandler(nil),
+		// Default to TLS-ALPN-01 challenge if not specified
+		if s.ACMEChallengeType == "" {
+			s.ACMEChallengeType = "tls-alpn-01"
 		}
-		go func() {
-			if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.Logger.WithError(err).Error("ACME HTTP-01 challenge server failed")
+		s.Logger.WithFields(log.Fields{
+			"acme_server":    s.ACMEDirectory,
+			"challenge_type": s.ACMEChallengeType,
+		}).Debug("ACME certificates enabled, configuring certificate manager")
+		s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s, s.Logger, s.CertLockMethod)
+
+		// Only start HTTP server for HTTP-01 challenge type
+		if s.ACMEChallengeType == "http-01" {
+			s.http = &http.Server{
+				Addr:    s.ACMEChallengeAddress,
+				Handler: s.acme.HTTPHandler(nil),
 			}
-		}()
+			go func() {
+				if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					s.Logger.WithError(err).Error("ACME HTTP-01 challenge server failed")
+				}
+			}()
+		}
 		tlsConfig = s.acme.TLSConfig()
 
 		// If the ProxyURL is not set, then fallback to the server address.
@@ -221,8 +235,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		tlsConfig.ServerName = s.ProxyURL
 
 		s.Logger.WithFields(log.Fields{
-			"ServerName": s.ProxyURL,
-		}).Debug("started ACME challenge server")
+			"ServerName":     s.ProxyURL,
+			"challenge_type": s.ACMEChallengeType,
+		}).Debug("ACME certificate manager configured")
 	} else {
 		s.Logger.Debug("ACME certificates disabled, using static certificates with file watching")
 		certPath := filepath.Join(s.CertificateDirectory, s.CertificateFile)

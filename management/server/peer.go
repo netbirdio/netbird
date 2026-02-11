@@ -752,11 +752,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				}
 			}
 
-			if !peer.ProxyMeta.Embedded {
-				err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
-				if err != nil {
-					return fmt.Errorf("failed adding peer to All group: %w", err)
-				}
+			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+			if err != nil {
+				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
 			switch {

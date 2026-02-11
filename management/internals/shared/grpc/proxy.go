@@ -146,16 +146,17 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 
 	s.connectedProxies.Store(proxyID, conn)
-	s.addToCluster(conn.address, proxyID)
+	clusterAddr := extractClusterAddr(conn.address)
+	s.addToCluster(clusterAddr, proxyID)
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
 		"address":       proxyAddress,
-		"cluster_addr":  extractClusterAddr(proxyAddress),
+		"cluster_addr":  clusterAddr,
 		"total_proxies": len(s.GetConnectedProxies()),
 	}).Info("Proxy registered in cluster")
 	defer func() {
 		s.connectedProxies.Delete(proxyID)
-		s.removeFromCluster(conn.address, proxyID)
+		s.removeFromCluster(clusterAddr, proxyID)
 		cancel()
 		log.Infof("Proxy %s disconnected", proxyID)
 	}()
