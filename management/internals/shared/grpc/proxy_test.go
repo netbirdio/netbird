@@ -169,7 +169,7 @@ func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 // generateState creates a state using the same format as GetOIDCURL.
 func generateState(s *ProxyServiceServer, redirectURL string) string {
 	nonce := make([]byte, 16)
-	rand.Read(nonce)
+	_, _ = rand.Read(nonce)
 	nonceB64 := base64.URLEncoding.EncodeToString(nonce)
 
 	payload := redirectURL + "|" + nonceB64
