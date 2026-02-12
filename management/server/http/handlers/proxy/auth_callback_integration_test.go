@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
-	accesslogs "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -161,8 +161,8 @@ func (m *testAccessLogManager) SaveAccessLog(_ context.Context, _ *accesslogs.Ac
 	return nil
 }
 
-func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string) ([]*accesslogs.AccessLogEntry, error) {
-	return nil, nil
+func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, _ *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
+	return nil, 0, nil
 }
 
 func setupAuthCallbackTest(t *testing.T) *testSetup {
@@ -382,7 +382,7 @@ func (m *testServiceManager) ReloadService(_ context.Context, _, _ string) error
 }
 
 func (m *testServiceManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
-	return m.store.GetReverseProxies(ctx, store.LockingStrengthNone)
+	return m.store.GetServices(ctx, store.LockingStrengthNone)
 }
 
 func (m *testServiceManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.Service, error) {
