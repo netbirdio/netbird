@@ -607,7 +607,6 @@ server:
   dataDir: "/var/lib/netbird"
 
   auth:
-    enabled: true
     issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
     signKeyRefreshEnabled: true
     storage:
