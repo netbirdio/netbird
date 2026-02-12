@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -223,57 +222,19 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 }
 
 // proxyURLAllowList retrieves a list of currently connected proxies and
-// their URLs (as reported by the proxy servers). It performs some clean
-// up on those URLs to attempt to retrieve domain names as we would
-// expect to see them in a validation check.
+// their URLs
 func (m Manager) proxyURLAllowList() []string {
 	var reverseProxyAddresses []string
 	if m.proxyURLProvider != nil {
 		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
 	}
-	var allowedProxyURLs []string
-	for _, addr := range reverseProxyAddresses {
-		if addr == "" {
-			continue
-		}
-		host := extractHostFromAddress(addr)
-		if host != "" {
-			allowedProxyURLs = append(allowedProxyURLs, host)
-		}
-	}
-	return allowedProxyURLs
-}
-
-// extractHostFromAddress extracts the hostname from an address string.
-// It handles both URL format (https://host:port) and plain hostname (host or host:port).
-func extractHostFromAddress(addr string) string {
-	// If it looks like a URL with a scheme, parse it
-	if strings.Contains(addr, "://") {
-		proxyUrl, err := url.Parse(addr)
-		if err != nil {
-			log.WithError(err).Debugf("failed to parse proxy URL %s", addr)
-			return ""
-		}
-		host, _, err := net.SplitHostPort(proxyUrl.Host)
-		if err != nil {
-			return proxyUrl.Host
-		}
-		return host
-	}
-
-	// Otherwise treat as hostname or host:port
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		// No port, use as-is
-		return addr
-	}
-	return host
+	return reverseProxyAddresses
 }
 
 // DeriveClusterFromDomain determines the proxy cluster for a given domain.
 // For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
-// For custom domains, the cluster is determined by looking up the CNAME target.
-func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (string, error) {
+// For custom domains, the cluster is determined by checking the registered custom domain's target cluster.
+func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error) {
 	allowList := m.proxyURLAllowList()
 	if len(allowList) == 0 {
 		return "", fmt.Errorf("no proxy clusters available")
@@ -283,12 +244,26 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (st
 		return cluster, nil
 	}
 
-	cluster, valid := m.validator.ValidateWithCluster(ctx, domain, allowList)
+	customDomains, err := m.store.ListCustomDomains(ctx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("list custom domains: %w", err)
+	}
+
+	targetCluster, valid := extractClusterFromCustomDomains(domain, customDomains)
 	if valid {
-		return cluster, nil
+		return targetCluster, nil
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
+}
+
+func extractClusterFromCustomDomains(domain string, customDomains []*domain.Domain) (string, bool) {
+	for _, customDomain := range customDomains {
+		if strings.HasSuffix(domain, "."+customDomain.Domain) {
+			return customDomain.TargetCluster, true
+		}
+	}
+	return "", false
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.

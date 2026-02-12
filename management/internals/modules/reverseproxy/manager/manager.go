@@ -23,7 +23,7 @@ const unknownHostPlaceholder = "unknown"
 
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
-	DeriveClusterFromDomain(ctx context.Context, domain string) (string, error)
+	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
 }
 
 type managerImpl struct {
@@ -137,7 +137,7 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 
 	var proxyCluster string
 	if m.clusterDeriver != nil {
-		proxyCluster, err = m.clusterDeriver.DeriveClusterFromDomain(ctx, service.Domain)
+		proxyCluster, err = m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, service.Domain)
 		if err != nil {
 			log.WithError(err).Warnf("could not derive cluster from domain %s, updates will broadcast to all proxy servers", service.Domain)
 			return nil, status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", service.Domain, err)
@@ -239,7 +239,7 @@ func (m *managerImpl) UpdateService(ctx context.Context, accountID, userID strin
 			}
 
 			if m.clusterDeriver != nil {
-				newCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, service.Domain)
+				newCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, service.Domain)
 				if err != nil {
 					log.WithError(err).Warnf("could not derive cluster from domain %s", service.Domain)
 				}
