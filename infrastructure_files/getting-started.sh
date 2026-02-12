@@ -1289,6 +1289,9 @@ render_docker_compose_traefik_tcp() {
     # Always rebuild to pick up code changes during testing
     pull_policy: build
     container_name: netbird-proxy
+    # Hairpin NAT fix: route domain back to traefik's static IP within Docker
+    extra_hosts:
+      - \"$NETBIRD_DOMAIN:172.30.0.10\"
     restart: unless-stopped
     networks: [netbird]
     depends_on:
@@ -1314,7 +1317,9 @@ services:
     image: $TRAEFIK_IMAGE
     container_name: netbird-traefik
     restart: unless-stopped
-    networks: [netbird]
+    networks:
+      netbird:
+        ipv4_address: 172.30.0.10
     ports:
       - '443:443'
     volumes:
@@ -1410,6 +1415,11 @@ volumes:
 
 networks:
   netbird:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 EOF
   return 0
 }
