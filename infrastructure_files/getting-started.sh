@@ -300,7 +300,8 @@ initialize_default_values() {
 
   # Docker images
   CADDY_IMAGE="caddy"
-  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
+  #DASHBOARD_IMAGE="netbirdio/dashboard:latest"
+  DASHBOARD_IMAGE="ghcr.io/netbirdio/dashboard-cloud:pr-271"
   SIGNAL_IMAGE="netbirdio/signal:latest"
   RELAY_IMAGE="netbirdio/relay:latest"
   MANAGEMENT_IMAGE="netbirdio/management:latest"
@@ -319,7 +320,7 @@ initialize_default_values() {
   EXTERNAL_PROXY_NETWORK=""
 
   # Traefik TCP proxy configuration
-  TRAEFIK_IMAGE="traefik:v3.4"
+  TRAEFIK_IMAGE="traefik:v3.6"
   TRAEFIK_TCP_ACME_EMAIL=""
 
   # NetBird Proxy configuration
@@ -384,7 +385,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dashboard.env management.json relay.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt traefik.yml traefik-dynamic.yml proxy.env"
+    echo "  rm -f docker-compose.yml Caddyfile dashboard.env management.json relay.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt proxy.env"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -420,8 +421,6 @@ generate_configuration_files() {
       ;;
     6)
       render_docker_compose_traefik_tcp > docker-compose.yml
-      render_traefik_static_config > traefik.yml
-      render_traefik_dynamic_config > traefik-dynamic.yml
       if [[ "$ENABLE_PROXY" == "true" ]]; then
         # Create placeholder proxy.env so docker-compose can validate
         # This will be overwritten with the actual token after Management starts
@@ -1279,6 +1278,7 @@ render_docker_compose_traefik_tcp() {
   # Generate proxy service section if enabled
   local proxy_service=""
   local proxy_volumes=""
+  local proxy_tcp_labels=""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
@@ -1300,6 +1300,15 @@ render_docker_compose_traefik_tcp() {
       - ./proxy.env
     volumes:
       - netbird_proxy_certs:/certs
+    labels:
+      # TCP passthrough for any unmatched domain (proxy handles its own TLS)
+      - traefik.enable=true
+      - traefik.tcp.routers.proxy-passthrough.entrypoints=websecure
+      - traefik.tcp.routers.proxy-passthrough.rule=HostSNI(\`*\`)
+      - traefik.tcp.routers.proxy-passthrough.tls.passthrough=true
+      - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
+      - traefik.tcp.routers.proxy-passthrough.priority=1
+      - traefik.tcp.services.proxy-tls.loadbalancer.server.port=8443
     logging:
       driver: \"json-file\"
       options:
@@ -1313,6 +1322,7 @@ render_docker_compose_traefik_tcp() {
   cat <<EOF
 services:
   # Traefik - single port 443 entry point with TLS termination
+  # Configuration via Docker labels instead of static files
   traefik:
     image: $TRAEFIK_IMAGE
     container_name: netbird-traefik
@@ -1324,8 +1334,29 @@ services:
       - '443:443'
     volumes:
       - netbird_traefik_data:/data
-      - ./traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      # Logging
+      - --log.level=INFO
+      - --accesslog=true
+      # Docker provider
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=netbird
+      # Entrypoints
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.allowACMEByPass=true
+      # Disable timeouts for long-lived gRPC streams
+      - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=0s
+      - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=0s
+      - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=0s
+      # Let's Encrypt ACME
+      - --certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_TCP_ACME_EMAIL
+      - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      # gRPC transport settings (disable response timeout for long-lived streams)
+      - --serverstransport.forwardingtimeouts.responseheadertimeout=0s
+      - --serverstransport.forwardingtimeouts.idleconntimeout=0s
     logging:
       driver: "json-file"
       options:
@@ -1340,6 +1371,15 @@ services:
     networks: [netbird]
     env_file:
       - ./dashboard.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.tls=true
+      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard.service=dashboard
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.dashboard.loadbalancer.server.port=80
     logging:
       driver: "json-file"
       options:
@@ -1352,6 +1392,25 @@ services:
     container_name: netbird-signal
     restart: unless-stopped
     networks: [netbird]
+    labels:
+      - traefik.enable=true
+      # Signal WebSocket
+      - traefik.http.routers.netbird-signal-ws.entrypoints=websecure
+      - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/signal\`)
+      - traefik.http.routers.netbird-signal-ws.tls=true
+      - traefik.http.routers.netbird-signal-ws.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-signal-ws.service=signal-ws
+      - traefik.http.routers.netbird-signal-ws.priority=100
+      - traefik.http.services.signal-ws.loadbalancer.server.port=80
+      # Signal gRPC
+      - traefik.http.routers.netbird-signal-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
+      - traefik.http.routers.netbird-signal-grpc.tls=true
+      - traefik.http.routers.netbird-signal-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-signal-grpc.service=signal-grpc
+      - traefik.http.routers.netbird-signal-grpc.priority=100
+      - traefik.http.services.signal-grpc.loadbalancer.server.port=10000
+      - traefik.http.services.signal-grpc.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
       options:
@@ -1368,6 +1427,15 @@ services:
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     env_file:
       - ./relay.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-relay.entrypoints=websecure
+      - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
+      - traefik.http.routers.netbird-relay.tls=true
+      - traefik.http.routers.netbird-relay.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-relay.service=relay
+      - traefik.http.routers.netbird-relay.priority=100
+      - traefik.http.services.relay.loadbalancer.server.port=80
     logging:
       driver: "json-file"
       options:
@@ -1403,6 +1471,40 @@ fi)
       "--dns-domain=netbird.selfhosted",
       "--idp-sign-key-refresh-enabled",
     ]
+    labels:
+      - traefik.enable=true
+      # Management API
+      - traefik.http.routers.netbird-api.entrypoints=websecure
+      - traefik.http.routers.netbird-api.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/api\`)
+      - traefik.http.routers.netbird-api.tls=true
+      - traefik.http.routers.netbird-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-api.service=management
+      - traefik.http.routers.netbird-api.priority=100
+      # Management WebSocket
+      - traefik.http.routers.netbird-mgmt-ws.entrypoints=websecure
+      - traefik.http.routers.netbird-mgmt-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/management\`)
+      - traefik.http.routers.netbird-mgmt-ws.tls=true
+      - traefik.http.routers.netbird-mgmt-ws.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-mgmt-ws.service=management
+      - traefik.http.routers.netbird-mgmt-ws.priority=100
+      # Management gRPC
+      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
+      - traefik.http.routers.netbird-mgmt-grpc.tls=true
+      - traefik.http.routers.netbird-mgmt-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-mgmt-grpc.service=management-grpc
+      - traefik.http.routers.netbird-mgmt-grpc.priority=100
+      # OAuth2 (embedded IdP)
+      - traefik.http.routers.netbird-oauth2.entrypoints=websecure
+      - traefik.http.routers.netbird-oauth2.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/oauth2\`)
+      - traefik.http.routers.netbird-oauth2.tls=true
+      - traefik.http.routers.netbird-oauth2.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-oauth2.service=management
+      - traefik.http.routers.netbird-oauth2.priority=100
+      # Services
+      - traefik.http.services.management.loadbalancer.server.port=80
+      - traefik.http.services.management-grpc.loadbalancer.server.port=80
+      - traefik.http.services.management-grpc.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
       options:
@@ -1420,198 +1522,6 @@ networks:
       config:
         - subnet: 172.30.0.0/24
           gateway: 172.30.0.1
-EOF
-  return 0
-}
-
-render_traefik_static_config() {
-  cat <<EOF
-# Traefik Static Configuration
-# Single port 443 entry point - Traefik handles TLS termination
-
-log:
-  level: INFO
-
-accessLog: {}
-
-entryPoints:
-  websecure:
-    address: ":443"
-    # Allow ACME TLS-ALPN-01 challenges to pass through to backends
-    allowACMEByPass: true
-    # Disable timeouts for long-lived gRPC streams (Signal, Management)
-    # Without this, HTTP/2 streams get terminated after ~60 seconds
-    transport:
-      respondingTimeouts:
-        readTimeout: 0s
-        writeTimeout: 0s
-        idleTimeout: 0s
-
-providers:
-  file:
-    filename: /etc/traefik/dynamic.yml
-    watch: true
-
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "$TRAEFIK_TCP_ACME_EMAIL"
-      storage: /data/acme.json
-      tlsChallenge: {}
-EOF
-  return 0
-}
-
-render_traefik_dynamic_config() {
-  # Generate TCP section for proxy passthrough if enabled
-  # Uses catch-all (HostSNI `*`) with low priority - any domain not matched
-  # by HTTP routers will be passed through to the proxy
-  local tcp_section=""
-  if [[ "$ENABLE_PROXY" == "true" ]]; then
-    tcp_section="
-# =============================================================================
-# TCP Routers (for TLS passthrough - proxy handles its own TLS)
-# =============================================================================
-tcp:
-  routers:
-    # Catch-all: TLS passthrough to NetBird Proxy for any unmatched domain
-    # Proxy handles its own certs via ACME TLS-ALPN-01 challenge
-    netbird-proxy-passthrough:
-      entryPoints: [\"websecure\"]
-      rule: HostSNI(\`*\`)
-      tls:
-        passthrough: true
-      service: proxy-tls
-      priority: 1
-
-  services:
-    proxy-tls:
-      loadBalancer:
-        servers:
-          - address: \"proxy:8443\"
-"
-  fi
-
-  cat <<EOF
-# Traefik Dynamic Configuration
-# HTTP routing with TLS termination via Let's Encrypt
-${tcp_section}
-# =============================================================================
-# HTTP Routers (Traefik terminates TLS with Let's Encrypt)
-# =============================================================================
-http:
-  routers:
-    # Relay (WebSocket)
-    netbird-relay:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
-      tls:
-        certResolver: letsencrypt
-      service: relay
-      priority: 100
-
-    # Signal WebSocket
-    netbird-signal-ws:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/signal\`)
-      tls:
-        certResolver: letsencrypt
-      service: signal-ws
-      priority: 100
-
-    # Signal gRPC
-    netbird-signal-grpc:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
-      tls:
-        certResolver: letsencrypt
-      service: signal-grpc
-      priority: 100
-
-    # Management API
-    netbird-api:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/api\`)
-      tls:
-        certResolver: letsencrypt
-      service: management
-      priority: 100
-
-    # Management WebSocket
-    netbird-mgmt-ws:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/management\`)
-      tls:
-        certResolver: letsencrypt
-      service: management
-      priority: 100
-
-    # Management gRPC
-    netbird-mgmt-grpc:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
-      tls:
-        certResolver: letsencrypt
-      service: management-grpc
-      priority: 100
-
-    # OAuth2 (embedded IdP)
-    netbird-oauth2:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/oauth2\`)
-      tls:
-        certResolver: letsencrypt
-      service: management
-      priority: 100
-
-    # Dashboard (catch-all)
-    netbird-dashboard:
-      entryPoints: ["websecure"]
-      rule: Host(\`$NETBIRD_DOMAIN\`)
-      tls:
-        certResolver: letsencrypt
-      service: dashboard
-      priority: 1
-
-  services:
-    dashboard:
-      loadBalancer:
-        servers:
-          - url: "http://dashboard:80"
-
-    signal-ws:
-      loadBalancer:
-        servers:
-          - url: "http://signal:80"
-
-    signal-grpc:
-      loadBalancer:
-        servers:
-          - url: "h2c://signal:10000"
-        serversTransport: grpcTransport
-
-    management:
-      loadBalancer:
-        servers:
-          - url: "http://management:80"
-
-    management-grpc:
-      loadBalancer:
-        servers:
-          - url: "h2c://management:80"
-        serversTransport: grpcTransport
-
-    relay:
-      loadBalancer:
-        servers:
-          - url: "http://relay:80"
-
-  serversTransports:
-    grpcTransport:
-      # Disable response forwarding timeout for long-lived streams
-      forwardingTimeouts:
-        responseHeaderTimeout: "0s"
-        idleConnTimeout: "0s"
 EOF
   return 0
 }
@@ -1939,9 +1849,7 @@ print_traefik_tcp_instructions() {
   echo "  - $NETBIRD_STUN_PORT/udp  (STUN - required for NAT traversal)"
   echo ""
   echo "Generated files:"
-  echo "  - docker-compose.yml    (container definitions)"
-  echo "  - traefik.yml           (Traefik static configuration)"
-  echo "  - traefik-dynamic.yml   (Traefik routing rules)"
+  echo "  - docker-compose.yml    (container definitions with Traefik labels)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "  - proxy.env             (NetBird Proxy configuration)"
     echo ""
