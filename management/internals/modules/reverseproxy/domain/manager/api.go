@@ -28,7 +28,7 @@ func RegisterEndpoints(router *mux.Router, manager Manager) {
 	router.HandleFunc("/domains/{domainId}/validate", h.triggerCustomDomainValidation).Methods("GET", "OPTIONS")
 }
 
-func domainTypeToApi(t domain.DomainType) api.ReverseProxyDomainType {
+func domainTypeToApi(t domain.Type) api.ReverseProxyDomainType {
 	switch t {
 	case domain.TypeCustom:
 		return api.ReverseProxyDomainTypeCustom
