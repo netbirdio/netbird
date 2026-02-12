@@ -151,7 +151,7 @@ func (c *LeaseClient) Get(ctx context.Context, name string) (*Lease, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, c.readError(resp)

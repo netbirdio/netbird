@@ -29,19 +29,19 @@ func (m *mockReverseProxyManager) GetGlobalServices(ctx context.Context) ([]*rev
 }
 
 func (m *mockReverseProxyManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
-	return nil, nil
+	return []*reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) GetService(ctx context.Context, accountID, userID, reverseProxyID string) (*reverseproxy.Service, error) {
-	return nil, nil
+	return &reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) CreateService(ctx context.Context, accountID, userID string, rp *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return nil, nil
+	return &reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) UpdateService(ctx context.Context, accountID, userID string, rp *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return nil, nil
+	return &reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) DeleteService(ctx context.Context, accountID, userID, reverseProxyID string) error {
@@ -65,7 +65,7 @@ func (m *mockReverseProxyManager) ReloadService(ctx context.Context, accountID, 
 }
 
 func (m *mockReverseProxyManager) GetServiceByID(ctx context.Context, accountID, reverseProxyID string) (*reverseproxy.Service, error) {
-	return nil, nil
+	return &reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {

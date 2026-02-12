@@ -845,6 +845,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"domain": domain,
 			"error":  err.Error(),
 		}).Error("ValidateSession: decode public key")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "invalid_service_config",

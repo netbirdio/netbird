@@ -597,9 +597,9 @@ func TestRewriteLocationFunc(t *testing.T) {
 	t.Run("re-adds stripped path prefix", func(t *testing.T) {
 		resp, err := run(newProxy("https"), "/api", newReq("https://public.example.com/api/users"),
 			"http://backend.internal:8080/users")
-		defer resp.Body.Close()
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, "https://public.example.com/api/users", resp.Header.Get("Location"))
 	})
 
@@ -608,6 +608,7 @@ func TestRewriteLocationFunc(t *testing.T) {
 			"http://backend.internal:8080/path")
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, "http://public.example.com/path", resp.Header.Get("Location"))
 	})
 
@@ -615,6 +616,7 @@ func TestRewriteLocationFunc(t *testing.T) {
 		resp, err := run(newProxy("https"), "", newReq("https://public.example.com/"), "")
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Empty(t, resp.Header.Get("Location"))
 	})
 
@@ -623,6 +625,7 @@ func TestRewriteLocationFunc(t *testing.T) {
 			"http://backend.internal:8080/login")
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, "https://public.example.com/login", resp.Header.Get("Location"))
 	})
 
@@ -633,6 +636,7 @@ func TestRewriteLocationFunc(t *testing.T) {
 			"http://backend.internal:8080/login?redirect=%2Fdashboard&lang=en")
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, "https://public.example.com/login?redirect=%2Fdashboard&lang=en", resp.Header.Get("Location"))
 	})
 
@@ -641,6 +645,7 @@ func TestRewriteLocationFunc(t *testing.T) {
 			"http://backend.internal:8080/docs#section-2")
 
 		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, "https://public.example.com/docs#section-2", resp.Header.Get("Location"))
 	})
 
