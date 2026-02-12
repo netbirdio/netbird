@@ -1,6 +1,9 @@
 package grpc
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -161,4 +164,69 @@ func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	// Both tokens should validate
 	assert.NoError(t, tokenStore.ValidateAndConsume(msg1.AuthToken, "account-1", "service-1"))
 	assert.NoError(t, tokenStore.ValidateAndConsume(msg2.AuthToken, "account-1", "service-1"))
+}
+
+// generateState creates a state using the same format as GetOIDCURL.
+func generateState(s *ProxyServiceServer, redirectURL string) string {
+	nonce := make([]byte, 16)
+	rand.Read(nonce)
+	nonceB64 := base64.URLEncoding.EncodeToString(nonce)
+
+	payload := redirectURL + "|" + nonceB64
+	hmacSum := s.generateHMAC(payload)
+	return base64.URLEncoding.EncodeToString([]byte(redirectURL)) + "|" + nonceB64 + "|" + hmacSum
+}
+
+func TestOAuthState_NeverTheSame(t *testing.T) {
+	s := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+	}
+
+	redirectURL := "https://app.example.com/callback"
+
+	// Generate 100 states for the same redirect URL
+	states := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		state := generateState(s, redirectURL)
+
+		// State must have 3 parts: base64(url)|nonce|hmac
+		parts := strings.Split(state, "|")
+		require.Equal(t, 3, len(parts), "state must have 3 parts")
+
+		// State must be unique
+		require.False(t, states[state], "state %d is a duplicate", i)
+		states[state] = true
+	}
+}
+
+func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
+	s := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+	}
+
+	// Old format had only 2 parts: base64(url)|hmac
+	s.pkceVerifiers.Store("base64url|hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+
+	_, _, err := s.ValidateState("base64url|hmac")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid state format")
+}
+
+func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
+	s := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+	}
+
+	// Store with tampered HMAC
+	s.pkceVerifiers.Store("dGVzdA==|nonce|wrong-hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+
+	_, _, err := s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid state signature")
 }

@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -747,10 +748,20 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
 	}
 
+	// Generate a random nonce to ensure each OIDC request gets a unique state.
+	// Without this, multiple requests to the same URL would generate the same state
+	// but different PKCE verifiers, causing the later verifier to overwrite the earlier one.
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, status.Errorf(codes.Internal, "generate nonce: %v", err)
+	}
+	nonceB64 := base64.URLEncoding.EncodeToString(nonce)
+
 	// Using an HMAC here to avoid redirection state being modified.
-	// State format: base64(redirectURL)|hmac
-	hmacSum := s.generateHMAC(redirectURL.String())
-	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), hmacSum)
+	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
+	payload := redirectURL.String() + "|" + nonceB64
+	hmacSum := s.generateHMAC(payload)
+	state := fmt.Sprintf("%s|%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), nonceB64, hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
 	s.pkceVerifiers.Store(state, pkceEntry{verifier: codeVerifier, createdAt: time.Now()})
@@ -803,13 +814,15 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	}
 	verifier = entry.verifier
 
+	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
-	if len(parts) != 2 {
+	if len(parts) != 3 {
 		return "", "", errors.New("invalid state format")
 	}
 
 	encodedURL := parts[0]
-	providedHMAC := parts[1]
+	nonce := parts[1]
+	providedHMAC := parts[2]
 
 	redirectURLBytes, err := base64.URLEncoding.DecodeString(encodedURL)
 	if err != nil {
@@ -817,10 +830,11 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	}
 	redirectURL = string(redirectURLBytes)
 
-	expectedHMAC := s.generateHMAC(redirectURL)
+	payload := redirectURL + "|" + nonce
+	expectedHMAC := s.generateHMAC(payload)
 
 	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
-		return "", "", fmt.Errorf("invalid state signature")
+		return "", "", errors.New("invalid state signature")
 	}
 
 	return verifier, redirectURL, nil
