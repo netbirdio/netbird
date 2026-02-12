@@ -18,6 +18,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -368,9 +370,9 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.permissionsManager.ValidateAccountAccess(r.Context(), accountID, user, false)
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
 		return
 	}
 
@@ -380,14 +382,12 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.IsRestrictable() && account.Settings.RegularUsersViewBlocked {
-		util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
-		return
-	}
+	if !allowed && !userAuth.IsChild {
+		if account.Settings.RegularUsersViewBlocked {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
 
-	// If the user is regular user and does not own the peer
-	// with the given peerID return an empty list
-	if user.IsRegularUser() && !userAuth.IsChild {
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
