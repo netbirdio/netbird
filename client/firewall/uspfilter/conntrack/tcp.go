@@ -169,7 +169,7 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
-	if exists {
+	if exists && !conn.IsTombstone() {
 		t.updateState(key, conn, flags, direction, size)
 		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
