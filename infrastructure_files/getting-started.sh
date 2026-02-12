@@ -682,7 +682,7 @@ NB_PROXY_MANAGEMENT_ADDRESS=http://management:80
 # Allow insecure gRPC connection to management (required for internal Docker network)
 NB_PROXY_ALLOW_INSECURE=true
 # Public URL where this proxy is reachable (used for cluster registration)
-NB_PROXY_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+NB_PROXY_DOMAIN=$NETBIRD_DOMAIN
 NB_PROXY_ADDRESS=:8443
 NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
