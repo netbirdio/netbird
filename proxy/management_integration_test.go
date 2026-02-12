@@ -3,9 +3,9 @@ package proxy
 import (
 	"context"
 	"crypto/ed25519"
-	"errors"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
