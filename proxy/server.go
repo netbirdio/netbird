@@ -502,7 +502,12 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 						}).Error("Error adding new mapping, ignoring this mapping and continuing processing")
 					}
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
-					s.updateMapping(ctx, mapping)
+					if err := s.updateMapping(ctx, mapping); err != nil {
+						s.Logger.WithFields(log.Fields{
+							"service_id": mapping.GetId(),
+							"domain":     mapping.GetDomain(),
+						}).Errorf("failed to update mapping: %v", err)
+					}
 				case proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED:
 					s.removeMapping(ctx, mapping)
 				}
@@ -536,11 +541,14 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	// Pass the mapping through to the update function to avoid duplicating the
 	// setup, currently update is simply a subset of this function, so this
 	// separation makes sense...to me at least.
-	s.updateMapping(ctx, mapping)
+	if err := s.updateMapping(ctx, mapping); err != nil {
+		s.removeMapping(ctx, mapping)
+		return fmt.Errorf("update mapping for domain %q: %w", d, err)
+	}
 	return nil
 }
 
-func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping) {
+func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	// Very simple implementation here, we don't touch the existing peer
 	// connection or any existing TLS configuration, we simply overwrite
 	// the auth and proxy mappings.
@@ -559,10 +567,10 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
 	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, mapping.GetAccountId(), mapping.GetId()); err != nil {
-		s.Logger.WithField("domain", mapping.GetDomain()).WithError(err).Error("Auth setup failed, refusing to serve domain without authentication")
-		return
+		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	s.proxy.AddMapping(s.protoToMapping(mapping))
+	return nil
 }
 
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
@@ -594,8 +602,8 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 				"domain":     mapping.GetDomain(),
 				"path":       pathMapping.GetPath(),
 				"target":     pathMapping.GetTarget(),
-				"error":      err,
-			}).Error("Error parsing target URL for path, this path will be ignored but other paths will still be configured")
+			}).WithError(err).Error("failed to parse target URL for path, skipping")
+			continue
 		}
 		paths[pathMapping.GetPath()] = targetURL
 	}

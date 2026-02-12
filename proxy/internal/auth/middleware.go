@@ -30,15 +30,14 @@ type SessionValidator interface {
 	ValidateSession(ctx context.Context, in *proto.ValidateSessionRequest, opts ...grpc.CallOption) (*proto.ValidateSessionResponse, error)
 }
 
+// Scheme defines an authentication mechanism for a domain.
 type Scheme interface {
 	Type() auth.Method
-	// Authenticate should check the passed request and determine whether
-	// it represents an authenticated user request. If it does not, then
-	// an empty string should indicate an unauthenticated request which
-	// will be rejected; optionally, it can also return any data that should
-	// be included in a UI template when prompting the user to authenticate.
-	// If the request is authenticated, then a session token should be returned.
-	Authenticate(*http.Request) (token string, promptData string)
+	// Authenticate checks the request and determines whether it represents
+	// an authenticated user. An empty token indicates an unauthenticated
+	// request; optionally, promptData may be returned for the login UI.
+	// An error indicates an infrastructure failure (e.g. gRPC unavailable).
+	Authenticate(*http.Request) (token string, promptData string, err error)
 }
 
 type DomainConfig struct {
@@ -141,7 +140,15 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 		methods := make(map[string]string)
 		var attemptedMethod string
 		for _, scheme := range config.Schemes {
-			token, promptData := scheme.Authenticate(r)
+			token, promptData, err := scheme.Authenticate(r)
+			if err != nil {
+				mw.logger.WithField("scheme", scheme.Type().String()).Warnf("authentication infrastructure error: %v", err)
+				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+					cd.SetOrigin(proxy.OriginAuth)
+				}
+				http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+				return
+			}
 
 			// Track if credentials were submitted but auth failed
 			if token == "" && wasCredentialSubmitted(r, scheme.Type()) {

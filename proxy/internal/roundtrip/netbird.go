@@ -220,7 +220,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, d doma
 			if errors.Is(err, context.DeadlineExceeded) {
 				n.logger.WithFields(log.Fields{
 					"account_id": accountID,
-				}).Debug("netbird client start timed out, will retry on first request")
+				}).Warn("netbird client start timed out, will retry on first request")
 			} else {
 				n.logger.WithFields(log.Fields{
 					"account_id": accountID,
@@ -279,6 +279,7 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 	entry, exists := n.clients[accountID]
 	if !exists {
 		n.clientsMux.Unlock()
+		n.logger.WithField("account_id", accountID).Debug("remove peer: account not found")
 		return nil
 	}
 
@@ -286,6 +287,10 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 	domInfo, domainExists := entry.domains[d]
 	if !domainExists {
 		n.clientsMux.Unlock()
+		n.logger.WithFields(log.Fields{
+			"account_id": accountID,
+			"domain":     d,
+		}).Debug("remove peer: domain not registered")
 		return nil
 	}
 

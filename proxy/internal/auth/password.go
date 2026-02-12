@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/netbirdio/netbird/proxy/auth"
@@ -31,12 +32,12 @@ func (Password) Type() auth.Method {
 // If authentication fails, the required HTTP form ID is returned
 // so that it can be injected into a request from the UI so that
 // authentication may be successful.
-func (p Password) Authenticate(r *http.Request) (string, string) {
+func (p Password) Authenticate(r *http.Request) (string, string, error) {
 	password := r.FormValue(passwordFormId)
 
 	if password == "" {
-		// This cannot be authenticated, so not worth wasting time sending the request.
-		return "", passwordFormId
+		// No password submitted; return the form ID so the UI can prompt the user.
+		return "", passwordFormId, nil
 	}
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
@@ -49,13 +50,12 @@ func (p Password) Authenticate(r *http.Request) (string, string) {
 		},
 	})
 	if err != nil {
-		// TODO: log error here
-		return "", passwordFormId
+		return "", "", fmt.Errorf("authenticate password: %w", err)
 	}
 
 	if res.GetSuccess() {
-		return res.GetSessionToken(), ""
+		return res.GetSessionToken(), "", nil
 	}
 
-	return "", passwordFormId
+	return "", passwordFormId, nil
 }

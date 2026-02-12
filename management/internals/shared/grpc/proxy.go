@@ -160,8 +160,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}()
 
 	if err := s.sendSnapshot(ctx, conn); err != nil {
-		log.Errorf("Failed to send snapshot to proxy %s: %v", proxyID, err)
-		return err
+		return fmt.Errorf("send snapshot to proxy %s: %w", proxyID, err)
 	}
 
 	errChan := make(chan error, 2)
@@ -169,7 +168,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	select {
 	case err := <-errChan:
-		return err
+		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
 	case <-connCtx.Done():
 		return connCtx.Err()
 	}
@@ -201,7 +200,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			log.WithFields(log.Fields{
 				"service": service.Name,
 				"account": service.AccountID,
-			}).WithError(err).Error("Failed to generate auth token for snapshot")
+			}).WithError(err).Error("failed to generate auth token for snapshot")
 			continue
 		}
 
@@ -214,8 +213,11 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 				),
 			},
 		}); err != nil {
-			log.WithError(err).Error("Failed to send proxy mapping")
-			continue
+			log.WithFields(log.Fields{
+				"domain":  service.Domain,
+				"account": service.AccountID,
+			}).WithError(err).Error("failed to send proxy mapping")
+			return fmt.Errorf("send proxy mapping: %w", err)
 		}
 	}
 
@@ -244,7 +246,6 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 		select {
 		case msg := <-conn.sendChan:
 			if err := conn.stream.Send(&proto.GetMappingUpdateResponse{Mapping: []*proto.ProxyMapping{msg}}); err != nil {
-				log.Errorf("Failed to send message to proxy %s: %v", conn.proxyID, err)
 				errChan <- err
 				return
 			}
@@ -285,7 +286,7 @@ func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendA
 
 	if err := s.accessLogManager.SaveAccessLog(ctx, logEntry); err != nil {
 		log.WithContext(ctx).Errorf("failed to save access log: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to save access log: %v", err)
+		return nil, status.Errorf(codes.Internal, "save access log: %v", err)
 	}
 
 	return &proto.SendAccessLogResponse{}, nil
@@ -425,8 +426,8 @@ func (s *ProxyServiceServer) GetAvailableClusters() []ClusterInfo {
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 	service, err := s.reverseProxyManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {
-		// TODO: log the error
-		return nil, status.Errorf(codes.FailedPrecondition, "failed to get service from store: %v", err)
+		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
+		return nil, status.Errorf(codes.FailedPrecondition, "get service from store: %v", err)
 	}
 
 	var authenticated bool
@@ -436,8 +437,7 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	case *proto.AuthenticateRequest_Pin:
 		auth := service.Auth.PinAuth
 		if auth == nil || !auth.Enabled {
-			// TODO: log
-			// Break here and use the default authenticated == false.
+			log.WithContext(ctx).Debugf("PIN authentication attempted but not enabled for service %s", req.GetId())
 			break
 		}
 		err = argon2id.Verify(v.Pin.GetPin(), auth.Pin)
@@ -455,8 +455,7 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	case *proto.AuthenticateRequest_Password:
 		auth := service.Auth.PasswordAuth
 		if auth == nil || !auth.Enabled {
-			// TODO: log
-			// Break here and use the default authenticated == false.
+			log.WithContext(ctx).Debugf("password authentication attempted but not enabled for service %s", req.GetId())
 			break
 		}
 		err = argon2id.Verify(v.Password.GetPassword(), auth.Password)
@@ -483,8 +482,8 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 			proxyauth.DefaultSessionExpiry,
 		)
 		if err != nil {
-			log.WithError(err).Error("Failed to sign session token")
-			authenticated = false
+			log.WithContext(ctx).WithError(err).Error("failed to sign session token")
+			return nil, status.Errorf(codes.Internal, "sign session token: %v", err)
 		}
 	}
 
@@ -515,8 +514,8 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 
 	if certificateIssued {
 		if err := s.reverseProxyManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
-			log.WithContext(ctx).WithError(err).Error("Failed to set certificate issued timestamp")
-			return nil, status.Errorf(codes.Internal, "failed to update certificate timestamp: %v", err)
+			log.WithContext(ctx).WithError(err).Error("failed to set certificate issued timestamp")
+			return nil, status.Errorf(codes.Internal, "update certificate timestamp: %v", err)
 		}
 		log.WithFields(log.Fields{
 			"service_id": serviceID,
@@ -527,8 +526,8 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	internalStatus := protoStatusToInternal(protoStatus)
 
 	if err := s.reverseProxyManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
-		log.WithContext(ctx).WithError(err).Error("Failed to set service status")
-		return nil, status.Errorf(codes.Internal, "failed to update service status: %v", err)
+		log.WithContext(ctx).WithError(err).Error("failed to update service status")
+		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
 	}
 
 	log.WithFields(log.Fields{
@@ -590,7 +589,7 @@ func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.Cre
 		return &proto.CreateProxyPeerResponse{
 			Success:      false,
 			ErrorMessage: strPtr("authentication failed: invalid or expired token"),
-		}, status.Errorf(codes.Unauthenticated, "token validation failed: %v", err)
+		}, status.Errorf(codes.Unauthenticated, "token validation: %v", err)
 	}
 
 	err := s.peersManager.CreateProxyPeer(ctx, accountID, key, cluster)
@@ -598,11 +597,11 @@ func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.Cre
 		log.WithFields(log.Fields{
 			"service_id": serviceID,
 			"account_id": accountID,
-		}).WithError(err).Error("CreateProxyPeer: failed to create proxy peer")
+		}).WithError(err).Error("failed to create proxy peer")
 		return &proto.CreateProxyPeerResponse{
 			Success:      false,
-			ErrorMessage: strPtr(fmt.Sprintf("failed to create proxy peer: %v", err)),
-		}, status.Errorf(codes.Internal, "failed to create proxy peer: %v", err)
+			ErrorMessage: strPtr(fmt.Sprintf("create proxy peer: %v", err)),
+		}, status.Errorf(codes.Internal, "create proxy peer: %v", err)
 	}
 
 	return &proto.CreateProxyPeerResponse{
@@ -618,14 +617,13 @@ func strPtr(s string) *string {
 func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {
 	redirectURL, err := url.Parse(req.GetRedirectUrl())
 	if err != nil {
-		// TODO: log
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse redirect url: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
 	}
 	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
 	services, err := s.reverseProxyManager.GetAccountServices(ctx, req.GetAccountId())
 	if err != nil {
-		// TODO: log
-		return nil, status.Errorf(codes.FailedPrecondition, "failed to get services from store: %v", err)
+		log.WithContext(ctx).Errorf("failed to get account services: %v", err)
+		return nil, status.Errorf(codes.FailedPrecondition, "get account services: %v", err)
 	}
 	var found bool
 	for _, service := range services {
@@ -635,14 +633,14 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		}
 	}
 	if !found {
-		// TODO: log
+		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not match any service domain", redirectURL.Hostname())
 		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
 
 	provider, err := oidc.NewProvider(ctx, s.oidcConfig.Issuer)
 	if err != nil {
-		// TODO: log
-		return nil, status.Errorf(codes.FailedPrecondition, "failed to create OIDC provider: %v", err)
+		log.WithContext(ctx).Errorf("failed to create OIDC provider: %v", err)
+		return nil, status.Errorf(codes.FailedPrecondition, "create OIDC provider: %v", err)
 	}
 
 	scopes := s.oidcConfig.Scopes

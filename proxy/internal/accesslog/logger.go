@@ -3,6 +3,7 @@ package accesslog
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -62,7 +63,9 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	// allow for resolving that on the server.
 	now := timestamppb.Now() // Grab the timestamp before launching the goroutine to try to prevent weird timing issues. This is probably unnecessary.
 	go func() {
-		if _, err := l.client.SendAccessLog(context.Background(), &proto.SendAccessLogRequest{
+		logCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := l.client.SendAccessLog(logCtx, &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				LogId:         entry.ID,
 				AccountId:     entry.AccountID,

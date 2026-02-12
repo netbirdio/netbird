@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -36,12 +37,13 @@ func (OIDC) Type() auth.Method {
 	return auth.MethodOIDC
 }
 
-func (o OIDC) Authenticate(r *http.Request) (string, string) {
+// Authenticate checks for an OIDC session token or obtains the OIDC redirect URL.
+func (o OIDC) Authenticate(r *http.Request) (string, string, error) {
 	// Check for the session_token query param (from OIDC redirects).
 	// The management server passes the token in the URL because it cannot set
 	// cookies for the proxy's domain (cookies are domain-scoped per RFC 6265).
 	if token := r.URL.Query().Get("session_token"); token != "" {
-		return token, ""
+		return token, "", nil
 	}
 
 	redirectURL := &url.URL{
@@ -56,9 +58,8 @@ func (o OIDC) Authenticate(r *http.Request) (string, string) {
 		RedirectUrl: redirectURL.String(),
 	})
 	if err != nil {
-		// TODO: log
-		return "", ""
+		return "", "", fmt.Errorf("get OIDC URL: %w", err)
 	}
 
-	return "", res.GetUrl()
+	return "", res.GetUrl(), nil
 }

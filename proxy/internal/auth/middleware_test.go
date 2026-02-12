@@ -32,16 +32,16 @@ type stubScheme struct {
 	method   auth.Method
 	token    string
 	promptID string
-	authFn   func(*http.Request) (string, string)
+	authFn   func(*http.Request) (string, string, error)
 }
 
 func (s *stubScheme) Type() auth.Method { return s.method }
 
-func (s *stubScheme) Authenticate(r *http.Request) (string, string) {
+func (s *stubScheme) Authenticate(r *http.Request) (string, string, error) {
 	if s.authFn != nil {
 		return s.authFn(r)
 	}
-	return s.token, s.promptID
+	return s.token, s.promptID, nil
 }
 
 func newPassthroughHandler() http.Handler {
@@ -344,11 +344,11 @@ func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 
 	scheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(r *http.Request) (string, string) {
+		authFn: func(r *http.Request) (string, string, error) {
 			if r.FormValue("pin") == "111111" {
-				return token, ""
+				return token, "", nil
 			}
-			return "", "pin"
+			return "", "pin", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
@@ -391,8 +391,8 @@ func TestProtect_FailedAuthDoesNotSetCookie(t *testing.T) {
 
 	scheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(_ *http.Request) (string, string) {
-			return "", "pin"
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "pin", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
@@ -418,17 +418,17 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 	// First scheme (PIN) always fails, second scheme (password) succeeds.
 	pinScheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(_ *http.Request) (string, string) {
-			return "", "pin"
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "pin", nil
 		},
 	}
 	passwordScheme := &stubScheme{
 		method: auth.MethodPassword,
-		authFn: func(r *http.Request) (string, string) {
+		authFn: func(r *http.Request) (string, string, error) {
 			if r.FormValue("password") == "secret" {
-				return token, ""
+				return token, "", nil
 			}
-			return "", "password"
+			return "", "password", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour, "", ""))
@@ -457,8 +457,8 @@ func TestProtect_InvalidTokenFromSchemeReturns400(t *testing.T) {
 	// Return a garbage token that won't validate.
 	scheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(_ *http.Request) (string, string) {
-			return "invalid-jwt-token", ""
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "invalid-jwt-token", "", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
@@ -517,8 +517,8 @@ func TestProtect_FailedPinAuthCapturesAuthMethod(t *testing.T) {
 	// Scheme that always fails authentication (returns empty token)
 	scheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(_ *http.Request) (string, string) {
-			return "", "pin"
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "pin", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
@@ -544,8 +544,8 @@ func TestProtect_FailedPasswordAuthCapturesAuthMethod(t *testing.T) {
 
 	scheme := &stubScheme{
 		method: auth.MethodPassword,
-		authFn: func(_ *http.Request) (string, string) {
-			return "", "password"
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "password", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
@@ -571,8 +571,8 @@ func TestProtect_NoCredentialsDoesNotCaptureAuthMethod(t *testing.T) {
 
 	scheme := &stubScheme{
 		method: auth.MethodPIN,
-		authFn: func(_ *http.Request) (string, string) {
-			return "", "pin"
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "pin", nil
 		},
 	}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", ""))
