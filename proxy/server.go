@@ -61,6 +61,7 @@ type Server struct {
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
+	meter         *metrics.Metrics
 
 	// Mostly used for debugging on management.
 	startTime time.Time
@@ -151,7 +152,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Start up metrics gathering
 	reg := prometheus.NewRegistry()
-	meter := metrics.New(reg)
+	s.meter = metrics.New(reg)
 
 	// The very first thing to do should be to connect to the Management server.
 	// Without this connection, the Proxy cannot do anything.
@@ -199,7 +200,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient, meter.CompleteRoundTrip)
+	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient)
 
 	// When generating ACME certificates, start a challenge server.
 	tlsConfig := &tls.Config{}
@@ -245,7 +246,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}
 
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
-	s.proxy = proxy.NewReverseProxy(s.netbird, s.ForwardedProto, s.TrustedProxies, s.Logger)
+	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(s.netbird), s.ForwardedProto, s.TrustedProxies, s.Logger)
 
 	// Configure the authentication middleware with session validator for OIDC group checks.
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient)
@@ -292,7 +293,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Start the reverse proxy HTTPS server.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
+		Handler:   s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
 		TLSConfig: tlsConfig,
 	}
 
@@ -570,6 +571,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	s.proxy.AddMapping(s.protoToMapping(mapping))
+	s.meter.AddMapping(s.protoToMapping(mapping))
 	return nil
 }
 
@@ -588,6 +590,7 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	}
 	s.auth.RemoveDomain(mapping.GetDomain())
 	s.proxy.RemoveMapping(s.protoToMapping(mapping))
+	s.meter.RemoveMapping(s.protoToMapping(mapping))
 }
 
 func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {

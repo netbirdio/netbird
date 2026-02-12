@@ -55,8 +55,6 @@ type managementClient interface {
 	CreateProxyPeer(ctx context.Context, req *proto.CreateProxyPeerRequest, opts ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error)
 }
 
-type backendMetricRecorder func(duration time.Duration)
-
 // NetBird provides an http.RoundTripper implementation
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple domains to share the same connection.
@@ -72,8 +70,6 @@ type NetBird struct {
 	clients        map[types.AccountID]*clientEntry
 	initLogOnce    sync.Once
 	statusNotifier statusNotifier
-
-	recordBackendDuration backendMetricRecorder
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -384,10 +380,6 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := transport.RoundTrip(req)
 	duration := time.Since(start)
 
-	if n.recordBackendDuration != nil {
-		n.recordBackendDuration(duration)
-	}
-
 	if err != nil {
 		n.logger.Debugf("roundtrip: method=%s host=%s url=%s account=%s duration=%s err=%v",
 			req.Method, req.Host, req.URL.String(), accountID, duration.Truncate(time.Millisecond), err)
@@ -496,20 +488,19 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 // NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient, metric backendMetricRecorder) *NetBird {
+func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
-		mgmtAddr:              mgmtAddr,
-		proxyID:               proxyID,
-		proxyAddr:             proxyAddr,
-		wgPort:                wgPort,
-		logger:                logger,
-		clients:               make(map[types.AccountID]*clientEntry),
-		statusNotifier:        notifier,
-		mgmtClient:            mgmtClient,
-		recordBackendDuration: metric,
+		mgmtAddr:       mgmtAddr,
+		proxyID:        proxyID,
+		proxyAddr:      proxyAddr,
+		wgPort:         wgPort,
+		logger:         logger,
+		clients:        make(map[types.AccountID]*clientEntry),
+		statusNotifier: notifier,
+		mgmtClient:     mgmtClient,
 	}
 }
 
