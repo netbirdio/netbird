@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
@@ -1922,7 +1923,7 @@ func (e *Engine) triggerClientRestart() {
 }
 
 func (e *Engine) startNetworkMonitor() {
-	if !e.config.NetworkMonitor {
+	if !e.config.NetworkMonitor || nbnetstack.IsEnabled() {
 		log.Infof("Network monitor is disabled, not starting")
 		return
 	}
