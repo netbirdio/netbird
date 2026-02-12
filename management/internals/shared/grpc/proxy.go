@@ -81,7 +81,17 @@ type ProxyServiceServer struct {
 	oidcConfig ProxyOIDCConfig
 
 	// TODO: use database to store these instead?
-	pkceVerifiers sync.Map
+	// pkceVerifiers stores PKCE code verifiers keyed by OAuth state.
+	// Entries expire after pkceVerifierTTL to prevent unbounded growth.
+	pkceVerifiers     sync.Map
+	pkceCleanupCancel context.CancelFunc
+}
+
+const pkceVerifierTTL = 10 * time.Minute
+
+type pkceEntry struct {
+	verifier  string
+	createdAt time.Time
 }
 
 // proxyConnection represents a connected proxy
@@ -96,14 +106,43 @@ type proxyConnection struct {
 
 // NewProxyServiceServer creates a new proxy service server.
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
-	return &ProxyServiceServer{
-		updatesChan:      make(chan *proto.ProxyMapping, 100),
-		accessLogManager: accessLogMgr,
-		oidcConfig:       oidcConfig,
-		tokenStore:       tokenStore,
-		peersManager:     peersManager,
-		usersManager:     usersManager,
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &ProxyServiceServer{
+		updatesChan:       make(chan *proto.ProxyMapping, 100),
+		accessLogManager:  accessLogMgr,
+		oidcConfig:        oidcConfig,
+		tokenStore:        tokenStore,
+		peersManager:      peersManager,
+		usersManager:      usersManager,
+		pkceCleanupCancel: cancel,
 	}
+	go s.cleanupPKCEVerifiers(ctx)
+	return s
+}
+
+// cleanupPKCEVerifiers periodically removes expired PKCE verifiers.
+func (s *ProxyServiceServer) cleanupPKCEVerifiers(ctx context.Context) {
+	ticker := time.NewTicker(pkceVerifierTTL)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			s.pkceVerifiers.Range(func(key, value any) bool {
+				if entry, ok := value.(pkceEntry); ok && now.Sub(entry.createdAt) > pkceVerifierTTL {
+					s.pkceVerifiers.Delete(key)
+				}
+				return true
+			})
+		}
+	}
+}
+
+// Close stops background goroutines.
+func (s *ProxyServiceServer) Close() {
+	s.pkceCleanupCancel()
 }
 
 func (s *ProxyServiceServer) SetProxyManager(manager reverseproxy.Manager) {
@@ -654,7 +693,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	state := fmt.Sprintf("%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
-	s.pkceVerifiers.Store(state, codeVerifier)
+	s.pkceVerifiers.Store(state, pkceEntry{verifier: codeVerifier, createdAt: time.Now()})
 
 	return &proto.GetOIDCURLResponse{
 		Url: (&oauth2.Config{
@@ -695,10 +734,14 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	if !ok {
 		return "", "", errors.New("no verifier for state")
 	}
-	verifier, ok = v.(string)
+	entry, ok := v.(pkceEntry)
 	if !ok {
 		return "", "", errors.New("invalid verifier for state")
 	}
+	if time.Since(entry.createdAt) > pkceVerifierTTL {
+		return "", "", errors.New("PKCE verifier expired")
+	}
+	verifier = entry.verifier
 
 	parts := strings.Split(state, "|")
 	if len(parts) != 2 {
