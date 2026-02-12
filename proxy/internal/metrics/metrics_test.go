@@ -53,6 +53,9 @@ func TestMetrics_RoundTripper(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			rt := m.RoundTripper(test.roundTripper)
 			res, err := rt.RoundTrip(test.request)
+			if res != nil && res.Body != nil {
+				defer res.Body.Close()
+			}
 			if diff := cmp.Diff(test.err, err); diff != "" {
 				t.Errorf("Incorrect error (-want +got):\n%s", diff)
 			}

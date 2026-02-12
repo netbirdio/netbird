@@ -251,7 +251,7 @@ func TestIntegration_ProxyConnection_HappyPath(t *testing.T) {
 	stream, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId: "test-proxy-1",
 		Version: "test-v1",
-		Address: "https://test.proxy.io",
+		Address: "test.proxy.io",
 	})
 	require.NoError(t, err)
 
@@ -293,7 +293,7 @@ func TestIntegration_ProxyConnection_SendsClusterAddress(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	clusterAddress := "https://test.proxy.io"
+	clusterAddress := "test.proxy.io"
 
 	stream, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId: "test-proxy-cluster",
@@ -328,7 +328,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 
 	client := proto.NewProxyServiceClient(conn)
 
-	clusterAddress := "https://test.proxy.io"
+	clusterAddress := "test.proxy.io"
 	proxyID := "test-proxy-reconnect"
 
 	// Helper to receive all mappings from a stream
@@ -401,7 +401,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 	authMw := auth.NewMiddleware(logger, nil)
 	proxyHandler := proxy.NewReverseProxy(nil, "auto", nil, logger)
 
-	clusterAddress := "https://test.proxy.io"
+	clusterAddress := "test.proxy.io"
 	proxyID := "test-proxy-idempotent"
 
 	var addMappingCalls atomic.Int32
@@ -497,7 +497,7 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 	setup := setupIntegrationTest(t)
 	defer setup.cleanup()
 
-	clusterAddress := "https://test.proxy.io"
+	clusterAddress := "test.proxy.io"
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
