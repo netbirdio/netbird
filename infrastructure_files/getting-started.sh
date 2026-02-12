@@ -86,22 +86,21 @@ read_reverse_proxy_type() {
   echo "" > /dev/stderr
   echo "Which reverse proxy will you use?" > /dev/stderr
   echo "  [0] Traefik (recommended - automatic TLS, included in Docker Compose)" > /dev/stderr
-  echo "  [1] Caddy (automatic TLS, included in Docker Compose)" > /dev/stderr
-  echo "  [2] Existing Traefik (labels for external Traefik instance)" > /dev/stderr
-  echo "  [3] Nginx (generates config template)" > /dev/stderr
-  echo "  [4] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
-  echo "  [5] External Caddy (generates Caddyfile snippet)" > /dev/stderr
-  echo "  [6] Other/Manual (displays setup documentation)" > /dev/stderr
+  echo "  [1] Existing Traefik (labels for external Traefik instance)" > /dev/stderr
+  echo "  [2] Nginx (generates config template)" > /dev/stderr
+  echo "  [3] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
+  echo "  [4] External Caddy (generates Caddyfile snippet)" > /dev/stderr
+  echo "  [5] Other/Manual (displays setup documentation)" > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "Enter choice [0-6] (default: 0): " > /dev/stderr
+  echo -n "Enter choice [0-5] (default: 0): " > /dev/stderr
   read -r CHOICE < /dev/tty
 
   if [[ -z "$CHOICE" ]]; then
     CHOICE="0"
   fi
 
-  if [[ ! "$CHOICE" =~ ^[0-6]$ ]]; then
-    echo "Invalid choice. Please enter a number between 0 and 6." > /dev/stderr
+  if [[ ! "$CHOICE" =~ ^[0-5]$ ]]; then
+    echo "Invalid choice. Please enter a number between 0 and 5." > /dev/stderr
     read_reverse_proxy_type
     return
   fi
@@ -237,7 +236,6 @@ wait_management_direct() {
 ############################################
 
 initialize_default_values() {
-  CADDY_SECURE_DOMAIN=""
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   NETBIRD_RELAY_PROTO="rel"
@@ -247,7 +245,6 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  CADDY_IMAGE="caddy"
   DASHBOARD_IMAGE="netbirdio/dashboard:latest"
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
@@ -273,7 +270,6 @@ configure_domain() {
     NETBIRD_DOMAIN=$(get_main_ip_address)
   else
     NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
   fi
@@ -285,22 +281,22 @@ configure_reverse_proxy() {
   REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
 
   # Handle Traefik-specific prompts (only for external Traefik)
-  if [[ "$REVERSE_PROXY_TYPE" == "2" ]]; then
+  if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
     TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
     TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
     TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
   fi
 
-  # Handle port binding for external proxy options (3-6)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 3 ]]; then
+  # Handle port binding for external proxy options (2-5)
+  if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
     BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
   fi
 
-  # Handle Docker network prompts for external proxies (options 3-5)
+  # Handle Docker network prompts for external proxies (options 2-4)
   case "$REVERSE_PROXY_TYPE" in
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
-    5) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+    2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
+    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
+    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
   return 0
@@ -311,7 +307,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dashboard.env config.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -327,25 +323,21 @@ generate_configuration_files() {
       render_docker_compose_traefik_builtin > docker-compose.yml
       ;;
     1)
-      render_docker_compose > docker-compose.yml
-      render_caddyfile > Caddyfile
-      ;;
-    2)
       render_docker_compose_traefik > docker-compose.yml
       ;;
-    3)
+    2)
       render_docker_compose_exposed_ports > docker-compose.yml
       render_nginx_conf > nginx-netbird.conf
       ;;
-    4)
+    3)
       render_docker_compose_exposed_ports > docker-compose.yml
       render_npm_advanced_config > npm-advanced-config.txt
       ;;
-    5)
+    4)
       render_docker_compose_exposed_ports > docker-compose.yml
       render_external_caddyfile > caddyfile-netbird.txt
       ;;
-    6)
+    5)
       render_docker_compose_exposed_ports > docker-compose.yml
       ;;
     *)
@@ -361,7 +353,7 @@ generate_configuration_files() {
 }
 
 start_services_and_show_instructions() {
-  # For built-in proxies (Traefik, Caddy), start containers immediately
+  # For built-in Traefik, start containers immediately
   # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
@@ -375,16 +367,6 @@ start_services_and_show_instructions() {
     echo -e "$MSG_DONE"
     print_post_setup_instructions
   elif [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    # Built-in Caddy - handles everything automatically
-    echo -e "$MSG_STARTING_SERVICES"
-    $DOCKER_COMPOSE_COMMAND up -d
-
-    sleep 3
-    wait_management_proxy caddy
-
-    echo -e "$MSG_DONE"
-    print_post_setup_instructions
-  elif [[ "$REVERSE_PROXY_TYPE" == "2" ]]; then
     # External Traefik - start containers, then show instructions
     # Traefik discovers services via Docker labels, so containers must be running
     echo -e "$MSG_STARTING_SERVICES"
@@ -398,7 +380,7 @@ start_services_and_show_instructions() {
     echo ""
     echo "NetBird containers are running. Once Traefik is connected, access the dashboard at:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-  elif [[ "$REVERSE_PROXY_TYPE" == "4" ]]; then
+  elif [[ "$REVERSE_PROXY_TYPE" == "3" ]]; then
     # NPM - start containers first, then show instructions
     # NPM requires backend services to be running before creating proxy hosts
     echo -e "$MSG_STARTING_SERVICES"
@@ -551,43 +533,6 @@ EOF
   return 0
 }
 
-render_caddyfile() {
-  cat <<EOF
-{
-  servers :80,:443 {
-    protocols h1 h2c h2 h3
-  }
-}
-
-(security_headers) {
-    header * {
-        Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        X-XSS-Protection "1; mode=block"
-        -Server
-        Referrer-Policy strict-origin-when-cross-origin
-    }
-}
-
-:80${CADDY_SECURE_DOMAIN} {
-    import security_headers
-
-    # Native gRPC (needs HTTP/2 cleartext to backend)
-    @grpc header Content-Type application/grpc*
-    reverse_proxy @grpc h2c://netbird-server:80
-
-    # Combined server paths (relay, signal, management, OAuth2)
-    @backend path /relay* /ws-proxy/* /api/* /oauth2/*
-    reverse_proxy @backend netbird-server:80
-
-    # Dashboard (everything else)
-    reverse_proxy /* dashboard:80
-}
-EOF
-  return 0
-}
-
 render_combined_yaml() {
   cat <<EOF
 # Combined NetBird Server Configuration (Simplified)
@@ -644,70 +589,6 @@ EOF
   return 0
 }
 
-
-render_docker_compose() {
-  cat <<EOF
-services:
-  # Caddy reverse proxy
-  caddy:
-    image: $CADDY_IMAGE
-    container_name: netbird-caddy
-    restart: unless-stopped
-    networks: [netbird]
-    ports:
-      - '443:443'
-      - '443:443/udp'
-      - '80:80'
-    volumes:
-      - netbird_caddy_data:/data
-      - ./Caddyfile:/etc/caddy/Caddyfile
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # UI dashboard
-  dashboard:
-    image: $DASHBOARD_IMAGE
-    container_name: netbird-dashboard
-    restart: unless-stopped
-    networks: [netbird]
-    env_file:
-      - ./dashboard.env
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Combined server (Management + Signal + Relay + STUN)
-  netbird-server:
-    image: $NETBIRD_SERVER_IMAGE
-    container_name: netbird-server
-    restart: unless-stopped
-    networks: [netbird]
-    ports:
-      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
-    volumes:
-      - netbird_data:/var/lib/netbird
-      - ./config.yaml:/etc/netbird/config.yaml
-    command: ["--config", "/etc/netbird/config.yaml"]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-volumes:
-  netbird_caddy_data:
-  netbird_data:
-
-networks:
-  netbird:
-EOF
-  return 0
-}
 
 render_docker_compose_traefik() {
   local network_name="${TRAEFIK_EXTERNAL_NETWORK:-netbird}"
@@ -1066,12 +947,6 @@ print_builtin_traefik_instructions() {
   return 0
 }
 
-print_caddy_instructions() {
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-  echo "Follow the onboarding steps to set up your NetBird instance."
-  return 0
-}
-
 print_traefik_instructions() {
   echo ""
   echo "$MSG_SEPARATOR"
@@ -1115,7 +990,7 @@ print_nginx_instructions() {
   echo ""
   echo "Generated: nginx-netbird.conf"
   echo ""
-  echo "IMPORTANT: Unlike Caddy, Nginx requires manual TLS certificate setup."
+  echo "IMPORTANT: Nginx requires manual TLS certificate setup."
   echo "You'll need to obtain SSL/TLS certificates and configure the paths in the"
   echo "generated config file. The config includes examples for common certificate sources."
   echo ""
@@ -1261,21 +1136,18 @@ print_post_setup_instructions() {
       print_builtin_traefik_instructions
       ;;
     1)
-      print_caddy_instructions
-      ;;
-    2)
       print_traefik_instructions
       ;;
-    3)
+    2)
       print_nginx_instructions
       ;;
-    4)
+    3)
       print_npm_instructions
       ;;
-    5)
+    4)
       print_external_caddy_instructions
       ;;
-    6)
+    5)
       print_manual_instructions
       ;;
     *)
