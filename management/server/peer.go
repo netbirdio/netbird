@@ -221,6 +221,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			return err
 		}
 
+		if peer.ProxyMeta.Embedded {
+			return fmt.Errorf("not allowed to update peer")
+		}
+
 		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err

@@ -152,6 +152,11 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		return
 	}
 
+	if peer.ProxyMeta.Embedded {
+		util.WriteError(ctx, status.Errorf(status.InvalidArgument, "not allowed to read peer"), w)
+		return
+	}
+
 	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -319,6 +324,9 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
+		if peer.ProxyMeta.Embedded {
+			continue
+		}
 		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
