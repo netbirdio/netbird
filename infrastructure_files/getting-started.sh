@@ -85,22 +85,23 @@ read_nb_domain() {
 read_reverse_proxy_type() {
   echo "" > /dev/stderr
   echo "Which reverse proxy will you use?" > /dev/stderr
-  echo "  [0] Built-in Caddy (recommended - automatic TLS)" > /dev/stderr
-  echo "  [1] Traefik (labels added to containers)" > /dev/stderr
-  echo "  [2] Nginx (generates config template)" > /dev/stderr
-  echo "  [3] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
-  echo "  [4] External Caddy (generates Caddyfile snippet)" > /dev/stderr
-  echo "  [5] Other/Manual (displays setup documentation)" > /dev/stderr
+  echo "  [0] Traefik (recommended - automatic TLS, included in Docker Compose)" > /dev/stderr
+  echo "  [1] Caddy (automatic TLS, included in Docker Compose)" > /dev/stderr
+  echo "  [2] Existing Traefik (labels for external Traefik instance)" > /dev/stderr
+  echo "  [3] Nginx (generates config template)" > /dev/stderr
+  echo "  [4] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
+  echo "  [5] External Caddy (generates Caddyfile snippet)" > /dev/stderr
+  echo "  [6] Other/Manual (displays setup documentation)" > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "Enter choice [0-5] (default: 0): " > /dev/stderr
+  echo -n "Enter choice [0-6] (default: 0): " > /dev/stderr
   read -r CHOICE < /dev/tty
 
   if [[ -z "$CHOICE" ]]; then
     CHOICE="0"
   fi
 
-  if [[ ! "$CHOICE" =~ ^[0-5]$ ]]; then
-    echo "Invalid choice. Please enter a number between 0 and 5." > /dev/stderr
+  if [[ ! "$CHOICE" =~ ^[0-6]$ ]]; then
+    echo "Invalid choice. Please enter a number between 0 and 6." > /dev/stderr
     read_reverse_proxy_type
     return
   fi
@@ -182,19 +183,20 @@ get_upstream_host() {
   return 0
 }
 
-wait_management() {
+wait_management_proxy() {
+  local proxy_container="${1:-traefik}"
   set +e
   echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
-    # Check the embedded IdP endpoint
+    # Check the embedded IdP endpoint through the reverse proxy
     if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 caddy
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
       $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
@@ -282,23 +284,23 @@ configure_reverse_proxy() {
   # Prompt for reverse proxy type
   REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
 
-  # Handle Traefik-specific prompts
-  if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
+  # Handle Traefik-specific prompts (only for external Traefik)
+  if [[ "$REVERSE_PROXY_TYPE" == "2" ]]; then
     TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
     TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
     TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
   fi
 
-  # Handle port binding for external proxy options (2-5)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
+  # Handle port binding for external proxy options (3-6)
+  if [[ "$REVERSE_PROXY_TYPE" -ge 3 ]]; then
     BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
   fi
 
-  # Handle Docker network prompts for external proxies (options 2-4)
+  # Handle Docker network prompts for external proxies (options 3-5)
   case "$REVERSE_PROXY_TYPE" in
-    2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
-    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
+    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
+    5) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
   return 0
@@ -322,25 +324,28 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
+      render_docker_compose_traefik_builtin > docker-compose.yml
+      ;;
+    1)
       render_docker_compose > docker-compose.yml
       render_caddyfile > Caddyfile
       ;;
-    1)
-      render_docker_compose_traefik > docker-compose.yml
-      ;;
     2)
-      render_docker_compose_exposed_ports > docker-compose.yml
-      render_nginx_conf > nginx-netbird.conf
+      render_docker_compose_traefik > docker-compose.yml
       ;;
     3)
       render_docker_compose_exposed_ports > docker-compose.yml
-      render_npm_advanced_config > npm-advanced-config.txt
+      render_nginx_conf > nginx-netbird.conf
       ;;
     4)
       render_docker_compose_exposed_ports > docker-compose.yml
-      render_external_caddyfile > caddyfile-netbird.txt
+      render_npm_advanced_config > npm-advanced-config.txt
       ;;
     5)
+      render_docker_compose_exposed_ports > docker-compose.yml
+      render_external_caddyfile > caddyfile-netbird.txt
+      ;;
+    6)
       render_docker_compose_exposed_ports > docker-compose.yml
       ;;
     *)
@@ -356,21 +361,31 @@ generate_configuration_files() {
 }
 
 start_services_and_show_instructions() {
-  # For built-in Caddy and Traefik, start containers immediately
+  # For built-in proxies (Traefik, Caddy), start containers immediately
   # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    # Built-in Traefik - handles everything automatically (TLS via Let's Encrypt)
+    echo -e "$MSG_STARTING_SERVICES"
+    $DOCKER_COMPOSE_COMMAND up -d
+
+    sleep 3
+    wait_management_proxy traefik
+
+    echo -e "$MSG_DONE"
+    print_post_setup_instructions
+  elif [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
     # Built-in Caddy - handles everything automatically
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
 
     sleep 3
-    wait_management
+    wait_management_proxy caddy
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions
-  elif [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    # Traefik - start containers first, then show instructions
+  elif [[ "$REVERSE_PROXY_TYPE" == "2" ]]; then
+    # External Traefik - start containers, then show instructions
     # Traefik discovers services via Docker labels, so containers must be running
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
@@ -383,7 +398,7 @@ start_services_and_show_instructions() {
     echo ""
     echo "NetBird containers are running. Once Traefik is connected, access the dashboard at:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-  elif [[ "$REVERSE_PROXY_TYPE" == "3" ]]; then
+  elif [[ "$REVERSE_PROXY_TYPE" == "4" ]]; then
     # NPM - start containers first, then show instructions
     # NPM requires backend services to be running before creating proxy hosts
     echo -e "$MSG_STARTING_SERVICES"
@@ -435,6 +450,105 @@ init_environment() {
 ############################################
 # Configuration File Renderers
 ############################################
+
+render_docker_compose_traefik_builtin() {
+  cat <<EOF
+services:
+  # Traefik reverse proxy (automatic TLS via Let's Encrypt)
+  traefik:
+    image: traefik:v3.6
+    container_name: netbird-traefik
+    restart: unless-stopped
+    networks: [netbird]
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=netbird"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - '443:443'
+      - '80:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - netbird_traefik_letsencrypt:/letsencrypt
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: [netbird]
+    env_file:
+      - ./dashboard.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.tls=true
+      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Combined server (Management + Signal + Relay + STUN)
+  netbird-server:
+    image: $NETBIRD_SERVER_IMAGE
+    container_name: netbird-server
+    restart: unless-stopped
+    networks: [netbird]
+    ports:
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    volumes:
+      - netbird_data:/var/lib/netbird
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
+      - traefik.http.routers.netbird-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-grpc.tls=true
+      - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
+      # Backend router (relay, WebSocket, API, OAuth2)
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.entrypoints=websecure
+      - traefik.http.routers.netbird-backend.tls=true
+      - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-backend.service=netbird-server
+      # Services
+      - traefik.http.services.netbird-server.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+volumes:
+  netbird_data:
+  netbird_traefik_letsencrypt:
+
+networks:
+  netbird:
+EOF
+  return 0
+}
 
 render_caddyfile() {
   cat <<EOF
@@ -945,6 +1059,15 @@ EOF
 # Post-Setup Instructions per Proxy Type
 ############################################
 
+print_builtin_traefik_instructions() {
+  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "Follow the onboarding steps to set up your NetBird instance."
+  echo ""
+  echo "Traefik is handling TLS certificates automatically via Let's Encrypt."
+  echo "If you see certificate warnings, wait a moment for certificate issuance to complete."
+  return 0
+}
+
 print_caddy_instructions() {
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   echo "Follow the onboarding steps to set up your NetBird instance."
@@ -1135,21 +1258,24 @@ print_manual_instructions() {
 print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
     0)
-      print_caddy_instructions
+      print_builtin_traefik_instructions
       ;;
     1)
-      print_traefik_instructions
+      print_caddy_instructions
       ;;
     2)
-      print_nginx_instructions
+      print_traefik_instructions
       ;;
     3)
-      print_npm_instructions
+      print_nginx_instructions
       ;;
     4)
-      print_external_caddy_instructions
+      print_npm_instructions
       ;;
     5)
+      print_external_caddy_instructions
+      ;;
+    6)
       print_manual_instructions
       ;;
     *)
