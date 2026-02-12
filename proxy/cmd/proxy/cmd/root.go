@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/netbirdio/netbird/shared/management/domain"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme"
@@ -36,7 +37,7 @@ var (
 	debugLogs         bool
 	mgmtAddr          string
 	addr              string
-	proxyURL          string
+	proxyDomain       string
 	certDir           string
 	acmeCerts         bool
 	acmeAddr          string
@@ -69,7 +70,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&debugLogs, "debug", envBoolOrDefault("NB_PROXY_DEBUG_LOGS", false), "Enable debug logs")
 	rootCmd.Flags().StringVar(&mgmtAddr, "mgmt", envStringOrDefault("NB_PROXY_MANAGEMENT_ADDRESS", DefaultManagementURL), "Management address to connect to")
 	rootCmd.Flags().StringVar(&addr, "addr", envStringOrDefault("NB_PROXY_ADDRESS", ":443"), "Reverse proxy address to listen on")
-	rootCmd.Flags().StringVar(&proxyURL, "url", envStringOrDefault("NB_PROXY_URL", ""), "The URL at which this proxy will be reached")
+	rootCmd.Flags().StringVar(&proxyDomain, "domain", envStringOrDefault("NB_PROXY_DOMAIN", ""), "The Domain at which this proxy will be reached. e.g., netbird.example.com")
 	rootCmd.Flags().StringVar(&certDir, "cert-dir", envStringOrDefault("NB_PROXY_CERTIFICATE_DIRECTORY", "./certs"), "Directory to store certificates")
 	rootCmd.Flags().BoolVar(&acmeCerts, "acme-certs", envBoolOrDefault("NB_PROXY_ACME_CERTIFICATES", false), "Generate ACME certificates using HTTP-01 challenges")
 	rootCmd.Flags().StringVar(&acmeAddr, "acme-addr", envStringOrDefault("NB_PROXY_ACME_ADDRESS", ":80"), "HTTP address for ACME HTTP-01 challenges")
@@ -128,6 +129,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --forwarded-proto value %q: must be auto, http, or https", forwardedProto)
 	}
 
+	_, err := domain.ValidateDomains([]string{proxyDomain})
+	if err != nil {
+		return fmt.Errorf("invalid domain value %q: %w", proxyDomain, err)
+	}
+
 	parsedTrustedProxies, err := proxy.ParseTrustedProxies(trustedProxies)
 	if err != nil {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
@@ -137,7 +143,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Logger:                   logger,
 		Version:                  Version,
 		ManagementAddress:        mgmtAddr,
-		ProxyURL:                 proxyURL,
+		ProxyURL:                 proxyDomain,
 		ProxyToken:               proxyToken,
 		CertificateDirectory:     certDir,
 		CertificateFile:          certFile,

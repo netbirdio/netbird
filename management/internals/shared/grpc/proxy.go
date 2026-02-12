@@ -9,13 +9,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
@@ -167,12 +167,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 
 	proxyAddress := req.GetAddress()
-	log.WithFields(log.Fields{
-		"proxy_id": proxyID,
-		"address":  proxyAddress,
-		"version":  req.GetVersion(),
-		"started":  req.GetStartedAt().AsTime(),
-	}).Info("Proxy connected")
+	if !isProxyAddressValid(proxyAddress) {
+		return status.Errorf(codes.InvalidArgument, "proxy address is invalid")
+	}
 
 	connCtx, cancel := context.WithCancel(ctx)
 	conn := &proxyConnection{
@@ -189,7 +186,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
 		"address":       proxyAddress,
-		"cluster_addr":  extractClusterAddr(proxyAddress),
+		"cluster_addr":  proxyAddress,
 		"total_proxies": len(s.GetConnectedProxies()),
 	}).Info("Proxy registered in cluster")
 	defer func() {
@@ -222,14 +219,16 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		return fmt.Errorf("get services from store: %w", err)
 	}
 
-	proxyClusterAddr := extractClusterAddr(conn.address)
+	if !isProxyAddressValid(conn.address) {
+		return fmt.Errorf("proxy address is invalid")
+	}
 
 	var filtered []*reverseproxy.Service
 	for _, service := range services {
 		if !service.Enabled {
 			continue
 		}
-		if service.ProxyCluster != "" && proxyClusterAddr != "" && service.ProxyCluster != proxyClusterAddr {
+		if service.ProxyCluster == "" || service.ProxyCluster != conn.address {
 			continue
 		}
 		filtered = append(filtered, service)
@@ -277,20 +276,10 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 	return nil
 }
 
-// extractClusterAddr extracts the host from a proxy address URL.
-func extractClusterAddr(addr string) string {
-	if addr == "" {
-		return ""
-	}
-	u, err := url.Parse(addr)
-	if err != nil {
-		return addr
-	}
-	host := u.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
+// isProxyAddressValid validates a proxy address
+func isProxyAddressValid(addr string) bool {
+	_, err := domain.ValidateDomains([]string{addr})
+	return err == nil
 }
 
 // sender handles sending messages to proxy
