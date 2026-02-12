@@ -235,7 +235,7 @@ func TestNetBird_RoundTrip_RequiresAccountIDInContext(t *testing.T) {
 	require.NoError(t, err)
 
 	// RoundTrip should fail because no account ID in context.
-	_, err = nb.RoundTrip(req)
+	_, err = nb.RoundTrip(req) //nolint:bodyclose
 	require.ErrorIs(t, err, ErrNoAccountID)
 }
 
@@ -249,7 +249,7 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 	req = req.WithContext(WithAccountID(req.Context(), accountID))
 
 	// RoundTrip should fail because no client for this account.
-	_, err = nb.RoundTrip(req)
+	_, err = nb.RoundTrip(req) //nolint:bodyclose // Error case, no response body
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no peer connection found for account")
 }
