@@ -920,6 +920,7 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
+	b.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	claims := auth.UserAuth{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
@@ -943,6 +944,18 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	}
 
 	pid, err := am.getAccountIDWithAuthorizationClaims(context.Background(), publicClaims)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	a, err := am.Store.GetAccount(context.Background(), id)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	a.Groups = genGroups()
+
+	err = am.Store.SaveAccount(context.Background(), a)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1005,6 +1018,41 @@ func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 		}
 	})
 
+}
+
+func genGroups() map[string]*types.Group {
+	return map[string]*types.Group{
+		"one": {
+			Name: "one",
+		},
+		"two": {
+			Name: "two",
+		},
+		"three": {
+			Name: "three",
+		},
+		"four": {
+			Name: "four",
+		},
+		"five": {
+			Name: "five",
+		},
+		"six": {
+			Name: "six",
+		},
+		"seven": {
+			Name: "seven",
+		},
+		"eight": {
+			Name: "eight",
+		},
+		"nine": {
+			Name: "nine",
+		},
+		"ten": {
+			Name: "ten",
+		},
+	}
 }
 
 func genUsers(p string, n int) map[string]*types.User {
@@ -1725,6 +1773,13 @@ func TestAccount_Copy(t *testing.T) {
 				Id:         "user1",
 				Role:       types.UserRoleAdmin,
 				AutoGroups: []string{"group1"},
+				Groups: []*types.GroupUser{
+					{
+						AccountID: "account1",
+						UserID:    "user1",
+						GroupID:   "group1",
+					},
+				},
 				PATs: map[string]*types.PersonalAccessToken{
 					"pat1": {
 						ID:             "pat1",
@@ -1744,6 +1799,13 @@ func TestAccount_Copy(t *testing.T) {
 				Peers:      []string{"peer1"},
 				Resources:  []types.Resource{},
 				GroupPeers: []types.GroupPeer{},
+				GroupUsers: []types.GroupUser{
+					{
+						AccountID: "account1",
+						UserID:    "user1",
+						GroupID:   "group1",
+					},
+				},
 			},
 		},
 		Policies: []*types.Policy{

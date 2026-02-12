@@ -46,7 +46,21 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
-	if err = am.Store.SaveUser(ctx, newUser); err != nil {
+	if err = am.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		err = tx.SaveUser(ctx, newUser)
+		if err != nil {
+			return err
+		}
+
+		for _, groupID := range autoGroups {
+			err = tx.AddUserToGroup(ctx, accountID, newUserID, groupID)
+			if err != nil {
+				return fmt.Errorf("failed to add user to group %s: %w", groupID, err)
+			}
+		}
+
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -120,12 +134,28 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		Id:                   idpUser.ID,
 		AccountID:            accountID,
 		Role:                 types.StrRoleToUserRole(invite.Role),
-		AutoGroups:           invite.AutoGroups,
 		Issued:               invite.Issued,
 		IntegrationReference: invite.IntegrationReference,
 		CreatedAt:            time.Now().UTC(),
 		Email:                invite.Email,
 		Name:                 invite.Name,
+	}
+
+	err = am.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		err = tx.SaveUser(ctx, newUser)
+		if err != nil {
+			return err
+		}
+		for _, group := range invite.AutoGroups {
+			err = tx.AddUserToGroup(ctx, accountID, userID, group)
+			if err != nil {
+				return fmt.Errorf("failed to add user to group %s: %w", group, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
 	}
 
 	if err = am.Store.SaveUser(ctx, newUser); err != nil {
@@ -751,6 +781,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
+	updatedUser.StoreAutoGroups()
 	// these two fields can't be set via API, only via direct call to the method
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
@@ -773,28 +804,58 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		peersToExpire = userPeers
 	}
 
-	var removedGroups, addedGroups []string
-	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
-		removedGroups = util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups = util.Difference(update.AutoGroups, oldUser.AutoGroups)
+	updateAccountPeers, removedGroupsIDs, addedGroupsIDs, err := am.processUserGroupsUpdate(ctx, transaction, oldUser, updatedUser, userPeers, settings)
+	if err != nil {
+		return false, nil, nil, nil, err
+	}
+
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroupsIDs, addedGroupsIDs, transaction)
+
+	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
+}
+
+func (am *DefaultAccountManager) processUserGroupsUpdate(ctx context.Context, transaction store.Store, oldUser *types.User, updatedUser *types.User, userPeers []*nbpeer.Peer, settings *types.Settings) (bool, []string, []string, error) {
+	removedGroups := util.Difference(oldUser.AutoGroups, updatedUser.AutoGroups)
+	addedGroups := util.Difference(updatedUser.AutoGroups, oldUser.AutoGroups)
+
+	updateAccountPeers := len(userPeers) > 0
+
+	removedGroupsIDs := make([]string, 0, len(removedGroups))
+	for _, id := range removedGroups {
+		err := transaction.RemoveUserFromGroup(ctx, updatedUser.Id, id)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to remove user %s from group %s: %w", updatedUser.Id, id, err)
+		}
+		updateAccountPeers = true
+		removedGroupsIDs = append(removedGroupsIDs, id)
+	}
+
+	addedGroupsIDs := make([]string, 0, len(addedGroups))
+	for _, id := range addedGroups {
+		err := transaction.AddUserToGroup(ctx, updatedUser.AccountID, updatedUser.Id, id)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to add user %s to group %s: %w", updatedUser.Id, id, err)
+		}
+		updateAccountPeers = true
+		addedGroupsIDs = append(addedGroupsIDs, id)
+	}
+
+	if updatedUser.Groups != nil && settings.GroupsPropagationEnabled {
 		for _, peer := range userPeers {
-			for _, groupID := range removedGroups {
-				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+			for _, id := range removedGroups {
+				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, id); err != nil {
+					return false, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, id, err)
 				}
 			}
-			for _, groupID := range addedGroups {
-				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+			for _, id := range addedGroups {
+				if err := transaction.AddPeerToGroup(ctx, updatedUser.AccountID, peer.ID, id); err != nil {
+					return false, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, id, err)
 				}
 			}
 		}
 	}
 
-	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
-
-	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
+	return updateAccountPeers, removedGroupsIDs, addedGroupsIDs, nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.

@@ -380,13 +380,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		AutoGroups: []string{groupForUsers.ID},
 	}
 	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, "", "", false)
-	account.Routes[routeResource.ID] = routeResource
-	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
-	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
-	account.Policies = append(account.Policies, policy)
-	account.SetupKeys[setupKey.Id] = setupKey
-	account.Users[user.Id] = user
-
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, nil, err
@@ -399,6 +392,23 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+
+	account, err = am.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	account.Routes[routeResource.ID] = routeResource
+	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
+	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
+	account.Policies = append(account.Policies, policy)
+	account.SetupKeys[setupKey.Id] = setupKey
+	account.Users[user.Id] = user
+
+	err = am.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
