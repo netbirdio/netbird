@@ -466,6 +466,7 @@ services:
       - "--providers.docker.network=netbird"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
@@ -1102,6 +1103,8 @@ print_traefik_instructions() {
   if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
     echo "  - Certificate resolver '$TRAEFIK_CERTRESOLVER' must be configured"
   fi
+  echo "  - Disable read timeout on the entrypoint for gRPC streams:"
+  echo "    --entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.readTimeout=0"
   echo "  - HTTP to HTTPS redirect (recommended)"
   return 0
 }
