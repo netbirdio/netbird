@@ -1321,8 +1321,7 @@ render_docker_compose_traefik_tcp() {
 
   cat <<EOF
 services:
-  # Traefik - single port 443 entry point with TLS termination
-  # Configuration via Docker labels instead of static files
+  # Traefik - single port 443 entry point with TLS termination  
   traefik:
     image: $TRAEFIK_IMAGE
     container_name: netbird-traefik
