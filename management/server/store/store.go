@@ -243,9 +243,19 @@ type Store interface {
 }
 
 const (
-	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
-	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
+	postgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
+	postgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	mysqlDsnEnv          = "NB_STORE_ENGINE_MYSQL_DSN"
+	mysqlDsnEnvLegacy    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
+
+// lookupDSNEnv checks the NB_ env var first, then falls back to the legacy NETBIRD_ env var.
+func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
+	if v, ok := os.LookupEnv(nbKey); ok {
+		return v, true
+	}
+	return os.LookupEnv(legacyKey)
+}
 
 var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
 
@@ -531,7 +541,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreatePostgresTestContainer()
@@ -569,7 +579,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 }
 
 func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreateMysqlTestContainer()
