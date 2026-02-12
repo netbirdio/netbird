@@ -25,7 +25,7 @@ func TestIsTrustedProxy(t *testing.T) {
 		{"IP within /24 prefix", "192.168.1.100", trusted, true},
 		{"IP outside all prefixes", "203.0.113.50", trusted, false},
 		{"boundary IP just outside prefix", "192.168.2.1", trusted, false},
-		{"unparseable IP", "not-an-ip", trusted, false},
+		{"unparsable IP", "not-an-ip", trusted, false},
 		{"IPv6 in trusted range", "fd00::1", trusted, true},
 		{"IPv6 outside range", "2001:db8::1", trusted, false},
 		{"empty string", "", trusted, false},
