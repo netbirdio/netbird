@@ -67,6 +67,7 @@ type responseInterceptor struct {
 
 func (w *responseInterceptor) WriteHeader(status int) {
 	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *responseInterceptor) Write(b []byte) (int, error) {
