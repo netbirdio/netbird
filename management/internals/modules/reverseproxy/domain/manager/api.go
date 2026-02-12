@@ -1,10 +1,12 @@
-package domain
+package manager
 
 import (
 	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -26,11 +28,11 @@ func RegisterEndpoints(router *mux.Router, manager Manager) {
 	router.HandleFunc("/domains/{domainId}/validate", h.triggerCustomDomainValidation).Methods("GET", "OPTIONS")
 }
 
-func domainTypeToApi(t domainType) api.ReverseProxyDomainType {
+func domainTypeToApi(t domain.DomainType) api.ReverseProxyDomainType {
 	switch t {
-	case TypeCustom:
+	case domain.TypeCustom:
 		return api.ReverseProxyDomainTypeCustom
-	case TypeFree:
+	case domain.TypeFree:
 		return api.ReverseProxyDomainTypeFree
 	}
 	// By default return as a "free" domain as that is more restrictive.
@@ -38,7 +40,7 @@ func domainTypeToApi(t domainType) api.ReverseProxyDomainType {
 	return api.ReverseProxyDomainTypeFree
 }
 
-func domainToApi(d *Domain) api.ReverseProxyDomain {
+func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 	resp := api.ReverseProxyDomain{
 		Domain:    d.Domain,
 		Id:        d.ID,
@@ -58,7 +60,7 @@ func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domains, err := h.manager.GetDomains(r.Context(), userAuth.AccountId)
+	domains, err := h.manager.GetDomains(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -85,7 +87,7 @@ func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, req.Domain, req.TargetCluster)
+	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, req.Domain, req.TargetCluster)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -107,7 +109,7 @@ func (h *handler) deleteCustomDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.manager.DeleteDomain(r.Context(), userAuth.AccountId, domainID); err != nil {
+	if err := h.manager.DeleteDomain(r.Context(), userAuth.AccountId, userAuth.UserId, domainID); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -128,7 +130,7 @@ func (h *handler) triggerCustomDomainValidation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	go h.manager.ValidateDomain(userAuth.AccountId, domainID)
+	go h.manager.ValidateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, domainID)
 
 	w.WriteHeader(http.StatusAccepted)
 }

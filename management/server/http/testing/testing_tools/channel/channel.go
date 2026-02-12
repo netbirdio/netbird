@@ -11,7 +11,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
@@ -93,7 +93,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager)
-	domainManager := domain.NewManager(store, proxyServiceServer)
+	domainManager := manager.NewManager(store, proxyServiceServer)
 	reverseProxyManager := reverseproxymanager.NewManager(store, am, permissionsManager, proxyServiceServer, domainManager)
 	proxyServiceServer.SetProxyManager(reverseProxyManager)
 	am.SetServiceManager(reverseProxyManager)

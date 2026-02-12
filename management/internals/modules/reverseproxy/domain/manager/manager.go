@@ -1,4 +1,4 @@
-package domain
+package manager
 
 import (
 	"context"
@@ -7,34 +7,24 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-type domainType string
-
-const (
-	TypeFree   domainType = "free"
-	TypeCustom domainType = "custom"
-)
-
-type Domain struct {
-	ID            string     `gorm:"unique;primaryKey;autoIncrement"`
-	Domain        string     `gorm:"unique"` // Domain records must be unique, this avoids domain reuse across accounts.
-	AccountID     string     `gorm:"index"`
-	TargetCluster string     // The proxy cluster this domain should be validated against
-	Type          domainType `gorm:"-"`
-	Validated     bool
-}
 
 type store interface {
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 
-	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*Domain, error)
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
-	ListCustomDomains(ctx context.Context, accountID string) ([]*Domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*Domain, error)
-	UpdateCustomDomain(ctx context.Context, accountID string, d *Domain) (*Domain, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 }
 
@@ -43,28 +33,38 @@ type proxyURLProvider interface {
 }
 
 type Manager struct {
-	store            store
-	validator        Validator
-	proxyURLProvider proxyURLProvider
+	store              store
+	validator          domain.Validator
+	proxyURLProvider   proxyURLProvider
+	permissionsManager permissions.Manager
 }
 
-func NewManager(store store, proxyURLProvider proxyURLProvider) Manager {
+func NewManager(store store, proxyURLProvider proxyURLProvider, permissionsManager permissions.Manager) Manager {
 	return Manager{
 		store:            store,
 		proxyURLProvider: proxyURLProvider,
-		validator: Validator{
-			resolver: net.DefaultResolver,
+		validator: domain.Validator{
+			Resolver: net.DefaultResolver,
 		},
+		permissionsManager: permissionsManager,
 	}
 }
 
-func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, error) {
+func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
 	}
 
-	var ret []*Domain
+	var ret []*domain.Domain
 
 	// Add connected proxy clusters as free domains.
 	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
@@ -75,30 +75,37 @@ func (m Manager) GetDomains(ctx context.Context, accountID string) ([]*Domain, e
 	}).Debug("getting domains with proxy allow list")
 
 	for _, cluster := range allowList {
-		ret = append(ret, &Domain{
+		ret = append(ret, &domain.Domain{
 			Domain:    cluster,
 			AccountID: accountID,
-			Type:      TypeFree,
+			Type:      domain.TypeFree,
 			Validated: true,
 		})
 	}
 
 	// Add custom domains.
-	for _, domain := range domains {
-		ret = append(ret, &Domain{
-			ID:            domain.ID,
-			Domain:        domain.Domain,
+	for _, d := range domains {
+		ret = append(ret, &domain.Domain{
+			ID:            d.ID,
+			Domain:        d.Domain,
 			AccountID:     accountID,
-			TargetCluster: domain.TargetCluster,
-			Type:          TypeCustom,
-			Validated:     domain.Validated,
+			TargetCluster: d.TargetCluster,
+			Type:          domain.TypeCustom,
+			Validated:     d.Validated,
 		})
 	}
 
 	return ret, nil
 }
 
-func (m Manager) CreateDomain(ctx context.Context, accountID, domainName, targetCluster string) (*Domain, error) {
+func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
 
 	// Verify the target cluster is in the available clusters
 	allowList := m.proxyURLAllowList()
@@ -126,7 +133,15 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, domainName, target
 	return d, nil
 }
 
-func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) error {
+func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
 	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
 		// TODO: check for "no records" type error. Because that is a success condition.
 		return fmt.Errorf("delete domain from store: %w", err)
@@ -134,7 +149,22 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, domainID string) e
 	return nil
 }
 
-func (m Manager) ValidateDomain(accountID, domainID string) {
+func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+		}).WithError(err).Error("validate domain")
+		return
+	}
+	if !ok {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+		}).WithError(err).Error("validate domain")
+	}
+
 	log.WithFields(log.Fields{
 		"accountID": accountID,
 		"domainID":  domainID,
@@ -259,4 +289,16 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, domain string) (st
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
+}
+
+// ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
+// Free domains have the format: <name>.<nonce>.<cluster> (e.g., myapp.abc123.eu.proxy.netbird.io)
+// It matches the domain suffix against available clusters and returns the matching cluster.
+func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
+	for _, cluster := range availableClusters {
+		if strings.HasSuffix(domain, "."+cluster) {
+			return cluster, true
+		}
+	}
+	return "", false
 }

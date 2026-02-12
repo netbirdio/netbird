@@ -13,15 +13,15 @@ type resolver interface {
 }
 
 type Validator struct {
-	resolver resolver
+	Resolver resolver
 }
 
-// NewValidator initializes a validator with a specific DNS resolver.
-// If a Validator is used without specifying a resolver, then it will
+// NewValidator initializes a validator with a specific DNS Resolver.
+// If a Validator is used without specifying a Resolver, then it will
 // use the net.DefaultResolver.
 func NewValidator(resolver resolver) *Validator {
 	return &Validator{
-		resolver: resolver,
+		Resolver: resolver,
 	}
 }
 
@@ -39,8 +39,8 @@ func (v *Validator) IsValid(ctx context.Context, domain string, accept []string)
 // ValidateWithCluster validates a custom domain and returns the matched cluster address.
 // Returns the cluster address and true if valid, or empty string and false if invalid.
 func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, accept []string) (string, bool) {
-	if v.resolver == nil {
-		v.resolver = net.DefaultResolver
+	if v.Resolver == nil {
+		v.Resolver = net.DefaultResolver
 	}
 
 	lookupDomain := "validation." + domain
@@ -50,7 +50,7 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 		"acceptList":   accept,
 	}).Debug("looking up CNAME for domain validation")
 
-	cname, err := v.resolver.LookupCNAME(ctx, lookupDomain)
+	cname, err := v.Resolver.LookupCNAME(ctx, lookupDomain)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"domain":       domain,
@@ -84,17 +84,5 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 		"cname":      nakedCNAME,
 		"acceptList": accept,
 	}).Warn("domain CNAME does not match any accepted cluster")
-	return "", false
-}
-
-// ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
-// Free domains have the format: <name>.<nonce>.<cluster> (e.g., myapp.abc123.eu.proxy.netbird.io)
-// It matches the domain suffix against available clusters and returns the matching cluster.
-func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
-	for _, cluster := range availableClusters {
-		if strings.HasSuffix(domain, "."+cluster) {
-			return cluster, true
-		}
-	}
 	return "", false
 }
