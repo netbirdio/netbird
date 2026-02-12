@@ -18,8 +18,6 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 
-	"github.com/netbirdio/netbird/management/server/idp"
-
 	"github.com/netbirdio/netbird/encryption"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
