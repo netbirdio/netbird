@@ -686,7 +686,14 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 				log.Errorf("down service: %v", err)
 			}
 
-			_, err = conn.Up(s.ctx, &proto.UpRequest{})
+			upReq := &proto.UpRequest{}
+			if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+				if currUser, uErr := user.Current(); uErr == nil {
+					upReq.ProfileName = &activeProf.Name
+					upReq.Username = &currUser.Username
+				}
+			}
+			_, err = conn.Up(s.ctx, upReq)
 			if err != nil {
 				log.Errorf("up service: %v", err)
 				return
@@ -1556,6 +1563,11 @@ func (s *serviceClient) loadSettings() {
 	if err != nil {
 		log.Errorf("get config settings from server: %v", err)
 		return
+	}
+
+	// Refresh cached management URL to prevent stale state after profile switch
+	if cfg.ManagementUrl != "" {
+		s.managementURL = cfg.ManagementUrl
 	}
 
 	if cfg.ServerSSHAllowed {
