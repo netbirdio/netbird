@@ -29,12 +29,14 @@ func (m *mockMappingStream) Recv() (*proto.GetMappingUpdateResponse, error) {
 	return msg, nil
 }
 
-func (m *mockMappingStream) Header() (metadata.MD, error) { return nil, nil }
-func (m *mockMappingStream) Trailer() metadata.MD         { return nil }
-func (m *mockMappingStream) CloseSend() error              { return nil }
-func (m *mockMappingStream) Context() context.Context      { return context.Background() }
-func (m *mockMappingStream) SendMsg(any) error             { return nil }
-func (m *mockMappingStream) RecvMsg(any) error             { return nil }
+func (m *mockMappingStream) Header() (metadata.MD, error) {
+	return nil, nil //nolint:nilnil
+}
+func (m *mockMappingStream) Trailer() metadata.MD     { return nil }
+func (m *mockMappingStream) CloseSend() error         { return nil }
+func (m *mockMappingStream) Context() context.Context { return context.Background() }
+func (m *mockMappingStream) SendMsg(any) error        { return nil }
+func (m *mockMappingStream) RecvMsg(any) error        { return nil }
 
 func TestHandleMappingStream_SyncCompleteFlag(t *testing.T) {
 	checker := health.NewChecker(nil, nil)
