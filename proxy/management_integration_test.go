@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"crypto/rand"
 	"encoding/base64"
 	"net"
@@ -186,12 +187,12 @@ func (m *storeBackedServiceManager) GetService(ctx context.Context, accountID, u
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 }
 
-func (m *storeBackedServiceManager) CreateService(ctx context.Context, accountID, userID string, svc *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return nil, nil
+func (m *storeBackedServiceManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return nil, errors.New("not implemented")
 }
 
-func (m *storeBackedServiceManager) UpdateService(ctx context.Context, accountID, userID string, svc *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return nil, nil
+func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m *storeBackedServiceManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
@@ -411,7 +412,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 				addMappingCalls.Add(1)
 
 				// Apply to real auth middleware (idempotent)
-				authMw.AddDomain(
+				err := authMw.AddDomain(
 					mapping.GetDomain(),
 					nil,
 					"",
@@ -419,6 +420,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					mapping.GetAccountId(),
 					mapping.GetId(),
 				)
+				require.NoError(t, err)
 
 				// Apply to real proxy (idempotent)
 				proxyHandler.AddMapping(proxy.Mapping{
