@@ -340,6 +340,13 @@ func NewServer(addr string, checker *Checker, logger *log.Logger, metricsHandler
 }
 
 func checkClientHealth(client *embed.Client) ClientHealth {
+	if client == nil {
+		return ClientHealth{
+			Healthy: false,
+			Error:   "client not initialized",
+		}
+	}
+
 	status, err := client.Status()
 	if err != nil {
 		return ClientHealth{
