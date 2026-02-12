@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	saTokenPath     = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	saTokenPath     = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec
 	saNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 	saCACertPath    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 

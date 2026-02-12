@@ -5132,9 +5132,10 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 	}
 
 	if filter.Status != nil {
-		if *filter.Status == "success" {
+		switch *filter.Status {
+		case "success":
 			query = query.Where("status_code >= ? AND status_code < ?", 200, 400)
-		} else if *filter.Status == "failed" {
+		case "failed":
 			query = query.Where("status_code < ? OR status_code >= ?", 200, 400)
 		}
 	}

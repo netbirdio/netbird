@@ -92,7 +92,6 @@ type proxyConnection struct {
 	sendChan chan *proto.ProxyMapping
 	ctx      context.Context
 	cancel   context.CancelFunc
-	mu       sync.RWMutex
 }
 
 // NewProxyServiceServer creates a new proxy service server.
@@ -833,6 +832,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"domain": domain,
 			"error":  err.Error(),
 		}).Debug("ValidateSession: service not found")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "service_not_found",
@@ -857,6 +857,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"domain": domain,
 			"error":  err.Error(),
 		}).Debug("ValidateSession: invalid session token")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "invalid_token",
@@ -870,6 +871,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_id": userID,
 			"error":   err.Error(),
 		}).Debug("ValidateSession: user not found")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "user_not_found",
@@ -883,6 +885,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_account":    user.AccountID,
 			"service_account": service.AccountID,
 		}).Debug("ValidateSession: user account mismatch")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			DeniedReason: "account_mismatch",
@@ -895,6 +898,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_id": userID,
 			"error":   err.Error(),
 		}).Debug("ValidateSession: access denied")
+		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
 			Valid:        false,
 			UserId:       user.Id,

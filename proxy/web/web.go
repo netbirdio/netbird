@@ -109,7 +109,7 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, data any, statusCode ...i
 	if err := tmpl.Execute(&buf, struct {
 		Data template.JS
 	}{
-		Data: template.JS(dataJSON),
+		Data: template.JS(dataJSON), //nolint:gosec
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

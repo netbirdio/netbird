@@ -86,7 +86,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ErrorHandler: proxyErrorHandler,
 	}
 	if result.rewriteRedirects {
-		rp.ModifyResponse = p.rewriteLocationFunc(result.url, result.matchedPath, r)
+		rp.ModifyResponse = p.rewriteLocationFunc(result.url, result.matchedPath, r) //nolint:bodyclose
 	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
 }

@@ -21,6 +21,8 @@ import (
 const DefaultManagementURL = "https://api.netbird.io:443"
 
 // envProxyToken is the environment variable name for the proxy access token.
+//
+//nolint:gosec
 const envProxyToken = "NB_PROXY_TOKEN"
 
 var (
@@ -160,7 +162,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 	defer stop()
 
 	if err := srv.ListenAndServe(ctx, addr); err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		return err
 	}
 	return nil
 }

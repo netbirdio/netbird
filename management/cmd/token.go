@@ -67,6 +67,7 @@ func withTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Sto
 		return fmt.Errorf("init log: %w", err)
 	}
 
+	//nolint
 	ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource)
 
 	config, err := loadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
@@ -108,11 +109,11 @@ func tokenCreateRun(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("save token: %w", err)
 		}
 
-		fmt.Println("Token created successfully!")
-		fmt.Printf("Token: %s\n", generated.PlainToken)
-		fmt.Println()
-		fmt.Println("IMPORTANT: Save this token now. It will not be shown again.")
-		fmt.Printf("Token ID: %s\n", generated.ID)
+		fmt.Println("Token created successfully!")                                 //nolint:forbidigo
+		fmt.Printf("Token: %s\n", generated.PlainToken)                            //nolint:forbidigo
+		fmt.Println()                                                              //nolint:forbidigo
+		fmt.Println("IMPORTANT: Save this token now. It will not be shown again.") //nolint:forbidigo
+		fmt.Printf("Token ID: %s\n", generated.ID)                                 //nolint:forbidigo
 
 		return nil
 	})
@@ -126,7 +127,7 @@ func tokenListRun(cmd *cobra.Command, _ []string) error {
 		}
 
 		if len(tokens) == 0 {
-			fmt.Println("No proxy access tokens found.")
+			fmt.Println("No proxy access tokens found.") //nolint:forbidigo
 			return nil
 		}
 
@@ -174,7 +175,7 @@ func tokenRevokeRun(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("revoke token: %w", err)
 		}
 
-		fmt.Printf("Token %s revoked successfully.\n", tokenID)
+		fmt.Printf("Token %s revoked successfully.\n", tokenID) //nolint:forbidigo
 		return nil
 	})
 }
