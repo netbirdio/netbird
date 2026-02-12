@@ -346,6 +346,12 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 			http.StatusBadGateway,
 			web.ErrorStatus{Proxy: false, Destination: false}
 
+	case errors.Is(err, roundtrip.ErrTooManyInflight):
+		return "Service Overloaded",
+			"The service is currently handling too many requests. Please try again shortly.",
+			http.StatusServiceUnavailable,
+			web.ErrorStatus{Proxy: true, Destination: false}
+
 	case isConnectionRefused(err):
 		return "Service Unavailable",
 			"The connection to the service was refused. Please verify that the service is running and try again.",

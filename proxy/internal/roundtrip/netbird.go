@@ -24,6 +24,9 @@ import (
 
 const deviceNamePrefix = "ingress-proxy-"
 
+// backendKey identifies a backend by its host:port from the target URL.
+type backendKey = string
+
 var (
 	// ErrNoAccountID is returned when a request context is missing the account ID.
 	ErrNoAccountID = errors.New("no account ID in request context")
@@ -31,6 +34,8 @@ var (
 	ErrNoPeerConnection = errors.New("no peer connection found")
 	// ErrClientStartFailed is returned when the embedded client fails to start.
 	ErrClientStartFailed = errors.New("client start failed")
+	// ErrTooManyInflight is returned when the per-backend in-flight limit is reached.
+	ErrTooManyInflight = errors.New("too many in-flight requests")
 )
 
 // domainInfo holds metadata about a registered domain.
@@ -50,6 +55,35 @@ type clientEntry struct {
 	domains   map[domain.Domain]domainInfo
 	createdAt time.Time
 	started   bool
+	// Per-backend in-flight limiting keyed by target host:port.
+	// TODO: clean up stale entries when backend targets change.
+	inflightMu  sync.Mutex
+	inflightMap map[backendKey]chan struct{}
+	maxInflight int
+}
+
+// acquireInflight attempts to acquire an in-flight slot for the given backend.
+// It returns a release function that must always be called, and true on success.
+func (e *clientEntry) acquireInflight(backend backendKey) (release func(), ok bool) {
+	noop := func() {}
+	if e.maxInflight <= 0 {
+		return noop, true
+	}
+
+	e.inflightMu.Lock()
+	sem, exists := e.inflightMap[backend]
+	if !exists {
+		sem = make(chan struct{}, e.maxInflight)
+		e.inflightMap[backend] = sem
+	}
+	e.inflightMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, true
+	default:
+		return noop, false
+	}
 }
 
 type statusNotifier interface {
@@ -64,12 +98,13 @@ type managementClient interface {
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple domains to share the same connection.
 type NetBird struct {
-	mgmtAddr   string
-	proxyID    string
-	proxyAddr  string
-	wgPort     int
-	logger     *log.Logger
-	mgmtClient managementClient
+	mgmtAddr     string
+	proxyID      string
+	proxyAddr    string
+	wgPort       int
+	logger       *log.Logger
+	mgmtClient   managementClient
+	transportCfg transportConfig
 
 	clientsMux     sync.RWMutex
 	clients        map[types.AccountID]*clientEntry
@@ -213,13 +248,21 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		transport: &http.Transport{
 			DialContext:           client.DialContext,
 			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:          n.transportCfg.maxIdleConns,
+			MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
+			MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
+			IdleConnTimeout:       n.transportCfg.idleConnTimeout,
+			TLSHandshakeTimeout:   n.transportCfg.tlsHandshakeTimeout,
+			ExpectContinueTimeout: n.transportCfg.expectContinueTimeout,
+			ResponseHeaderTimeout: n.transportCfg.responseHeaderTimeout,
+			WriteBufferSize:       n.transportCfg.writeBufferSize,
+			ReadBufferSize:        n.transportCfg.readBufferSize,
+			DisableCompression:    n.transportCfg.disableCompression,
 		},
-		createdAt: time.Now(),
-		started:   false,
+		createdAt:   time.Now(),
+		started:     false,
+		inflightMap: make(map[backendKey]chan struct{}),
+		maxInflight: n.transportCfg.maxInflight,
 	}, nil
 }
 
@@ -367,6 +410,12 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	transport := entry.transport
 	n.clientsMux.RUnlock()
 
+	release, ok := entry.acquireInflight(req.URL.Host)
+	defer release()
+	if !ok {
+		return nil, ErrTooManyInflight
+	}
+
 	// Attempt to start the client, if the client is already running then
 	// it will return an error that we ignore, if this hits a timeout then
 	// this request is unprocessable.
@@ -503,6 +552,7 @@ func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Log
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,
 		mgmtClient:     mgmtClient,
+		transportCfg:   loadTransportConfig(logger),
 	}
 }
 
