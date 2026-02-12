@@ -110,8 +110,6 @@ func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 		duration := time.Since(start)
 
 		labels := prometheus.Labels{
-			"status": strconv.Itoa(res.StatusCode),
-			"size":   strconv.Itoa(int(res.ContentLength)),
 			"method": req.Method,
 			"host":   req.Host,
 			"path":   req.URL.Path,
