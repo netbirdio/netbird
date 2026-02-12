@@ -543,11 +543,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
+	wgIfaceName := e.wgInterface.Name()
 
 	go func() {
 		defer e.shutdownWg.Done()
 
-		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, wgIfaceName); shouldRestart {
 			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
 			e.triggerClientRestart()
 		} else if err != nil {
