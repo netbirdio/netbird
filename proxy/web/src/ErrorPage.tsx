@@ -44,7 +44,7 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
         </Button>
         <Button
           variant="secondary"
-          onClick={() => window.open("https://docs.netbird.io", "_blank")}
+          onClick={() => window.open("https://docs.netbird.io", "_blank", "noopener,noreferrer")}
         >
           <BookText size={16} />
           Documentation
