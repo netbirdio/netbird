@@ -301,10 +301,11 @@ initialize_default_values() {
   # Docker images
   CADDY_IMAGE="caddy"
   #DASHBOARD_IMAGE="netbirdio/dashboard:latest"
-  DASHBOARD_IMAGE="ghcr.io/netbirdio/dashboard-cloud:pr-271"
+  DASHBOARD_IMAGE="netbirdio/dashboard:pr-552"
   SIGNAL_IMAGE="netbirdio/signal:latest"
   RELAY_IMAGE="netbirdio/relay:latest"
-  MANAGEMENT_IMAGE="netbirdio/management:latest"
+  MANAGEMENT_IMAGE="netbirdio/management:latest"  
+  PROXY_IMAGE=""
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
@@ -1288,6 +1289,7 @@ render_docker_compose_traefik_tcp() {
       dockerfile: proxy/Dockerfile
     # Always rebuild to pick up code changes during testing
     pull_policy: build
+    #image: $PROXY_IMAGE
     container_name: netbird-proxy
     # Hairpin NAT fix: route domain back to traefik's static IP within Docker
     extra_hosts:
@@ -1448,7 +1450,7 @@ cat <<MGMT_BUILD
     build:
       context: ..
       dockerfile: management/Dockerfile.multistage
-    pull_policy: build
+    pull_policy: build    
 MGMT_BUILD
 else
 cat <<MGMT_IMAGE
