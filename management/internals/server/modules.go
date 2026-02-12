@@ -192,7 +192,7 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
 	return Create(s, func() reverseproxy.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer(), s.ProxyTokenStore(), s.ReverseProxyDomainManager())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer(), s.ReverseProxyDomainManager())
 	})
 }
 

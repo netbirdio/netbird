@@ -31,18 +31,16 @@ type managerImpl struct {
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
 	proxyGRPCServer    *nbgrpc.ProxyServiceServer
-	tokenStore         *nbgrpc.OneTimeTokenStore
 	clusterDeriver     ClusterDeriver
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, tokenStore *nbgrpc.OneTimeTokenStore, clusterDeriver ClusterDeriver) reverseproxy.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) reverseproxy.Manager {
 	return &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyGRPCServer:    proxyGRPCServer,
-		tokenStore:         tokenStore,
 		clusterDeriver:     clusterDeriver,
 	}
 }
@@ -187,11 +185,6 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 		return nil, err
 	}
 
-	token, err := m.tokenStore.GenerateToken(accountID, service.ID, 5*time.Minute)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate authentication token: %w", err)
-	}
-
 	m.accountManager.StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceCreated, service.EventMeta())
 
 	err = m.replaceHostByLookup(ctx, accountID, service)
@@ -199,7 +192,7 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -293,22 +286,17 @@ func (m *managerImpl) UpdateService(ctx context.Context, accountID, userID strin
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	token, err := m.tokenStore.GenerateToken(accountID, service.ID, 5*time.Minute)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate authentication token: %w", err)
-	}
-
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
 	switch {
 	case domainChanged && oldCluster != service.ProxyCluster:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), oldCluster)
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), oldCluster)
+		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
 	case !service.Enabled && serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), service.ProxyCluster)
 	case service.Enabled && serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, token, m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
 	default:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
-
+		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", oidcCfg), service.ProxyCluster)
 	}
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 

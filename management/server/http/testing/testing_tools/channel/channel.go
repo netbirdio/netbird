@@ -94,7 +94,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager)
 	domainManager := domain.NewManager(store, proxyServiceServer)
-	reverseProxyManager := reverseproxymanager.NewManager(store, am, permissionsManager, proxyServiceServer, proxyTokenStore, domainManager)
+	reverseProxyManager := reverseproxymanager.NewManager(store, am, permissionsManager, proxyServiceServer, domainManager)
 	proxyServiceServer.SetProxyManager(reverseProxyManager)
 	am.SetServiceManager(reverseProxyManager)
 
