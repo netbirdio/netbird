@@ -140,6 +140,7 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 		proxyCluster, err = m.clusterDeriver.DeriveClusterFromDomain(ctx, service.Domain)
 		if err != nil {
 			log.WithError(err).Warnf("could not derive cluster from domain %s, updates will broadcast to all proxy servers", service.Domain)
+			return nil, status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", service.Domain, err)
 		}
 	}
 
