@@ -200,7 +200,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 
 	proxyService.SetProxyManager(&testServiceManager{store: testStore})
 
-	handler := NewAuthCallbackHandler(proxyService)
+	handler := NewAuthCallbackHandler(proxyService, nil)
 
 	router := mux.NewRouter()
 	handler.RegisterEndpoints(router)

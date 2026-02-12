@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestAuthCallbackHandler_RateLimiting(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{})
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
 	require.NotNil(t, handler.rateLimiter, "Rate limiter should be initialized")
 
 	req := httptest.NewRequest(http.MethodGet, "/callback?state=test&code=test", nil)
@@ -54,7 +55,7 @@ func TestAuthCallbackHandler_RateLimiting(t *testing.T) {
 }
 
 func TestAuthCallbackHandler_RateLimitInHandleCallback(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{})
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
 	testIP := "10.0.0.50"
 
 	handler.rateLimiter.Reset(testIP)
@@ -75,46 +76,76 @@ func TestAuthCallbackHandler_RateLimitInHandleCallback(t *testing.T) {
 	})
 }
 
-func TestGetClientIP(t *testing.T) {
+func TestResolveClientIP(t *testing.T) {
+	trusted := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+	}
+
 	tests := []struct {
 		name          string
 		remoteAddr    string
 		xForwardedFor string
-		xRealIP       string
+		trustedProxy  []netip.Prefix
 		expectedIP    string
 	}{
 		{
-			name:       "extract from RemoteAddr",
-			remoteAddr: "192.168.1.100:12345",
-			expectedIP: "192.168.1.100",
+			name:          "no trusted proxies returns RemoteAddr",
+			remoteAddr:    "203.0.113.50:9999",
+			xForwardedFor: "1.2.3.4",
+			trustedProxy:  nil,
+			expectedIP:    "203.0.113.50",
 		},
 		{
-			name:          "extract from X-Forwarded-For single IP",
-			remoteAddr:    "10.0.0.1:54321",
-			xForwardedFor: "203.0.113.195",
-			expectedIP:    "203.0.113.195",
+			name:          "untrusted RemoteAddr ignores XFF",
+			remoteAddr:    "203.0.113.50:9999",
+			xForwardedFor: "1.2.3.4, 10.0.0.1",
+			trustedProxy:  trusted,
+			expectedIP:    "203.0.113.50",
 		},
 		{
-			name:          "extract from X-Forwarded-For multiple IPs",
-			remoteAddr:    "10.0.0.1:54321",
-			xForwardedFor: "203.0.113.195, 70.41.3.18, 150.172.238.178",
-			expectedIP:    "203.0.113.195",
+			name:          "trusted RemoteAddr with single client in XFF",
+			remoteAddr:    "10.0.0.1:5000",
+			xForwardedFor: "203.0.113.50",
+			trustedProxy:  trusted,
+			expectedIP:    "203.0.113.50",
 		},
 		{
-			name:       "extract from X-Real-IP",
-			remoteAddr: "10.0.0.1:54321",
-			xRealIP:    "198.51.100.42",
-			expectedIP: "198.51.100.42",
+			name:          "trusted RemoteAddr walks past trusted entries in XFF",
+			remoteAddr:    "10.0.0.1:5000",
+			xForwardedFor: "203.0.113.50, 10.0.0.2, 172.16.0.5",
+			trustedProxy:  trusted,
+			expectedIP:    "203.0.113.50",
 		},
 		{
-			name:          "X-Forwarded-For takes precedence over X-Real-IP",
-			remoteAddr:    "10.0.0.1:54321",
-			xForwardedFor: "203.0.113.195",
-			xRealIP:       "198.51.100.42",
-			expectedIP:    "203.0.113.195",
+			name:         "trusted RemoteAddr with empty XFF falls back to RemoteAddr",
+			remoteAddr:   "10.0.0.1:5000",
+			trustedProxy: trusted,
+			expectedIP:   "10.0.0.1",
 		},
 		{
-			name:       "handle RemoteAddr without port",
+			name:          "all XFF IPs trusted returns leftmost",
+			remoteAddr:    "10.0.0.1:5000",
+			xForwardedFor: "10.0.0.2, 172.16.0.1, 10.0.0.3",
+			trustedProxy:  trusted,
+			expectedIP:    "10.0.0.2",
+		},
+		{
+			name:          "XFF with whitespace",
+			remoteAddr:    "10.0.0.1:5000",
+			xForwardedFor: " 203.0.113.50 , 10.0.0.2 ",
+			trustedProxy:  trusted,
+			expectedIP:    "203.0.113.50",
+		},
+		{
+			name:          "multi-hop with mixed trust",
+			remoteAddr:    "10.0.0.1:5000",
+			xForwardedFor: "8.8.8.8, 203.0.113.50, 172.16.0.1",
+			trustedProxy:  trusted,
+			expectedIP:    "203.0.113.50",
+		},
+		{
+			name:       "RemoteAddr without port",
 			remoteAddr: "192.168.1.100",
 			expectedIP: "192.168.1.100",
 		},
@@ -122,24 +153,22 @@ func TestGetClientIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, tt.trustedProxy)
+
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			req.RemoteAddr = tt.remoteAddr
-
 			if tt.xForwardedFor != "" {
 				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
 			}
-			if tt.xRealIP != "" {
-				req.Header.Set("X-Real-IP", tt.xRealIP)
-			}
 
-			ip := getClientIP(req)
-			assert.Equal(t, tt.expectedIP, ip, "Extracted IP should match expected")
+			ip := handler.resolveClientIP(req)
+			assert.Equal(t, tt.expectedIP, ip)
 		})
 	}
 }
 
 func TestAuthCallbackHandler_RateLimiterConfiguration(t *testing.T) {
-	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{})
+	handler := NewAuthCallbackHandler(&nbgrpc.ProxyServiceServer{}, nil)
 
 	require.NotNil(t, handler.rateLimiter, "Rate limiter should be initialized")
 
