@@ -67,20 +67,11 @@ management:
   # DNS domain for the management server
   dnsDomain: ""
 
-  # Single account mode domain (optional)
-  singleAccountModeDomain: ""
-  disableSingleAccountMode: false
-
   # Metrics and updates
   disableAnonymousMetrics: false
   disableGeoliteUpdate: false
 
-  # User management
-  userDeleteFromIDPEnabled: false
-
-  # Embedded authentication/identity provider (Dex) configuration
   auth:
-    enabled: false
     # OIDC issuer URL - must be publicly accessible
     issuer: "https://management.example.com/oauth2"
     localAuthDisabled: false
@@ -116,7 +107,8 @@ management:
 
   # Store configuration
   store:
-    engine: "sqlite"  # sqlite or postgres
+    engine: "sqlite"  # sqlite, postgres, or mysql
+    dsn: ""  # Connection string for postgres or mysql
     encryptionKey: ""
 
   # Reverse proxy settings

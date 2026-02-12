@@ -241,7 +241,7 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
-	if err := ApplyEmbeddedIdPConfig(ctx, mgmtConfig, mgmtPort, cfg.Management.DisableSingleAccountMode); err != nil {
+	if err := ApplyEmbeddedIdPConfig(ctx, mgmtConfig, mgmtPort, false); err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to apply embedded IdP config: %w", err)
 	}
@@ -475,10 +475,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	mgmt := cfg.Management
 
 	dnsDomain := mgmt.DnsDomain
-	singleAccModeDomain := mgmt.SingleAccountModeDomain
-	if !mgmt.DisableSingleAccountMode && singleAccModeDomain == "" && dnsDomain != "" {
-		singleAccModeDomain = dnsDomain
-	}
+	singleAccModeDomain := dnsDomain
 
 	// Extract port from listen address
 	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
@@ -488,12 +485,6 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
-	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
-	userDeleteFromIDPEnabled := mgmt.UserDeleteFromIDPEnabled
-	if mgmt.Auth.Enabled {
-		userDeleteFromIDPEnabled = true
-	}
-
 	mgmtSrv := mgmtServer.NewServer(
 		mgmtConfig,
 		dnsDomain,
@@ -502,7 +493,8 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 		cfg.Server.MetricsPort,
 		mgmt.DisableAnonymousMetrics,
 		mgmt.DisableGeoliteUpdate,
-		userDeleteFromIDPEnabled,
+		// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
+		true,
 	)
 
 	return mgmtSrv, nil
@@ -643,21 +635,15 @@ func logManagementConfig(cfg *CombinedConfig) {
 	log.Info("--- Management ---")
 	log.Infof("  Data dir: %s", cfg.Management.DataDir)
 	log.Infof("  DNS domain: %s", cfg.Management.DnsDomain)
-	log.Infof("  Single account mode domain: %s", cfg.Management.SingleAccountModeDomain)
-	log.Infof("  Disable single account mode: %v", cfg.Management.DisableSingleAccountMode)
 	log.Infof("  Store engine: %s", cfg.Management.Store.Engine)
 	if cfg.Server.Store.DSN != "" {
 		log.Infof("  Store DSN: %s", maskDSNPassword(cfg.Server.Store.DSN))
 	}
 
-	if cfg.Management.Auth.Enabled {
-		log.Info("  Auth (embedded IdP):")
-		log.Infof("    Issuer: %s", cfg.Management.Auth.Issuer)
-		log.Infof("    Dashboard redirect URIs: %v", cfg.Management.Auth.DashboardRedirectURIs)
-		log.Infof("    CLI redirect URIs: %v", cfg.Management.Auth.CLIRedirectURIs)
-	} else {
-		log.Info("  Auth: disabled (using external IdP)")
-	}
+	log.Info("  Auth (embedded IdP):")
+	log.Infof("    Issuer: %s", cfg.Management.Auth.Issuer)
+	log.Infof("    Dashboard redirect URIs: %v", cfg.Management.Auth.DashboardRedirectURIs)
+	log.Infof("    CLI redirect URIs: %v", cfg.Management.Auth.CLIRedirectURIs)
 
 	log.Info("  Client settings:")
 	log.Infof("    Signal URI: %s", cfg.Management.SignalURI)

@@ -66,14 +66,11 @@ type ServerConfig struct {
 	SignalURI string       `yaml:"signalUri"` // External signal server (disables local signal)
 
 	// Management settings (simplified mode)
-	SingleAccountModeDomain  string             `yaml:"singleAccountModeDomain"`
-	DisableSingleAccountMode bool               `yaml:"disableSingleAccountMode"`
-	DisableAnonymousMetrics  bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate     bool               `yaml:"disableGeoliteUpdate"`
-	UserDeleteFromIDPEnabled bool               `yaml:"userDeleteFromIDPEnabled"`
-	Auth                     AuthConfig         `yaml:"auth"`
-	Store                    StoreConfig        `yaml:"store"`
-	ReverseProxy             ReverseProxyConfig `yaml:"reverseProxy"`
+	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
+	Auth                    AuthConfig         `yaml:"auth"`
+	Store                   StoreConfig        `yaml:"store"`
+	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 }
 
 // TLSConfig contains TLS/HTTPS settings
@@ -116,27 +113,23 @@ type SignalConfig struct {
 
 // ManagementConfig contains management service settings
 type ManagementConfig struct {
-	Enabled                  bool               `yaml:"enabled"`
-	LogLevel                 string             `yaml:"logLevel"`
-	DataDir                  string             `yaml:"dataDir"`
-	DnsDomain                string             `yaml:"dnsDomain"`
-	SingleAccountModeDomain  string             `yaml:"singleAccountModeDomain"`
-	DisableSingleAccountMode bool               `yaml:"disableSingleAccountMode"`
-	DisableAnonymousMetrics  bool               `yaml:"disableAnonymousMetrics"`
-	DisableGeoliteUpdate     bool               `yaml:"disableGeoliteUpdate"`
-	UserDeleteFromIDPEnabled bool               `yaml:"userDeleteFromIDPEnabled"`
-	DisableDefaultPolicy     bool               `yaml:"disableDefaultPolicy"`
-	Auth                     AuthConfig         `yaml:"auth"`
-	Stuns                    []HostConfig       `yaml:"stuns"`
-	Relays                   RelaysConfig       `yaml:"relays"`
-	SignalURI                string             `yaml:"signalUri"`
-	Store                    StoreConfig        `yaml:"store"`
-	ReverseProxy             ReverseProxyConfig `yaml:"reverseProxy"`
+	Enabled                 bool               `yaml:"enabled"`
+	LogLevel                string             `yaml:"logLevel"`
+	DataDir                 string             `yaml:"dataDir"`
+	DnsDomain               string             `yaml:"dnsDomain"`
+	DisableAnonymousMetrics bool               `yaml:"disableAnonymousMetrics"`
+	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
+	DisableDefaultPolicy    bool               `yaml:"disableDefaultPolicy"`
+	Auth                    AuthConfig         `yaml:"auth"`
+	Stuns                   []HostConfig       `yaml:"stuns"`
+	Relays                  RelaysConfig       `yaml:"relays"`
+	SignalURI               string             `yaml:"signalUri"`
+	Store                   StoreConfig        `yaml:"store"`
+	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 }
 
 // AuthConfig contains authentication/identity provider settings
 type AuthConfig struct {
-	Enabled               bool              `yaml:"enabled"`
 	Issuer                string            `yaml:"issuer"`
 	LocalAuthDisabled     bool              `yaml:"localAuthDisabled"`
 	SignKeyRefreshEnabled bool              `yaml:"signKeyRefreshEnabled"`
@@ -344,14 +337,10 @@ func (c *CombinedConfig) applyManagementDefaults(exposedHost string) {
 		c.Management.DataDir = c.Server.DataDir
 	}
 	c.Management.DnsDomain = exposedHost
-	c.Management.SingleAccountModeDomain = c.Server.SingleAccountModeDomain
-	c.Management.DisableSingleAccountMode = c.Server.DisableSingleAccountMode
 	c.Management.DisableAnonymousMetrics = c.Server.DisableAnonymousMetrics
 	c.Management.DisableGeoliteUpdate = c.Server.DisableGeoliteUpdate
-	c.Management.UserDeleteFromIDPEnabled = c.Server.UserDeleteFromIDPEnabled
-
-	// Copy auth config from server if management auth is not set
-	if !c.Management.Auth.Enabled && c.Server.Auth.Enabled {
+	// Copy auth config from server if management auth issuer is not set
+	if c.Management.Auth.Issuer == "" && c.Server.Auth.Issuer != "" {
 		c.Management.Auth = c.Server.Auth
 	}
 
@@ -608,40 +597,37 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	// Build HTTP config (required, even if empty)
 	httpConfig := &nbconfig.HttpServerConfig{}
 
-	// Build embedded IDP config
-	var embeddedIdP *idp.EmbeddedIdPConfig
-	if mgmt.Auth.Enabled {
-		storageFile := mgmt.Auth.Storage.File
-		if storageFile == "" {
-			storageFile = path.Join(mgmt.DataDir, "idp.db")
-		}
-
-		embeddedIdP = &idp.EmbeddedIdPConfig{
-			Enabled:               true,
-			Issuer:                mgmt.Auth.Issuer,
-			LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-			SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
-			Storage: idp.EmbeddedStorageConfig{
-				Type: mgmt.Auth.Storage.Type,
-				Config: idp.EmbeddedStorageTypeConfig{
-					File: storageFile,
-				},
-			},
-			DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
-			CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
-		}
-
-		if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
-			embeddedIdP.Owner = &idp.OwnerConfig{
-				Email: mgmt.Auth.Owner.Email,
-				Hash:  mgmt.Auth.Owner.Password, // Will be hashed if plain text
-			}
-		}
-
-		// Set HTTP config fields for embedded IDP
-		httpConfig.AuthIssuer = mgmt.Auth.Issuer
-		httpConfig.IdpSignKeyRefreshEnabled = mgmt.Auth.SignKeyRefreshEnabled
+	// Build embedded IDP config (always enabled in combined server)
+	storageFile := mgmt.Auth.Storage.File
+	if storageFile == "" {
+		storageFile = path.Join(mgmt.DataDir, "idp.db")
 	}
+
+	embeddedIdP := &idp.EmbeddedIdPConfig{
+		Enabled:               true,
+		Issuer:                mgmt.Auth.Issuer,
+		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
+		Storage: idp.EmbeddedStorageConfig{
+			Type: mgmt.Auth.Storage.Type,
+			Config: idp.EmbeddedStorageTypeConfig{
+				File: storageFile,
+			},
+		},
+		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
+		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+	}
+
+	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
+		embeddedIdP.Owner = &idp.OwnerConfig{
+			Email: mgmt.Auth.Owner.Email,
+			Hash:  mgmt.Auth.Owner.Password, // Will be hashed if plain text
+		}
+	}
+
+	// Set HTTP config fields for embedded IDP
+	httpConfig.AuthIssuer = mgmt.Auth.Issuer
+	httpConfig.IdpSignKeyRefreshEnabled = mgmt.Auth.SignKeyRefreshEnabled
 
 	return &nbconfig.Config{
 		Stuns:                  stuns,
