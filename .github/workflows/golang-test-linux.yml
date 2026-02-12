@@ -144,7 +144,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy)
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
@@ -204,7 +204,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui -e /upload-server)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /client/ui -e /upload-server)
             '
 
   test_relay:
@@ -260,6 +260,53 @@ jobs:
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
             -timeout 10m -p 1 ./relay/... ./shared/relay/...
+
+  test_proxy:
+    name: "Proxy / Unit"
+    needs: [build-cache]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Test
+        run: |
+          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
+          go test -timeout 10m -p 1 ./proxy/...
 
   test_signal:
     name: "Signal / Unit"
