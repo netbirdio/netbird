@@ -86,9 +86,6 @@ server:
     issuer: "https://server.mycompany.com/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
-    storage:
-      type: "sqlite3"
-      file: ""  # Defaults to {dataDir}/idp.db
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.netbird.io/nb-auth"

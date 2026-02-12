@@ -609,8 +609,6 @@ server:
   auth:
     issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
     signKeyRefreshEnabled: true
-    storage:
-      type: "sqlite3"
     dashboardRedirectURIs:
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth"
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
