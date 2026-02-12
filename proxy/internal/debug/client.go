@@ -88,8 +88,9 @@ func (c *Client) printHealth(data map[string]any) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(c.out, "\n%-38s %-9s %-7s %-8s %s\n", "ACCOUNT ID", "HEALTHY", "MGMT", "SIGNAL", "RELAYS")
-	_, _ = fmt.Fprintln(c.out, strings.Repeat("-", 80))
+	_, _ = fmt.Fprintf(c.out, "\n%-38s %-9s %-7s %-8s %-8s %-16s %s\n",
+		"ACCOUNT ID", "HEALTHY", "MGMT", "SIGNAL", "RELAYS", "PEERS (P2P/RLY)", "DEGRADED")
+	_, _ = fmt.Fprintln(c.out, strings.Repeat("-", 110))
 
 	for accountID, v := range clients {
 		ch, ok := v.(map[string]any)
@@ -105,7 +106,15 @@ func (c *Client) printHealth(data map[string]any) {
 		relaysTotal, _ := ch["relays_total"].(float64)
 		relays := fmt.Sprintf("%d/%d", int(relaysConn), int(relaysTotal))
 
-		_, _ = fmt.Fprintf(c.out, "%-38s %-9s %-7s %-8s %s", accountID, healthy, mgmt, signal, relays)
+		peersConnected, _ := ch["peers_connected"].(float64)
+		peersTotal, _ := ch["peers_total"].(float64)
+		peersP2P, _ := ch["peers_p2p"].(float64)
+		peersRelayed, _ := ch["peers_relayed"].(float64)
+		peersDegraded, _ := ch["peers_degraded"].(float64)
+		peers := fmt.Sprintf("%d/%d (%d/%d)", int(peersConnected), int(peersTotal), int(peersP2P), int(peersRelayed))
+		degraded := fmt.Sprintf("%d", int(peersDegraded))
+
+		_, _ = fmt.Fprintf(c.out, "%-38s %-9s %-7s %-8s %-8s %-16s %s", accountID, healthy, mgmt, signal, relays, peers, degraded)
 		if errMsg, ok := ch["error"].(string); ok && errMsg != "" {
 			_, _ = fmt.Fprintf(c.out, "  (%s)", errMsg)
 		}

@@ -514,10 +514,10 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			}
 			s.Logger.Debug("Processing mapping update completed")
 
-			// After the first mapping sync, mark the initial sync complete.
-			// Client health is checked directly in the startup probe.
-			if !*initialSyncDone && s.healthChecker != nil {
-				s.healthChecker.SetInitialSyncComplete()
+			if !*initialSyncDone && msg.GetInitialSyncComplete() {
+				if s.healthChecker != nil {
+					s.healthChecker.SetInitialSyncComplete()
+				}
 				*initialSyncDone = true
 				s.Logger.Info("Initial mapping sync complete")
 			}

@@ -31,6 +31,14 @@ var (
 	ErrConfigNotInitialized = errors.New("config not initialized")
 )
 
+// PeerConnStatus is a peer's connection status.
+type PeerConnStatus = peer.ConnStatus
+
+const (
+	// PeerStatusConnected indicates the peer is in connected state.
+	PeerStatusConnected = peer.StatusConnected
+)
+
 // Client manages a netbird embedded client instance.
 type Client struct {
 	deviceName string

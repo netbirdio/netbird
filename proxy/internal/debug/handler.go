@@ -648,7 +648,8 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON 
 	allHealthy, clientHealth := h.health.CheckClientsConnected(r.Context())
 
 	status := "ok"
-	if !ready || !allHealthy {
+	// No clients is not a health issue; only degrade when actual clients are unhealthy
+	if !ready || (!allHealthy && len(clientHealth) > 0) {
 		status = "degraded"
 	}
 

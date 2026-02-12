@@ -223,15 +223,27 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 
 	proxyClusterAddr := extractClusterAddr(conn.address)
 
+	var filtered []*reverseproxy.Service
 	for _, service := range services {
 		if !service.Enabled {
 			continue
 		}
-
 		if service.ProxyCluster != "" && proxyClusterAddr != "" && service.ProxyCluster != proxyClusterAddr {
 			continue
 		}
+		filtered = append(filtered, service)
+	}
 
+	if len(filtered) == 0 {
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			InitialSyncComplete: true,
+		}); err != nil {
+			return fmt.Errorf("send snapshot completion: %w", err)
+		}
+		return nil
+	}
+
+	for i, service := range filtered {
 		// Generate one-time authentication token for each service in the snapshot
 		// Tokens are not persistent on the proxy, so we need to generate new ones on reconnection
 		token, err := s.tokenStore.GenerateToken(service.AccountID, service.ID, 5*time.Minute)
@@ -251,6 +263,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 					s.GetOIDCValidationConfig(),
 				),
 			},
+			InitialSyncComplete: i == len(filtered)-1,
 		}); err != nil {
 			log.WithFields(log.Fields{
 				"domain":  service.Domain,

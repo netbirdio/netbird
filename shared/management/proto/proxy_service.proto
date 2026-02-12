@@ -39,6 +39,9 @@ message GetMappingUpdateRequest {
 // Mappings that are sent should be interpreted by the Proxy appropriately.
 message GetMappingUpdateResponse {
   repeated ProxyMapping mapping = 1;
+  // initial_sync_complete is set on the last message of the initial snapshot.
+  // The proxy uses this to signal that startup is complete.
+  bool initial_sync_complete = 2;
 }
 
 enum ProxyMappingUpdateType {

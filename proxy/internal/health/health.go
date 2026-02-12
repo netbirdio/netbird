@@ -16,6 +16,8 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
+const handshakeStaleThreshold = 5 * time.Minute
+
 const (
 	maxConcurrentChecks   = 3
 	maxClientCheckTimeout = 5 * time.Minute
@@ -38,6 +40,10 @@ type Checker struct {
 
 	// checkSem limits concurrent client health checks.
 	checkSem chan struct{}
+
+	// checkHealth checks the health of a single client.
+	// Defaults to checkClientHealth; overridable in tests.
+	checkHealth func(*embed.Client) ClientHealth
 }
 
 // ClientHealth represents the health status of a single NetBird client.
@@ -47,6 +53,11 @@ type ClientHealth struct {
 	SignalConnected     bool   `json:"signal_connected"`
 	RelaysConnected     int    `json:"relays_connected"`
 	RelaysTotal         int    `json:"relays_total"`
+	PeersTotal          int    `json:"peers_total"`
+	PeersConnected      int    `json:"peers_connected"`
+	PeersP2P            int    `json:"peers_p2p"`
+	PeersRelayed        int    `json:"peers_relayed"`
+	PeersDegraded       int    `json:"peers_degraded"`
 	Error               string `json:"error,omitempty"`
 }
 
@@ -96,9 +107,9 @@ func (c *Checker) CheckClientsConnected(ctx context.Context) (bool, map[types.Ac
 
 	clients := c.provider.ListClientsForStartup()
 
-	// No clients yet means not ready
+	// No clients is not a health issue
 	if len(clients) == 0 {
-		return false, make(map[types.AccountID]ClientHealth)
+		return true, make(map[types.AccountID]ClientHealth)
 	}
 
 	type result struct {
@@ -123,7 +134,7 @@ func (c *Checker) CheckClientsConnected(ctx context.Context) (bool, map[types.Ac
 				return
 			}
 
-			resultsCh <- result{id, checkClientHealth(cl)}
+			resultsCh <- result{id, c.checkHealth(cl)}
 		}(accountID, client)
 	}
 
@@ -173,7 +184,8 @@ func (c *Checker) StartupProbe(ctx context.Context) bool {
 		return false
 	}
 
-	// Check all clients are connected to management/signal/relay
+	// Check all clients are connected to management/signal/relay.
+	// Returns true when no clients exist (nothing to check).
 	allHealthy, _ := c.CheckClientsConnected(ctx)
 	return allHealthy
 }
@@ -213,19 +225,19 @@ func (c *Checker) handleReadiness(w http.ResponseWriter, r *http.Request) {
 func (c *Checker) handleStartup(w http.ResponseWriter, r *http.Request) {
 	c.mu.RLock()
 	mgmt := c.managementConnected
-	sync := c.initialSyncComplete
+	syncComplete := c.initialSyncComplete
 	c.mu.RUnlock()
 
-	// Check clients directly using request context
 	allClientsHealthy, clientHealth := c.CheckClientsConnected(r.Context())
 
 	checks := map[string]bool{
 		"management_connected":  mgmt,
-		"initial_sync_complete": sync,
+		"initial_sync_complete": syncComplete,
 		"all_clients_healthy":   allClientsHealthy,
 	}
 
-	if c.StartupProbe(r.Context()) {
+	ready := mgmt && syncComplete && allClientsHealthy
+	if ready {
 		c.writeProbeResponse(w, http.StatusOK, "ok", checks, clientHealth)
 		return
 	}
@@ -293,9 +305,10 @@ func NewChecker(logger *log.Logger, provider clientProvider) *Checker {
 		logger = log.StandardLogger()
 	}
 	return &Checker{
-		logger:   logger,
-		provider: provider,
-		checkSem: make(chan struct{}, maxConcurrentChecks),
+		logger:      logger,
+		provider:    provider,
+		checkSem:    make(chan struct{}, maxConcurrentChecks),
+		checkHealth: checkClientHealth,
 	}
 }
 
@@ -347,6 +360,24 @@ func checkClientHealth(client *embed.Client) ClientHealth {
 		}
 	}
 
+	// Count peer connection stats
+	now := time.Now()
+	var peersConnected, peersP2P, peersRelayed, peersDegraded int
+	for _, p := range status.Peers {
+		if p.ConnStatus != embed.PeerStatusConnected {
+			continue
+		}
+		peersConnected++
+		if p.Relayed {
+			peersRelayed++
+		} else {
+			peersP2P++
+		}
+		if p.LastWireguardHandshake.IsZero() || now.Sub(p.LastWireguardHandshake) > handshakeStaleThreshold {
+			peersDegraded++
+		}
+	}
+
 	// Client is healthy if connected to management, signal, and at least one relay (if any are defined)
 	healthy := status.ManagementState.Connected &&
 		status.SignalState.Connected &&
@@ -358,5 +389,10 @@ func checkClientHealth(client *embed.Client) ClientHealth {
 		SignalConnected:     status.SignalState.Connected,
 		RelaysConnected:     relaysConnected,
 		RelaysTotal:         relayCount,
+		PeersTotal:          len(status.Peers),
+		PeersConnected:      peersConnected,
+		PeersP2P:            peersP2P,
+		PeersRelayed:        peersRelayed,
+		PeersDegraded:       peersDegraded,
 	}
 }
