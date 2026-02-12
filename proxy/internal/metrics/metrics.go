@@ -106,15 +106,21 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 	return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		start := time.Now()
-		res, err := next.RoundTrip(req)
-		duration := time.Since(start)
-
 		labels := prometheus.Labels{
 			"method": req.Method,
 			"host":   req.Host,
-			"path":   req.URL.Path,
+			// Fill potentially empty labels with default values to avoid cardinality issues.
+			"path":   "/",
+			"status": "0",
+			"size":   "0",
 		}
+		if req.URL != nil {
+			labels["path"] = req.URL.Path
+		}
+
+		start := time.Now()
+		res, err := next.RoundTrip(req)
+		duration := time.Since(start)
 
 		// Not all labels will be available if there was an error.
 		if res != nil {
