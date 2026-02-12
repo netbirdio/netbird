@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -65,6 +66,9 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	go func() {
 		logCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if entry.AuthMechanism != auth.MethodOIDC.String() {
+			entry.UserId = ""
+		}
 		if _, err := l.client.SendAccessLog(logCtx, &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				LogId:         entry.ID,
