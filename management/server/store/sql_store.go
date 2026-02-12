@@ -1100,7 +1100,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkRouters").
 		Preload("NetworkResources").
 		Preload("Onboarding").
-		Preload("Services").
+		Preload("Services.Targets").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
