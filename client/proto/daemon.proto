@@ -670,6 +670,8 @@ message SetConfigRequest {
   optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
+
+  optional bool disable_default_route = 35;
 }
 
 message SetConfigResponse{}
