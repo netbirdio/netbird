@@ -867,7 +867,7 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		}
 	}
 
-	if _, err := s.conn.Up(s.ctx, upReq); err != nil {
+	if _, err := conn.Up(ctx, upReq); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -1735,7 +1735,15 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 			return
 		}
 
-		_, err = conn.Up(ctx, &proto.UpRequest{})
+		upReq := &proto.UpRequest{}
+		if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+			if currUser, uErr := user.Current(); uErr == nil {
+				upReq.ProfileName = &activeProf.Name
+				upReq.Username = &currUser.Username
+			}
+		}
+
+		_, err = conn.Up(ctx, upReq)
 		if err != nil {
 			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
 			log.Errorf("Reconnecting failed with: %v", err)
