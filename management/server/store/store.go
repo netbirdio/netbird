@@ -1,5 +1,7 @@
 package store
 
+//go:generate go run github.com/golang/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"errors"
@@ -23,6 +25,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -105,6 +110,12 @@ type Store interface {
 	MarkPATUsed(ctx context.Context, patID string) error
 	SavePAT(ctx context.Context, pat *types.PersonalAccessToken) error
 	DeletePAT(ctx context.Context, userID, patID string) error
+
+	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
+	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
+	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
+	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
@@ -240,6 +251,25 @@ type Store interface {
 	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
+
+	CreateService(ctx context.Context, service *reverseproxy.Service) error
+	UpdateService(ctx context.Context, service *reverseproxy.Service) error
+	DeleteService(ctx context.Context, accountID, serviceID string) error
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
+
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+
+	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
+	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 }
 
 const (

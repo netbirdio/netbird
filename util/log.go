@@ -30,9 +30,14 @@ var (
 
 // InitLog parses and sets log-level input
 func InitLog(logLevel string, logs ...string) error {
+	return InitLogger(log.StandardLogger(), logLevel, logs...)
+}
+
+// InitLogger parses and sets log-level input for a logrus logger
+func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
-		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
+		logger.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
 	var writers []io.Writer
@@ -41,34 +46,34 @@ func InitLog(logLevel string, logs ...string) error {
 	for _, logPath := range logs {
 		switch logPath {
 		case LogSyslog:
-			AddSyslogHook()
+			AddSyslogHookToLogger(logger)
 			logFmt = "syslog"
 		case LogConsole:
 			writers = append(writers, os.Stderr)
 		case "":
-			log.Warnf("empty log path received: %#v", logPath)
+			logger.Warnf("empty log path received: %#v", logPath)
 		default:
 			writers = append(writers, newRotatedOutput(logPath))
 		}
 	}
 
 	if len(writers) > 1 {
-		log.SetOutput(io.MultiWriter(writers...))
+		logger.SetOutput(io.MultiWriter(writers...))
 	} else if len(writers) == 1 {
-		log.SetOutput(writers[0])
+		logger.SetOutput(writers[0])
 	}
 
 	switch logFmt {
 	case "json":
-		formatter.SetJSONFormatter(log.StandardLogger())
+		formatter.SetJSONFormatter(logger)
 	case "syslog":
-		formatter.SetSyslogFormatter(log.StandardLogger())
+		formatter.SetSyslogFormatter(logger)
 	default:
-		formatter.SetTextFormatter(log.StandardLogger())
+		formatter.SetTextFormatter(logger)
 	}
-	log.SetLevel(level)
+	logger.SetLevel(level)
 
-	setGRPCLibLogger()
+	setGRPCLibLogger(logger)
 
 	return nil
 }
@@ -96,8 +101,8 @@ func newRotatedOutput(logPath string) io.Writer {
 	return lumberjackLogger
 }
 
-func setGRPCLibLogger() {
-	logOut := log.StandardLogger().Writer()
+func setGRPCLibLogger(logger *log.Logger) {
+	logOut := logger.Writer()
 	if os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL") != "info" {
 		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, logOut, logOut))
 		return

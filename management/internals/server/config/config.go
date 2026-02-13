@@ -100,6 +100,8 @@ type HttpServerConfig struct {
 	CertFile string
 	// CertKey is the location of the certificate private key
 	CertKey string
+	// AuthClientID is the client id used for proxy SSO auth
+	AuthClientID string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
 	// CLIAuthAudience identifies the client app recipients that the JWT is intended for (aud in JWT)
@@ -117,6 +119,8 @@ type HttpServerConfig struct {
 	IdpSignKeyRefreshEnabled bool
 	// Extra audience
 	ExtraAuthAudience string
+	// AuthCallbackDomain contains the callback domain
+	AuthCallbackURL string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)

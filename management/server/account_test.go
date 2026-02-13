@@ -27,6 +27,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -1800,6 +1802,14 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
+		Services: []*reverseproxy.Service{
+			{
+				ID:        "service1",
+				Name:      "test-service",
+				AccountID: "account1",
+				Targets:   []*reverseproxy.Target{},
+			},
+		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
 	account.InitOnce()
@@ -3111,6 +3121,8 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
+
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, nil, nil))
 
 	return manager, updateManager, nil
 }

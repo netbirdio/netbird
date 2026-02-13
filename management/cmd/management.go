@@ -19,6 +19,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/management/server/types"
+
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -213,11 +215,14 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	// Set HttpConfig values from EmbeddedIdP
 	cfg.HttpConfig.AuthIssuer = issuer
 	cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	cfg.HttpConfig.AuthClientID = cfg.HttpConfig.AuthAudience
 	cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
 	cfg.HttpConfig.AuthUserIDClaim = "sub"
 	cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
 	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
 	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
+	callbackURL := strings.TrimSuffix(cfg.HttpConfig.AuthIssuer, "/oauth2")
+	cfg.HttpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return nil
 }

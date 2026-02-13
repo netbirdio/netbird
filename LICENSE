@@ -1,4 +1,4 @@
-This BSD‑3‑Clause license applies to all parts of the repository except for the directories management/, signal/ and relay/.
+This BSD‑3‑Clause license applies to all parts of the repository except for the directories management/, signal/, relay/ and combined/.
 Those directories are licensed under the GNU Affero General Public License version 3.0 (AGPLv3). See the respective LICENSE files inside each directory.
 
 BSD 3-Clause License

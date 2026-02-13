@@ -36,6 +36,8 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
+  - name: Services
+    description: Interact with and view information about reverse proxy services.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
   - name: Jobs
@@ -2244,7 +2246,53 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "peer.user.add", "peer.setupkey.add", "user.join", "user.invite", "account.create", "account.delete", "user.peer.delete", "rule.add", "rule.update", "rule.delete", "policy.add", "policy.update", "policy.delete", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse", "setupkey.delete", "group.add", "group.update", "group.delete", "peer.group.add", "peer.group.delete", "user.group.add", "user.group.delete", "user.role.update", "setupkey.group.add", "setupkey.group.delete", "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete", "route.add", "route.delete", "route.update", "peer.ssh.enable", "peer.ssh.disable", "peer.rename", "peer.login.expiration.enable", "peer.login.expiration.disable", "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.enable", "account.setting.peer.login.expiration.disable", "personal.access.token.create", "personal.access.token.delete", "service.user.create", "service.user.delete", "user.block", "user.unblock", "user.delete", "user.peer.login", "peer.login.expire", "dashboard.login", "integration.create", "integration.update", "integration.delete", "account.setting.peer.approval.enable", "account.setting.peer.approval.disable", "peer.approve", "peer.approval.revoke", "transferred.owner.role", "posture.check.create", "posture.check.update", "posture.check.delete", "peer.inactivity.expiration.enable", "peer.inactivity.expiration.disable", "account.peer.inactivity.expiration.enable", "account.peer.inactivity.expiration.disable", "account.peer.inactivity.expiration.update", "account.setting.group.propagation.enable", "account.setting.group.propagation.disable", "account.setting.routing.peer.dns.resolution.enable", "account.setting.routing.peer.dns.resolution.disable", "network.create", "network.update", "network.delete", "network.resource.create", "network.resource.update", "network.resource.delete", "network.router.create", "network.router.update", "network.router.delete", "resource.group.add", "resource.group.delete", "account.dns.domain.update", "account.setting.lazy.connection.enable", "account.setting.lazy.connection.disable", "account.network.range.update", "peer.ip.update", "user.approve", "user.reject", "user.create", "account.settings.auto.version.update", "identityprovider.create", "identityprovider.update", "identityprovider.delete", "dns.zone.create", "dns.zone.update", "dns.zone.delete", "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete", "peer.job.create", "user.password.change", "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete" ]
+          enum: [
+            "peer.user.add", "peer.setupkey.add", "user.join", "user.invite", "account.create", "account.delete",
+            "user.peer.delete", "rule.add", "rule.update", "rule.delete",
+            "policy.add", "policy.update", "policy.delete",
+            "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse", "setupkey.delete",
+            "group.add", "group.update", "group.delete",
+            "peer.group.add", "peer.group.delete",
+            "user.group.add", "user.group.delete", "user.role.update",
+            "setupkey.group.add", "setupkey.group.delete",
+            "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
+            "route.add", "route.delete", "route.update",
+            "peer.ssh.enable", "peer.ssh.disable", "peer.rename",
+            "peer.login.expiration.enable", "peer.login.expiration.disable",
+            "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
+            "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.enable", "account.setting.peer.login.expiration.disable",
+            "personal.access.token.create", "personal.access.token.delete",
+            "service.user.create", "service.user.delete",
+            "user.block", "user.unblock", "user.delete",
+            "user.peer.login", "peer.login.expire",
+            "dashboard.login",
+            "integration.create", "integration.update", "integration.delete",
+            "account.setting.peer.approval.enable", "account.setting.peer.approval.disable",
+            "peer.approve", "peer.approval.revoke",
+            "transferred.owner.role",
+            "posture.check.create", "posture.check.update", "posture.check.delete",
+            "peer.inactivity.expiration.enable", "peer.inactivity.expiration.disable",
+            "account.peer.inactivity.expiration.enable", "account.peer.inactivity.expiration.disable", "account.peer.inactivity.expiration.update",
+            "account.setting.group.propagation.enable", "account.setting.group.propagation.disable",
+            "account.setting.routing.peer.dns.resolution.enable", "account.setting.routing.peer.dns.resolution.disable",
+            "network.create", "network.update", "network.delete",
+            "network.resource.create", "network.resource.update", "network.resource.delete",
+            "network.router.create", "network.router.update", "network.router.delete",
+            "resource.group.add", "resource.group.delete",
+            "account.dns.domain.update",
+            "account.setting.lazy.connection.enable", "account.setting.lazy.connection.disable",
+            "account.network.range.update",
+            "peer.ip.update",
+            "user.approve", "user.reject", "user.create",
+            "account.settings.auto.version.update",
+            "identityprovider.create", "identityprovider.update", "identityprovider.delete",
+            "dns.zone.create", "dns.zone.update", "dns.zone.delete",
+            "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete",
+            "peer.job.create",
+            "user.password.change",
+            "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete",
+            "service.create", "service.update", "service.delete"
+          ]
           example: route.add
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -2702,6 +2750,105 @@ components:
         - page_size
         - total_records
         - total_pages
+    ProxyAccessLog:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Unique identifier for the access log entry"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        service_id:
+          type: string
+          description: "ID of the service that handled the request"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Timestamp when the request was made"
+          example: "2024-01-31T15:30:00Z"
+        method:
+          type: string
+          description: "HTTP method of the request"
+          example: "GET"
+        host:
+          type: string
+          description: "Host header of the request"
+          example: "example.com"
+        path:
+          type: string
+          description: "Path of the request"
+          example: "/api/users"
+        duration_ms:
+          type: integer
+          description: "Duration of the request in milliseconds"
+          example: 150
+        status_code:
+          type: integer
+          description: "HTTP status code returned"
+          example: 200
+        source_ip:
+          type: string
+          description: "Source IP address of the request"
+          example: "192.168.1.100"
+        reason:
+          type: string
+          description: "Reason for the request result (e.g., authentication failure)"
+          example: "Authentication failed"
+        user_id:
+          type: string
+          description: "ID of the authenticated user, if applicable"
+          example: "user-123"
+        auth_method_used:
+          type: string
+          description: "Authentication method used (e.g., password, pin, oidc)"
+          example: "oidc"
+        country_code:
+          type: string
+          description: "Country code from geolocation"
+          example: "US"
+        city_name:
+          type: string
+          description: "City name from geolocation"
+          example: "San Francisco"
+      required:
+        - id
+        - service_id
+        - timestamp
+        - method
+        - host
+        - path
+        - duration_ms
+        - status_code
+    ProxyAccessLogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of proxy access log entries
+          items:
+            $ref: "#/components/schemas/ProxyAccessLog"
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        page_size:
+          type: integer
+          description: Number of items per page
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of log records available
+          example: 523
+        total_pages:
+          type: integer
+          description: Total number of pages available
+          example: 11
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
     IdentityProviderType:
       type: string
       description: Type of identity provider
@@ -2767,6 +2914,251 @@ components:
         - issuer
         - client_id
         - client_secret
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Service ID
+        name:
+          type: string
+          description: Service name
+        domain:
+          type: string
+          description: Domain for the service
+        proxy_cluster:
+          type: string
+          description: The proxy cluster handling this service (derived from domain)
+          example: "eu.proxy.netbird.io"
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+        meta:
+          $ref: '#/components/schemas/ServiceMeta'
+      required:
+        - id
+        - name
+        - domain
+        - targets
+        - enabled
+        - auth
+        - meta
+    ServiceMeta:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the service was created
+          example: "2024-02-03T10:30:00Z"
+        certificate_issued_at:
+          type: string
+          format: date-time
+          description: Timestamp when the certificate was issued (empty if not yet issued)
+          example: "2024-02-03T10:35:00Z"
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - tunnel_not_created
+            - certificate_pending
+            - certificate_failed
+            - error
+          description: Current status of the service
+          example: "active"
+      required:
+        - created_at
+        - status
+    ServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Service name
+        domain:
+          type: string
+          description: Domain for the service
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+          default: true
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+      required:
+        - name
+        - domain
+        - targets
+        - auth
+        - enabled
+    ServiceTarget:
+      type: object
+      properties:
+        target_id:
+          type: string
+          description: Target ID
+        target_type:
+          type: string
+          description: Target type (e.g., "peer", "resource")
+          enum: [peer, resource]
+        path:
+          type: string
+          description: URL path prefix for this target
+        protocol:
+          type: string
+          description: Protocol to use when connecting to the backend
+          enum: [http, https]
+        host:
+          type: string
+          description: Backend ip or domain for this target
+        port:
+          type: integer
+          description: Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+        enabled:
+          type: boolean
+          description: Whether this target is enabled
+      required:
+        - target_id
+        - target_type
+        - protocol
+        - port
+        - enabled
+    ServiceAuthConfig:
+      type: object
+      properties:
+        password_auth:
+          $ref: '#/components/schemas/PasswordAuthConfig'
+        pin_auth:
+          $ref: '#/components/schemas/PINAuthConfig'
+        bearer_auth:
+          $ref: '#/components/schemas/BearerAuthConfig'
+        link_auth:
+          $ref: '#/components/schemas/LinkAuthConfig'
+    PasswordAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether password auth is enabled
+        password:
+          type: string
+          description: Auth password
+      required:
+        - enabled
+        - password
+    PINAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether PIN auth is enabled
+        pin:
+          type: string
+          description: PIN value
+      required:
+        - enabled
+        - pin
+    BearerAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether bearer auth is enabled
+        distribution_groups:
+          type: array
+          items:
+            type: string
+          description: List of group IDs that can use bearer auth
+      required:
+        - enabled
+    LinkAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether link auth is enabled
+      required:
+        - enabled
+    ProxyCluster:
+      type: object
+      description: A proxy cluster represents a group of proxy nodes serving the same address
+      properties:
+        address:
+          type: string
+          description: Cluster address used for CNAME targets
+          example: "eu.proxy.netbird.io"
+        connected_proxies:
+          type: integer
+          description: Number of proxy nodes connected in this cluster
+          example: 3
+      required:
+        - address
+        - connected_proxies
+    ReverseProxyDomainType:
+      type: string
+      description: Type of Reverse Proxy Domain
+      enum:
+        - free
+        - custom
+      example: free
+    ReverseProxyDomain:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Domain ID
+        domain:
+          type: string
+          description: Domain name
+        validated:
+          type: boolean
+          description: Whether the domain has been validated
+        type:
+          $ref: '#/components/schemas/ReverseProxyDomainType'
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain is validated against (only for custom domains)
+      required:
+        - id
+        - domain
+        - validated
+        - type
+    ReverseProxyDomainRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Domain name
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain should be validated against
+      required:
+        - domain
+        - target_cluster
     InstanceStatus:
       type: object
       description: Instance status information
@@ -6996,6 +7388,106 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/events/proxy:
+    get:
+      summary: List all Reverse Proxy Access Logs
+      description: Returns a paginated list of all reverse proxy access log entries
+      tags: [ Events ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of items per page (max 100)
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across request ID, host, path, source IP, user email, and user name
+        - in: query
+          name: source_ip
+          schema:
+            type: string
+          description: Filter by source IP address
+        - in: query
+          name: host
+          schema:
+            type: string
+          description: Filter by host header
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path (supports partial matching)
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID
+        - in: query
+          name: user_email
+          schema:
+            type: string
+          description: Filter by user email (partial matching)
+        - in: query
+          name: user_name
+          schema:
+            type: string
+          description: Filter by user name (partial matching)
+        - in: query
+          name: method
+          schema:
+            type: string
+            enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+          description: Filter by HTTP method
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [success, failed]
+          description: Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+        - in: query
+          name: status_code
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
+          description: Filter by HTTP status code
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format)
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format)
+      responses:
+        "200":
+          description: Paginated list of reverse proxy access logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyAccessLogsResponse"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/posture-checks:
     get:
       summary: List all Posture Checks
@@ -9063,3 +9555,286 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/reverse-proxies/services:
+    get:
+      summary: List all Services
+      description: Returns a list of all reverse proxy services
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Service
+      description: Creates a new reverse proxy service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New service request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/clusters:
+    get:
+      summary: List available proxy clusters
+      description: Returns a list of available proxy clusters with their connection status
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of proxy clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProxyCluster'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/services/{serviceId}:
+    get:
+      summary: Retrieve a Service
+      description: Get information about a specific reverse proxy service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: A service object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Service
+      description: Update an existing service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      requestBody:
+        description: Service update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Service
+      description: Delete an existing service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: Service deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains:
+    get:
+      summary: Retrieve Service Domains
+      description: Get information about domains that can be used for service endpoints.
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of ReverseProxyDomains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReverseProxyDomain'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Custom domain
+      description: Create a new Custom domain for use with service endpoints, this will trigger an initial validation check
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Custom domain creation request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseProxyDomainRequest'
+      responses:
+        '200':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains/{domainId}:
+    delete:
+      summary: Delete a Custom domain
+      description: Delete an existing service custom domain
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '204':
+          description: Service custom domain deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains/{domainId}/validate:
+    get:
+      summary: Validate a custom domain
+      description: Trigger domain ownership validation for a custom domain
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '202':
+          description: Reverse proxy custom domain validation triggered
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"

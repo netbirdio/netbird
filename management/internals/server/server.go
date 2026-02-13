@@ -18,10 +18,9 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 
-	"github.com/netbirdio/netbird/management/server/idp"
-
 	"github.com/netbirdio/netbird/encryption"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util/wsproxy"
@@ -58,6 +57,8 @@ type BaseServer struct {
 	mgmtSingleAccModeDomain  string
 	mgmtMetricsPort          int
 	mgmtPort                 int
+
+	proxyAuthClose func()
 
 	listener    net.Listener
 	certManager *autocert.Manager
@@ -139,8 +140,11 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		go metricsWorker.Run(srvCtx)
 	}
 
-	// Run afterInit hooks before starting any servers
-	// This allows registering additional gRPC services (e.g., Signal) before Serve() is called
+	// Eagerly create the gRPC server so that all AfterInit hooks are registered
+	// before we iterate them. Lazy creation after the loop would miss hooks
+	// registered during GRPCServer() construction (e.g., SetProxyManager).
+	s.GRPCServer()
+
 	for _, fn := range s.afterInit {
 		if fn != nil {
 			fn(s)
@@ -218,6 +222,11 @@ func (s *BaseServer) Stop() error {
 		_ = s.certManager.Listener().Close()
 	}
 	s.GRPCServer().Stop()
+	s.ReverseProxyGRPCServer().Close()
+	if s.proxyAuthClose != nil {
+		s.proxyAuthClose()
+		s.proxyAuthClose = nil
+	}
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
