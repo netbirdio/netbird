@@ -60,13 +60,13 @@ download_release_binary() {
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
     # for Darwin, download the signed NetBird-UI
-    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then  # Prefer POSIX compliance over shelldre:S7688 //NOSONAR
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
-    if [ "$APP_TYPE" = "$UI_APP" ]; then  # Prefer POSIX compliance over shelldre:S7688 //NOSONAR
+    if [ "$APP_TYPE" = "$UI_APP" ]; then
        BINARY_NAME="${APP_TYPE}-${OS_TYPE}_${BINARY_BASE_NAME}"
-       if [ "$OS_TYPE" = "$DARWIN" ]; then  # Prefer POSIX compliance over shelldre:S7688 //NOSONAR
+       if [ "$OS_TYPE" = "$DARWIN" ]; then
          BINARY_NAME="${APP_TYPE}_${BINARY_BASE_NAME}"
        fi
     else
@@ -83,7 +83,7 @@ download_release_binary() {
     fi
 
 
-    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then  # Prefer POSIX compliance over shelldre:S7688 //NOSONAR
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
         if test -d "$INSTALL_DIR" ; then
