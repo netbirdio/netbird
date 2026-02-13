@@ -16,6 +16,7 @@ import (
 	"goauthentik.io/api/v3"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -49,14 +50,14 @@ type AuthentikCredentials struct {
 
 // NewAuthentikManager creates a new instance of the AuthentikManager.
 func NewAuthentikManager(config AuthentikClientConfig, appMetrics telemetry.AppMetrics) (*AuthentikManager, error) {
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

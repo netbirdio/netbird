@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strconv"
@@ -24,7 +25,7 @@ const (
 )
 
 // loadGeolocationDatabases loads the MaxMind databases.
-func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile string, geonamesdbFile string) error {
+func loadGeolocationDatabases(ctx context.Context, client *http.Client, dataDir string, mmdbFile string, geonamesdbFile string) error {
 	for _, file := range []string{mmdbFile, geonamesdbFile} {
 		exists, _ := fileExists(path.Join(dataDir, file))
 		if exists {
@@ -42,6 +43,7 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 				return copyFile(path.Join(dst, geoLiteCityMMDB), path.Join(dataDir, mmdbFile))
 			}
 			if err := loadDatabase(
+				client,
 				geoLiteCitySha256TarURL,
 				geoLiteCityTarGZURL,
 				extractFunc,
@@ -59,6 +61,7 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 			}
 
 			if err := loadDatabase(
+				client,
 				geoLiteCitySha256ZipURL,
 				geoLiteCityZipURL,
 				extractFunc,
@@ -72,20 +75,20 @@ func loadGeolocationDatabases(ctx context.Context, dataDir string, mmdbFile stri
 
 // loadDatabase downloads a file from the specified URL and verifies its checksum.
 // It then calls the extract function to perform additional processing on the extracted files.
-func loadDatabase(checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
+func loadDatabase(client *http.Client, checksumURL string, fileURL string, extractFunc func(src string, dst string) error) error {
 	temp, err := os.MkdirTemp(os.TempDir(), "geolite")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(temp)
 
-	checksumFilename, err := getFilenameFromURL(checksumURL)
+	checksumFilename, err := getFilenameFromURL(client, checksumURL)
 	if err != nil {
 		return err
 	}
 	checksumFile := path.Join(temp, checksumFilename)
 
-	err = downloadFile(checksumURL, checksumFile)
+	err = downloadFile(client, checksumURL, checksumFile)
 	if err != nil {
 		return err
 	}
@@ -95,13 +98,13 @@ func loadDatabase(checksumURL string, fileURL string, extractFunc func(src strin
 		return err
 	}
 
-	dbFilename, err := getFilenameFromURL(fileURL)
+	dbFilename, err := getFilenameFromURL(client, fileURL)
 	if err != nil {
 		return err
 	}
 	dbFile := path.Join(temp, dbFilename)
 
-	err = downloadFile(fileURL, dbFile)
+	err = downloadFile(client, fileURL, dbFile)
 	if err != nil {
 		return err
 	}

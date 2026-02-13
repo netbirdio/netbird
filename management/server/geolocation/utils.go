@@ -150,8 +150,8 @@ func verifyChecksum(filepath, expectedChecksum string) error {
 }
 
 // downloadFile downloads a file from a URL and saves it to a local file path.
-func downloadFile(url, filepath string) error {
-	resp, err := http.Get(url)
+func downloadFile(client *http.Client, url, filepath string) error {
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
@@ -176,8 +176,8 @@ func downloadFile(url, filepath string) error {
 	return err
 }
 
-func getFilenameFromURL(url string) (string, error) {
-	resp, err := http.Head(url)
+func getFilenameFromURL(client *http.Client, url string) (string, error) {
+	resp, err := client.Head(url)
 	if err != nil {
 		return "", err
 	}

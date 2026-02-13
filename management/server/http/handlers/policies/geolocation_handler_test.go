@@ -42,7 +42,7 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	err = util.CopyFileContents(geonamesdbPath, path.Join(tempDir, filepath.Base(geonamesdbPath)))
 	assert.NoError(t, err)
 
-	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, false)
+	geo, err := geolocation.NewGeolocation(context.Background(), tempDir, false, http.DefaultClient)
 	assert.NoError(t, err)
 	t.Cleanup(func() { _ = geo.Stop() })
 

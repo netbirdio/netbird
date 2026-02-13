@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -340,7 +339,7 @@ type OIDCConfigResponse struct {
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP
 func fetchOIDCConfig(ctx context.Context, oidcEndpoint string) (OIDCConfigResponse, error) {
-	res, err := http.Get(oidcEndpoint)
+	res, err := util.NewHTTPClient().Get(oidcEndpoint)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration from endpoint %s %v", oidcEndpoint, err)
 	}

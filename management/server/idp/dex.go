@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/util"
 )
 
 // DexManager implements the Manager interface for Dex IDP.
@@ -44,7 +45,7 @@ func NewDexManager(config DexClientConfig, appMetrics telemetry.AppMetrics) (*De
 		return nil, fmt.Errorf("dex IdP configuration is incomplete, GRPCAddr is missing")
 	}
 
-	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport := util.NewTransport()
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
