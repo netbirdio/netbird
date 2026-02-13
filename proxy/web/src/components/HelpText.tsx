@@ -5,7 +5,7 @@ interface HelpTextProps {
   className?: string;
 }
 
-export default function HelpText({ children, className }: HelpTextProps) {
+export default function HelpText({ children, className }: Readonly<HelpTextProps>) {
   return (
     <span
       className={cn(

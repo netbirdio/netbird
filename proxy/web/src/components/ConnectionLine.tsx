@@ -4,7 +4,7 @@ interface ConnectionLineProps {
   success?: boolean;
 }
 
-export function ConnectionLine({ success = true }: ConnectionLineProps) {
+export function ConnectionLine({ success = true }: Readonly<ConnectionLineProps>) {
   if (success) {
     return (
       <div className="flex-1 flex items-center justify-center h-12 w-full px-5">

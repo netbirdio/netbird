@@ -7,7 +7,7 @@ import { PoweredByNetBird } from "@/components/PoweredByNetBird";
 import { StatusCard } from "@/components/StatusCard";
 import type { ErrorData } from "@/data";
 
-export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId, simple = false, retryUrl }: ErrorData) {
+export function ErrorPage({ code, title, message, proxy = true, destination = true, requestId, simple = false, retryUrl }: Readonly<ErrorData>) {
   useEffect(() => {
     document.title = `${title} - NetBird Service`;
   }, [title]);
@@ -38,13 +38,19 @@ export function ErrorPage({ code, title, message, proxy = true, destination = tr
 
       {/* Buttons */}
       <div className="flex gap-3 justify-center items-center mb-6 z-10 relative">
-        <Button variant="primary" onClick={() => retryUrl ? window.location.href = retryUrl : window.location.reload()}>
+        <Button variant="primary" onClick={() => {
+          if (retryUrl) {
+            globalThis.location.href = retryUrl;
+          } else {
+            globalThis.location.reload();
+          }
+        }}>
           <RotateCw size={16} />
           Refresh Page
         </Button>
         <Button
           variant="secondary"
-          onClick={() => window.open("https://docs.netbird.io", "_blank", "noopener,noreferrer")}
+          onClick={() => globalThis.open("https://docs.netbird.io", "_blank", "noopener,noreferrer")}
         >
           <BookText size={16} />
           Documentation

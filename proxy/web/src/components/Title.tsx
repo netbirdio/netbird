@@ -5,7 +5,7 @@ type Props = {
   className?: string;
 };
 
-export function Title({ children, className }: Props) {
+export function Title({ children, className }: Readonly<Props>) {
   return (
     <h1 className={cn("text-xl! text-center z-10 relative", className)}>
       {children}

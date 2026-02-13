@@ -20,7 +20,7 @@ interface Props {
   autoFocus?: boolean;
 }
 
-const PinCodeInput = forwardRef<PinCodeInputRef, Props>(function PinCodeInput(
+const PinCodeInput = forwardRef<PinCodeInputRef, Readonly<Props>>(function PinCodeInput(
   { value, onChange, length = 6, disabled = false, className, autoFocus = false },
   ref,
 ) {
@@ -32,14 +32,15 @@ const PinCodeInput = forwardRef<PinCodeInputRef, Props>(function PinCodeInput(
     },
   }));
 
-  const digits = value.split("").concat(Array(length).fill("")).slice(0, length);
+  const digits = value.split("").concat(new Array(length).fill("")).slice(0, length);
+  const slotIds = Array.from({ length }, (_, i) => `pin-${i}`);
 
   const handleChange = (index: number, digit: string) => {
     if (!/^\d*$/.test(digit)) return;
 
     const newDigits = [...digits];
     newDigits[index] = digit.slice(-1);
-    const newValue = newDigits.join("").replace(/\s/g, "");
+    const newValue = newDigits.join("").replaceAll(/\s/g, "");
     onChange(newValue);
 
     if (digit && index < length - 1) {
@@ -61,7 +62,7 @@ const PinCodeInput = forwardRef<PinCodeInputRef, Props>(function PinCodeInput(
 
   const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, length);
+    const pastedData = e.clipboardData.getData("text").replaceAll(/\D/g, "").slice(0, length);
     onChange(pastedData);
 
     const nextIndex = Math.min(pastedData.length, length - 1);
@@ -76,7 +77,8 @@ const PinCodeInput = forwardRef<PinCodeInputRef, Props>(function PinCodeInput(
     <div className={cn("flex gap-2 w-full min-w-0", className)}>
       {digits.map((digit, index) => (
         <input
-          key={index}
+          key={slotIds[index]}
+          id={slotIds[index]}
           ref={(el) => {
             inputRefs.current[index] = el;
           }}

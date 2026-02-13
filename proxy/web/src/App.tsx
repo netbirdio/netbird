@@ -59,7 +59,7 @@ function App() {
       formData.append(methods.pin!, value);
     }
 
-    fetch(window.location.href, {
+    fetch(globalThis.location.href, {
       method: "POST",
       body: formData,
       redirect: "manual",
@@ -67,7 +67,7 @@ function App() {
       .then((res) => {
         if (res.type === "opaqueredirect" || res.status === 0) {
           setSubmitting("redirect");
-          window.location.reload();
+          globalThis.location.reload();
         } else {
           handleAuthError(method, "Authentication failed. Please try again.");
         }
@@ -92,6 +92,7 @@ function App() {
 
   const hasCredentialAuth = methods.password || methods.pin;
   const hasBothCredentials = methods.password && methods.pin;
+  const buttonLabel = activeTab === "password" ? "Sign in" : "Submit";
 
   if (submitting === "redirect") {
     return (
@@ -124,7 +125,7 @@ function App() {
               <Button
                 variant="primary"
                 className="w-full"
-                onClick={() => (window.location.href = methods.oidc!)}
+                onClick={() => { globalThis.location.href = methods.oidc!; }}
               >
                 <LogIn size={16} />
                 Sign in with SSO
@@ -170,7 +171,7 @@ function App() {
                 <div className="mb-4">
                   {methods.password && (activeTab === "password" || !methods.pin) && (
                     <>
-                      {!hasBothCredentials && <Label>Password</Label>}
+                      {!hasBothCredentials && <Label htmlFor="password">Password</Label>}
                       <Input
                         ref={passwordRef}
                         type="password"
@@ -186,7 +187,7 @@ function App() {
                   )}
                   {methods.pin && (activeTab === "pin" || !methods.password) && (
                     <>
-                      {!hasBothCredentials && <Label>Enter PIN Code</Label>}
+                      {!hasBothCredentials && <Label htmlFor="pin-0">Enter PIN Code</Label>}
                       <PinCodeInput
                         ref={pinRef}
                         value={pin}
@@ -204,13 +205,13 @@ function App() {
                   variant="secondary"
                   className="w-full"
                 >
-                  {submitting !== null ? (
+                  {submitting === null ? (
+                    buttonLabel
+                  ) : (
                     <>
                       <Loader2 className="animate-spin" size={16} />
                       Verifying...
                     </>
-                  ) : (
-                    activeTab === "password" ? "Sign in" : "Submit"
                   )}
                 </Button>
               </form>

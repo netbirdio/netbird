@@ -1,5 +1,5 @@
 import { cn } from "@/utils/helpers";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { TabContext, useTabContext } from "./TabContext";
 
 type TabsProps = {
@@ -11,19 +11,24 @@ type TabsProps = {
     | ((context: { value: string; onChange: (value: string) => void }) => React.ReactNode);
 };
 
-function SegmentedTabs({ value, defaultValue, onChange, children }: TabsProps) {
-  const [internalValue, setInternalValue] = useState(defaultValue || "");
-  const currentValue = value !== undefined ? value : internalValue;
+function SegmentedTabs({ value, defaultValue, onChange, children }: Readonly<TabsProps>) {
+  const [internalValue, setInternalValue] = useState(defaultValue ?? "");
+  const currentValue = value ?? internalValue;
 
-  const handleChange = (newValue: string) => {
+  const handleChange = useCallback((newValue: string) => {
     if (value === undefined) {
       setInternalValue(newValue);
     }
     onChange?.(newValue);
-  };
+  }, [value, onChange]);
+
+  const contextValue = useMemo(
+    () => ({ value: currentValue, onChange: handleChange }),
+    [currentValue, handleChange],
+  );
 
   return (
-    <TabContext.Provider value={{ value: currentValue, onChange: handleChange }}>
+    <TabContext.Provider value={contextValue}>
       <div>
         {typeof children === "function"
           ? children({ value: currentValue, onChange: handleChange })
@@ -36,10 +41,10 @@ function SegmentedTabs({ value, defaultValue, onChange, children }: TabsProps) {
 function List({
   children,
   className,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div
       role="tablist"
@@ -60,16 +65,23 @@ function Trigger({
   className,
   selected,
   onClick,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   value: string;
   disabled?: boolean;
   className?: string;
   selected?: boolean;
   onClick?: () => void;
-}) {
+}>) {
   const context = useTabContext();
-  const isSelected = selected !== undefined ? selected : value === context.value;
+  const isSelected = selected ?? value === context.value;
+
+  let stateClassName = "";
+  if (isSelected) {
+    stateClassName = "bg-nb-gray-900 text-white";
+  } else if (!disabled) {
+    stateClassName = "text-nb-gray-400 hover:bg-nb-gray-900/50";
+  }
 
   const handleClick = () => {
     context.onChange(value);
@@ -86,11 +98,7 @@ function Trigger({
       className={cn(
         "px-4 py-2 text-sm rounded-md w-full transition-all cursor-pointer",
         disabled && "opacity-30 cursor-not-allowed",
-        isSelected
-          ? "bg-nb-gray-900 text-white"
-          : disabled
-            ? ""
-            : "text-nb-gray-400 hover:bg-nb-gray-900/50",
+        stateClassName,
         className
       )}
     >
@@ -106,14 +114,14 @@ function Content({
   value,
   className,
   visible,
-}: {
+}: Readonly<{
   children: React.ReactNode;
   value: string;
   className?: string;
   visible?: boolean;
-}) {
+}>) {
   const context = useTabContext();
-  const isVisible = visible !== undefined ? visible : value === context.value;
+  const isVisible = visible ?? value === context.value;
 
   if (!isVisible) return null;
 

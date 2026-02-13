@@ -24,17 +24,16 @@ export interface Data {
 }
 
 declare global {
-  interface Window {
-    __DATA__?: Data
-  }
+  // eslint-disable-next-line no-var
+  var __DATA__: Data | undefined
 }
 
 export function getData(): Data {
-  const data = window.__DATA__ ?? {}
+  const data = globalThis.__DATA__ ?? {}
 
   // Dev mode: allow ?page=error query param to preview error page
   if (import.meta.env.DEV) {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     const page = params.get('page')
     if (page === 'error') {
       return {

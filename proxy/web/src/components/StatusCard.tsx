@@ -15,7 +15,7 @@ export function StatusCard({
   detail,
   success = true,
   line = true,
-}: StatusCardProps) {
+}: Readonly<StatusCardProps>) {
   return (
     <>
       {line && <ConnectionLine success={success} />}
