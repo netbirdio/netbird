@@ -65,6 +65,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	networkMonitor := true
 	disableClientRoutes := true
 	disableServerRoutes := true
+	disableDefaultRoute := true
 	disableDNS := true
 	disableFirewall := true
 	blockLANAccess := true
@@ -90,6 +91,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		NetworkMonitor:        &networkMonitor,
 		DisableClientRoutes:   &disableClientRoutes,
 		DisableServerRoutes:   &disableServerRoutes,
+		DisableDefaultRoute:   &disableDefaultRoute,
 		DisableDns:            &disableDNS,
 		DisableFirewall:       &disableFirewall,
 		BlockLanAccess:        &blockLANAccess,
@@ -135,6 +137,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, networkMonitor, *cfg.NetworkMonitor)
 	require.Equal(t, disableClientRoutes, cfg.DisableClientRoutes)
 	require.Equal(t, disableServerRoutes, cfg.DisableServerRoutes)
+	require.Equal(t, disableDefaultRoute, cfg.DisableDefaultRoute)
 	require.Equal(t, disableDNS, cfg.DisableDNS)
 	require.Equal(t, disableFirewall, cfg.DisableFirewall)
 	require.Equal(t, blockLANAccess, cfg.BlockLANAccess)
@@ -186,6 +189,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"NetworkMonitor":                true,
 		"DisableClientRoutes":           true,
 		"DisableServerRoutes":           true,
+		"DisableDefaultRoute":           true,
 		"DisableDns":                    true,
 		"DisableFirewall":               true,
 		"BlockLanAccess":                true,
@@ -247,6 +251,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"network-monitor":                   "NetworkMonitor",
 		"disable-client-routes":             "DisableClientRoutes",
 		"disable-server-routes":             "DisableServerRoutes",
+		"disable-default-route":             "DisableDefaultRoute",
 		"disable-dns":                       "DisableDns",
 		"disable-firewall":                  "DisableFirewall",
 		"block-lan-access":                  "BlockLanAccess",
