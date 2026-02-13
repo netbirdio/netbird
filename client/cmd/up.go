@@ -653,6 +653,9 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		loginRequest.DisableServerRoutes = &disableServerRoutes
 	}
+	if cmd.Flag(disableDefaultRouteFlag).Changed {
+		loginRequest.DisableDefaultRoute = &disableDefaultRoute
+	}
 	if cmd.Flag(disableDNSFlag).Changed {
 		loginRequest.DisableDns = &disableDNS
 	}
