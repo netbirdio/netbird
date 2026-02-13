@@ -5,9 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/netbirdio/netbird/proxy/internal/proxy"
+	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 )
 
 type Metrics struct {
@@ -60,18 +62,18 @@ func New(reg prometheus.Registerer) *Metrics {
 }
 
 type responseInterceptor struct {
-	http.ResponseWriter
+	*responsewriter.PassthroughWriter
 	status int
 	size   int
 }
 
 func (w *responseInterceptor) WriteHeader(status int) {
 	w.status = status
-	w.ResponseWriter.WriteHeader(status)
+	w.PassthroughWriter.WriteHeader(status)
 }
 
 func (w *responseInterceptor) Write(b []byte) (int, error) {
-	size, err := w.ResponseWriter.Write(b)
+	size, err := w.PassthroughWriter.Write(b)
 	w.size += size
 	return size, err
 }
@@ -81,7 +83,7 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		m.requestsTotal.Inc()
 		m.activeRequests.Inc()
 
-		interceptor := &responseInterceptor{ResponseWriter: w}
+		interceptor := &responseInterceptor{PassthroughWriter: responsewriter.New(w)}
 
 		start := time.Now()
 		next.ServeHTTP(interceptor, r)
