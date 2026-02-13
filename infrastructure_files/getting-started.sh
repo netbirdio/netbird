@@ -182,11 +182,19 @@ read_enable_proxy() {
 }
 
 read_proxy_domain() {
+  local suggested_proxy="proxy.${NETBIRD_DOMAIN}"
+
   echo "" > /dev/stderr
-  echo "WARNING: The proxy domain MUST NOT be a subdomain of the NetBird management" > /dev/stderr
-  echo "domain ($NETBIRD_DOMAIN). Using a subdomain will cause TLS certificate conflicts." > /dev/stderr
+  echo "The proxy allows you to selectively expose internal NetBird network resources" > /dev/stderr
+  echo "to the internet. You control which resources are exposed through the dashboard." > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "Enter the domain for the NetBird Proxy (e.g. proxy.my-domain.com): " > /dev/stderr
+  echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
+  echo "to avoid TLS certificate conflicts." > /dev/stderr
+  echo "" > /dev/stderr
+  echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
+  echo "e.g. *.${suggested_proxy} pointing to the same server IP as $NETBIRD_DOMAIN." > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
   read -r READ_PROXY_DOMAIN < /dev/tty
 
   if [[ -z "$READ_PROXY_DOMAIN" ]]; then
