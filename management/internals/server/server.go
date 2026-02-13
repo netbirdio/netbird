@@ -140,8 +140,11 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		go metricsWorker.Run(srvCtx)
 	}
 
-	// Run afterInit hooks before starting any servers
-	// This allows registering additional gRPC services (e.g., Signal) before Serve() is called
+	// Eagerly create the gRPC server so that all AfterInit hooks are registered
+	// before we iterate them. Lazy creation after the loop would miss hooks
+	// registered during GRPCServer() construction (e.g., SetProxyManager).
+	s.GRPCServer()
+
 	for _, fn := range s.afterInit {
 		if fn != nil {
 			fn(s)
