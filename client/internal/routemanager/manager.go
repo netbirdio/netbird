@@ -348,9 +348,19 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	var merr *multierror.Error
 
 	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
+	batchStarted := false
 	if m.dnsServer != nil {
 		m.dnsServer.BeginBatch()
-		defer m.dnsServer.EndBatch()
+		batchStarted = true
+		defer func() {
+			if merr != nil {
+				// On error, cancel batch to discard partial DNS state
+				m.dnsServer.CancelBatch()
+			} else {
+				// On success, apply accumulated DNS changes
+				m.dnsServer.EndBatch()
+			}
+		}()
 	}
 
 	for id, handler := range toRemove {
@@ -383,6 +393,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		m.activeRoutes[id] = handler
 	}
 
+	_ = batchStarted // Mark as used
 	return nberrors.FormatErrorOrNil(merr)
 }
 

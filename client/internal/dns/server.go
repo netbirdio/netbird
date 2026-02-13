@@ -43,6 +43,7 @@ type Server interface {
 	DeregisterHandler(domains domain.List, priority int)
 	BeginBatch()
 	EndBatch()
+	CancelBatch()
 	Initialize() error
 	Stop()
 	DnsIP() netip.Addr
@@ -287,6 +288,16 @@ func (s *DefaultServer) EndBatch() {
 	log.Debugf("DNS batch mode disabled, applying accumulated changes")
 	s.batchMode = false
 	s.applyHostConfig()
+}
+
+// CancelBatch cancels batch mode without applying accumulated changes.
+// This is useful when operations fail partway through and you want to
+// discard partial state rather than applying it.
+func (s *DefaultServer) CancelBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode cancelled, discarding accumulated changes")
+	s.batchMode = false
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {

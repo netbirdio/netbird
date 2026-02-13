@@ -94,3 +94,8 @@ func (m *MockServer) BeginBatch() {
 func (m *MockServer) EndBatch() {
 	// Mock implementation - no-op
 }
+
+// CancelBatch mock implementation of CancelBatch from Server interface
+func (m *MockServer) CancelBatch() {
+	// Mock implementation - no-op
+}
