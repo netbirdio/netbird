@@ -93,11 +93,11 @@ func runCreate(ctx context.Context, s store.Store, w io.Writer, name string, exp
 		return fmt.Errorf("save token: %w", err)
 	}
 
-	fmt.Fprintln(w, "Token created successfully!")
-	fmt.Fprintf(w, "Token: %s\n", generated.PlainToken)
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "IMPORTANT: Save this token now. It will not be shown again.")
-	fmt.Fprintf(w, "Token ID: %s\n", generated.ID)
+	_, _ = fmt.Fprintln(w, "Token created successfully!")
+	_, _ = fmt.Fprintf(w, "Token: %s\n", generated.PlainToken)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "IMPORTANT: Save this token now. It will not be shown again.")
+	_, _ = fmt.Fprintf(w, "Token ID: %s\n", generated.ID)
 	return nil
 }
 
@@ -108,13 +108,13 @@ func runList(ctx context.Context, s store.Store, out io.Writer) error {
 	}
 
 	if len(tokens) == 0 {
-		fmt.Fprintln(out, "No proxy access tokens found.")
+		_, _ = fmt.Fprintln(out, "No proxy access tokens found.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tCREATED\tEXPIRES\tLAST USED\tREVOKED")
-	fmt.Fprintln(w, "--\t----\t-------\t-------\t---------\t-------")
+	_, _ = fmt.Fprintln(w, "ID\tNAME\tCREATED\tEXPIRES\tLAST USED\tREVOKED")
+	_, _ = fmt.Fprintln(w, "--\t----\t-------\t-------\t---------\t-------")
 
 	for _, t := range tokens {
 		expires := "never"
@@ -132,7 +132,7 @@ func runList(ctx context.Context, s store.Store, out io.Writer) error {
 			revoked = "yes"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			t.ID,
 			t.Name,
 			t.CreatedAt.Format("2006-01-02"),
@@ -152,7 +152,7 @@ func runRevoke(ctx context.Context, s store.Store, w io.Writer, tokenID string) 
 		return fmt.Errorf("revoke token: %w", err)
 	}
 
-	fmt.Fprintf(w, "Token %s revoked successfully.\n", tokenID)
+	_, _ = fmt.Fprintf(w, "Token %s revoked successfully.\n", tokenID)
 	return nil
 }
 
