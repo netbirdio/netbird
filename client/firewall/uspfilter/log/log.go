@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,8 +18,17 @@ const (
 	maxBatchSize         = 1024 * 16
 	maxMessageSize       = 1024 * 2
 	defaultFlushInterval = 2 * time.Second
-	logChannelSize       = 1000
+	defaultLogChanSize   = 1000
 )
+
+func getLogChannelSize() int {
+	if v := os.Getenv("NB_USPFILTER_LOG_BUFFER"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultLogChanSize
+}
 
 type Level uint32
 
@@ -69,7 +80,7 @@ type Logger struct {
 func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 	l := &Logger{
 		output:     logrusLogger.Out,
-		msgChannel: make(chan logMessage, logChannelSize),
+		msgChannel: make(chan logMessage, getLogChannelSize()),
 		shutdown:   make(chan struct{}),
 		bufPool: sync.Pool{
 			New: func() any {
