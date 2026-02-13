@@ -535,9 +535,8 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.currentConfig.RouteAll = false
 	}
 
-	if !s.batchMode {
-		s.applyHostConfig()
-	}
+	// Always apply host config for management updates, regardless of batch mode
+	s.applyHostConfig()
 
 	s.shutdownWg.Add(1)
 	go func() {
@@ -901,9 +900,8 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 
-		if !s.batchMode {
-			s.applyHostConfig()
-		}
+		// Always apply host config when nameserver goes down, regardless of batch mode
+		s.applyHostConfig()
 
 		go func() {
 			if err := s.stateManager.PersistState(s.ctx); err != nil {
@@ -938,9 +936,8 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
 		}
 
-		if !s.batchMode {
-			s.applyHostConfig()
-		}
+		// Always apply host config when nameserver reactivates, regardless of batch mode
+		s.applyHostConfig()
 
 		s.updateNSState(nsGroup, nil, true)
 	}
