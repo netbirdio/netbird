@@ -1810,62 +1810,83 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		if !service.Enabled {
 			continue
 		}
-		for _, target := range service.Targets {
-			if !target.Enabled {
-				continue
-			}
+		a.injectServiceProxyPolicies(ctx, service, proxyPeersByCluster)
+	}
+}
 
-			for _, proxyPeer := range proxyPeersByCluster[service.ProxyCluster] {
-				port := target.Port
-				if port == 0 {
-					switch target.Protocol {
-					case "https":
-						port = 443
-					case "http":
-						port = 80
-					default:
-						log.WithContext(ctx).Warnf("unsupported protocol %s for proxy target %s, skipping policy injection", target.Protocol, target.TargetId)
-						continue
-					}
-				}
-
-				path := ""
-				if target.Path != nil {
-					path = *target.Path
-				}
-				policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
-				a.Policies = append(a.Policies, &Policy{
-					ID:      policyID,
-					Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
-					Enabled: true,
-					Rules: []*PolicyRule{
-						{
-							ID:       policyID,
-							PolicyID: policyID,
-							Name:     fmt.Sprintf("Allow access to %s", service.Name),
-							Enabled:  true,
-							SourceResource: Resource{
-								ID:   proxyPeer.ID,
-								Type: ResourceTypePeer,
-							},
-							DestinationResource: Resource{
-								ID:   target.TargetId,
-								Type: ResourceType(target.TargetType),
-							},
-							Bidirectional: false,
-							Protocol:      PolicyRuleProtocolTCP,
-							Action:        PolicyTrafficActionAccept,
-							PortRanges: []RulePortRange{
-								{
-									Start: uint16(port),
-									End:   uint16(port),
-								},
-							},
-						},
-					},
-				})
-			}
+func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *reverseproxy.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
+	for _, target := range service.Targets {
+		if !target.Enabled {
+			continue
 		}
+		a.injectTargetProxyPolicies(ctx, service, target, proxyPeersByCluster[service.ProxyCluster])
+	}
+}
+
+func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *reverseproxy.Service, target *reverseproxy.Target, proxyPeers []*nbpeer.Peer) {
+	port, ok := a.resolveTargetPort(ctx, target)
+	if !ok {
+		return
+	}
+
+	path := ""
+	if target.Path != nil {
+		path = *target.Path
+	}
+
+	for _, proxyPeer := range proxyPeers {
+		policy := a.createProxyPolicy(service, target, proxyPeer, port, path)
+		a.Policies = append(a.Policies, policy)
+	}
+}
+
+func (a *Account) resolveTargetPort(ctx context.Context, target *reverseproxy.Target) (int, bool) {
+	if target.Port != 0 {
+		return target.Port, true
+	}
+
+	switch target.Protocol {
+	case "https":
+		return 443, true
+	case "http":
+		return 80, true
+	default:
+		log.WithContext(ctx).Warnf("unsupported protocol %s for proxy target %s, skipping policy injection", target.Protocol, target.TargetId)
+		return 0, false
+	}
+}
+
+func (a *Account) createProxyPolicy(service *reverseproxy.Service, target *reverseproxy.Target, proxyPeer *nbpeer.Peer, port int, path string) *Policy {
+	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
+	return &Policy{
+		ID:      policyID,
+		Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:       policyID,
+				PolicyID: policyID,
+				Name:     fmt.Sprintf("Allow access to %s", service.Name),
+				Enabled:  true,
+				SourceResource: Resource{
+					ID:   proxyPeer.ID,
+					Type: ResourceTypePeer,
+				},
+				DestinationResource: Resource{
+					ID:   target.TargetId,
+					Type: ResourceType(target.TargetType),
+				},
+				Bidirectional: false,
+				Protocol:      PolicyRuleProtocolTCP,
+				Action:        PolicyTrafficActionAccept,
+				PortRanges: []RulePortRange{
+					{
+						Start: uint16(port),
+						End:   uint16(port),
+					},
+				},
+			},
+		},
 	}
 }
 
