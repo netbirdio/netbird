@@ -3,6 +3,7 @@ package roundtrip
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,31 @@ type mockMgmtClient struct{}
 
 func (m *mockMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
 	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
+
+type mockStatusNotifier struct {
+	mu       sync.Mutex
+	statuses []statusCall
+}
+
+type statusCall struct {
+	accountID string
+	serviceID string
+	domain    string
+	connected bool
+}
+
+func (m *mockStatusNotifier) NotifyStatus(_ context.Context, accountID, serviceID, domain string, connected bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statuses = append(m.statuses, statusCall{accountID, serviceID, domain, connected})
+	return nil
+}
+
+func (m *mockStatusNotifier) calls() []statusCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]statusCall{}, m.statuses...)
 }
 
 // mockNetBird creates a NetBird instance for testing without actually connecting.
@@ -252,4 +278,51 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 	_, err = nb.RoundTrip(req) //nolint:bodyclose // Error case, no response body
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no peer connection found for account")
+}
+
+func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
+	notifier := &mockStatusNotifier{}
+	nb := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, nil, notifier, &mockMgmtClient{})
+	accountID := types.AccountID("account-1")
+
+	// Add first domain — creates a new client entry.
+	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "key-1", "svc-1")
+	require.NoError(t, err)
+
+	// Manually mark client as started to simulate background startup completing.
+	nb.clientsMux.Lock()
+	nb.clients[accountID].started = true
+	nb.clientsMux.Unlock()
+
+	// Add second domain — should notify immediately since client is already started.
+	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "key-1", "svc-2")
+	require.NoError(t, err)
+
+	calls := notifier.calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, string(accountID), calls[0].accountID)
+	assert.Equal(t, "svc-2", calls[0].serviceID)
+	assert.Equal(t, "domain2.test", calls[0].domain)
+	assert.True(t, calls[0].connected)
+}
+
+func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
+	notifier := &mockStatusNotifier{}
+	nb := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, nil, notifier, &mockMgmtClient{})
+	accountID := types.AccountID("account-1")
+
+	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "key-1", "svc-1")
+	require.NoError(t, err)
+	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "key-1", "svc-2")
+	require.NoError(t, err)
+
+	// Remove one domain — client stays, but disconnection notification fires.
+	err = nb.RemovePeer(context.Background(), accountID, "domain1.test")
+	require.NoError(t, err)
+	assert.True(t, nb.HasClient(accountID))
+
+	calls := notifier.calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "domain1.test", calls[0].domain)
+	assert.False(t, calls[0].connected)
 }
