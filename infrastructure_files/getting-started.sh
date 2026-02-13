@@ -169,7 +169,8 @@ read_proxy_docker_network() {
 read_enable_proxy() {
   echo "" > /dev/stderr
   echo "Do you want to enable the NetBird Proxy service?" > /dev/stderr
-  echo "The proxy exposes internal NetBird network resources to the internet." > /dev/stderr
+  echo "The proxy allows you to selectively expose internal NetBird network resources" > /dev/stderr
+  echo "to the internet. You control which resources are exposed through the dashboard." > /dev/stderr
   echo -n "Enable proxy? [y/N]: " > /dev/stderr
   read -r CHOICE < /dev/tty
 
@@ -184,9 +185,6 @@ read_enable_proxy() {
 read_proxy_domain() {
   local suggested_proxy="proxy.${NETBIRD_DOMAIN}"
 
-  echo "" > /dev/stderr
-  echo "The proxy allows you to selectively expose internal NetBird network resources" > /dev/stderr
-  echo "to the internet. You control which resources are exposed through the dashboard." > /dev/stderr
   echo "" > /dev/stderr
   echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
   echo "to avoid TLS certificate conflicts." > /dev/stderr
