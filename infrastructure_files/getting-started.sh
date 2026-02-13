@@ -276,7 +276,8 @@ initialize_default_values() {
   # Docker images
   DASHBOARD_IMAGE="netbirdio/dashboard:pr-552"
   # Combined server replaces separate signal, relay, and management containers
-  NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
+  NETBIRD_SERVER_IMAGE="ghcr.io/netbirdio/netbird-server:pr-5291"
+  NETBIRD_PROXY_IMAGE="ghcr.io/netbirdio/reverse-proxy:pr-5291"
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
@@ -520,10 +521,7 @@ render_docker_compose_traefik_builtin() {
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
   proxy:
-    build:
-      context: ../
-      dockerfile: proxy/Dockerfile
-    pull_policy: build
+    image: $NETBIRD_PROXY_IMAGE
     container_name: netbird-proxy
     # Hairpin NAT fix: route domain back to traefik's static IP within Docker
     extra_hosts:
@@ -628,11 +626,7 @@ services:
 
   # Combined server (Management + Signal + Relay + STUN)
   netbird-server:
-    build:
-      context: ..
-      dockerfile: combined/Dockerfile.multistage
-    pull_policy: build
-    #image: $NETBIRD_SERVER_IMAGE
+    image: $NETBIRD_SERVER_IMAGE
     container_name: netbird-server
     restart: unless-stopped
     networks: [netbird]
