@@ -432,10 +432,14 @@ func (conn *Conn) onICEStateDisconnected() {
 	if conn.isReadyToUpgrade() {
 		conn.Log.Infof("ICE disconnected, set Relay to active connection")
 		conn.dumpState.SwitchToRelay()
+		// todo consider to move after the ConfigureWGEndpoint
+		conn.wgProxyRelay.Work()
+
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
 		if err := conn.endpointUpdater.ConfigureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey, true); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
+
 		conn.currentConnPriority = conntype.Relay
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
