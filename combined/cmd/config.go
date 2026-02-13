@@ -627,7 +627,15 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 
 	// Set HTTP config fields for embedded IDP
 	httpConfig.AuthIssuer = mgmt.Auth.Issuer
+	httpConfig.AuthAudience = "netbird-dashboard"
+	httpConfig.AuthClientID = httpConfig.AuthAudience
+	httpConfig.CLIAuthAudience = "netbird-cli"
+	httpConfig.AuthUserIDClaim = "sub"
+	httpConfig.AuthKeysLocation = mgmt.Auth.Issuer + "/keys"
+	httpConfig.OIDCConfigEndpoint = mgmt.Auth.Issuer + "/.well-known/openid-configuration"
 	httpConfig.IdpSignKeyRefreshEnabled = mgmt.Auth.SignKeyRefreshEnabled
+	callbackURL := strings.TrimSuffix(httpConfig.AuthIssuer, "/oauth2")
+	httpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return &nbconfig.Config{
 		Stuns:                  stuns,
