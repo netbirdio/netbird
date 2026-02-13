@@ -9,9 +9,10 @@ var (
 	// EnvKeyNBForceRelay Exported for Android java client to force relay connections
 	EnvKeyNBForceRelay = peer.EnvKeyNBForceRelay
 
-	// EnvKeyNBLazyConn and EnvKeyNBInactivityThreshold Exported for Android java client to configure
-	// lazy connection and the connection inactivity threshold
-	EnvKeyNBLazyConn            = lazyconn.EnvEnableLazyConn
+	// EnvKeyNBLazyConn Exported for Android java client to configure lazy connection
+	EnvKeyNBLazyConn = lazyconn.EnvEnableLazyConn
+
+	// EnvKeyNBInactivityThreshold Exported for Android java client to configure connection inactivity threshold
 	EnvKeyNBInactivityThreshold = lazyconn.EnvInactivityThreshold
 )
 
