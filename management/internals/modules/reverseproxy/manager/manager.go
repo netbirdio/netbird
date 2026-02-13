@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -150,7 +151,7 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -330,19 +331,33 @@ func (m *managerImpl) preserveServiceMetadata(service, existingService *reversep
 }
 
 func (m *managerImpl) sendServiceUpdateNotifications(service *reverseproxy.Service, updateInfo *serviceUpdateInfo) {
-	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
-
 	switch {
 	case updateInfo.domainChanged && updateInfo.oldCluster != service.ProxyCluster:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), updateInfo.oldCluster)
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Delete, updateInfo.oldCluster, "")
+		m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 	case !service.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
 	case service.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 	default:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Update, service.ProxyCluster, "")
 	}
+}
+
+func (m *managerImpl) sendServiceUpdate(service *reverseproxy.Service, operation reverseproxy.Operation, cluster, oldService string) {
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+	mapping := service.ToProtoMapping(operation, oldService, oidcCfg)
+	m.sendMappingsToCluster([]*proto.ProxyMapping{mapping}, cluster)
+}
+
+func (m *managerImpl) sendMappingsToCluster(mappings []*proto.ProxyMapping, cluster string) {
+	if len(mappings) == 0 {
+		return
+	}
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: mappings,
+	}
+	m.proxyGRPCServer.SendServiceUpdateToCluster(update, cluster)
 }
 
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
@@ -397,7 +412,54 @@ func (m *managerImpl) DeleteService(ctx context.Context, accountID, userID, serv
 
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, service.EventMeta())
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *managerImpl) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
+	var services []*reverseproxy.Service
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		services, err = transaction.GetServicesByAccountID(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		for _, service := range services {
+			if err = transaction.DeleteService(ctx, accountID, service.ID); err != nil {
+				return fmt.Errorf("failed to delete service: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	clusterMappings := make(map[string][]*proto.ProxyMapping)
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+
+	for _, service := range services {
+		m.accountManager.StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, service.EventMeta())
+		mapping := service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg)
+		clusterMappings[service.ProxyCluster] = append(clusterMappings[service.ProxyCluster], mapping)
+	}
+
+	for cluster, mappings := range clusterMappings {
+		m.sendMappingsToCluster(mappings, cluster)
+	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -452,7 +514,7 @@ func (m *managerImpl) ReloadService(ctx context.Context, accountID, serviceID st
 		return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Update, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -465,12 +527,20 @@ func (m *managerImpl) ReloadAllServicesForAccount(ctx context.Context, accountID
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	clusterMappings := make(map[string][]*proto.ProxyMapping)
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+
 	for _, service := range services {
 		err = m.replaceHostByLookup(ctx, accountID, service)
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 		}
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		mapping := service.ToProtoMapping(reverseproxy.Update, "", oidcCfg)
+		clusterMappings[service.ProxyCluster] = append(clusterMappings[service.ProxyCluster], mapping)
+	}
+
+	for cluster, mappings := range clusterMappings {
+		m.sendMappingsToCluster(mappings, cluster)
 	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)

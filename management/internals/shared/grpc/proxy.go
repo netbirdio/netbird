@@ -62,7 +62,7 @@ type ProxyServiceServer struct {
 	clusterProxies sync.Map
 
 	// Channel for broadcasting reverse proxy updates to all proxies
-	updatesChan chan *proto.ProxyMapping
+	updatesChan chan *proto.GetMappingUpdateResponse
 
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
@@ -101,7 +101,7 @@ type proxyConnection struct {
 	proxyID  string
 	address  string
 	stream   proto.ProxyService_GetMappingUpdateServer
-	sendChan chan *proto.ProxyMapping
+	sendChan chan *proto.GetMappingUpdateResponse
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -110,7 +110,7 @@ type proxyConnection struct {
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
-		updatesChan:       make(chan *proto.ProxyMapping, 100),
+		updatesChan:       make(chan *proto.GetMappingUpdateResponse, 100),
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 		tokenStore:        tokenStore,
@@ -177,7 +177,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		proxyID:  proxyID,
 		address:  proxyAddress,
 		stream:   stream,
-		sendChan: make(chan *proto.ProxyMapping, 100),
+		sendChan: make(chan *proto.GetMappingUpdateResponse, 100),
 		ctx:      connCtx,
 		cancel:   cancel,
 	}
@@ -288,7 +288,7 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 	for {
 		select {
 		case msg := <-conn.sendChan:
-			if err := conn.stream.Send(&proto.GetMappingUpdateResponse{Mapping: []*proto.ProxyMapping{msg}}); err != nil {
+			if err := conn.stream.Send(msg); err != nil {
 				errChan <- err
 				return
 			}
@@ -339,7 +339,7 @@ func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendA
 // Management should call this when services are created/updated/removed.
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
-func (s *ProxyServiceServer) SendServiceUpdate(update *proto.ProxyMapping) {
+func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateResponse) {
 	log.Debugf("Broadcasting service update to all connected proxy servers")
 	s.connectedProxies.Range(func(key, value interface{}) bool {
 		conn := value.(*proxyConnection)
@@ -349,7 +349,7 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.ProxyMapping) {
 		}
 		select {
 		case conn.sendChan <- msg:
-			log.Debugf("Sent service update with id %s to proxy server %s", update.Id, conn.proxyID)
+			log.Debugf("Sent service update to proxy server %s", conn.proxyID)
 		default:
 			log.Warnf("Failed to send service update to proxy server %s (channel full)", conn.proxyID)
 		}
@@ -418,7 +418,7 @@ func (s *ProxyServiceServer) removeFromCluster(clusterAddr, proxyID string) {
 // If clusterAddr is empty, broadcasts to all connected proxy servers (backward compatibility).
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
-func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.ProxyMapping, clusterAddr string) {
+func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.GetMappingUpdateResponse, clusterAddr string) {
 	if clusterAddr == "" {
 		s.SendServiceUpdate(update)
 		return
@@ -441,7 +441,7 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.ProxyMappi
 			}
 			select {
 			case conn.sendChan <- msg:
-				log.Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
+				log.Debugf("Sent service update to proxy %s in cluster %s", proxyID, clusterAddr)
 			default:
 				log.Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 			}
@@ -451,23 +451,31 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.ProxyMappi
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
-// create/update operations. For delete operations the original message is
-// returned unchanged because proxies do not need to authenticate for removal.
+// create/update operations. For delete operations the original mapping is
+// used unchanged because proxies do not need to authenticate for removal.
 // Returns nil if token generation fails (the proxy should be skipped).
-func (s *ProxyServiceServer) perProxyMessage(update *proto.ProxyMapping, proxyID string) *proto.ProxyMapping {
-	if update.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED || update.AccountId == "" {
-		return update
+func (s *ProxyServiceServer) perProxyMessage(update *proto.GetMappingUpdateResponse, proxyID string) *proto.GetMappingUpdateResponse {
+	resp := make([]*proto.ProxyMapping, 0, len(update.Mapping))
+	for _, mapping := range update.Mapping {
+		if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
+			resp = append(resp, mapping)
+			continue
+		}
+
+		token, err := s.tokenStore.GenerateToken(mapping.AccountId, mapping.Id, 5*time.Minute)
+		if err != nil {
+			log.Warnf("Failed to generate token for proxy %s: %v", proxyID, err)
+			return nil
+		}
+
+		msg := shallowCloneMapping(mapping)
+		msg.AuthToken = token
+		resp = append(resp, msg)
 	}
 
-	token, err := s.tokenStore.GenerateToken(update.AccountId, update.Id, 5*time.Minute)
-	if err != nil {
-		log.Warnf("Failed to generate token for proxy %s: %v", proxyID, err)
-		return nil
+	return &proto.GetMappingUpdateResponse{
+		Mapping: resp,
 	}
-
-	msg := shallowCloneMapping(update)
-	msg.AuthToken = token
-	return msg
 }
 
 // shallowCloneMapping creates a shallow copy of a ProxyMapping, reusing the

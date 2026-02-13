@@ -256,6 +256,7 @@ type Store interface {
 	UpdateService(ctx context.Context, service *reverseproxy.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
 	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
