@@ -274,7 +274,7 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
+  DASHBOARD_IMAGE="netbirdio/dashboard:pr-552"
   # Combined server replaces separate signal, relay, and management containers
   NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
 
