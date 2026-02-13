@@ -1486,6 +1486,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
 	disableIPv6 := cfg.DisableIPv6
+	disableDefaultRoute := cfg.DisableDefaultRoute
 	blockLANAccess := cfg.BlockLANAccess
 
 	enableSSHRoot := false
@@ -1537,6 +1538,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableClientRoutes:           disableClientRoutes,
 		DisableServerRoutes:           disableServerRoutes,
 		DisableIpv6:                   disableIPv6,
+		DisableDefaultRoute:           disableDefaultRoute,
 		BlockLanAccess:                blockLANAccess,
 		EnableSSHRoot:                 enableSSHRoot,
 		EnableSSHSFTP:                 enableSSHSFTP,
