@@ -73,6 +73,7 @@ type ConfigInput struct {
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
+	DisableDefaultRoute *bool
 	DisableDNS          *bool
 	DisableFirewall     *bool
 	BlockLANAccess      *bool
@@ -111,6 +112,7 @@ type Config struct {
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
+	DisableDefaultRoute bool
 	DisableDNS          bool
 	DisableFirewall     bool
 	BlockLANAccess      bool
@@ -481,6 +483,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("enabling server routes")
 		}
 		config.DisableServerRoutes = *input.DisableServerRoutes
+		updated = true
+	}
+
+	if input.DisableDefaultRoute != nil && *input.DisableDefaultRoute != config.DisableDefaultRoute {
+		if *input.DisableDefaultRoute {
+			log.Infof("disabling default route")
+		} else {
+			log.Infof("enabling default route")
+		}
+		config.DisableDefaultRoute = *input.DisableDefaultRoute
 		updated = true
 	}
 
