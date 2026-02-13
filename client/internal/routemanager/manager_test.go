@@ -32,6 +32,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputRoutes                          []*route.Route
 		inputSerial                          uint64
 		removeSrvRouter                      bool
+		disableDefaultRoute                  bool
 		serverRoutesExpected                 int
 		clientNetworkWatchersExpected        int
 		clientNetworkWatchersExpectedAllowed int
@@ -188,6 +189,26 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		},
 		{
 			name: "No Small Client Route Should Be Added",
+			inputRoutes: []*route.Route{
+				{
+					ID:            "a",
+					NetID:         "routeA",
+					Peer:          remotePeerKey1,
+					Network:       netip.MustParsePrefix("0.0.0.0/0"),
+					NetworkType:   route.IPv4Network,
+					Metric:        9999,
+					Masquerade:    false,
+					Enabled:       true,
+					SkipAutoApply: false,
+				},
+			},
+			inputSerial:                          1,
+			clientNetworkWatchersExpected:        0,
+			clientNetworkWatchersExpectedAllowed: 1,
+		},
+		{
+			name:                "Default Route With DisableDefaultRoute Still Creates Watcher",
+			disableDefaultRoute: true,
 			inputRoutes: []*route.Route{
 				{
 					ID:            "a",
@@ -425,10 +446,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ManagerConfig{
-				Context:        ctx,
-				PublicKey:      localPeerKey,
-				WGInterface:    wgInterface,
-				StatusRecorder: statusRecorder,
+				Context:             ctx,
+				PublicKey:            localPeerKey,
+				WGInterface:         wgInterface,
+				StatusRecorder:      statusRecorder,
+				DisableDefaultRoute: testCase.disableDefaultRoute,
 			})
 
 			err = routeManager.Init()
