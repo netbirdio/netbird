@@ -276,7 +276,7 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 func (s *DefaultServer) BeginBatch() {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	log.Infof("DNS batch mode enabled")
+	log.Debugf("DNS batch mode enabled")
 	s.batchMode = true
 }
 
@@ -284,7 +284,7 @@ func (s *DefaultServer) BeginBatch() {
 func (s *DefaultServer) EndBatch() {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	log.Infof("DNS batch mode disabled, applying accumulated changes")
+	log.Debugf("DNS batch mode disabled, applying accumulated changes")
 	s.batchMode = false
 	s.applyHostConfig()
 }
