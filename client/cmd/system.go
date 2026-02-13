@@ -2,17 +2,19 @@ package cmd
 
 // Flag constants for system configuration
 const (
-	disableClientRoutesFlag = "disable-client-routes"
-	disableServerRoutesFlag = "disable-server-routes"
-	disableDNSFlag          = "disable-dns"
-	disableFirewallFlag     = "disable-firewall"
-	blockLANAccessFlag      = "block-lan-access"
-	blockInboundFlag        = "block-inbound"
+	disableClientRoutesFlag  = "disable-client-routes"
+	disableServerRoutesFlag  = "disable-server-routes"
+	disableDefaultRouteFlag  = "disable-default-route"
+	disableDNSFlag           = "disable-dns"
+	disableFirewallFlag      = "disable-firewall"
+	blockLANAccessFlag       = "block-lan-access"
+	blockInboundFlag         = "block-inbound"
 )
 
 var (
 	disableClientRoutes bool
 	disableServerRoutes bool
+	disableDefaultRoute bool
 	disableDNS          bool
 	disableFirewall     bool
 	blockLANAccess      bool
@@ -26,6 +28,9 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&disableServerRoutes, disableServerRoutesFlag, false,
 		"Disable server routes. If enabled, the client won't act as a router for server routes received from the management service.")
+
+	upCmd.PersistentFlags().BoolVar(&disableDefaultRoute, disableDefaultRouteFlag, false,
+		"Disable adding default route (0.0.0.0/0) to the system routing table while keeping it in WireGuard allowed IPs.")
 
 	upCmd.PersistentFlags().BoolVar(&disableDNS, disableDNSFlag, false,
 		"Disable DNS. If enabled, the client won't configure DNS settings.")
