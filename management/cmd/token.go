@@ -70,7 +70,7 @@ func withTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Sto
 	//nolint
 	ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource)
 
-	config, err := loadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
+	config, err := LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
