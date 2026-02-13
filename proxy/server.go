@@ -301,7 +301,20 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		}
 	}()
 
-	// Start the reverse proxy HTTPS server.
+	// Create listener with connection sniffing for HTTP redirect
+	// listener is closed by http.Server.ServeTLS when it exits
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+
+	// Wrap listener to detect and redirect plain HTTP requests to HTTPS
+	redirectListener := &httpRedirectListener{
+		Listener: listener,
+		logger:   s.Logger,
+	}
+
+	// Start the reverse proxy HTTPS server
 	s.https = &http.Server{
 		Addr:      addr,
 		Handler:   s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
@@ -312,7 +325,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	httpsErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debugf("starting reverse proxy server on %s", addr)
-		httpsErr <- s.https.ListenAndServeTLS("", "")
+		httpsErr <- s.https.ServeTLS(redirectListener, "", "")
 	}()
 
 	select {
