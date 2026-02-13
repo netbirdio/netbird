@@ -647,28 +647,28 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
 
-	if cmd.Flag(disableClientRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableClientRoutesFlag) {
 		loginRequest.DisableClientRoutes = &disableClientRoutes
 	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableServerRoutesFlag) {
 		loginRequest.DisableServerRoutes = &disableServerRoutes
 	}
-	if cmd.Flag(disableDNSFlag).Changed {
+	if isFlagChanged(cmd, disableDNSFlag) {
 		loginRequest.DisableDns = &disableDNS
 	}
-	if cmd.Flag(disableFirewallFlag).Changed {
+	if isFlagChanged(cmd, disableFirewallFlag) {
 		loginRequest.DisableFirewall = &disableFirewall
 	}
 
-	if cmd.Flag(blockLANAccessFlag).Changed {
+	if isFlagChanged(cmd, blockLANAccessFlag) {
 		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
-	if cmd.Flag(blockInboundFlag).Changed {
+	if isFlagChanged(cmd, blockInboundFlag) {
 		loginRequest.BlockInbound = &blockInbound
 	}
 
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
+	if isFlagChanged(cmd, enableLazyConnectionFlag) {
 		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
 	return &loginRequest, nil

@@ -857,9 +857,17 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+	upReq := &proto.UpRequest{
 		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
-	}); err != nil {
+	}
+	if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+		if currUser, uErr := user.Current(); uErr == nil {
+			upReq.ProfileName = &activeProf.Name
+			upReq.Username = &currUser.Username
+		}
+	}
+
+	if _, err := s.conn.Up(s.ctx, upReq); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
