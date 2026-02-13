@@ -532,12 +532,6 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	}, nil
 }
 
-type authResult struct {
-	authenticated bool
-	userId        string
-	method        proxyauth.Method
-}
-
 func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto.AuthenticateRequest, service *reverseproxy.Service) (bool, string, proxyauth.Method) {
 	switch v := req.GetRequest().(type) {
 	case *proto.AuthenticateRequest_Pin:
