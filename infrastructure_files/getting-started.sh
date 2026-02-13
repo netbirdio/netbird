@@ -181,6 +181,36 @@ read_enable_proxy() {
   return 0
 }
 
+read_proxy_domain() {
+  echo "" > /dev/stderr
+  echo "WARNING: The proxy domain MUST NOT be a subdomain of the NetBird management" > /dev/stderr
+  echo "domain ($NETBIRD_DOMAIN). Using a subdomain will cause TLS certificate conflicts." > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter the domain for the NetBird Proxy (e.g. proxy.my-domain.com): " > /dev/stderr
+  read -r READ_PROXY_DOMAIN < /dev/tty
+
+  if [[ -z "$READ_PROXY_DOMAIN" ]]; then
+    echo "The proxy domain cannot be empty." > /dev/stderr
+    read_proxy_domain
+    return
+  fi
+
+  if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
+    echo "The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+    read_proxy_domain
+    return
+  fi
+
+  if [[ "$READ_PROXY_DOMAIN" == *".${NETBIRD_DOMAIN}" ]]; then
+    echo "The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+    read_proxy_domain
+    return
+  fi
+
+  echo "$READ_PROXY_DOMAIN"
+  return 0
+}
+
 read_traefik_acme_email() {
   echo "" > /dev/stderr
   echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
@@ -292,6 +322,7 @@ initialize_default_values() {
 
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
+  PROXY_DOMAIN=""
   PROXY_TOKEN=""
   return 0
 }
@@ -319,6 +350,9 @@ configure_reverse_proxy() {
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
     TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
     ENABLE_PROXY=$(read_enable_proxy)
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      PROXY_DOMAIN=$(read_proxy_domain)
+    fi
   fi
 
   # Handle external Traefik-specific prompts (option 1)
@@ -742,7 +776,7 @@ NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
 # Allow insecure gRPC connection to management (required for internal Docker network)
 NB_PROXY_ALLOW_INSECURE=true
 # Public URL where this proxy is reachable (used for cluster registration)
-NB_PROXY_DOMAIN=$NETBIRD_DOMAIN
+NB_PROXY_DOMAIN=$PROXY_DOMAIN
 NB_PROXY_ADDRESS=:8443
 NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
