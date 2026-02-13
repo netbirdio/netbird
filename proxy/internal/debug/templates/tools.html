@@ -17,11 +17,11 @@
   <h2>Client Control</h2>
   <div class="form-row">
     <div class="form-group">
-      <label>&nbsp;</label>
+      <span>&nbsp;</span>
       <button onclick="startClient()">Start</button>
     </div>
     <div class="form-group">
-      <label>&nbsp;</label>
+      <span>&nbsp;</span>
       <button onclick="stopClient()">Stop</button>
     </div>
   </div>
@@ -30,7 +30,7 @@
   <h2>Log Level</h2>
   <div class="form-row">
     <div class="form-group">
-      <label>Level</label>
+      <label for="log-level">Level</label>
       <select id="log-level" style="width: 120px;">
         <option value="trace">trace</option>
         <option value="debug">debug</option>
@@ -40,7 +40,7 @@
       </select>
     </div>
     <div class="form-group">
-      <label>&nbsp;</label>
+      <span>&nbsp;</span>
       <button onclick="setLogLevel()">Set Level</button>
     </div>
   </div>
@@ -49,15 +49,15 @@
   <h2>TCP Ping</h2>
   <div class="form-row">
     <div class="form-group">
-      <label>Host</label>
+      <label for="tcp-host">Host</label>
       <input type="text" id="tcp-host" placeholder="100.0.0.1 or hostname.netbird.cloud" style="width: 300px;">
     </div>
     <div class="form-group">
-      <label>Port</label>
+      <label for="tcp-port">Port</label>
       <input type="number" id="tcp-port" placeholder="80" style="width: 80px;">
     </div>
     <div class="form-group">
-      <label>&nbsp;</label>
+      <span>&nbsp;</span>
       <button onclick="doTcpPing()">Connect</button>
     </div>
   </div>

@@ -184,9 +184,6 @@
 
 html {
     color-scheme: dark;
-}
-
-html{
     @apply bg-nb-gray;
 }
 
