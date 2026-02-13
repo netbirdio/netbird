@@ -221,8 +221,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		// Only start HTTP server for HTTP-01 challenge type
 		if s.ACMEChallengeType == "http-01" {
 			s.http = &http.Server{
-				Addr:    s.ACMEChallengeAddress,
-				Handler: s.acme.HTTPHandler(nil),
+				Addr:     s.ACMEChallengeAddress,
+				Handler:  s.acme.HTTPHandler(nil),
+				ErrorLog: newHTTPServerLogger(s.Logger, logtagValueACME),
 			}
 			go func() {
 				if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -272,8 +273,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			debugHandler.SetCertStatus(s.acme)
 		}
 		s.debug = &http.Server{
-			Addr:    debugAddr,
-			Handler: debugHandler,
+			Addr:     debugAddr,
+			Handler:  debugHandler,
+			ErrorLog: newHTTPServerLogger(s.Logger, logtagValueDebug),
 		}
 		go func() {
 			s.Logger.Infof("starting debug endpoint on %s", debugAddr)
@@ -304,6 +306,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		Addr:      addr,
 		Handler:   s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
 		TLSConfig: tlsConfig,
+		ErrorLog:  newHTTPServerLogger(s.Logger, logtagValueHTTPS),
 	}
 
 	httpsErr := make(chan error, 1)
