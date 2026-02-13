@@ -140,6 +140,20 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-proxy
+    dir: proxy/cmd/proxy
+    env: [CGO_ENABLED=0]
+    binary: netbird-proxy
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -589,6 +603,55 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
       - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+    ids:
+      - netbird-proxy
+    goarch: amd64
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+    ids:
+      - netbird-proxy
+    goarch: arm64
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+    ids:
+      - netbird-proxy
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   - name_template: netbirdio/netbird:{{ .Version }}
     image_templates:
@@ -768,6 +831,30 @@ docker_manifests:
       - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
       - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
       - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
+
+  - name_template: netbirdio/reverse-proxy:{{ .Version }}
+    image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: netbirdio/reverse-proxy:latest
+    image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/reverse-proxy:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/reverse-proxy:latest
+    image_templates:
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
 
 brews:
   - ids:

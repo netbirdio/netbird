@@ -160,7 +160,7 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
       - name: Log in to the GitHub container registry
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -176,6 +176,7 @@ jobs:
       - name: Generate windows syso arm64
         run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/resources_windows_arm64.syso
       - name: Run GoReleaser
+        id: goreleaser
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
@@ -185,6 +186,19 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+      - name: Tag and push PR images (amd64 only)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          PR_TAG="pr-${{ github.event.pull_request.number }}"
+          echo '${{ steps.goreleaser.outputs.artifacts }}' | \
+            jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name' | \
+            grep '^ghcr.io/' | while read -r SRC; do
+              IMG_NAME="${SRC%%:*}"
+              DST="${IMG_NAME}:${PR_TAG}"
+              echo "Tagging ${SRC} -> ${DST}"
+              docker tag "$SRC" "$DST"
+              docker push "$DST"
+            done
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v4
         with:
