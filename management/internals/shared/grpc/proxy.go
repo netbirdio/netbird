@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
