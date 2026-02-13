@@ -39,10 +39,10 @@ var (
 	addr              string
 	proxyDomain       string
 	certDir           string
-	acmeCerts          bool
-	acmeAddr           string
-	acmeDir            string
-	acmeChallengeType  string
+	acmeCerts         bool
+	acmeAddr          string
+	acmeDir           string
+	acmeChallengeType string
 	debugEndpoint     bool
 	debugEndpointAddr string
 	healthAddr        string

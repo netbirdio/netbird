@@ -12,15 +12,15 @@ func TestPrintHealth_WithCertsAndClients(t *testing.T) {
 	c := NewClient("localhost:8444", false, &buf)
 
 	data := map[string]any{
-		"status":               "ok",
-		"uptime":               "1h30m",
-		"management_connected": true,
-		"all_clients_healthy":  true,
-		"certs_total":          float64(3),
-		"certs_ready":          float64(2),
-		"certs_pending":        float64(1),
-		"certs_failed":         float64(0),
-		"certs_ready_domains":  []any{"a.example.com", "b.example.com"},
+		"status":                "ok",
+		"uptime":                "1h30m",
+		"management_connected":  true,
+		"all_clients_healthy":   true,
+		"certs_total":           float64(3),
+		"certs_ready":           float64(2),
+		"certs_pending":         float64(1),
+		"certs_failed":          float64(0),
+		"certs_ready_domains":   []any{"a.example.com", "b.example.com"},
 		"certs_pending_domains": []any{"c.example.com"},
 		"clients": map[string]any{
 			"acc-1": map[string]any{
