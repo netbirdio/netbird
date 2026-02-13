@@ -519,67 +519,90 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 		return nil, status.Errorf(codes.FailedPrecondition, "get service from store: %v", err)
 	}
 
-	var authenticated bool
-	var userId string
-	var method proxyauth.Method
-	switch v := req.GetRequest().(type) {
-	case *proto.AuthenticateRequest_Pin:
-		auth := service.Auth.PinAuth
-		if auth == nil || !auth.Enabled {
-			log.WithContext(ctx).Debugf("PIN authentication attempted but not enabled for service %s", req.GetId())
-			break
-		}
-		err = argon2id.Verify(v.Pin.GetPin(), auth.Pin)
-		if err != nil {
-			if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
-				log.WithContext(ctx).Tracef("PIN authentication failed: invalid PIN")
-			} else {
-				log.WithContext(ctx).Errorf("PIN authentication error: %v", err)
-			}
-			break
-		}
-		authenticated = true
-		userId = "pin-user"
-		method = proxyauth.MethodPIN
-	case *proto.AuthenticateRequest_Password:
-		auth := service.Auth.PasswordAuth
-		if auth == nil || !auth.Enabled {
-			log.WithContext(ctx).Debugf("password authentication attempted but not enabled for service %s", req.GetId())
-			break
-		}
-		err = argon2id.Verify(v.Password.GetPassword(), auth.Password)
-		if err != nil {
-			if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
-				log.WithContext(ctx).Tracef("Password authentication failed: invalid password")
-			} else {
-				log.WithContext(ctx).Errorf("Password authentication error: %v", err)
-			}
-			break
-		}
-		authenticated = true
-		userId = "password-user"
-		method = proxyauth.MethodPassword
-	}
+	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
 
-	var token string
-	if authenticated && service.SessionPrivateKey != "" {
-		token, err = sessionkey.SignToken(
-			service.SessionPrivateKey,
-			userId,
-			service.Domain,
-			method,
-			proxyauth.DefaultSessionExpiry,
-		)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to sign session token")
-			return nil, status.Errorf(codes.Internal, "sign session token: %v", err)
-		}
+	token, err := s.generateSessionToken(ctx, authenticated, service, userId, method)
+	if err != nil {
+		return nil, err
 	}
 
 	return &proto.AuthenticateResponse{
 		Success:      authenticated,
 		SessionToken: token,
 	}, nil
+}
+
+type authResult struct {
+	authenticated bool
+	userId        string
+	method        proxyauth.Method
+}
+
+func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto.AuthenticateRequest, service *reverseproxy.Service) (bool, string, proxyauth.Method) {
+	switch v := req.GetRequest().(type) {
+	case *proto.AuthenticateRequest_Pin:
+		return s.authenticatePIN(ctx, req.GetId(), v, service.Auth.PinAuth)
+	case *proto.AuthenticateRequest_Password:
+		return s.authenticatePassword(ctx, req.GetId(), v, service.Auth.PasswordAuth)
+	default:
+		return false, "", ""
+	}
+}
+
+func (s *ProxyServiceServer) authenticatePIN(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Pin, auth *reverseproxy.PINAuthConfig) (bool, string, proxyauth.Method) {
+	if auth == nil || !auth.Enabled {
+		log.WithContext(ctx).Debugf("PIN authentication attempted but not enabled for service %s", serviceID)
+		return false, "", ""
+	}
+
+	if err := argon2id.Verify(req.Pin.GetPin(), auth.Pin); err != nil {
+		s.logAuthenticationError(ctx, err, "PIN")
+		return false, "", ""
+	}
+
+	return true, "pin-user", proxyauth.MethodPIN
+}
+
+func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Password, auth *reverseproxy.PasswordAuthConfig) (bool, string, proxyauth.Method) {
+	if auth == nil || !auth.Enabled {
+		log.WithContext(ctx).Debugf("password authentication attempted but not enabled for service %s", serviceID)
+		return false, "", ""
+	}
+
+	if err := argon2id.Verify(req.Password.GetPassword(), auth.Password); err != nil {
+		s.logAuthenticationError(ctx, err, "Password")
+		return false, "", ""
+	}
+
+	return true, "password-user", proxyauth.MethodPassword
+}
+
+func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err error, authType string) {
+	if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
+		log.WithContext(ctx).Tracef("%s authentication failed: invalid credentials", authType)
+	} else {
+		log.WithContext(ctx).Errorf("%s authentication error: %v", authType, err)
+	}
+}
+
+func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *reverseproxy.Service, userId string, method proxyauth.Method) (string, error) {
+	if !authenticated || service.SessionPrivateKey == "" {
+		return "", nil
+	}
+
+	token, err := sessionkey.SignToken(
+		service.SessionPrivateKey,
+		userId,
+		service.Domain,
+		method,
+		proxyauth.DefaultSessionExpiry,
+	)
+	if err != nil {
+		log.WithContext(ctx).WithError(err).Error("failed to sign session token")
+		return "", status.Errorf(codes.Internal, "sign session token: %v", err)
+	}
+
+	return token, nil
 }
 
 // SendStatusUpdate handles status updates from proxy clients
