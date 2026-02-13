@@ -83,6 +83,10 @@ func (c *Client) printHealth(data map[string]any) {
 		}
 	}
 
+	c.printHealthClients(data)
+}
+
+func (c *Client) printHealthClients(data map[string]any) {
 	clients, ok := data["clients"].(map[string]any)
 	if !ok || len(clients) == 0 {
 		return

@@ -39,10 +39,10 @@ var (
 	addr              string
 	proxyDomain       string
 	certDir           string
-	acmeCerts          bool
-	acmeAddr           string
-	acmeDir            string
-	acmeChallengeType  string
+	acmeCerts         bool
+	acmeAddr          string
+	acmeDir           string
+	acmeChallengeType string
 	debugEndpoint     bool
 	debugEndpointAddr string
 	healthAddr        string
@@ -123,7 +123,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	_ = util.InitLogger(logger, level, util.LogConsole)
 
-	log.Infof("configured log level: %s", level)
+	logger.Infof("configured log level: %s", level)
 
 	switch forwardedProto {
 	case "auto", "http", "https":
@@ -171,7 +171,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	defer stop()
 
 	if err := srv.ListenAndServe(ctx, addr); err != nil {
-		log.Error(err)
+		logger.Error(err)
 		return err
 	}
 	return nil

@@ -39,78 +39,63 @@ type AccessLogFilter struct {
 func (f *AccessLogFilter) ParseFromRequest(r *http.Request) {
 	queryParams := r.URL.Query()
 
-	f.Page = 1
-	if pageStr := queryParams.Get("page"); pageStr != "" {
-		if page, err := strconv.Atoi(pageStr); err == nil && page > 0 {
-			f.Page = page
-		}
-	}
+	f.Page = parsePositiveInt(queryParams.Get("page"), 1)
+	f.PageSize = min(parsePositiveInt(queryParams.Get("page_size"), DefaultPageSize), MaxPageSize)
 
-	f.PageSize = DefaultPageSize
-	if pageSizeStr := queryParams.Get("page_size"); pageSizeStr != "" {
-		if pageSize, err := strconv.Atoi(pageSizeStr); err == nil && pageSize > 0 {
-			f.PageSize = pageSize
-			if f.PageSize > MaxPageSize {
-				f.PageSize = MaxPageSize
-			}
-		}
-	}
+	f.Search = parseOptionalString(queryParams.Get("search"))
+	f.SourceIP = parseOptionalString(queryParams.Get("source_ip"))
+	f.Host = parseOptionalString(queryParams.Get("host"))
+	f.Path = parseOptionalString(queryParams.Get("path"))
+	f.UserID = parseOptionalString(queryParams.Get("user_id"))
+	f.UserEmail = parseOptionalString(queryParams.Get("user_email"))
+	f.UserName = parseOptionalString(queryParams.Get("user_name"))
+	f.Method = parseOptionalString(queryParams.Get("method"))
+	f.Status = parseOptionalString(queryParams.Get("status"))
+	f.StatusCode = parseOptionalInt(queryParams.Get("status_code"))
+	f.StartDate = parseOptionalRFC3339(queryParams.Get("start_date"))
+	f.EndDate = parseOptionalRFC3339(queryParams.Get("end_date"))
+}
 
-	if search := queryParams.Get("search"); search != "" {
-		f.Search = &search
+// parsePositiveInt parses a positive integer from a string, returning defaultValue if invalid
+func parsePositiveInt(s string, defaultValue int) int {
+	if s == "" {
+		return defaultValue
 	}
+	if val, err := strconv.Atoi(s); err == nil && val > 0 {
+		return val
+	}
+	return defaultValue
+}
 
-	if sourceIP := queryParams.Get("source_ip"); sourceIP != "" {
-		f.SourceIP = &sourceIP
+// parseOptionalString returns a pointer to the string if non-empty, otherwise nil
+func parseOptionalString(s string) *string {
+	if s == "" {
+		return nil
 	}
+	return &s
+}
 
-	if host := queryParams.Get("host"); host != "" {
-		f.Host = &host
+// parseOptionalInt parses an optional positive integer from a string
+func parseOptionalInt(s string) *int {
+	if s == "" {
+		return nil
 	}
+	if val, err := strconv.Atoi(s); err == nil && val > 0 {
+		v := val
+		return &v
+	}
+	return nil
+}
 
-	if path := queryParams.Get("path"); path != "" {
-		f.Path = &path
+// parseOptionalRFC3339 parses an optional RFC3339 timestamp from a string
+func parseOptionalRFC3339(s string) *time.Time {
+	if s == "" {
+		return nil
 	}
-
-	if userID := queryParams.Get("user_id"); userID != "" {
-		f.UserID = &userID
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return &t
 	}
-
-	if userEmail := queryParams.Get("user_email"); userEmail != "" {
-		f.UserEmail = &userEmail
-	}
-
-	if userName := queryParams.Get("user_name"); userName != "" {
-		f.UserName = &userName
-	}
-
-	if method := queryParams.Get("method"); method != "" {
-		f.Method = &method
-	}
-
-	if status := queryParams.Get("status"); status != "" {
-		f.Status = &status
-	}
-
-	if statusCodeStr := queryParams.Get("status_code"); statusCodeStr != "" {
-		if statusCode, err := strconv.Atoi(statusCodeStr); err == nil && statusCode > 0 {
-			f.StatusCode = &statusCode
-		}
-	}
-
-	if startDate := queryParams.Get("start_date"); startDate != "" {
-		parsedStartDate, err := time.Parse(time.RFC3339, startDate)
-		if err == nil {
-			f.StartDate = &parsedStartDate
-		}
-	}
-
-	if endDate := queryParams.Get("end_date"); endDate != "" {
-		parsedEndDate, err := time.Parse(time.RFC3339, endDate)
-		if err == nil {
-			f.EndDate = &parsedEndDate
-		}
-	}
+	return nil
 }
 
 // GetOffset calculates the database offset for pagination

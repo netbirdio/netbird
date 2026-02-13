@@ -320,7 +320,8 @@ func getRequestID(r *http.Request) string {
 // status code, and component status based on the error type.
 func classifyProxyError(err error) (title, message string, code int, status web.ErrorStatus) {
 	switch {
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded),
+		isNetTimeout(err):
 		return "Request Timeout",
 			"The request timed out while trying to reach the service. Please refresh the page and try again.",
 			http.StatusGatewayTimeout,
@@ -355,12 +356,6 @@ func classifyProxyError(err error) (title, message string, code int, status web.
 		return "Peer Not Connected",
 			"The connection to the peer could not be established. Please ensure the peer is running and connected to the NetBird network.",
 			http.StatusBadGateway,
-			web.ErrorStatus{Proxy: true, Destination: false}
-
-	case isNetTimeout(err):
-		return "Request Timeout",
-			"The request timed out while trying to reach the service. Please refresh the page and try again.",
-			http.StatusGatewayTimeout,
 			web.ErrorStatus{Proxy: true, Destination: false}
 	}
 

@@ -323,7 +323,7 @@ func NewServer(addr string, checker *Checker, logger *log.Logger, metricsHandler
 	if metricsHandler != nil {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metricsHandler)
-		mux.Handle("/", checker.Handler())
+		mux.Handle("/", handler)
 		handler = mux
 	}
 

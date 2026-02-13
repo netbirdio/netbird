@@ -39,7 +39,7 @@ jobs:
             else
               echo "✓ No problematic dependencies found"
             fi
-          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name "proxy" -not -name ".git*" | sort)
+          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name "proxy" -not -name "combined" -not -name ".git*" | sort)
 
           echo ""
           if [ $FOUND_ISSUES -eq 1 ]; then
@@ -88,7 +88,7 @@ jobs:
               IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
 
               # Check if any importer is NOT in management/signal/relay
-              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\)" | head -1)
+              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\)" | head -1)
 
               if [ -n "$BSD_IMPORTER" ]; then
                 echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"

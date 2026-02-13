@@ -404,3 +404,70 @@ func TestChecker_Handler_Full(t *testing.T) {
 	// Clients may be empty map when no clients exist.
 	assert.Empty(t, resp.Clients)
 }
+
+func TestChecker_SetShuttingDown(t *testing.T) {
+	checker := NewChecker(nil, &mockClientProvider{})
+	checker.SetManagementConnected(true)
+
+	assert.True(t, checker.ReadinessProbe(), "should be ready before shutdown")
+
+	checker.SetShuttingDown()
+
+	assert.False(t, checker.ReadinessProbe(), "should not be ready after shutdown")
+}
+
+func TestChecker_Handler_Readiness_ShuttingDown(t *testing.T) {
+	checker := NewChecker(nil, &mockClientProvider{})
+	checker.SetManagementConnected(true)
+	checker.SetShuttingDown()
+	handler := checker.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz/ready", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	var resp ProbeResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "fail", resp.Status)
+}
+
+func TestNewServer_WithMetricsHandler(t *testing.T) {
+	checker := NewChecker(nil, &mockClientProvider{})
+	checker.SetManagementConnected(true)
+
+	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("metrics"))
+	})
+
+	srv := NewServer(":0", checker, nil, metricsHandler)
+	require.NotNil(t, srv)
+
+	// Verify health endpoint still works through the mux.
+	req := httptest.NewRequest(http.MethodGet, "/healthz/live", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify metrics endpoint is mounted.
+	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec = httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "metrics", rec.Body.String())
+}
+
+func TestNewServer_WithoutMetricsHandler(t *testing.T) {
+	checker := NewChecker(nil, &mockClientProvider{})
+	checker.SetManagementConnected(true)
+
+	srv := NewServer(":0", checker, nil, nil)
+	require.NotNil(t, srv)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz/live", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

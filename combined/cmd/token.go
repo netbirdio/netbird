@@ -3,27 +3,25 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	tokencmd "github.com/netbirdio/netbird/management/cmd/token"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
 
-var tokenDatadir string
-
-// newTokenCommands creates the token command tree with management-specific store opener.
+// newTokenCommands creates the token command tree with combined-specific store opener.
 func newTokenCommands() *cobra.Command {
-	cmd := tokencmd.NewCommands(withTokenStore)
-	cmd.PersistentFlags().StringVar(&tokenDatadir, "datadir", "", "Override the data directory from config (where store.db is located)")
-	return cmd
+	return tokencmd.NewCommands(withTokenStore)
 }
 
-// withTokenStore initializes logging, loads config, opens the store, and calls fn.
+// withTokenStore loads the combined YAML config, initializes the store, and calls fn.
 func withTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Store) error) error {
 	if err := util.InitLog("error", "console"); err != nil {
 		return fmt.Errorf("init log: %w", err)
@@ -31,17 +29,24 @@ func withTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Sto
 
 	ctx := context.WithValue(cmd.Context(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
 
-	config, err := LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
+	cfg, err := LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	datadir := config.Datadir
-	if tokenDatadir != "" {
-		datadir = tokenDatadir
+	if dsn := cfg.Server.Store.DSN; dsn != "" {
+		switch strings.ToLower(cfg.Server.Store.Engine) {
+		case "postgres":
+			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
+		case "mysql":
+			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
+		}
 	}
 
-	s, err := store.NewStore(ctx, config.StoreConfig.Engine, datadir, nil, true)
+	datadir := cfg.Management.DataDir
+	engine := types.Engine(cfg.Management.Store.Engine)
+
+	s, err := store.NewStore(ctx, engine, datadir, nil, true)
 	if err != nil {
 		return fmt.Errorf("create store: %w", err)
 	}
