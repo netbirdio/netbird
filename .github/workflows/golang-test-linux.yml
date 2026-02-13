@@ -97,6 +97,16 @@ jobs:
         working-directory: relay
         run: CGO_ENABLED=1 GOARCH=386 go build -o relay-386 .
 
+      - name: Build combined
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: combined
+        run: CGO_ENABLED=1 go build .
+
+      - name: Build combined 386
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: combined
+        run: CGO_ENABLED=1 GOARCH=386 go build -o combined-386 .
+
   test:
     name: "Client / Unit"
     needs: [build-cache]
@@ -144,7 +154,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined)
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
@@ -204,7 +214,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /client/ui -e /upload-server)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server)
             '
 
   test_relay:

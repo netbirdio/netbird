@@ -374,74 +374,6 @@ func (a *Account) GetPeerNetworkMap(
 	return nm
 }
 
-// GetProxyConnectionResources returns ACL peers for the proxy-embedded peer based on exposed services.
-// No firewall rules are generated here; the proxy peer is always a new on-demand client with a stateful
-// firewall, so OUT rules are unnecessary. Inbound rules are handled on the target/router peer side.
-func (a *Account) GetProxyConnectionResources(ctx context.Context, exposedServices map[string][]*reverseproxy.Service) []*nbpeer.Peer {
-	var aclPeers []*nbpeer.Peer
-
-	for _, peerServices := range exposedServices {
-		for _, service := range peerServices {
-			if !service.Enabled {
-				continue
-			}
-			for _, target := range service.Targets {
-				if !target.Enabled {
-					continue
-				}
-				if target.TargetType == reverseproxy.TargetTypePeer {
-					tpeer := a.GetPeer(target.TargetId)
-					if tpeer == nil {
-						continue
-					}
-					aclPeers = append(aclPeers, tpeer)
-				}
-			}
-		}
-	}
-
-	return aclPeers
-}
-
-// GetPeerProxyResources returns ACL peers and inbound firewall rules for a peer that is targeted by reverse proxy services.
-// Only IN rules are generated; OUT rules are omitted since proxy peers are always new clients with stateful firewalls.
-// Rules use PortRange only (not the legacy Port field) as this feature only targets current peer versions.
-func (a *Account) GetPeerProxyResources(peerID string, services []*reverseproxy.Service, proxyPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*FirewallRule) {
-	var aclPeers []*nbpeer.Peer
-	var firewallRules []*FirewallRule
-
-	for _, service := range services {
-		if !service.Enabled {
-			continue
-		}
-		for _, target := range service.Targets {
-			if !target.Enabled {
-				continue
-			}
-
-			aclPeers = proxyPeers
-
-			needsPeerRules := (target.TargetType == reverseproxy.TargetTypePeer && target.TargetId == peerID) ||
-				(target.TargetType == reverseproxy.TargetTypeHost || target.TargetType == reverseproxy.TargetTypeSubnet || target.TargetType == reverseproxy.TargetTypeDomain)
-
-			if needsPeerRules {
-				for _, proxyPeer := range proxyPeers {
-					firewallRules = append(firewallRules, &FirewallRule{
-						PolicyID:  "proxy-" + service.ID,
-						PeerIP:    proxyPeer.IP.String(),
-						Direction: FirewallRuleDirectionIN,
-						Action:    "allow",
-						Protocol:  string(PolicyRuleProtocolTCP),
-						PortRange: RulePortRange{Start: uint16(target.Port), End: uint16(target.Port)},
-					})
-				}
-			}
-		}
-	}
-
-	return aclPeers, firewallRules
-}
-
 func (a *Account) addNetworksRoutingPeers(
 	networkResourcesRoutes []*route.Route,
 	peer *nbpeer.Peer,
@@ -1864,71 +1796,6 @@ func (a *Account) GetProxyPeers() map[string][]*nbpeer.Peer {
 	return proxyPeers
 }
 
-func (a *Account) GetPeerProxyRoutes(ctx context.Context, peer *nbpeer.Peer, proxies map[string][]*reverseproxy.Service, resourcesMap map[string]*resourceTypes.NetworkResource, routers map[string]map[string]*routerTypes.NetworkRouter, proxyPeers []*nbpeer.Peer) ([]*route.Route, []*RouteFirewallRule, []*nbpeer.Peer) {
-	sourceRanges := make([]string, 0, len(proxyPeers))
-	for _, proxyPeer := range proxyPeers {
-		sourceRanges = append(sourceRanges, fmt.Sprintf(AllowedIPsFormat, proxyPeer.IP))
-	}
-	peers := make(map[string]*nbpeer.Peer, len(resourcesMap))
-
-	var routes []*route.Route
-	var firewallRules []*RouteFirewallRule
-	for _, proxyPerResource := range proxies {
-		for _, proxy := range proxyPerResource {
-			for _, target := range proxy.Targets {
-				if target.TargetType == reverseproxy.TargetTypeHost || target.TargetType == reverseproxy.TargetTypeSubnet || target.TargetType == reverseproxy.TargetTypeDomain {
-					resource, ok := resourcesMap[target.TargetId]
-					if !ok {
-						log.WithContext(ctx).Warnf("proxy target %s not found in resources map", target.TargetId)
-						continue
-					}
-					networkRouters, ok := routers[resource.NetworkID]
-					if !ok {
-						log.WithContext(ctx).Warnf("proxy target %s not found in routers map", target.TargetId)
-						continue
-					}
-					for peerID, router := range networkRouters {
-						routePeer := a.GetPeer(peerID)
-						route := resource.ToRoute(routePeer, router)
-						routes = append(routes, route)
-						rule := RouteFirewallRule{
-							PolicyID:     fmt.Sprintf("proxy-%s-%s", proxy.ID, route.ID),
-							RouteID:      route.ID,
-							SourceRanges: sourceRanges,
-							Action:       string(PolicyTrafficActionAccept),
-							Destination:  route.Network.String(),
-							Protocol:     string(PolicyRuleProtocolTCP),
-							Domains:      route.Domains,
-							IsDynamic:    route.IsDynamic(),
-							PortRange: RulePortRange{
-								Start: uint16(target.Port),
-								End:   uint16(target.Port),
-							},
-						}
-						firewallRules = append(firewallRules, &rule)
-						peers[peerID] = routePeer
-					}
-				}
-			}
-		}
-	}
-
-	resultPeers := make([]*nbpeer.Peer, 0, len(peers))
-	for _, peer := range peers {
-		resultPeers = append(resultPeers, peer)
-	}
-
-	return routes, firewallRules, resultPeers
-}
-
-func (a *Account) GetResourcesMap() map[string]*resourceTypes.NetworkResource {
-	resourcesMap := make(map[string]*resourceTypes.NetworkResource, len(a.NetworkResources))
-	for _, resource := range a.NetworkResources {
-		resourcesMap[resource.ID] = resource
-	}
-	return resourcesMap
-}
-
 func (a *Account) InjectProxyPolicies(ctx context.Context) {
 	if len(a.Services) == 0 {
 		return
@@ -1943,62 +1810,83 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		if !service.Enabled {
 			continue
 		}
-		for _, target := range service.Targets {
-			if !target.Enabled {
-				continue
-			}
+		a.injectServiceProxyPolicies(ctx, service, proxyPeersByCluster)
+	}
+}
 
-			for _, proxyPeer := range proxyPeersByCluster[service.ProxyCluster] {
-				port := target.Port
-				if port == 0 {
-					switch target.Protocol {
-					case "https":
-						port = 443
-					case "http":
-						port = 80
-					default:
-						log.WithContext(ctx).Warnf("unsupported protocol %s for proxy target %s, skipping policy injection", target.Protocol, target.TargetId)
-						continue
-					}
-				}
-
-				path := ""
-				if target.Path != nil {
-					path = *target.Path
-				}
-				policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
-				a.Policies = append(a.Policies, &Policy{
-					ID:      policyID,
-					Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
-					Enabled: true,
-					Rules: []*PolicyRule{
-						{
-							ID:       policyID,
-							PolicyID: policyID,
-							Name:     fmt.Sprintf("Allow access to %s", service.Name),
-							Enabled:  true,
-							SourceResource: Resource{
-								ID:   proxyPeer.ID,
-								Type: ResourceTypePeer,
-							},
-							DestinationResource: Resource{
-								ID:   target.TargetId,
-								Type: ResourceType(target.TargetType),
-							},
-							Bidirectional: false,
-							Protocol:      PolicyRuleProtocolTCP,
-							Action:        PolicyTrafficActionAccept,
-							PortRanges: []RulePortRange{
-								{
-									Start: uint16(port),
-									End:   uint16(port),
-								},
-							},
-						},
-					},
-				})
-			}
+func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *reverseproxy.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
+	for _, target := range service.Targets {
+		if !target.Enabled {
+			continue
 		}
+		a.injectTargetProxyPolicies(ctx, service, target, proxyPeersByCluster[service.ProxyCluster])
+	}
+}
+
+func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *reverseproxy.Service, target *reverseproxy.Target, proxyPeers []*nbpeer.Peer) {
+	port, ok := a.resolveTargetPort(ctx, target)
+	if !ok {
+		return
+	}
+
+	path := ""
+	if target.Path != nil {
+		path = *target.Path
+	}
+
+	for _, proxyPeer := range proxyPeers {
+		policy := a.createProxyPolicy(service, target, proxyPeer, port, path)
+		a.Policies = append(a.Policies, policy)
+	}
+}
+
+func (a *Account) resolveTargetPort(ctx context.Context, target *reverseproxy.Target) (int, bool) {
+	if target.Port != 0 {
+		return target.Port, true
+	}
+
+	switch target.Protocol {
+	case "https":
+		return 443, true
+	case "http":
+		return 80, true
+	default:
+		log.WithContext(ctx).Warnf("unsupported protocol %s for proxy target %s, skipping policy injection", target.Protocol, target.TargetId)
+		return 0, false
+	}
+}
+
+func (a *Account) createProxyPolicy(service *reverseproxy.Service, target *reverseproxy.Target, proxyPeer *nbpeer.Peer, port int, path string) *Policy {
+	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
+	return &Policy{
+		ID:      policyID,
+		Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:       policyID,
+				PolicyID: policyID,
+				Name:     fmt.Sprintf("Allow access to %s", service.Name),
+				Enabled:  true,
+				SourceResource: Resource{
+					ID:   proxyPeer.ID,
+					Type: ResourceTypePeer,
+				},
+				DestinationResource: Resource{
+					ID:   target.TargetId,
+					Type: ResourceType(target.TargetType),
+				},
+				Bidirectional: false,
+				Protocol:      PolicyRuleProtocolTCP,
+				Action:        PolicyTrafficActionAccept,
+				PortRanges: []RulePortRange{
+					{
+						Start: uint16(port),
+						End:   uint16(port),
+					},
+				},
+			},
+		},
 	}
 }
 

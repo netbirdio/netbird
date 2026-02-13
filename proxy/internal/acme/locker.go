@@ -84,7 +84,7 @@ func (l *flockLocker) Lock(ctx context.Context, domain string) (func(), error) {
 
 	// nil lockFile means locking is not supported (non-unix).
 	if lockFile == nil {
-		return func() {}, nil
+		return func() { /* no-op: locking unsupported on this platform */ }, nil
 	}
 
 	return func() {
@@ -98,5 +98,5 @@ type noopLocker struct{}
 
 // Lock is a no-op that always succeeds immediately.
 func (noopLocker) Lock(context.Context, string) (func(), error) {
-	return func() {}, nil
+	return func() { /* no-op: locker disabled */ }, nil
 }

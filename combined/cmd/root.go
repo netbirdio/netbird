@@ -62,6 +62,8 @@ Configuration is loaded from a YAML file specified with --config.`,
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to YAML configuration file (required)")
 	_ = rootCmd.MarkPersistentFlagRequired("config")
+
+	rootCmd.AddCommand(newTokenCommands())
 }
 
 func Execute() error {
