@@ -274,10 +274,10 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  DASHBOARD_IMAGE="netbirdio/dashboard:pr-552"
+  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
   # Combined server replaces separate signal, relay, and management containers
-  NETBIRD_SERVER_IMAGE="ghcr.io/netbirdio/netbird-server:pr-5291"
-  NETBIRD_PROXY_IMAGE="ghcr.io/netbirdio/reverse-proxy:pr-5291"
+  NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
+  NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:latest"
 
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
