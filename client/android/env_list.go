@@ -1,10 +1,18 @@
 package android
 
-import "github.com/netbirdio/netbird/client/internal/peer"
+import (
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/client/internal/peer"
+)
 
 var (
-	// EnvKeyNBForceRelay Exported for Android java client
+	// EnvKeyNBForceRelay Exported for Android java client to force relay connections
 	EnvKeyNBForceRelay = peer.EnvKeyNBForceRelay
+
+	// EnvKeyNBLazyConn and EnvKeyNBInactivityThreshold Exported for Android java client to configure
+	// lazy connection and the connection inactivity threshold
+	EnvKeyNBLazyConn            = lazyconn.EnvEnableLazyConn
+	EnvKeyNBInactivityThreshold = lazyconn.EnvInactivityThreshold
 )
 
 // EnvList wraps a Go map for export to Java
