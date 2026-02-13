@@ -200,10 +200,11 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
+		// Update count even on error to ensure cleanup covers partially created rules
+		r.nrptEntryCount = count
 		if err != nil {
 			return fmt.Errorf("add dns match policy: %w", err)
 		}
-		r.nrptEntryCount = count
 	} else {
 		r.nrptEntryCount = 0
 	}
