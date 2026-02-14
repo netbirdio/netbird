@@ -1150,7 +1150,9 @@ print_builtin_traefik_instructions() {
   echo "  NETBIRD SETUP COMPLETE"
   echo "$MSG_SEPARATOR"
   echo ""
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "You can access the NetBird dashboard at:"
+  echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo ""
   echo "Follow the onboarding steps to set up your NetBird instance."
   echo ""
   echo "Traefik is handling TLS certificates automatically via Let's Encrypt."
@@ -1166,7 +1168,10 @@ print_builtin_traefik_instructions() {
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
-    echo "  Point your proxy domains (CNAMEs) to this server's IP address."
+    echo "  Point your proxy domain to this server's domain address like in the example below:"
+    echo ""
+    echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo ""
   fi
   return 0
 }
