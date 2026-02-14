@@ -473,8 +473,6 @@ func (m *managerImpl) ReloadAllServicesForAccount(ctx context.Context, accountID
 		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
-
 	return nil
 }
 

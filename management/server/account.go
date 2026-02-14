@@ -297,6 +297,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
+	var reloadReverseProxy bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -327,9 +328,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
-			if err = am.reverseProxyManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
-				log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
-			}
+			reloadReverseProxy = true
 			updateAccountPeers = true
 		}
 
@@ -393,6 +392,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
+	}
+	if reloadReverseProxy {
+		if err = am.reverseProxyManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
+		}
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
