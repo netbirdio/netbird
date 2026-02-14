@@ -408,6 +408,8 @@ jobs:
       - name: check git status
         run: git --no-pager diff --exit-code
 
+      - run: echo ${{ github.repository }}  - ${{ github.head.repo.full_name }} - ${{ github.head_ref }}
+
       - name: Login to Docker hub
         if: github.repository == github.head.repo.full_name || !github.head_ref
         uses: docker/login-action@v1
