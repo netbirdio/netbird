@@ -415,6 +415,10 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
+      - name: docker login for root user
+        if: github.head.repo.full_name  == '' || github.repository == github.head.repo.full_name || !github.head_ref
+        run: sudo docker login --username ${{ secrets.DOCKER_USER }} --password ${{ secrets.DOCKER_TOKEN }}
+
       - name: download mysql image
         if: matrix.store == 'mysql'
         run: docker pull mlsmaycon/warmed-mysql:8
@@ -502,6 +506,10 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: docker login for root user
+        if: github.head.repo.full_name  == '' || github.repository == github.head.repo.full_name || !github.head_ref
+        run: sudo docker login --username ${{ secrets.DOCKER_USER }} --password ${{ secrets.DOCKER_TOKEN }}
 
       - name: download mysql image
         if: matrix.store == 'mysql'
@@ -591,6 +599,10 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: docker login for root user
+        if: github.head.repo.full_name  == '' || github.repository == github.head.repo.full_name || !github.head_ref
+        run: sudo docker login --username ${{ secrets.DOCKER_USER }} --password ${{ secrets.DOCKER_TOKEN }}
 
       - name: download mysql image
         if: matrix.store == 'mysql'
