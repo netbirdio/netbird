@@ -399,7 +399,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 	}
 
-	if !reloadReverseProxy && (updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers) {
+	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
 		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
