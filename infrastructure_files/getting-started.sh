@@ -190,7 +190,7 @@ read_proxy_domain() {
   echo "to avoid TLS certificate conflicts." > /dev/stderr
   echo "" > /dev/stderr
   echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
-  echo "e.g. *.${suggested_proxy} pointing to the same server IP as $NETBIRD_DOMAIN." > /dev/stderr
+  echo "e.g. *.${suggested_proxy} pointing to the same server domain as $NETBIRD_DOMAIN with a CNAME record." > /dev/stderr
   echo "" > /dev/stderr
   echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
   read -r READ_PROXY_DOMAIN < /dev/tty
