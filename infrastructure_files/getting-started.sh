@@ -183,14 +183,14 @@ read_enable_proxy() {
 }
 
 read_proxy_domain() {
-  local suggested_proxy="proxy.${NETBIRD_DOMAIN}"
+  local suggested_proxy="proxy.${BASE_DOMAIN}"
 
   echo "" > /dev/stderr
   echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
   echo "to avoid TLS certificate conflicts." > /dev/stderr
   echo "" > /dev/stderr
   echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
-  echo "e.g. *.${suggested_proxy} pointing to the same server IP as $NETBIRD_DOMAIN." > /dev/stderr
+  echo "e.g. *.${suggested_proxy} pointing to the same server domain as $NETBIRD_DOMAIN with a CNAME record." > /dev/stderr
   echo "" > /dev/stderr
   echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
   read -r READ_PROXY_DOMAIN < /dev/tty
@@ -202,13 +202,16 @@ read_proxy_domain() {
   fi
 
   if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
-    echo "The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
 
-  if [[ "$READ_PROXY_DOMAIN" == *".${NETBIRD_DOMAIN}" ]]; then
-    echo "The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+  echo ${READ_PROXY_DOMAIN} | grep ${NETBIRD_DOMAIN} > /dev/null
+  if [[ $? -eq 0 ]]; then
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
@@ -340,10 +343,12 @@ configure_domain() {
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+    BASE_DOMAIN=$NETBIRD_DOMAIN
   else
     NETBIRD_PORT=443
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
+    BASE_DOMAIN=$(echo $NETBIRD_DOMAIN | sed -E 's/^[^.]+\.//')
   fi
   return 0
 }
@@ -566,6 +571,8 @@ render_docker_compose_traefik_builtin() {
     # Hairpin NAT fix: route domain back to traefik's static IP within Docker
     extra_hosts:
       - \"$NETBIRD_DOMAIN:172.30.0.10\"
+    ports:
+    - 51820:51820/udp
     restart: unless-stopped
     networks: [netbird]
     depends_on:
@@ -1150,23 +1157,29 @@ print_builtin_traefik_instructions() {
   echo "  NETBIRD SETUP COMPLETE"
   echo "$MSG_SEPARATOR"
   echo ""
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "You can access the NetBird dashboard at:"
+  echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo ""
   echo "Follow the onboarding steps to set up your NetBird instance."
   echo ""
   echo "Traefik is handling TLS certificates automatically via Let's Encrypt."
   echo "If you see certificate warnings, wait a moment for certificate issuance to complete."
   echo ""
   echo "Open ports:"
-  echo "  - 443/tcp  (HTTPS - all NetBird services)"
-  echo "  - 80/tcp   (HTTP - redirects to HTTPS)"
-  echo "  - $NETBIRD_STUN_PORT/udp  (STUN - required for NAT traversal)"
+  echo "  - 443/tcp   (HTTPS - all NetBird services)"
+  echo "  - 80/tcp    (HTTP - redirects to HTTPS)"
+  echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
     echo ""
     echo "NetBird Proxy:"
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
-    echo "  Point your proxy domains (CNAMEs) to this server's IP address."
+    echo "  Point your proxy domain to this server's domain address like in the example below:"
+    echo ""
+    echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo ""
   fi
   return 0
 }
