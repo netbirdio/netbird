@@ -571,6 +571,8 @@ render_docker_compose_traefik_builtin() {
     # Hairpin NAT fix: route domain back to traefik's static IP within Docker
     extra_hosts:
       - \"$NETBIRD_DOMAIN:172.30.0.10\"
+    ports:
+    - '51820:51820/udp'
     restart: unless-stopped
     networks: [netbird]
     depends_on:
