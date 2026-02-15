@@ -24,4 +24,5 @@ type Client interface {
 	IsHealthy() bool
 	SyncMeta(sysInfo *system.Info) error
 	Logout() error
+	ExposeService(ctx context.Context, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error
 }

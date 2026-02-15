@@ -76,6 +76,8 @@ type DaemonServiceClient interface {
 	StopCPUProfile(ctx context.Context, in *StopCPUProfileRequest, opts ...grpc.CallOption) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error)
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error)
 }
 
 type daemonServiceClient struct {
@@ -424,6 +426,38 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 	return out, nil
 }
 
+func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/ExposeService", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceExposeServiceClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_ExposeServiceClient interface {
+	Recv() (*ExposeServiceEvent, error)
+	grpc.ClientStream
+}
+
+type daemonServiceExposeServiceClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceExposeServiceClient) Recv() (*ExposeServiceEvent, error) {
+	m := new(ExposeServiceEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -486,6 +520,8 @@ type DaemonServiceServer interface {
 	StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error)
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -597,6 +633,9 @@ func (UnimplementedDaemonServiceServer) NotifyOSLifecycle(context.Context, *OSLi
 }
 func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstallerResult not implemented")
+}
+func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error {
+	return status.Errorf(codes.Unimplemented, "method ExposeService not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1244,6 +1283,27 @@ func _DaemonService_GetInstallerResult_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_ExposeService_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ExposeServiceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).ExposeService(m, &daemonServiceExposeServiceServer{stream})
+}
+
+type DaemonService_ExposeServiceServer interface {
+	Send(*ExposeServiceEvent) error
+	grpc.ServerStream
+}
+
+type daemonServiceExposeServiceServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceExposeServiceServer) Send(m *ExposeServiceEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1392,6 +1452,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _DaemonService_SubscribeEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExposeService",
+			Handler:       _DaemonService_ExposeService_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -221,6 +221,10 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 	}
 }
 
+func (m Manager) GetClusterDomains() []string {
+	return m.proxyURLAllowList()
+}
+
 // proxyURLAllowList retrieves a list of currently connected proxies and
 // their URLs
 func (m Manager) proxyURLAllowList() []string {

@@ -231,6 +231,14 @@ func (m *storeBackedServiceManager) GetServiceIDByTargetID(ctx context.Context, 
 	return "", nil
 }
 
+func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return nil, nil
+}
+
+func (m *storeBackedServiceManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func strPtr(s string) *string {
 	return &s
 }

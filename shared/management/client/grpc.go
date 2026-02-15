@@ -690,6 +690,67 @@ func (c *GrpcClient) Logout() error {
 	return nil
 }
 
+// ExposeService opens a bidirectional stream to the management server to expose a local port.
+func (c *GrpcClient) ExposeService(ctx context.Context, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error {
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+		return c.handleExposeStream(ctx, serverPubKey, req, onReady)
+	})
+}
+
+func (c *GrpcClient) handleExposeStream(ctx context.Context, serverPubKey wgtypes.Key, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error {
+	ctx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
+	stream, err := c.realClient.ExposeService(ctx)
+	if err != nil {
+		log.Errorf("failed to open expose stream: %v", err)
+		return err
+	}
+
+	encReq, err := encryption.EncryptMessage(serverPubKey, c.key, req)
+	if err != nil {
+		log.Errorf("failed to encrypt expose request: %v", err)
+		return err
+	}
+	if err := stream.Send(&proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	}); err != nil {
+		return fmt.Errorf("send expose request: %w", err)
+	}
+
+	msg, err := stream.Recv()
+	if err != nil {
+		if s, ok := gstatus.FromError(err); ok {
+			switch s.Code() {
+			case codes.PermissionDenied, codes.AlreadyExists, codes.InvalidArgument:
+				return backoff.Permanent(err)
+			case codes.Unimplemented:
+				log.Warn("ExposeService is not supported by the current management server version")
+				return backoff.Permanent(err)
+			}
+		}
+		return err
+	}
+
+	resp := &proto.ExposeServiceResponse{}
+	if err := encryption.DecryptMessage(serverPubKey, c.key, msg.Body, resp); err != nil {
+		return fmt.Errorf("decrypt expose response: %w", err)
+	}
+
+	onReady(resp)
+
+	for {
+		_, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil

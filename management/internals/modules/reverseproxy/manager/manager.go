@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ const unknownHostPlaceholder = "unknown"
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
+	GetClusterDomains() []string
 }
 
 type managerImpl struct {
@@ -536,4 +538,101 @@ func (m *managerImpl) GetServiceIDByTargetID(ctx context.Context, accountID stri
 	}
 
 	return target.ServiceID, nil
+}
+
+// CreateServiceFromPeer creates a service initiated by a peer expose request.
+// It skips user permission checks since authorization is done at the gRPC handler level.
+func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peerID string, service *reverseproxy.Service) (*reverseproxy.Service, error) {
+	service.Source = reverseproxy.SourcePeer
+
+	if service.Domain == "" {
+		domain, err := m.buildRandomDomain(service.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build random domain for service %s: %w", service.ID, err)
+		}
+		service.Domain = domain
+	}
+
+	if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled {
+		groupIDs, err := m.getGroupIDsFromNames(ctx, accountID, service.Auth.BearerAuth.DistributionGroups)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get group ids for service %s: %w", service.ID, err)
+		}
+		service.Auth.BearerAuth.DistributionGroups = groupIDs
+	}
+
+	if err := m.initializeServiceForCreate(ctx, accountID, service); err != nil {
+		return nil, err
+	}
+
+	if err := m.persistNewService(ctx, accountID, service); err != nil {
+		return nil, err
+	}
+
+	if err := m.replaceHostByLookup(ctx, accountID, service); err != nil {
+		return nil, fmt.Errorf("replace host by lookup for service %s: %w", service.ID, err)
+	}
+
+	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return service, nil
+}
+
+func (m *managerImpl) getGroupIDsFromNames(ctx context.Context, accountID string, groupNames []string) ([]string, error) {
+	if len(groupNames) == 0 {
+		return []string{}, fmt.Errorf("no group names provided")
+	}
+	groupIDs := make([]string, len(groupNames))
+	for _, groupName := range groupNames {
+		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get group by name %s: %w", groupName, err)
+		}
+		groupIDs = append(groupIDs, g.ID)
+	}
+	return groupIDs, nil
+}
+
+func (m *managerImpl) buildRandomDomain(name string) (string, error) {
+	clusterDomains := m.clusterDeriver.GetClusterDomains()
+	if len(clusterDomains) == 0 {
+		return "", fmt.Errorf("no cluster domains found for service %s", name)
+	}
+	index := rand.IntN(len(clusterDomains))
+	domain := name + "." + clusterDomains[index]
+	return domain, nil
+}
+
+// DeleteServiceFromPeer deletes a peer-initiated service.
+// It validates that the service was created by a peer to prevent deleting API-created services.
+func (m *managerImpl) DeleteServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
+	var service *reverseproxy.Service
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		if service.Source != reverseproxy.SourcePeer {
+			return status.Errorf(status.PermissionDenied, "cannot delete API-created service via peer expose")
+		}
+
+		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
 }

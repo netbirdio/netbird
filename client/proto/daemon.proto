@@ -103,6 +103,9 @@ service DaemonService {
   rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
 
   rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
+
+  // ExposeService exposes a local port via the NetBird reverse proxy
+  rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
 }
 
 
@@ -800,4 +803,44 @@ message InstallerResultRequest {
 message InstallerResultResponse {
   bool success = 1;
   string errorMsg = 2;
+}
+
+enum ExposeProtocol {
+  EXPOSE_HTTP = 0;
+  EXPOSE_HTTPS = 1;
+  EXPOSE_TCP = 2;
+  EXPOSE_UDP = 3;
+}
+
+message ExposeServiceRequest {
+  uint32 port = 1;
+  ExposeProtocol protocol = 2;
+  string pin = 3;
+  string password = 4;
+  repeated string user_groups = 5;
+  string domain = 6;
+  string name_prefix = 7;
+}
+
+message ExposeServiceEvent {
+  oneof event {
+    ExposeServiceReady ready = 1;
+    ExposeServiceStopped stopped = 2;
+    ExposeServiceError error = 3;
+  }
+}
+
+message ExposeServiceReady {
+  string service_id = 1;
+  string service_name = 2;
+  string service_url = 3;
+  string domain = 4;
+}
+
+message ExposeServiceStopped {
+  string reason = 1;
+}
+
+message ExposeServiceError {
+  string message = 1;
 }

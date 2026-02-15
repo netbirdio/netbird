@@ -378,12 +378,24 @@ components:
           description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
           type: boolean
           example: true
+        peer_expose_enabled:
+          description: Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
+          type: boolean
+          example: false
+        peer_expose_groups:
+          description: Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
       required:
         - peer_approval_enabled
         - user_approval_required
         - network_traffic_logs_enabled
         - network_traffic_logs_groups
         - network_traffic_packet_counter_enabled
+        - peer_expose_enabled
+        - peer_expose_groups
     AccountRequest:
       type: object
       properties:

@@ -52,6 +52,8 @@ type ManagementServiceClient interface {
 	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
 	Job(ctx context.Context, opts ...grpc.CallOption) (ManagementService_JobClient, error)
+	// ExposeService creates a temporary reverse proxy service for a peer
+	ExposeService(ctx context.Context, opts ...grpc.CallOption) (ManagementService_ExposeServiceClient, error)
 }
 
 type managementServiceClient struct {
@@ -188,6 +190,37 @@ func (x *managementServiceJobClient) Recv() (*EncryptedMessage, error) {
 	return m, nil
 }
 
+func (c *managementServiceClient) ExposeService(ctx context.Context, opts ...grpc.CallOption) (ManagementService_ExposeServiceClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ManagementService_ServiceDesc.Streams[2], "/management.ManagementService/ExposeService", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &managementServiceExposeServiceClient{stream}
+	return x, nil
+}
+
+type ManagementService_ExposeServiceClient interface {
+	Send(*EncryptedMessage) error
+	Recv() (*EncryptedMessage, error)
+	grpc.ClientStream
+}
+
+type managementServiceExposeServiceClient struct {
+	grpc.ClientStream
+}
+
+func (x *managementServiceExposeServiceClient) Send(m *EncryptedMessage) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *managementServiceExposeServiceClient) Recv() (*EncryptedMessage, error) {
+	m := new(EncryptedMessage)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -226,6 +259,8 @@ type ManagementServiceServer interface {
 	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
 	Job(ManagementService_JobServer) error
+	// ExposeService creates a temporary reverse proxy service for a peer
+	ExposeService(ManagementService_ExposeServiceServer) error
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -259,6 +294,9 @@ func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMe
 }
 func (UnimplementedManagementServiceServer) Job(ManagementService_JobServer) error {
 	return status.Errorf(codes.Unimplemented, "method Job not implemented")
+}
+func (UnimplementedManagementServiceServer) ExposeService(ManagementService_ExposeServiceServer) error {
+	return status.Errorf(codes.Unimplemented, "method ExposeService not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -446,6 +484,32 @@ func (x *managementServiceJobServer) Recv() (*EncryptedMessage, error) {
 	return m, nil
 }
 
+func _ManagementService_ExposeService_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ManagementServiceServer).ExposeService(&managementServiceExposeServiceServer{stream})
+}
+
+type ManagementService_ExposeServiceServer interface {
+	Send(*EncryptedMessage) error
+	Recv() (*EncryptedMessage, error)
+	grpc.ServerStream
+}
+
+type managementServiceExposeServiceServer struct {
+	grpc.ServerStream
+}
+
+func (x *managementServiceExposeServiceServer) Send(m *EncryptedMessage) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *managementServiceExposeServiceServer) Recv() (*EncryptedMessage, error) {
+	m := new(EncryptedMessage)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -491,6 +555,12 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Job",
 			Handler:       _ManagementService_Job_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ExposeService",
+			Handler:       _ManagementService_ExposeService_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

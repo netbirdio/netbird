@@ -295,6 +295,14 @@ func (m *testValidateSessionProxyManager) GetServiceIDByTargetID(_ context.Conte
 	return "", nil
 }
 
+func (m *testValidateSessionProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
@@ -302,3 +310,5 @@ type testValidateSessionUsersManager struct {
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 }
+
+//nbx_V0roAjwD71s3SMxY1C1qaZTmxhsXtn3V7r3Z

@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -1310,6 +1311,89 @@ func (s *Server) WaitJWTToken(
 		TokenType: tokenInfo.TokenType,
 		ExpiresIn: int64(tokenInfo.ExpiresIn),
 	}, nil
+}
+
+// ExposeService exposes a local port via the NetBird reverse proxy.
+func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+	}
+	config := s.config
+	s.mutex.Unlock()
+
+	ctx := srv.Context()
+
+	key, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		return gstatus.Errorf(codes.Internal, "parse private key: %v", err)
+	}
+
+	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
+	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, key, mgmTlsEnabled)
+	if err != nil {
+		return gstatus.Errorf(codes.Internal, "connect to management: %v", err)
+	}
+	defer func() {
+		if err := mgmClient.Close(); err != nil {
+			log.Debugf("failed to close management client: %v", err)
+		}
+	}()
+
+	mgmtReq := &mgmProto.ExposeServiceRequest{
+		Port:       req.Port,
+		Protocol:   mgmProto.ExposeProtocol(req.Protocol),
+		Pin:        req.Pin,
+		Password:   req.Password,
+		UserGroups: req.UserGroups,
+		Domain:     req.Domain,
+		NamePrefix: req.NamePrefix,
+	}
+
+	responseCh := make(chan *mgmProto.ExposeServiceResponse, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		err := mgmClient.ExposeService(ctx, mgmtReq, func(resp *mgmProto.ExposeServiceResponse) {
+			responseCh <- resp
+		})
+		errCh <- err
+	}()
+
+	select {
+	case resp := <-responseCh:
+		if err := srv.Send(&proto.ExposeServiceEvent{
+			Event: &proto.ExposeServiceEvent_Ready{
+				Ready: &proto.ExposeServiceReady{
+					ServiceId:   resp.ServiceId,
+					ServiceName: resp.ServiceName,
+					ServiceUrl:  resp.ServiceUrl,
+					Domain:      resp.Domain,
+				},
+			},
+		}); err != nil {
+			return err
+		}
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			_ = srv.Send(&proto.ExposeServiceEvent{
+				Event: &proto.ExposeServiceEvent_Stopped{
+					Stopped: &proto.ExposeServiceStopped{Reason: err.Error()},
+				},
+			})
+		}
+		return err
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 func isUnixRunningDesktop() bool {

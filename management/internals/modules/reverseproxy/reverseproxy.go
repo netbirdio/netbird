@@ -1,8 +1,10 @@
 package reverseproxy
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
 	"strconv"
@@ -40,6 +42,9 @@ const (
 	TargetTypeHost   = "host"
 	TargetTypeDomain = "domain"
 	TargetTypeSubnet = "subnet"
+
+	SourceAPI  = "api"
+	SourcePeer = "peer"
 )
 
 type Target struct {
@@ -132,6 +137,7 @@ type Service struct {
 	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string      `gorm:"column:session_private_key"`
 	SessionPublicKey  string      `gorm:"column:session_public_key"`
+	Source            string      `gorm:"default:'api'"`
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
@@ -403,7 +409,7 @@ func (s *Service) Validate() error {
 }
 
 func (s *Service) EventMeta() map[string]any {
-	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster}
+	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster, "source": s.Source}
 }
 
 func (s *Service) Copy() *Service {
@@ -427,6 +433,7 @@ func (s *Service) Copy() *Service {
 		Meta:              s.Meta,
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
+		Source:            s.Source,
 	}
 }
 
@@ -460,4 +467,37 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// GenerateExposeName generates a random service name for peer-exposed services.
+func GenerateExposeName(prefix string) (string, error) {
+	suffixLen := 12
+	if prefix != "" {
+		suffixLen = 4
+	}
+
+	suffix, err := randomAlphanumeric(suffixLen)
+	if err != nil {
+		return "", fmt.Errorf("generate random name: %w", err)
+	}
+
+	if prefix == "" {
+		return suffix, nil
+	}
+	return prefix + "-" + suffix, nil
+}
+
+func randomAlphanumeric(n int) (string, error) {
+	result := make([]byte, n)
+	charsetLen := big.NewInt(int64(len(alphanumCharset)))
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		result[i] = alphanumCharset[idx.Int64()]
+	}
+	return string(result), nil
 }

@@ -208,6 +208,11 @@ const (
 	ServiceUpdated Activity = 109
 	ServiceDeleted Activity = 110
 
+	// PeerServiceExposed indicates that a peer exposed a service via the reverse proxy
+	PeerServiceExposed Activity = 111
+	// PeerServiceUnexposed indicates that a peer-exposed service was removed
+	PeerServiceUnexposed Activity = 112
+
 	AccountDeleted Activity = 99999
 )
 
@@ -345,6 +350,9 @@ var activityMap = map[Activity]Code{
 	ServiceCreated: {"Service created", "service.create"},
 	ServiceUpdated: {"Service updated", "service.update"},
 	ServiceDeleted: {"Service deleted", "service.delete"},
+
+	PeerServiceExposed:   {"Peer exposed service", "service.peer.expose"},
+	PeerServiceUnexposed: {"Peer unexposed service", "service.peer.unexpose"},
 }
 
 // StringCode returns a string code of the activity

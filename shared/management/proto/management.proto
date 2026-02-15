@@ -51,6 +51,9 @@ service ManagementService {
 
   // Executes a job on a target peer (e.g., debug bundle)
   rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
+
+  // ExposeService creates a temporary reverse proxy service for a peer
+  rpc ExposeService(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -636,4 +639,34 @@ message ForwardingRule {
 
   // Translated port information, where the traffic should be forwarded to
   PortInfo translatedPort = 4;
+}
+
+enum ExposeProtocol {
+  EXPOSE_HTTP = 0;
+  EXPOSE_HTTPS = 1;
+  EXPOSE_TCP = 2;
+  EXPOSE_UDP = 3;
+}
+
+message ExposeServiceRequest {
+  uint32 port = 1;
+  ExposeProtocol protocol = 2;
+  string pin = 3;
+  string password = 4;
+  repeated string user_groups = 5;
+  string domain = 6;
+  string name_prefix = 7;
+}
+
+message ExposeServiceResponse {
+  string service_id = 1;
+  string service_name = 2;
+  string service_url = 3;
+  string domain = 4;
+}
+
+message ExposeServiceKeepAlive {}
+
+message ExposeServiceError {
+  string message = 1;
 }

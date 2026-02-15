@@ -184,6 +184,8 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
+			PeerExposeEnabled:        req.Settings.Extra.PeerExposeEnabled,
+			PeerExposeGroups:         req.Settings.Extra.PeerExposeGroups,
 		}
 	}
 
@@ -360,6 +362,8 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
 			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
+			PeerExposeEnabled:                  settings.Extra.PeerExposeEnabled,
+			PeerExposeGroups:                   settings.Extra.PeerExposeGroups,
 		}
 	}
 

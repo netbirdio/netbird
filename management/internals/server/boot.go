@@ -152,6 +152,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
+		srv.SetReverseProxyManager(s.ReverseProxyManager())
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
