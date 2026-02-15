@@ -183,7 +183,7 @@ read_enable_proxy() {
 }
 
 read_proxy_domain() {
-  local suggested_proxy="proxy.${NETBIRD_DOMAIN}"
+  local suggested_proxy="proxy.${BASE_DOMAIN}"
 
   echo "" > /dev/stderr
   echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
@@ -202,13 +202,16 @@ read_proxy_domain() {
   fi
 
   if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
-    echo "The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
 
-  if [[ "$READ_PROXY_DOMAIN" == *".${NETBIRD_DOMAIN}" ]]; then
-    echo "The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+  echo ${READ_PROXY_DOMAIN} | grep ${NETBIRD_DOMAIN} > /dev/null
+  if [[ $? -eq 0 ]]; then
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
@@ -340,10 +343,12 @@ configure_domain() {
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+    BASE_DOMAIN=$NETBIRD_DOMAIN
   else
     NETBIRD_PORT=443
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
+    BASE_DOMAIN=$(echo $NETBIRD_DOMAIN | sed -E 's/^[^.]+\.//')
   fi
   return 0
 }
@@ -1159,10 +1164,11 @@ print_builtin_traefik_instructions() {
   echo "If you see certificate warnings, wait a moment for certificate issuance to complete."
   echo ""
   echo "Open ports:"
-  echo "  - 443/tcp  (HTTPS - all NetBird services)"
-  echo "  - 80/tcp   (HTTP - redirects to HTTPS)"
-  echo "  - $NETBIRD_STUN_PORT/udp  (STUN - required for NAT traversal)"
+  echo "  - 443/tcp   (HTTPS - all NetBird services)"
+  echo "  - 80/tcp    (HTTP - redirects to HTTPS)"
+  echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
     echo ""
     echo "NetBird Proxy:"
     echo "  The proxy service is enabled and running."
