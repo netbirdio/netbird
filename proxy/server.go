@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	proxyproto "github.com/pires/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -92,7 +93,7 @@ type Server struct {
 	DebugEndpointEnabled bool
 	// DebugEndpointAddress is the address for the debug HTTP endpoint (default: ":8444").
 	DebugEndpointAddress string
-	// HealthAddress is the address for the health probe endpoint (default: "localhost:8080").
+	// HealthAddress is the address for the health probe endpoint.
 	HealthAddress string
 	// ProxyToken is the access token for authenticating with the management server.
 	ProxyToken string
@@ -107,6 +108,10 @@ type Server struct {
 	// random OS-assigned port. A fixed port only works with single-account
 	// deployments; multiple accounts will fail to bind the same port.
 	WireguardPort int
+	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
+	// When enabled, the real client IP is extracted from the PROXY header
+	// sent by upstream L4 proxies that support PROXY protocol.
+	ProxyProtocol bool
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -137,23 +142,8 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, service
 }
 
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
-	s.startTime = time.Now()
+	s.initDefaults()
 
-	// If no ID is set then one can be generated.
-	if s.ID == "" {
-		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
-	}
-	// Fallback version option in case it is not set.
-	if s.Version == "" {
-		s.Version = "dev"
-	}
-
-	// If no logger is specified fallback to the standard logger.
-	if s.Logger == nil {
-		s.Logger = log.StandardLogger()
-	}
-
-	// Start up metrics gathering
 	reg := prometheus.NewRegistry()
 	s.meter = metrics.New(reg)
 
@@ -189,40 +179,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
 
-	if s.DebugEndpointEnabled {
-		debugAddr := debugEndpointAddr(s.DebugEndpointAddress)
-		debugHandler := debug.NewHandler(s.netbird, s.healthChecker, s.Logger)
-		if s.acme != nil {
-			debugHandler.SetCertStatus(s.acme)
-		}
-		s.debug = &http.Server{
-			Addr:     debugAddr,
-			Handler:  debugHandler,
-			ErrorLog: newHTTPServerLogger(s.Logger, logtagValueDebug),
-		}
-		go func() {
-			s.Logger.Infof("starting debug endpoint on %s", debugAddr)
-			if err := s.debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.Logger.Errorf("debug endpoint error: %v", err)
-			}
-		}()
-	}
+	s.startDebugEndpoint()
 
-	// Start health probe server.
-	healthAddr := s.HealthAddress
-	if healthAddr == "" {
-		healthAddr = "localhost:8080"
+	if err := s.startHealthServer(reg); err != nil {
+		return err
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	healthListener, err := net.Listen("tcp", healthAddr)
-	if err != nil {
-		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
-	}
-	go func() {
-		if err := s.healthServer.Serve(healthListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.Logger.Errorf("health probe server: %v", err)
-		}
-	}()
 
 	// Start the reverse proxy HTTPS server.
 	s.https = &http.Server{
@@ -232,10 +193,19 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		ErrorLog:  newHTTPServerLogger(s.Logger, logtagValueHTTPS),
 	}
 
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	if s.ProxyProtocol {
+		ln = s.wrapProxyProtocol(ln)
+	}
+
 	httpsErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debugf("starting reverse proxy server on %s", addr)
-		httpsErr <- s.https.ListenAndServeTLS("", "")
+		httpsErr <- s.https.ServeTLS(ln, "", "")
 	}()
 
 	select {
@@ -251,7 +221,115 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}
 }
 
+// initDefaults sets fallback values for optional Server fields.
+func (s *Server) initDefaults() {
+	s.startTime = time.Now()
+
+	// If no ID is set then one can be generated.
+	if s.ID == "" {
+		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
+	}
+	// Fallback version option in case it is not set.
+	if s.Version == "" {
+		s.Version = "dev"
+	}
+
+	// If no logger is specified fallback to the standard logger.
+	if s.Logger == nil {
+		s.Logger = log.StandardLogger()
+	}
+}
+
+// startDebugEndpoint launches the debug HTTP server if enabled.
+func (s *Server) startDebugEndpoint() {
+	if !s.DebugEndpointEnabled {
+		return
+	}
+	debugAddr := debugEndpointAddr(s.DebugEndpointAddress)
+	debugHandler := debug.NewHandler(s.netbird, s.healthChecker, s.Logger)
+	if s.acme != nil {
+		debugHandler.SetCertStatus(s.acme)
+	}
+	s.debug = &http.Server{
+		Addr:     debugAddr,
+		Handler:  debugHandler,
+		ErrorLog: newHTTPServerLogger(s.Logger, logtagValueDebug),
+	}
+	go func() {
+		s.Logger.Infof("starting debug endpoint on %s", debugAddr)
+		if err := s.debug.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.Logger.Errorf("debug endpoint error: %v", err)
+		}
+	}()
+}
+
+// startHealthServer launches the health probe and metrics server.
+func (s *Server) startHealthServer(reg *prometheus.Registry) error {
+	healthAddr := s.HealthAddress
+	if healthAddr == "" {
+		healthAddr = defaultHealthAddr
+	}
+	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	healthListener, err := net.Listen("tcp", healthAddr)
+	if err != nil {
+		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
+	}
+	go func() {
+		if err := s.healthServer.Serve(healthListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.Logger.Errorf("health probe server: %v", err)
+		}
+	}()
+	return nil
+}
+
+// wrapProxyProtocol wraps a listener with PROXY protocol support.
+// When TrustedProxies is configured, only those sources may send PROXY headers;
+// connections from untrusted sources have any PROXY header ignored.
+func (s *Server) wrapProxyProtocol(ln net.Listener) net.Listener {
+	ppListener := &proxyproto.Listener{
+		Listener:          ln,
+		ReadHeaderTimeout: proxyProtoHeaderTimeout,
+	}
+	if len(s.TrustedProxies) > 0 {
+		ppListener.ConnPolicy = s.proxyProtocolPolicy
+	} else {
+		s.Logger.Warn("PROXY protocol enabled without trusted proxies; any source may send PROXY headers")
+	}
+	s.Logger.Info("PROXY protocol enabled on listener")
+	return ppListener
+}
+
+// proxyProtocolPolicy returns whether to require, skip, or reject the PROXY
+// header based on whether the connection source is in TrustedProxies.
+func (s *Server) proxyProtocolPolicy(opts proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
+	// No logging on reject to prevent abuse
+	tcpAddr, ok := opts.Upstream.(*net.TCPAddr)
+	if !ok {
+		return proxyproto.REJECT, nil
+	}
+	addr, ok := netip.AddrFromSlice(tcpAddr.IP)
+	if !ok {
+		return proxyproto.REJECT, nil
+	}
+	addr = addr.Unmap()
+
+	// called per accept
+	for _, prefix := range s.TrustedProxies {
+		if prefix.Contains(addr) {
+			return proxyproto.REQUIRE, nil
+		}
+	}
+	return proxyproto.IGNORE, nil
+}
+
 const (
+	defaultHealthAddr = "localhost:8080"
+	defaultDebugAddr  = "localhost:8444"
+
+	// proxyProtoHeaderTimeout is the deadline for reading the PROXY protocol
+	// header after accepting a connection.
+	proxyProtoHeaderTimeout = 5 * time.Second
+
 	// shutdownPreStopDelay is the time to wait after receiving a shutdown signal
 	// before draining connections. This allows the load balancer to propagate
 	// the endpoint removal.
@@ -647,7 +725,7 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 // If addr is empty, it defaults to localhost:8444 for security.
 func debugEndpointAddr(addr string) string {
 	if addr == "" {
-		return "localhost:8444"
+		return defaultDebugAddr
 	}
 	return addr
 }
