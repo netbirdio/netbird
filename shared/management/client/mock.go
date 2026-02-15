@@ -21,6 +21,7 @@ type MockClient struct {
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
+	ExposeServiceFunc              func(ctx context.Context, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -100,4 +101,11 @@ func (m *MockClient) Logout() error {
 		return nil
 	}
 	return m.LogoutFunc()
+}
+
+func (m *MockClient) ExposeService(ctx context.Context, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error {
+	if m.ExposeServiceFunc == nil {
+		return nil
+	}
+	return m.ExposeServiceFunc(ctx, req, onReady)
 }

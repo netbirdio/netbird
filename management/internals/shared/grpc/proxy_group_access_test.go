@@ -73,7 +73,7 @@ func (m *mockReverseProxyManager) GetServiceIDByTargetID(_ context.Context, _, _
 }
 
 func (m *mockReverseProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return nil, nil
+	return &reverseproxy.Service{}, nil
 }
 
 func (m *mockReverseProxyManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
