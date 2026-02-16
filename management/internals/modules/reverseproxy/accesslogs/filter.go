@@ -18,9 +18,11 @@ const (
 	DefaultSortOrder = "desc"
 )
 
-// Valid sortable fields mapped to their database column names
+// Valid sortable fields mapped to their database column names or expressions
+// For multi-column sorts, columns are separated by comma (e.g., "host, path")
 var validSortFields = map[string]string{
 	"timestamp":   "timestamp",
+	"url":         "host, path", // Sort by host first, then path
 	"host":        "host",
 	"path":        "path",
 	"method":      "method",
@@ -40,7 +42,7 @@ type AccessLogFilter struct {
 	PageSize int
 
 	// Sorting parameters
-	SortBy    string // Field to sort by: timestamp, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason
+	SortBy    string // Field to sort by: timestamp, url, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason
 	SortOrder string // Sort order: asc or desc (default: desc)
 
 	// Filtering parameters

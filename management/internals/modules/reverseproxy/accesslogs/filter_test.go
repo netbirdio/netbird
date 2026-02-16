@@ -381,6 +381,7 @@ func TestAccessLogFilter_ValidSortFields(t *testing.T) {
 		expectedSortByVal string
 	}{
 		{"timestamp", "timestamp", "timestamp", "timestamp"},
+		{"url", "url", "host, path", "url"},
 		{"host", "host", "host", "host"},
 		{"path", "path", "path", "path"},
 		{"method", "method", "method", "method"},
