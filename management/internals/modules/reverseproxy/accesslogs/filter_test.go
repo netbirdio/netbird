@@ -361,6 +361,201 @@ func TestParseOptionalRFC3339(t *testing.T) {
 	}
 }
 
+func TestAccessLogFilter_SortingDefaults(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+	filter := &AccessLogFilter{}
+	filter.ParseFromRequest(req)
+
+	assert.Equal(t, DefaultSortBy, filter.SortBy, "SortBy should default to timestamp")
+	assert.Equal(t, DefaultSortOrder, filter.SortOrder, "SortOrder should default to desc")
+	assert.Equal(t, "timestamp", filter.GetSortColumn(), "GetSortColumn should return timestamp")
+	assert.Equal(t, "desc", filter.GetSortOrder(), "GetSortOrder should return desc")
+}
+
+func TestAccessLogFilter_ValidSortFields(t *testing.T) {
+	tests := []struct {
+		name              string
+		sortBy            string
+		expectedColumn    string
+		expectedSortByVal string
+	}{
+		{"timestamp", "timestamp", "timestamp", "timestamp"},
+		{"host", "host", "host", "host"},
+		{"path", "path", "path", "path"},
+		{"method", "method", "method", "method"},
+		{"status_code", "status_code", "status_code", "status_code"},
+		{"duration", "duration", "duration", "duration"},
+		{"source_ip", "source_ip", "location_connection_ip", "source_ip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test?sort_by="+tt.sortBy, nil)
+
+			filter := &AccessLogFilter{}
+			filter.ParseFromRequest(req)
+
+			assert.Equal(t, tt.expectedSortByVal, filter.SortBy, "SortBy mismatch")
+			assert.Equal(t, tt.expectedColumn, filter.GetSortColumn(), "GetSortColumn mismatch")
+		})
+	}
+}
+
+func TestAccessLogFilter_InvalidSortField(t *testing.T) {
+	tests := []struct {
+		name     string
+		sortBy   string
+		expected string
+	}{
+		{"invalid field", "invalid_field", DefaultSortBy},
+		{"empty field", "", DefaultSortBy},
+		{"malicious input", "timestamp--DROP", DefaultSortBy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			q := req.URL.Query()
+			q.Set("sort_by", tt.sortBy)
+			req.URL.RawQuery = q.Encode()
+
+			filter := &AccessLogFilter{}
+			filter.ParseFromRequest(req)
+
+			assert.Equal(t, tt.expected, filter.SortBy, "Invalid sort field should default to timestamp")
+			assert.Equal(t, validSortFields[DefaultSortBy], filter.GetSortColumn())
+		})
+	}
+}
+
+func TestAccessLogFilter_SortOrder(t *testing.T) {
+	tests := []struct {
+		name      string
+		sortOrder string
+		expected  string
+	}{
+		{"ascending", "asc", "asc"},
+		{"descending", "desc", "desc"},
+		{"uppercase ASC", "ASC", "asc"},
+		{"uppercase DESC", "DESC", "desc"},
+		{"mixed case Asc", "Asc", "asc"},
+		{"invalid order", "invalid", DefaultSortOrder},
+		{"empty order", "", DefaultSortOrder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test?sort_order="+tt.sortOrder, nil)
+
+			filter := &AccessLogFilter{}
+			filter.ParseFromRequest(req)
+
+			assert.Equal(t, tt.expected, filter.GetSortOrder(), "GetSortOrder mismatch")
+		})
+	}
+}
+
+func TestAccessLogFilter_CompleteSortingScenarios(t *testing.T) {
+	tests := []struct {
+		name           string
+		sortBy         string
+		sortOrder      string
+		expectedColumn string
+		expectedOrder  string
+	}{
+		{
+			name:           "sort by host ascending",
+			sortBy:         "host",
+			sortOrder:      "asc",
+			expectedColumn: "host",
+			expectedOrder:  "asc",
+		},
+		{
+			name:           "sort by duration descending",
+			sortBy:         "duration",
+			sortOrder:      "desc",
+			expectedColumn: "duration",
+			expectedOrder:  "desc",
+		},
+		{
+			name:           "sort by status_code ascending",
+			sortBy:         "status_code",
+			sortOrder:      "asc",
+			expectedColumn: "status_code",
+			expectedOrder:  "asc",
+		},
+		{
+			name:           "invalid sort with valid order",
+			sortBy:         "invalid",
+			sortOrder:      "asc",
+			expectedColumn: "timestamp",
+			expectedOrder:  "asc",
+		},
+		{
+			name:           "valid sort with invalid order",
+			sortBy:         "method",
+			sortOrder:      "invalid",
+			expectedColumn: "method",
+			expectedOrder:  DefaultSortOrder,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test?sort_by="+tt.sortBy+"&sort_order="+tt.sortOrder, nil)
+
+			filter := &AccessLogFilter{}
+			filter.ParseFromRequest(req)
+
+			assert.Equal(t, tt.expectedColumn, filter.GetSortColumn())
+			assert.Equal(t, tt.expectedOrder, filter.GetSortOrder())
+		})
+	}
+}
+
+func TestParseSortField(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"valid field", "host", "host"},
+		{"empty string", "", DefaultSortBy},
+		{"invalid field", "invalid", DefaultSortBy},
+		{"malicious input", "timestamp--DROP", DefaultSortBy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseSortField(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseSortOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"asc lowercase", "asc", "asc"},
+		{"desc lowercase", "desc", "desc"},
+		{"ASC uppercase", "ASC", "asc"},
+		{"DESC uppercase", "DESC", "desc"},
+		{"invalid", "invalid", DefaultSortOrder},
+		{"empty", "", DefaultSortOrder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseSortOrder(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // Helper functions for creating pointers
 func strPtr(s string) *string {
 	return &s
