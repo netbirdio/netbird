@@ -80,4 +80,8 @@ func init() {
 	migrationCmd.AddCommand(upCmd)
 
 	rootCmd.AddCommand(migrationCmd)
+
+	tc := newTokenCommands()
+	tc.PersistentFlags().StringVar(&nbconfig.MgmtConfigPath, "config", defaultMgmtConfig, "Netbird config file location")
+	rootCmd.AddCommand(tc)
 }

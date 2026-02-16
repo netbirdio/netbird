@@ -21,6 +21,8 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
@@ -92,7 +94,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ReverseProxyManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -120,11 +122,13 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			realip.WithTrustedProxiesCount(trustedProxiesCount),
 			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 		}
+		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
+		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
 			grpc.KeepaliveParams(kasp),
-			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
+			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
+			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
@@ -150,7 +154,50 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
+		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
+		log.Info("ProxyService registered on gRPC server")
+
 		return gRPCAPIHandler
+	})
+}
+
+func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
+	return Create(s, func() *nbgrpc.ProxyServiceServer {
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager())
+		s.AfterInit(func(s *BaseServer) {
+			proxyService.SetProxyManager(s.ReverseProxyManager())
+		})
+		return proxyService
+	})
+}
+
+func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
+	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		return nbgrpc.ProxyOIDCConfig{
+			Issuer: s.Config.HttpConfig.AuthIssuer,
+			// todo: double check auth clientID value
+			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
+			Scopes:       []string{"openid", "profile", "email"},
+			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
+			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
+			Audience:     s.Config.HttpConfig.AuthAudience,
+			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
+		}
+	})
+}
+
+func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
+	return Create(s, func() *nbgrpc.OneTimeTokenStore {
+		tokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
+		log.Info("One-time token store initialized for proxy authentication")
+		return tokenStore
+	})
+}
+
+func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
+	return Create(s, func() accesslogs.Manager {
+		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		return accessLogManager
 	})
 }
 

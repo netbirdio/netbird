@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
@@ -543,11 +544,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
+	wgIfaceName := e.wgInterface.Name()
 
 	go func() {
 		defer e.shutdownWg.Done()
 
-		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, wgIfaceName); shouldRestart {
 			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
 			e.triggerClientRestart()
 		} else if err != nil {
@@ -1922,7 +1924,7 @@ func (e *Engine) triggerClientRestart() {
 }
 
 func (e *Engine) startNetworkMonitor() {
-	if !e.config.NetworkMonitor {
+	if !e.config.NetworkMonitor || nbnetstack.IsEnabled() {
 		log.Infof("Network monitor is disabled, not starting")
 		return
 	}

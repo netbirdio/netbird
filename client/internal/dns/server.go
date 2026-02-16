@@ -45,6 +45,9 @@ type IosDnsManager interface {
 type Server interface {
 	RegisterHandler(domains domain.List, handler dns.Handler, priority int)
 	DeregisterHandler(domains domain.List, priority int)
+	BeginBatch()
+	EndBatch()
+	CancelBatch()
 	Initialize() error
 	Stop()
 	DnsIP() netip.Addr
@@ -87,6 +90,7 @@ type DefaultServer struct {
 	currentConfigHash  uint64
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
+	batchMode          bool
 
 	mgmtCacheResolver *mgmt.Resolver
 
@@ -234,7 +238,9 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 		// convert to zone with simple ref counter
 		s.extraDomains[toZone(domain)]++
 	}
-	s.applyHostConfig()
+	if !s.batchMode {
+		s.applyHostConfig()
+	}
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
@@ -263,7 +269,39 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 			delete(s.extraDomains, zone)
 		}
 	}
+	if !s.batchMode {
+		s.applyHostConfig()
+	}
+}
+
+// BeginBatch starts batch mode for DNS handler registration/deregistration.
+// In batch mode, applyHostConfig() is not called after each handler operation,
+// allowing multiple handlers to be registered/deregistered efficiently.
+// Must be followed by EndBatch() to apply the accumulated changes.
+func (s *DefaultServer) BeginBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode enabled")
+	s.batchMode = true
+}
+
+// EndBatch ends batch mode and applies all accumulated DNS configuration changes.
+func (s *DefaultServer) EndBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode disabled, applying accumulated changes")
+	s.batchMode = false
 	s.applyHostConfig()
+}
+
+// CancelBatch cancels batch mode without applying accumulated changes.
+// This is useful when operations fail partway through and you want to
+// discard partial state rather than applying it.
+func (s *DefaultServer) CancelBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode cancelled, discarding accumulated changes")
+	s.batchMode = false
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
@@ -523,6 +561,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.currentConfig.RouteAll = false
 	}
 
+	// Always apply host config for management updates, regardless of batch mode
 	s.applyHostConfig()
 
 	s.shutdownWg.Add(1)
@@ -887,6 +926,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 
+		// Always apply host config when nameserver goes down, regardless of batch mode
 		s.applyHostConfig()
 
 		go func() {
@@ -922,6 +962,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
 		}
 
+		// Always apply host config when nameserver reactivates, regardless of batch mode
 		s.applyHostConfig()
 
 		s.updateNSState(nsGroup, nil, true)

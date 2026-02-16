@@ -10,6 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
@@ -86,6 +90,14 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
+	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager)
+	domainManager := manager.NewManager(store, proxyServiceServer, permissionsManager)
+	reverseProxyManager := reverseproxymanager.NewManager(store, am, permissionsManager, proxyServiceServer, domainManager)
+	proxyServiceServer.SetProxyManager(reverseProxyManager)
+	am.SetServiceManager(reverseProxyManager)
+
 	// @note this is required so that PAT's validate from store, but JWT's are mocked
 	authManager := serverauth.NewManager(store, "", "", "", "", []string{}, false)
 	authManagerMock := &serverauth.MockManager{
@@ -102,7 +114,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
-	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil)
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, reverseProxyManager, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

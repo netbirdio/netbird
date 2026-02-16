@@ -30,7 +30,7 @@ func Test_loadMgmtConfig(t *testing.T) {
 		t.Fatalf("failed to create config: %s", err)
 	}
 
-	cfg, err := loadMgmtConfig(context.Background(), tmpFile)
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
 	if err != nil {
 		t.Fatalf("failed to load management config: %s", err)
 	}
