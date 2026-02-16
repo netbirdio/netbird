@@ -329,6 +329,9 @@ initialize_default_values() {
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
 
+  # Traefik static IP within the internal bridge network
+  TRAEFIK_IP="172.30.0.10"
+
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
   PROXY_DOMAIN=""
@@ -393,7 +396,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -412,6 +415,8 @@ generate_configuration_files() {
         # This will be overwritten with the actual token after netbird-server starts
         echo "# Placeholder - will be updated with token after netbird-server starts" > proxy.env
         echo "NB_PROXY_TOKEN=placeholder" >> proxy.env
+        # TCP ServersTransport for PROXY protocol v2 to the proxy backend
+        render_traefik_dynamic > traefik-dynamic.yaml
       fi
       ;;
     1)
@@ -559,10 +564,14 @@ init_environment() {
 ############################################
 
 render_docker_compose_traefik_builtin() {
-  # Generate proxy service section if enabled
+  # Generate proxy service section and Traefik dynamic config if enabled
   local proxy_service=""
   local proxy_volumes=""
+  local traefik_file_provider=""
+  local traefik_dynamic_volume=""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
+    traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
+    traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
   proxy:
@@ -570,7 +579,7 @@ render_docker_compose_traefik_builtin() {
     container_name: netbird-proxy
     # Hairpin NAT fix: route domain back to traefik's static IP within Docker
     extra_hosts:
-      - \"$NETBIRD_DOMAIN:172.30.0.10\"
+      - \"$NETBIRD_DOMAIN:$TRAEFIK_IP\"
     ports:
     - 51820:51820/udp
     restart: unless-stopped
@@ -590,6 +599,7 @@ render_docker_compose_traefik_builtin() {
       - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
       - traefik.tcp.routers.proxy-passthrough.priority=1
       - traefik.tcp.services.proxy-tls.loadbalancer.server.port=8443
+      - traefik.tcp.services.proxy-tls.loadbalancer.serverstransport=pp-v2@file
     logging:
       driver: \"json-file\"
       options:
@@ -609,7 +619,7 @@ services:
     restart: unless-stopped
     networks:
       netbird:
-        ipv4_address: 172.30.0.10
+        ipv4_address: $TRAEFIK_IP
     command:
       # Logging
       - "--log.level=INFO"
@@ -636,12 +646,14 @@ services:
       # gRPC transport settings
       - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
       - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
+$traefik_file_provider
     ports:
       - '443:443'
       - '80:80'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
+$traefik_dynamic_volume
     logging:
       driver: "json-file"
       options:
@@ -751,6 +763,10 @@ server:
     cliRedirectURIs:
       - "http://localhost:53000/"
 
+  reverseProxy:
+    trustedHTTPProxies:
+      - "$TRAEFIK_IP/32"
+
   store:
     engine: "sqlite"
     encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
@@ -780,6 +796,17 @@ EOF
   return 0
 }
 
+render_traefik_dynamic() {
+  cat <<'EOF'
+tcp:
+  serversTransports:
+    pp-v2:
+      proxyProtocol:
+        version: 2
+EOF
+  return 0
+}
+
 render_proxy_env() {
   cat <<EOF
 # NetBird Proxy Configuration
@@ -799,6 +826,10 @@ NB_PROXY_OIDC_CLIENT_ID=netbird-proxy
 NB_PROXY_OIDC_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
 NB_PROXY_OIDC_SCOPES=openid,profile,email
 NB_PROXY_FORWARDED_PROTO=https
+# Enable PROXY protocol to preserve client IPs through L4 proxies (Traefik TCP passthrough)
+NB_PROXY_PROXY_PROTOCOL=true
+# Trust Traefik's IP for PROXY protocol headers
+NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
   return 0
 }
