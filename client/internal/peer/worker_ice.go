@@ -52,8 +52,9 @@ type WorkerICE struct {
 	// increase by one when disconnecting the agent
 	// with it the remote peer can discard the already deprecated offer/answer
 	// Without it the remote peer may recreate a workable ICE connection
-	sessionID ICESessionID
-	muxAgent  sync.Mutex
+	sessionID            ICESessionID
+	remoteSessionChanged bool
+	muxAgent             sync.Mutex
 
 	localUfrag string
 	localPwd   string
@@ -106,6 +107,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			return
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
+		w.remoteSessionChanged = true
 		w.agentDialerCancel()
 		if w.agent != nil {
 			if err := w.agent.Close(); err != nil {
@@ -306,13 +308,17 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
-func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) {
+func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) bool {
 	cancel()
 	if err := agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
 	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	sessionChanged := w.remoteSessionChanged
+	w.remoteSessionChanged = false
 
 	if w.agent == agent {
 		// consider to remove from here and move to the OnNewOffer
@@ -325,7 +331,7 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 		w.agentConnecting = false
 		w.remoteSessionID = ""
 	}
-	w.muxAgent.Unlock()
+	return sessionChanged
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
@@ -426,11 +432,11 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
 			// notify the conn.onICEStateDisconnected changes to update the current used priority
 
-			w.closeAgent(agent, dialerCancel)
+			sessionChanged := w.closeAgent(agent, dialerCancel)
 
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
-				w.conn.onICEStateDisconnected()
+				w.conn.onICEStateDisconnected(sessionChanged)
 			}
 		default:
 			return
