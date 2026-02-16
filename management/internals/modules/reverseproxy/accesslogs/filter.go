@@ -27,6 +27,9 @@ var validSortFields = map[string]string{
 	"status_code": "status_code",
 	"duration":    "duration",
 	"source_ip":   "location_connection_ip",
+	"user_id":     "user_id",
+	"auth_method": "auth_method_used",
+	"reason":      "reason",
 }
 
 // AccessLogFilter holds pagination, filtering, and sorting parameters for access logs
@@ -37,7 +40,7 @@ type AccessLogFilter struct {
 	PageSize int
 
 	// Sorting parameters
-	SortBy    string // Field to sort by: timestamp, host, path, method, status_code, duration, source_ip
+	SortBy    string // Field to sort by: timestamp, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason
 	SortOrder string // Sort order: asc or desc (default: desc)
 
 	// Filtering parameters

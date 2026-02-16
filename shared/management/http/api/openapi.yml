@@ -7413,7 +7413,7 @@ paths:
           name: sort_by
           schema:
             type: string
-            enum: [timestamp, host, path, method, status_code, duration, source_ip]
+            enum: [timestamp, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason]
             default: timestamp
           description: Field to sort by
         - in: query

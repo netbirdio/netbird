@@ -387,6 +387,9 @@ func TestAccessLogFilter_ValidSortFields(t *testing.T) {
 		{"status_code", "status_code", "status_code", "status_code"},
 		{"duration", "duration", "duration", "duration"},
 		{"source_ip", "source_ip", "location_connection_ip", "source_ip"},
+		{"user_id", "user_id", "user_id", "user_id"},
+		{"auth_method", "auth_method", "auth_method_used", "auth_method"},
+		{"reason", "reason", "reason", "reason"},
 	}
 
 	for _, tt := range tests {
