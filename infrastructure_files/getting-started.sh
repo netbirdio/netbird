@@ -1176,8 +1176,9 @@ print_builtin_traefik_instructions() {
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
-    echo "  Point your proxy domain to this server's domain address like in the example below:"
+    echo "  Point your proxy domain to this server's domain address like in the examples below:"
     echo ""
+    echo "  $PROXY_DOMAIN      CNAME    $NETBIRD_DOMAIN"
     echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
     echo ""
   fi
