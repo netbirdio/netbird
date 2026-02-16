@@ -3,8 +3,6 @@ package portforward
 import (
 	"context"
 	"net"
-
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 // Mapping represents port mapping information.
@@ -20,22 +18,17 @@ type Mapping struct {
 type Manager struct{}
 
 // NewManager returns a stub manager for js/wasm builds.
-func NewManager(_ *statemanager.Manager) *Manager {
+func NewManager() *Manager {
 	return &Manager{}
 }
 
 // Start is a no-op on js/wasm.
 func (m *Manager) Start(context.Context, uint16) {}
 
-// Stop is a no-op on js/wasm.
-func (m *Manager) Stop() {}
+// GracefullyStop is a no-op on js/wasm.
+func (m *Manager) GracefullyStop(context.Context) error { return nil }
 
 // GetMapping always returns nil on js/wasm.
 func (m *Manager) GetMapping() *Mapping {
 	return nil
-}
-
-// IsAvailable always returns false on js/wasm.
-func (m *Manager) IsAvailable() bool {
-	return false
 }
