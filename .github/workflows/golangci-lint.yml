@@ -19,8 +19,8 @@ jobs:
       - name: codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans
-          skip: go.mod,go.sum
+          ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver
+          skip: go.mod,go.sum,**/proxy/web/**
   golangci:
     strategy:
       fail-fast: false

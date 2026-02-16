@@ -84,3 +84,18 @@ func (m *MockServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
 func (m *MockServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 	return nil
 }
+
+// BeginBatch mock implementation of BeginBatch from Server interface
+func (m *MockServer) BeginBatch() {
+	// Mock implementation - no-op
+}
+
+// EndBatch mock implementation of EndBatch from Server interface
+func (m *MockServer) EndBatch() {
+	// Mock implementation - no-op
+}
+
+// CancelBatch mock implementation of CancelBatch from Server interface
+func (m *MockServer) CancelBatch() {
+	// Mock implementation - no-op
+}

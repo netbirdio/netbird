@@ -282,13 +282,9 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 	}
 	defer authClient.Close()
 
-	needsLogin := false
-
-	err, isAuthError := authClient.Login(ctx, "", "")
-	if isAuthError {
-		needsLogin = true
-	} else if err != nil {
-		return fmt.Errorf("login check failed: %v", err)
+	needsLogin, err := authClient.IsLoginRequired(ctx)
+	if err != nil {
+		return fmt.Errorf("check login required: %v", err)
 	}
 
 	jwtToken := ""

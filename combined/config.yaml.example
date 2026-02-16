@@ -1,0 +1,115 @@
+# Simplified Combined NetBird Server Configuration
+# Copy this file to config.yaml and customize for your deployment
+
+# Server-wide settings
+server:
+  # Main HTTP/gRPC port for all services (Management, Signal, Relay)
+  listenAddress: ":443"
+
+  # Metrics endpoint port
+  metricsPort: 9090
+
+  # Healthcheck endpoint address
+  healthcheckAddress: ":9000"
+
+  # Logging configuration
+  logLevel: "info"    # panic, fatal, error, warn, info, debug, trace
+  logFile: "console"  # "console" or path to log file
+
+  # TLS configuration (optional)
+  tls:
+    certFile: ""
+    keyFile: ""
+    letsencrypt:
+      enabled: false
+      dataDir: ""
+      domains: []
+      email: ""
+      awsRoute53: false
+
+# Relay service configuration
+relay:
+  # Enable/disable the relay service
+  enabled: true
+
+  # Public address that peers will use to connect to this relay
+  # Format: hostname:port or ip:port
+  exposedAddress: "relay.example.com:443"
+
+  # Shared secret for relay authentication (required when enabled)
+  authSecret: "your-secret-key-here"
+
+  # Log level for relay (reserved for future use, currently uses global log level)
+  logLevel: "info"
+
+  # Embedded STUN server (optional)
+  stun:
+    enabled: false
+    ports: [3478]
+    logLevel: "info"
+
+# Signal service configuration
+signal:
+  # Enable/disable the signal service
+  enabled: true
+
+  # Log level for signal (reserved for future use, currently uses global log level)
+  logLevel: "info"
+
+# Management service configuration
+management:
+  # Enable/disable the management service
+  enabled: true
+
+  # Data directory for management service
+  dataDir: "/var/lib/netbird/"
+
+  # DNS domain for the management server
+  dnsDomain: ""
+
+  # Metrics and updates
+  disableAnonymousMetrics: false
+  disableGeoliteUpdate: false
+
+  auth:
+    # OIDC issuer URL - must be publicly accessible
+    issuer: "https://management.example.com/oauth2"
+    localAuthDisabled: false
+    signKeyRefreshEnabled: false
+    # OAuth2 redirect URIs for dashboard
+    dashboardRedirectURIs:
+      - "https://app.example.com/nb-auth"
+      - "https://app.example.com/nb-silent-auth"
+    # OAuth2 redirect URIs for CLI
+    cliRedirectURIs:
+      - "http://localhost:53000/"
+    # Optional initial admin user
+    # owner:
+    #   email: "admin@example.com"
+    #   password: "initial-password"
+
+  # External STUN servers (for client config)
+  stuns: []
+  #  - uri: "stun:stun.example.com:3478"
+
+  # External relay servers (for client config)
+  relays:
+    addresses: []
+    #  - "rels://relay.example.com:443"
+    credentialsTTL: "12h"
+    secret: ""
+
+  # External signal server URI (for client config)
+  signalUri: ""
+
+  # Store configuration
+  store:
+    engine: "sqlite"  # sqlite, postgres, or mysql
+    dsn: ""  # Connection string for postgres or mysql
+    encryptionKey: ""
+
+  # Reverse proxy settings
+  reverseProxy:
+    trustedHTTPProxies: []
+    trustedHTTPProxiesCount: 0
+    trustedPeers: []

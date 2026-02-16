@@ -1,0 +1,58 @@
+{{define "index"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NetBird Proxy Debug</title>
+  <style>{{template "style"}}</style>
+</head>
+<body>
+  <h1>NetBird Proxy Debug</h1>
+  <p class="info">Version: {{.Version}} | Uptime: {{.Uptime}}</p>
+  <h2>Certificates: {{.CertsReady}} ready, {{.CertsPending}} pending, {{.CertsFailed}} failed ({{.CertsTotal}} total)</h2>
+  {{if .CertsReadyDomains}}
+  <details>
+    <summary>Ready domains ({{.CertsReady}})</summary>
+    <ul>{{range .CertsReadyDomains}}<li>{{.}}</li>{{end}}</ul>
+  </details>
+  {{end}}
+  {{if .CertsPendingDomains}}
+  <details open>
+    <summary>Pending domains ({{.CertsPending}})</summary>
+    <ul>{{range .CertsPendingDomains}}<li>{{.}}</li>{{end}}</ul>
+  </details>
+  {{end}}
+  {{if .CertsFailedDomains}}
+  <details open>
+    <summary>Failed domains ({{.CertsFailed}})</summary>
+    <ul>{{range .CertsFailedDomains}}<li>{{.Domain}}: {{.Error}}</li>{{end}}</ul>
+  </details>
+  {{end}}
+  <h2>Clients ({{.ClientCount}}) | Domains ({{.TotalDomains}})</h2>
+  {{if .Clients}}
+  <table>
+    <tr>
+      <th>Account ID</th>
+      <th>Domains</th>
+      <th>Age</th>
+      <th>Status</th>
+    </tr>
+    {{range .Clients}}
+    <tr>
+      <td><a href="/debug/clients/{{.AccountID}}/tools">{{.AccountID}}</a></td>
+      <td>{{.Domains}}</td>
+      <td>{{.Age}}</td>
+      <td>{{.Status}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p>No clients connected</p>
+  {{end}}
+  <h2>Endpoints</h2>
+  <ul>
+    <li><a href="/debug/clients">/debug/clients</a> - all clients detail</li>
+  </ul>
+  <p class="info">Add ?format=json or /json suffix for JSON output</p>
+</body>
+</html>
+{{end}}

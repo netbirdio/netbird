@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -145,6 +146,10 @@ type MockAccountManager struct {
 	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
+}
+
+func (am *MockAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+	// Mock implementation - no-op
 }
 
 func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {

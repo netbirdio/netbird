@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -82,8 +83,9 @@ type DefaultAccountManager struct {
 
 	requestBuffer *AccountRequestBuffer
 
-	proxyController port_forwarding.Controller
-	settingsManager settings.Manager
+	proxyController     port_forwarding.Controller
+	settingsManager     settings.Manager
+	reverseProxyManager reverseproxy.Manager
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -112,6 +114,10 @@ type DefaultAccountManager struct {
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
+
+func (am *DefaultAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+	am.reverseProxyManager = serviceManager
+}
 
 func isUniqueConstraintError(err error) bool {
 	switch {
@@ -291,6 +297,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
+	var reloadReverseProxy bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -321,6 +328,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
+			reloadReverseProxy = true
 			updateAccountPeers = true
 		}
 
@@ -384,6 +392,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
+	}
+	if reloadReverseProxy {
+		if err = am.reverseProxyManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
+		}
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {

@@ -27,6 +27,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -1800,6 +1802,14 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
+		Services: []*reverseproxy.Service{
+			{
+				ID:        "service1",
+				Name:      "test-service",
+				AccountID: "account1",
+				Targets:   []*reverseproxy.Target{},
+			},
+		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
 	account.InitOnce()
@@ -3112,6 +3122,8 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		return nil, nil, err
 	}
 
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, nil, nil))
+
 	return manager, updateManager, nil
 }
 
@@ -3905,4 +3917,37 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 	assert.False(t, user.Blocked, "User should not be blocked when approval is not required")
 	assert.False(t, user.PendingApproval, "User should not be pending approval")
 	assert.Equal(t, existingAccountID, user.AccountID)
+}
+
+// TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange verifies that
+// changing NetworkRange via UpdateAccountSettings does not deadlock.
+// The deadlock occurs because ReloadAllServicesForAccount is called inside a DB
+// transaction but uses the main store connection, which blocks on the transaction lock.
+func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Use a channel to detect if the call completes or hangs
+	done := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+			PeerLoginExpiration:        time.Hour,
+			PeerLoginExpirationEnabled: true,
+			NetworkRange:               netip.MustParsePrefix("10.100.0.0/16"),
+			Extra:                      &types.ExtraSettings{},
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "UpdateAccountSettings should complete without error")
+	case <-time.After(10 * time.Second):
+		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
+	}
 }
