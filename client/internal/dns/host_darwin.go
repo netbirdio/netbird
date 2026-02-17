@@ -22,6 +22,7 @@ import (
 
 const (
 	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s/DNS"
+	netbirdDNSStateKeyIndexedFormat     = "State:/Network/Service/NetBird-%s-%d/DNS"
 	globalIPv4State                     = "State:/Network/Global/IPv4"
 	primaryServiceStateKeyFormat        = "State:/Network/Service/%s/DNS"
 	keySupplementalMatchDomains         = "SupplementalMatchDomains"
@@ -35,6 +36,14 @@ const (
 	searchSuffix                        = "Search"
 	matchSuffix                         = "Match"
 	localSuffix                         = "Local"
+
+	// maxDomainsPerResolverEntry is the max number of domains per scutil resolver key.
+	// scutil's d.add has maxArgs=101 (key + * + 99 values), so 99 is the hard cap.
+	maxDomainsPerResolverEntry = 50
+
+	// maxDomainBytesPerResolverEntry is the max total bytes of domain strings per key.
+	// scutil has an undocumented ~2048 byte value buffer; we stay well under it.
+	maxDomainBytesPerResolverEntry = 1500
 )
 
 type systemConfigurator struct {
@@ -84,28 +93,23 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 		searchDomains = append(searchDomains, strings.TrimSuffix(""+dConf.Domain, "."))
 	}
 
-	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
-	var err error
-	if len(matchDomains) != 0 {
-		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
-	} else {
-		log.Infof("removing match domains from the system")
-		err = s.removeKeyFromSystemConfig(matchKey)
+	if err := s.removeKeysContaining(matchSuffix); err != nil {
+		log.Warnf("failed to remove old match keys: %v", err)
 	}
-	if err != nil {
-		return fmt.Errorf("add match domains: %w", err)
+	if len(matchDomains) != 0 {
+		if err := s.addBatchedDomains(matchSuffix, matchDomains, config.ServerIP, config.ServerPort, false); err != nil {
+			return fmt.Errorf("add match domains: %w", err)
+		}
 	}
 	s.updateState(stateManager)
 
-	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
-	if len(searchDomains) != 0 {
-		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
-	} else {
-		log.Infof("removing search domains from the system")
-		err = s.removeKeyFromSystemConfig(searchKey)
+	if err := s.removeKeysContaining(searchSuffix); err != nil {
+		log.Warnf("failed to remove old search keys: %v", err)
 	}
-	if err != nil {
-		return fmt.Errorf("add search domains: %w", err)
+	if len(searchDomains) != 0 {
+		if err := s.addBatchedDomains(searchSuffix, searchDomains, config.ServerIP, config.ServerPort, true); err != nil {
+			return fmt.Errorf("add search domains: %w", err)
+		}
 	}
 	s.updateState(stateManager)
 
@@ -149,8 +153,13 @@ func (s *systemConfigurator) restoreHostDNS() error {
 
 func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
 	if len(s.createdKeys) == 0 {
-		// return defaults for startup calls
-		return []string{getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix), getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)}
+		// Return defaults for startup calls, including both old single-key and new indexed format.
+		return []string{
+			getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix),
+			getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix),
+			fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, searchSuffix, 0),
+			fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, matchSuffix, 0),
+		}
 	}
 
 	keys := make([]string, 0, len(s.createdKeys))
@@ -184,12 +193,11 @@ func (s *systemConfigurator) addLocalDNS() error {
 		return nil
 	}
 
-	if err := s.addSearchDomains(
-		localKey,
-		strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort,
-	); err != nil {
-		return fmt.Errorf("add search domains: %w", err)
+	domainsStr := strings.Join(s.systemDNSSettings.Domains, " ")
+	if err := s.addDNSState(localKey, domainsStr, s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort, true); err != nil {
+		return fmt.Errorf("add local dns state: %w", err)
 	}
+	s.createdKeys[localKey] = struct{}{}
 
 	return nil
 }
@@ -280,28 +288,76 @@ func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
 	return slices.Clone(s.origNameservers)
 }
 
-func (s *systemConfigurator) addSearchDomains(key, domains string, ip netip.Addr, port int) error {
-	err := s.addDNSState(key, domains, ip, port, true)
-	if err != nil {
-		return fmt.Errorf("add dns state: %w", err)
+// splitDomainsIntoBatches splits domains into batches respecting both element count and byte size limits.
+func splitDomainsIntoBatches(domains []string) [][]string {
+	if len(domains) == 0 {
+		return nil
 	}
 
-	log.Infof("added %d search domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
+	var batches [][]string
+	var current []string
+	currentBytes := 0
 
-	s.createdKeys[key] = struct{}{}
+	for _, d := range domains {
+		domainLen := len(d)
+		newBytes := currentBytes + domainLen
+		if currentBytes > 0 {
+			newBytes++ // space separator
+		}
 
+		if len(current) > 0 && (len(current) >= maxDomainsPerResolverEntry || newBytes > maxDomainBytesPerResolverEntry) {
+			batches = append(batches, current)
+			current = nil
+			currentBytes = 0
+		}
+
+		current = append(current, d)
+		if currentBytes > 0 {
+			currentBytes += 1 + domainLen
+		} else {
+			currentBytes = domainLen
+		}
+	}
+
+	if len(current) > 0 {
+		batches = append(batches, current)
+	}
+
+	return batches
+}
+
+// removeKeysContaining removes all created keys that contain the given substring.
+func (s *systemConfigurator) removeKeysContaining(suffix string) error {
+	var toRemove []string
+	for key := range s.createdKeys {
+		if strings.Contains(key, suffix) {
+			toRemove = append(toRemove, key)
+		}
+	}
+	for _, key := range toRemove {
+		if err := s.removeKeyFromSystemConfig(key); err != nil {
+			log.Warnf("failed to remove key %s: %v", key, err)
+		}
+	}
 	return nil
 }
 
-func (s *systemConfigurator) addMatchDomains(key, domains string, dnsServer netip.Addr, port int) error {
-	err := s.addDNSState(key, domains, dnsServer, port, false)
-	if err != nil {
-		return fmt.Errorf("add dns state: %w", err)
+// addBatchedDomains splits domains into batches and creates indexed scutil keys for each batch.
+func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, ip netip.Addr, port int, enableSearch bool) error {
+	batches := splitDomainsIntoBatches(domains)
+
+	for i, batch := range batches {
+		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
+		domainsStr := strings.Join(batch, " ")
+
+		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch); err != nil {
+			return fmt.Errorf("add dns state for batch %d: %w", i, err)
+		}
+
+		s.createdKeys[key] = struct{}{}
 	}
 
-	log.Infof("added %d match domains to the state. Domain list: %s", len(strings.Split(domains, " ")), domains)
-
-	s.createdKeys[key] = struct{}{}
+	log.Infof("added %d %s domains across %d resolver entries", len(domains), suffix, len(batches))
 
 	return nil
 }
