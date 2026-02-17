@@ -50,13 +50,14 @@ type BaseServer struct {
 	// AfterInit is a function that will be called after the server is initialized
 	afterInit []func(s *BaseServer)
 
-	disableMetrics           bool
-	dnsDomain                string
-	disableGeoliteUpdate     bool
-	userDeleteFromIDPEnabled bool
-	mgmtSingleAccModeDomain  string
-	mgmtMetricsPort          int
-	mgmtPort                 int
+	disableMetrics              bool
+	dnsDomain                   string
+	disableGeoliteUpdate        bool
+	userDeleteFromIDPEnabled    bool
+	mgmtSingleAccModeDomain     string
+	mgmtMetricsPort             int
+	mgmtPort                    int
+	disableLegacyManagementPort bool
 
 	proxyAuthClose func()
 
@@ -70,17 +71,18 @@ type BaseServer struct {
 }
 
 // NewServer initializes and configures a new Server instance
-func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
+func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
 	return &BaseServer{
-		Config:                   config,
-		container:                make(map[string]any),
-		dnsDomain:                dnsDomain,
-		mgmtSingleAccModeDomain:  mgmtSingleAccModeDomain,
-		disableMetrics:           disableMetrics,
-		disableGeoliteUpdate:     disableGeoliteUpdate,
-		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
-		mgmtPort:                 mgmtPort,
-		mgmtMetricsPort:          mgmtMetricsPort,
+		Config:                      config,
+		container:                   make(map[string]any),
+		dnsDomain:                   dnsDomain,
+		mgmtSingleAccModeDomain:     mgmtSingleAccModeDomain,
+		disableMetrics:              disableMetrics,
+		disableGeoliteUpdate:        disableGeoliteUpdate,
+		userDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
+		mgmtPort:                    mgmtPort,
+		disableLegacyManagementPort: disableLegacyManagementPort,
+		mgmtMetricsPort:             mgmtMetricsPort,
 	}
 }
 
@@ -152,7 +154,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 
 	var compatListener net.Listener
-	if s.mgmtPort != ManagementLegacyPort {
+	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
 		// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
 		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort)
