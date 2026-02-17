@@ -9,6 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
+	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
@@ -27,8 +28,8 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 
 		// Use a response writer wrapper so we can access the status code later.
 		sw := &statusWriter{
-			w:      w,
-			status: http.StatusOK,
+			PassthroughWriter: responsewriter.New(w),
+			status:            http.StatusOK,
 		}
 
 		// Resolve the source IP using trusted proxy configuration before passing

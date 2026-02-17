@@ -410,7 +410,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
-func (conn *Conn) onICEStateDisconnected() {
+func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -430,6 +430,10 @@ func (conn *Conn) onICEStateDisconnected() {
 	if conn.isReadyToUpgrade() {
 		conn.Log.Infof("ICE disconnected, set Relay to active connection")
 		conn.dumpState.SwitchToRelay()
+		if sessionChanged {
+			conn.resetEndpoint()
+		}
+
 		conn.wgProxyRelay.Work()
 
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
@@ -755,6 +759,17 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 		return nil, err
 	}
 	return wgProxy, nil
+}
+
+func (conn *Conn) resetEndpoint() {
+	if !isController(conn.config) {
+		return
+	}
+	conn.Log.Infof("reset wg endpoint")
+	conn.wgWatcher.Reset()
+	if err := conn.endpointUpdater.RemoveEndpointAddress(); err != nil {
+		conn.Log.Warnf("failed to remove endpoint address before update: %v", err)
+	}
 }
 
 func (conn *Conn) isReadyToUpgrade() bool {

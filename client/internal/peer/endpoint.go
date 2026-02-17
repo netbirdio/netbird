@@ -66,6 +66,10 @@ func (e *EndpointUpdater) RemoveWgPeer() error {
 	return e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey)
 }
 
+func (e *EndpointUpdater) RemoveEndpointAddress() error {
+	return e.wgConfig.WgInterface.RemoveEndpointAddress(e.wgConfig.RemoteKey)
+}
+
 func (e *EndpointUpdater) waitForCloseTheDelayedUpdate() {
 	if e.cancelFunc == nil {
 		return
