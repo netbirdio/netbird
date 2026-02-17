@@ -153,13 +153,7 @@ func (s *systemConfigurator) restoreHostDNS() error {
 
 func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
 	if len(s.createdKeys) == 0 {
-		// Return defaults for startup calls, including both old single-key and new indexed format.
-		return []string{
-			getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix),
-			getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix),
-			fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, searchSuffix, 0),
-			fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, matchSuffix, 0),
-		}
+		return s.discoverExistingKeys()
 	}
 
 	keys := make([]string, 0, len(s.createdKeys))
@@ -167,6 +161,47 @@ func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// discoverExistingKeys probes scutil for all NetBird DNS keys that may exist.
+// This handles the case where createdKeys is empty (e.g., state file lost after unclean shutdown).
+func (s *systemConfigurator) discoverExistingKeys() []string {
+	dnsKeys, err := getSystemDNSKeys()
+	if err != nil {
+		log.Errorf("failed to get system DNS keys: %v", err)
+		return nil
+	}
+
+	var keys []string
+
+	for _, suffix := range []string{searchSuffix, matchSuffix, localSuffix} {
+		key := getKeyWithInput(netbirdDNSStateKeyFormat, suffix)
+		if strings.Contains(dnsKeys, key) {
+			keys = append(keys, key)
+		}
+	}
+
+	for _, suffix := range []string{searchSuffix, matchSuffix} {
+		for i := 0; ; i++ {
+			key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
+			if !strings.Contains(dnsKeys, key) {
+				break
+			}
+			keys = append(keys, key)
+		}
+	}
+
+	return keys
+}
+
+// getSystemDNSKeys gets all DNS keys
+func getSystemDNSKeys() (string, error) {
+	command := "list .*DNS\nquit\n"
+	out, err := runSystemConfigCommand(command)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
@@ -420,7 +455,6 @@ func (s *systemConfigurator) flushDNSCache() error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("restart mDNSResponder: %w, output: %s", err, out)
 	}
-
 	log.Info("flushed DNS cache")
 	return nil
 }
