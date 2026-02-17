@@ -191,10 +191,18 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		return err
 	}
 
+	// Build the handler chain from inside out.
+	handler := http.Handler(s.proxy)
+	handler = s.auth.Protect(handler)
+	handler = web.AssetHandler(handler)
+	handler = accessLog.Middleware(handler)
+	handler = s.meter.Middleware(handler)
+	handler = s.hijackTracker.Middleware(handler)
+
 	// Start the reverse proxy HTTPS server.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   s.hijackTracker.Middleware(s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy))))),
+		Handler:   handler,
 		TLSConfig: tlsConfig,
 		ErrorLog:  newHTTPServerLogger(s.Logger, logtagValueHTTPS),
 	}
