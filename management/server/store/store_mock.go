@@ -2577,6 +2577,35 @@ func (mr *MockStoreMockRecorder) SaveUser(ctx, user interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveUser", reflect.TypeOf((*MockStore)(nil).SaveUser), ctx, user)
 }
 
+// ListUsers mocks base method.
+func (m *MockStore) ListUsers(ctx context.Context) ([]*types2.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUsers", ctx)
+	ret0, _ := ret[0].([]*types2.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUsers indicates an expected call of ListUsers.
+func (mr *MockStoreMockRecorder) ListUsers(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx)
+}
+
+// UpdateUserID mocks base method.
+func (m *MockStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserID", ctx, accountID, oldUserID, newUserID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserID indicates an expected call of UpdateUserID.
+func (mr *MockStoreMockRecorder) UpdateUserID(ctx, accountID, oldUserID, newUserID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserID", reflect.TypeOf((*MockStore)(nil).UpdateUserID), ctx, accountID, oldUserID, newUserID)
+}
+
 // SaveUserInvite mocks base method.
 func (m *MockStore) SaveUserInvite(ctx context.Context, invite *types2.UserInviteRecord) error {
 	m.ctrl.T.Helper()

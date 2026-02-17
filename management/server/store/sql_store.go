@@ -821,6 +821,81 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 	return &user, nil
 }
 
+func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
+	tx := s.db
+	var users []*types.User
+	result := tx.Find(&users)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when listing users from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "issue listing users from store")
+	}
+
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
+	return users, nil
+}
+
+func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	err := s.transaction(func(tx *gorm.DB) error {
+		// Defer FK constraint checks so we can update child rows before the parent users.id PK.
+		// MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
+		switch s.storeEngine {
+		case types.PostgresStoreEngine:
+			if err := tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error; err != nil {
+				return fmt.Errorf("defer constraints: %w", err)
+			}
+		case types.SqliteStoreEngine:
+			if err := tx.Exec("PRAGMA defer_foreign_keys = ON").Error; err != nil {
+				return fmt.Errorf("defer foreign keys: %w", err)
+			}
+		}
+
+		if err := tx.Model(&types.PersonalAccessToken{}).Where("user_id = ?", oldUserID).Update("user_id", newUserID).Error; err != nil {
+			return fmt.Errorf("update personal_access_tokens.user_id: %w", err)
+		}
+
+		if err := tx.Model(&types.PersonalAccessToken{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
+			return fmt.Errorf("update personal_access_tokens.created_by: %w", err)
+		}
+
+		if err := tx.Model(&nbpeer.Peer{}).Where("user_id = ?", oldUserID).Update("user_id", newUserID).Error; err != nil {
+			return fmt.Errorf("update peers: %w", err)
+		}
+
+		if err := tx.Model(&types.UserInviteRecord{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
+			return fmt.Errorf("update user_invites: %w", err)
+		}
+
+		if err := tx.Model(&types.Account{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
+			return fmt.Errorf("update accounts.created_by: %w", err)
+		}
+
+		if err := tx.Model(&types.ProxyAccessToken{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
+			return fmt.Errorf("update proxy_access_tokens.created_by: %w", err)
+		}
+
+		if err := tx.Model(&types.Job{}).Where("triggered_by = ?", oldUserID).Update("triggered_by", newUserID).Error; err != nil {
+			return fmt.Errorf("update jobs.triggered_by: %w", err)
+		}
+
+		if err := tx.Model(&types.User{}).Where(accountAndIDQueryCondition, accountID, oldUserID).Update("id", newUserID).Error; err != nil {
+			return fmt.Errorf("update users: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to update user ID in the store: %s", err)
+		return status.Errorf(status.Internal, "failed to update user ID in store")
+	}
+
+	return nil
+}
+
 // SaveUserInvite saves a user invite to the database
 func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error {
 	inviteCopy := invite.Copy()
