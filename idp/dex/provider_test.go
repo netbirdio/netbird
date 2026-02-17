@@ -2,6 +2,7 @@ package dex
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -194,4 +195,65 @@ enablePasswordDB: true
 	assert.Equal(t, rawID, user.UserID)
 
 	t.Logf("User lookup successful: rawID=%s, connectorID=%s", rawID, connID)
+}
+
+func TestNewProvider_ContinueOnConnectorFailure(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-connector-failure-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	config := &Config{
+		Issuer:  "http://localhost:5556/dex",
+		Port:    5556,
+		DataDir: tmpDir,
+	}
+
+	provider, err := NewProvider(ctx, config)
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	// The provider should have started successfully even though
+	// ContinueOnConnectorFailure is an internal Dex config field.
+	// We verify the provider is functional by performing a basic operation.
+	assert.NotNil(t, provider.dexServer)
+	assert.NotNil(t, provider.storage)
+}
+
+func TestBuildDexConfig_ContinueOnConnectorFailure(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "dex-build-config-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	yamlContent := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	stor, err := yamlConfig.Storage.OpenStorage(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	require.NoError(t, err)
+	defer stor.Close()
+
+	err = initializeStorage(ctx, stor, yamlConfig)
+	require.NoError(t, err)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cfg := buildDexConfig(yamlConfig, stor, logger)
+
+	assert.True(t, cfg.ContinueOnConnectorFailure,
+		"buildDexConfig must set ContinueOnConnectorFailure to true so management starts even if an external IdP is down")
 }
