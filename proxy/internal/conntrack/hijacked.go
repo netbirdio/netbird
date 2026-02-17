@@ -10,21 +10,19 @@ import (
 // upgrades). http.Server.Shutdown does not close hijacked connections, so
 // they must be tracked and closed explicitly during graceful shutdown.
 //
-// Use ConnState as the http.Server.ConnState callback.
+// Use Middleware as the outermost HTTP middleware to ensure hijacked
+// connections are tracked and automatically deregistered when closed.
 type HijackTracker struct {
 	conns sync.Map // net.Conn → struct{}
 }
 
-// ConnState is an http.Server.ConnState callback that records connections
-// entering the hijacked state and removes them when closed.
-func (t *HijackTracker) ConnState(conn net.Conn, state http.ConnState) {
-	switch state {
-	case http.StateHijacked:
-		t.conns.Store(conn, struct{}{})
-	case http.StateClosed:
-		t.conns.Delete(conn)
-	default:
-	}
+// Middleware returns an HTTP middleware that wraps the ResponseWriter so that
+// hijacked connections are tracked and automatically deregistered from the
+// tracker when closed. This should be the outermost middleware in the chain.
+func (t *HijackTracker) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&trackingWriter{ResponseWriter: w, tracker: t}, r)
+	})
 }
 
 // CloseAll closes all tracked hijacked connections and returns the number

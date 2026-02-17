@@ -194,10 +194,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Start the reverse proxy HTTPS server.
 	s.https = &http.Server{
 		Addr:      addr,
-		Handler:   s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy)))),
+		Handler:   s.hijackTracker.Middleware(s.meter.Middleware(accessLog.Middleware(web.AssetHandler(s.auth.Protect(s.proxy))))),
 		TLSConfig: tlsConfig,
 		ErrorLog:  newHTTPServerLogger(s.Logger, logtagValueHTTPS),
-		ConnState: s.hijackTracker.ConnState,
 	}
 
 	lc := net.ListenConfig{}
