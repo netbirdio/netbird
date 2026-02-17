@@ -33,7 +33,8 @@ func CreateMysqlTestContainer() (func(), string, error) {
 
 	var err error
 	mysqlContainer, err = mysql.RunContainer(ctx,
-		testcontainers.WithImage("mysql:8"),
+		// https://github.com/mlsmaycon/warmed-mysql
+		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("testing"),
