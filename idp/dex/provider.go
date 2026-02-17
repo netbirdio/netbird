@@ -99,15 +99,16 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 
 	// Build Dex server config - use Dex's types directly
 	dexConfig := server.Config{
-		Issuer:                 issuer,
-		Storage:                stor,
-		SkipApprovalScreen:     true,
-		SupportedResponseTypes: []string{"code"},
-		Logger:                 logger,
-		PrometheusRegistry:     prometheus.NewRegistry(),
-		RotateKeysAfter:        6 * time.Hour,
-		IDTokensValidFor:       24 * time.Hour,
-		RefreshTokenPolicy:     refreshPolicy,
+		Issuer:                     issuer,
+		Storage:                    stor,
+		SkipApprovalScreen:         true,
+		SupportedResponseTypes:     []string{"code"},
+		ContinueOnConnectorFailure: true,
+		Logger:                     logger,
+		PrometheusRegistry:         prometheus.NewRegistry(),
+		RotateKeysAfter:            6 * time.Hour,
+		IDTokensValidFor:           24 * time.Hour,
+		RefreshTokenPolicy:         refreshPolicy,
 		Web: server.WebConfig{
 			Issuer: "NetBird",
 		},
@@ -260,6 +261,7 @@ func buildDexConfig(yamlConfig *YAMLConfig, stor storage.Storage, logger *slog.L
 	if len(cfg.SupportedResponseTypes) == 0 {
 		cfg.SupportedResponseTypes = []string{"code"}
 	}
+	cfg.ContinueOnConnectorFailure = true
 	return cfg
 }
 
