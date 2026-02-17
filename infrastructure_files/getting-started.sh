@@ -922,6 +922,11 @@ render_docker_compose_exposed_ports() {
   local networks="[netbird]"
   local networks_config="networks:
   netbird:"
+  local dashboard_port_bindings="ports:
+      - '${bind_addr}:${DASHBOARD_HOST_PORT}:80'"
+  local server_port_bindings="ports:
+      - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'"
 
   # If an external network is specified, add it and include in service networks
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
@@ -930,7 +935,10 @@ render_docker_compose_exposed_ports() {
   netbird:
   $EXTERNAL_PROXY_NETWORK:
     external: true"
+    dashboard_port_bindings="expose: [80]"
+    server_port_bindings="expose: [80, $NETBIRD_STUN_PORT/udp]"
   fi
+
 
   cat <<EOF
 services:
@@ -939,9 +947,8 @@ services:
     image: $DASHBOARD_IMAGE
     container_name: netbird-dashboard
     restart: unless-stopped
-    networks: ${networks}
-    ports:
-      - '${bind_addr}:${DASHBOARD_HOST_PORT}:80'
+    networks: ${networks} 
+    ${dashboard_port_bindings}
     env_file:
       - ./dashboard.env
     logging:
@@ -956,9 +963,7 @@ services:
     container_name: netbird-server
     restart: unless-stopped
     networks: ${networks}
-    ports:
-      - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
-      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    ${server_port_bindings}
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
