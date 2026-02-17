@@ -22,6 +22,7 @@ readonly DASHBOARD_IMAGE="netbirdio/dashboard:latest"
 readonly NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
 readonly SED_STRIP_PADDING='s/=//g'
 readonly MSG_SEPARATOR="=========================================="
+readonly PROXY_TYPE_CADDY="caddy_embedded"
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -68,19 +69,27 @@ BACKUP_DIR=""
 ############################################
 
 log_info() {
-  echo -e "${BLUE}[INFO]${NC} $1"
+  local msg="$1"
+  echo -e "${BLUE}[INFO]${NC} ${msg}"
+  return 0
 }
 
 log_warn() {
-  echo -e "${YELLOW}[WARN]${NC} $1"
+  local msg="$1"
+  echo -e "${YELLOW}[WARN]${NC} ${msg}"
+  return 0
 }
 
 log_error() {
-  echo -e "${RED}[ERROR]${NC} $1" >&2
+  local msg="$1"
+  echo -e "${RED}[ERROR]${NC} ${msg}" >&2
+  return 0
 }
 
 log_success() {
-  echo -e "${GREEN}[OK]${NC} $1"
+  local msg="$1"
+  echo -e "${GREEN}[OK]${NC} ${msg}"
+  return 0
 }
 
 print_banner() {
@@ -90,6 +99,7 @@ print_banner() {
   echo "  Pre-v0.65.0 → Combined Container Setup"
   echo "$MSG_SEPARATOR"
   echo ""
+  return 0
 }
 
 confirm_action() {
@@ -104,6 +114,7 @@ confirm_action() {
     log_error "Aborted by user."
     exit 1
   fi
+  return 0
 }
 
 ############################################
@@ -146,6 +157,7 @@ check_dependencies() {
   fi
 
   log_success "All dependencies found (docker compose: '$DOCKER_COMPOSE_CMD')"
+  return 0
 }
 
 detect_install_dir() {
@@ -180,6 +192,7 @@ detect_install_dir() {
     log_error "Directory does not exist: $INSTALL_DIR"
     exit 1
   fi
+  return 0
 }
 
 validate_old_setup() {
@@ -210,6 +223,7 @@ validate_old_setup() {
   fi
 
   log_success "Found management.json at: $MANAGEMENT_JSON_PATH"
+  return 0
 }
 
 check_already_migrated() {
@@ -219,6 +233,7 @@ check_already_migrated() {
     echo "If you want to re-run the migration, remove config.yaml first."
     exit 0
   fi
+  return 0
 }
 
 detect_reverse_proxy() {
@@ -241,17 +256,15 @@ detect_reverse_proxy() {
   # Check for embedded Caddy — two patterns:
   # 1. Old configure.sh: dashboard container with LETSENCRYPT_DOMAIN env var + ports 80/443
   # 2. v0.62+ getting-started.sh: Caddy service in compose or standalone Caddyfile
-  if grep -q 'LETSENCRYPT_DOMAIN' "$compose_file" 2>/dev/null; then
-    if grep -q '443:443' "$compose_file" 2>/dev/null || grep -q '443:' "$compose_file" 2>/dev/null; then
-      PROXY_TYPE="caddy_embedded"
-      log_info "Detected: Embedded Caddy (dashboard container with Let's Encrypt)"
-      return 0
-    fi
+  if grep -q 'LETSENCRYPT_DOMAIN' "$compose_file" 2>/dev/null && { grep -q '443:443' "$compose_file" 2>/dev/null || grep -q '443:' "$compose_file" 2>/dev/null; }; then
+    PROXY_TYPE="$PROXY_TYPE_CADDY"
+    log_info "Detected: Embedded Caddy (dashboard container with Let's Encrypt)"
+    return 0
   fi
 
   # Check for Caddy service in docker-compose.yml (v0.62+ pattern)
   if grep -qE '^\s+caddy:|^\s+image:.*caddy' "$compose_file" 2>/dev/null; then
-    PROXY_TYPE="caddy_embedded"
+    PROXY_TYPE="$PROXY_TYPE_CADDY"
     log_info "Detected: Caddy reverse proxy (in Docker Compose)"
     return 0
   fi
@@ -260,28 +273,27 @@ detect_reverse_proxy() {
   if [[ -f "$INSTALL_DIR/Caddyfile" ]]; then
     # Verify Caddy is referenced in docker-compose.yml or running as a container
     if grep -q 'caddy' "$compose_file" 2>/dev/null || grep -q 'Caddyfile' "$compose_file" 2>/dev/null; then
-      PROXY_TYPE="caddy_embedded"
+      PROXY_TYPE="$PROXY_TYPE_CADDY"
       log_info "Detected: Caddy reverse proxy (Caddyfile + Docker Compose)"
       return 0
     fi
     # Caddyfile exists but not in compose — might be running on host
-    PROXY_TYPE="caddy_embedded"
+    PROXY_TYPE="$PROXY_TYPE_CADDY"
     log_info "Detected: Caddy reverse proxy (standalone Caddyfile)"
     return 0
   fi
 
   # Check for disabled Let's Encrypt (external proxy)
-  if [[ -f "$INSTALL_DIR/setup.env" ]]; then
-    if grep -q 'NETBIRD_DISABLE_LETSENCRYPT=true' "$INSTALL_DIR/setup.env" 2>/dev/null; then
-      PROXY_TYPE="external"
-      log_info "Detected: External reverse proxy (Let's Encrypt disabled)"
-      return 0
-    fi
+  if [[ -f "$INSTALL_DIR/setup.env" ]] && grep -q 'NETBIRD_DISABLE_LETSENCRYPT=true' "$INSTALL_DIR/setup.env" 2>/dev/null; then
+    PROXY_TYPE="external"
+    log_info "Detected: External reverse proxy (Let's Encrypt disabled)"
+    return 0
   fi
 
   # Default to external
   PROXY_TYPE="external"
   log_info "Detected: External/custom reverse proxy"
+  return 0
 }
 
 detect_idp_type() {
@@ -332,6 +344,7 @@ detect_idp_type() {
   # No embedded IdP and no external IdP detected — assume old setup without IdP manager
   IDP_TYPE="embedded"
   log_success "IdP type: embedded (suitable for migration)"
+  return 0
 }
 
 detect_volumes() {
@@ -387,6 +400,7 @@ detect_volumes() {
 
   log_warn "Could not detect management volume. A new volume will be created."
   MGMT_VOLUME=""
+  return 0
 }
 
 detect_domain() {
@@ -438,6 +452,7 @@ detect_domain() {
   if [[ -n "$LETSENCRYPT_EMAIL" ]]; then
     log_success "Let's Encrypt email: $LETSENCRYPT_EMAIL"
   fi
+  return 0
 }
 
 detect_store_config() {
@@ -484,6 +499,7 @@ detect_store_config() {
   if [[ -n "$STORE_DSN" ]]; then
     log_success "Store DSN: [detected]"
   fi
+  return 0
 }
 
 extract_config_values() {
@@ -502,17 +518,13 @@ extract_config_values() {
   RELAY_SECRET=$(jq -r '.Relay.Secret // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "")
 
   # Fallback: relay secret from setup.env
-  if [[ -z "$RELAY_SECRET" || "$RELAY_SECRET" == "null" ]]; then
-    if [[ -f "$INSTALL_DIR/setup.env" ]]; then
-      RELAY_SECRET=$(grep '^NETBIRD_RELAY_AUTH_SECRET=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
-    fi
+  if [[ (-z "$RELAY_SECRET" || "$RELAY_SECRET" == "null") && -f "$INSTALL_DIR/setup.env" ]]; then
+    RELAY_SECRET=$(grep '^NETBIRD_RELAY_AUTH_SECRET=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
   fi
 
   # Fallback: relay secret from base.setup.env
-  if [[ -z "$RELAY_SECRET" || "$RELAY_SECRET" == "null" ]]; then
-    if [[ -f "$INSTALL_DIR/base.setup.env" ]]; then
-      RELAY_SECRET=$(grep '^NETBIRD_RELAY_AUTH_SECRET=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
-    fi
+  if [[ (-z "$RELAY_SECRET" || "$RELAY_SECRET" == "null") && -f "$INSTALL_DIR/base.setup.env" ]]; then
+    RELAY_SECRET=$(grep '^NETBIRD_RELAY_AUTH_SECRET=' "$INSTALL_DIR/base.setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
   fi
 
   # Generate if still empty
@@ -536,6 +548,7 @@ extract_config_values() {
   TRUSTED_PEERS=$(jq -c '.ReverseProxy.TrustedPeers // []' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "[]")
 
   log_success "Configuration values extracted"
+  return 0
 }
 
 print_detection_summary() {
@@ -560,7 +573,7 @@ print_detection_summary() {
   echo "  Relay secret:       ${RELAY_SECRET:0:8}..."
   echo ""
 
-  if [[ "$PROXY_TYPE" == "caddy_embedded" ]]; then
+  if [[ "$PROXY_TYPE" == "$PROXY_TYPE_CADDY" ]]; then
     echo "  Migration mode:     AUTOMATIC"
     echo "  A Traefik-based docker-compose.yml will be generated and services"
     echo "  will be stopped and restarted automatically."
@@ -570,6 +583,7 @@ print_detection_summary() {
     echo "  containers, replace docker-compose.yml, and restart manually."
   fi
   echo ""
+  return 0
 }
 
 ############################################
@@ -618,6 +632,7 @@ create_backup() {
   generate_rollback_script
 
   log_success "Backup created at: $BACKUP_DIR"
+  return 0
 }
 
 generate_rollback_script() {
@@ -678,6 +693,7 @@ echo "Verify with: \$COMPOSE_CMD ps"
 ROLLBACK_BODY
 
   chmod +x "$BACKUP_DIR/rollback.sh"
+  return 0
 }
 
 ############################################
@@ -774,6 +790,7 @@ EOF
   } > "$INSTALL_DIR/config.yaml"
 
   log_success "Generated config.yaml"
+  return 0
 }
 
 generate_dashboard_env() {
@@ -799,6 +816,7 @@ LETSENCRYPT_DOMAIN=none
 EOF
 
   log_success "Generated dashboard.env"
+  return 0
 }
 
 generate_docker_compose_traefik() {
@@ -939,6 +957,7 @@ networks:
 EOF
 
   log_success "Generated docker-compose.yml"
+  return 0
 }
 
 generate_docker_compose_exposed_ports() {
@@ -999,14 +1018,16 @@ networks:
 EOF
 
   log_success "Generated docker-compose.yml"
+  return 0
 }
 
 generate_docker_compose() {
-  if [[ "$PROXY_TYPE" == "caddy_embedded" ]]; then
+  if [[ "$PROXY_TYPE" == "$PROXY_TYPE_CADDY" ]]; then
     generate_docker_compose_traefik
   else
     generate_docker_compose_exposed_ports
   fi
+  return 0
 }
 
 ############################################
@@ -1025,6 +1046,7 @@ stop_old_services() {
   (cd "$old_compose_dir" && $DOCKER_COMPOSE_CMD down 2>/dev/null) || true
 
   log_success "Old containers stopped"
+  return 0
 }
 
 start_new_services() {
@@ -1033,6 +1055,7 @@ start_new_services() {
   (cd "$INSTALL_DIR" && $DOCKER_COMPOSE_CMD up -d)
 
   log_success "New containers started"
+  return 0
 }
 
 wait_for_health() {
@@ -1076,6 +1099,7 @@ wait_for_health() {
 
   log_warn "Health check timed out after $((max_attempts * 2)) seconds."
   log_warn "Services may still be starting. Check with: cd $INSTALL_DIR && $DOCKER_COMPOSE_CMD logs"
+  return 0
 }
 
 ############################################
@@ -1120,6 +1144,7 @@ verify_migration() {
 
   echo ""
   echo "  Verification: $checks_passed/$checks_total checks passed"
+  return 0
 }
 
 print_summary() {
@@ -1129,7 +1154,7 @@ print_summary() {
   echo "$MSG_SEPARATOR"
   echo ""
 
-  if [[ "$PROXY_TYPE" == "caddy_embedded" ]]; then
+  if [[ "$PROXY_TYPE" == "$PROXY_TYPE_CADDY" ]]; then
     echo "  What was done:"
     echo "    - Old 5-container setup stopped"
     echo "    - New config.yaml generated (combined server config)"
@@ -1171,6 +1196,7 @@ print_summary() {
   echo "    - Re-authenticate all clients: netbird down && netbird up"
   echo "    - Check logs: cd $INSTALL_DIR && $DOCKER_COMPOSE_CMD logs -f"
   echo ""
+  return 0
 }
 
 ############################################
@@ -1180,9 +1206,11 @@ print_summary() {
 main() {
   # Parse arguments
   while [[ $# -gt 0 ]]; do
-    case "$1" in
+    local arg="$1"
+    case "$arg" in
       --install-dir)
-        INSTALL_DIR="$2"
+        local dir_value="$2"
+        INSTALL_DIR="$dir_value"
         shift 2
         ;;
       --non-interactive)
@@ -1201,7 +1229,7 @@ main() {
         exit 0
         ;;
       *)
-        log_error "Unknown option: $1"
+        log_error "Unknown option: $arg"
         echo "Use --help for usage information."
         exit 1
         ;;
@@ -1229,7 +1257,7 @@ main() {
   create_backup
 
   # Phase 4: Apply migration
-  if [[ "$PROXY_TYPE" == "caddy_embedded" ]]; then
+  if [[ "$PROXY_TYPE" == "$PROXY_TYPE_CADDY" ]]; then
     # Stop old containers BEFORE overwriting docker-compose.yml
     stop_old_services
 
@@ -1252,6 +1280,7 @@ main() {
   fi
 
   print_summary
+  return 0
 }
 
 main "$@"
