@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "df3147ec3023",
+  "strategy": "manual-commit",
+  "branch": "fix/skip-broken-idps",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "combined/perftest/main.go",
+    "idp/dex/provider.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/df/3147ec3023/0/metadata.json",
+      "transcript": "/df/3147ec3023/0/full.jsonl",
+      "context": "/df/3147ec3023/0/context.md",
+      "content_hash": "/df/3147ec3023/0/content_hash.txt",
+      "prompt": "/df/3147ec3023/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 141,
+    "cache_creation_tokens": 167609,
+    "cache_read_tokens": 5356188,
+    "output_tokens": 3588,
+    "api_call_count": 74
+  }
+}

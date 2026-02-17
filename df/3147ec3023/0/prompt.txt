@@ -1,0 +1,310 @@
+Implement the following plan:
+
+# Performance Test Tool for Combined Server
+
+## Context
+
+Need a standalone Go program to performance-test the combined NetBird deployment by spinning up N client peers, connecting them to a management server, and measuring tunnel communication. This tool lives in `combined/perftest/` and is compiled into a standalone binary.
+
+## Approach
+
+Use the **`client/embed` package** (`client/embed/embed.go`) which provides a clean API for programmatically creating NetBird clients. It handles:
+- Userspace WireGuard via netstack (no root needed, no kernel interfaces)
+- In-memory config generation (unique WG keys per peer)
+- Auth + registration with setup key
+- `Dial()`, `ListenUDP()`, `ListenTCP()` for tunnel traffic
+- `Status()` for peer connectivity checks
+
+## New File
+
+### `combined/perftest/main.go`
+
+Single-file Go program (~400 lines). Structure:
+
+#### CLI Flags
+```
+--management-url  string   Management server URL (required)
+--setup-key       string   Reusable setup key (required)
+--peers           int      Number of peers to spawn (default: 5)
+--force-relay     bool     Set NB_FORCE_RELAY=true (default: false)
+--duration        duration Traffic test duration (default: 30s)
+--packet-size     int      UDP packet size in bytes (default: 512)
+--log-level       string   Log level (default: info)
+```
+
+#### Program Flow
+
+**1. Init phase**
+- Parse flags
+- If `--force-relay`, set `os.Setenv("NB_FORCE_RELAY", "true")`
+- Set `os.Setenv("NB_USE_NETSTACK_MODE", "true")` (embed does this but we set it early)
+
+**2. Peer startup phase** (sequential `New()`, parallel `Start()`)
+- Create N `embed.Client` instances via `embed.New(embed.Options{...})`
+  - Each gets: unique `DeviceName` (e.g. `"perf-peer-0"`), same `SetupKey`, same `ManagementURL`
+  - `WireguardPort: ptr(0)` for auto-assignment
+- Start all clients in parallel goroutines via `client.Start(ctx)`
+- Wait for all to start (with timeout)
+- Print startup times
+
+**3. Connection wait phase**
+- Poll `client.Status()` on each client until every peer sees all other peers as `StatusConnected`
+- Expected: each peer sees N-1 connected peers
+- Timeout after a configurable wait (e.g. 120s)
+- Print connection establishment time and per-peer connection type (relayed vs direct)
+
+**4. Traffic phase**
+- Each peer starts a UDP echo listener via `client.ListenUDP(":9000")`
+- For each peer pair (i, j) where i < j:
+  - Peer i sends UDP packets to peer j's tunnel IP via `client.Dial(ctx, "udp", "<peer_j_ip>:9000")`
+  - Measure round-trip time (echo response) and throughput
+- Run for `--duration` time
+- Collect stats: packets sent, received, lost, avg/min/max RTT, throughput
+
+**5. Cleanup & report**
+- Stop all clients via `client.Stop(ctx)`
+- Print summary: connection times, packet loss, RTT stats, throughput per pair
+
+#### Key Code Patterns
+
+Creating a peer (using `client/embed/embed.go`):
+```go
+port := 0
+c, err := embed.New(embed.Options{
+    DeviceName:    fmt.Sprintf("perf-peer-%d", i),
+    SetupKey:      setupKey,
+    ManagementURL: managementURL,
+    WireguardPort: &port,
+    LogLevel:      logLevel,
+})
+```
+
+Getting peer tunnel IPs from status:
+```go
+status, _ := c.Status()
+localIP := status.LocalPeerState.IP  // e.g. "100.64.0.1/16"
+```
+
+Getting connected peer IPs:
+```go
+for _, p := range status.Peers {
+    if p.ConnStatus == peer.StatusConnected {
+        peerIP := p.IP  // tunnel IP of connected peer
+    }
+}
+```
+
+UDP echo listener (runs on each peer):
+```go
+conn, _ := client.ListenUDP(":9000")
+// echo loop: read packet, write it back
+```
+
+UDP sender (measures RTT):
+```go
+conn, _ := client.Dial(ctx, "udp", fmt.Sprintf("%s:9000", peerIP))
+// send packet with timestamp, wait for echo, measure RTT
+```
+
+## Dependencies
+
+All existing - no new Go modules needed:
+- `github.com/netbirdio/netbird/client/embed` - main client API
+- `github.com/netbirdio/netbird/client/internal/peer` - for `StatusConnected` constant
+- Standard library: `flag`, `fmt`, `time`, `net`, `sync`, `context`, `os`, `math`, `strings`
+
+## Key Files Referenced
+
+| File | Usage |
+|------|-------|
+| `client/embed/embed.go` | Core API: `New()`, `Start()`, `Stop()`, `Dial()`, `ListenUDP()`, `Status()` |
+| `client/internal/peer/status.go` | `FullStatus`, `State`, `ConnStatus` types |
+| `client/internal/peer/env.go` | `NB_FORCE_RELAY` env var |
+| `client/iface/netstack/env.go` | `NB_USE_NETSTACK_MODE` env var |
+| `client/internal/profilemanager/config.go` | `CreateInMemoryConfig()` (used internally by embed) |
+
+## Verification
+
+1. Build: `cd combined/perftest && go build -o perftest .`
+2. Start a combined server (e.g. `cd combined && go run . --config config-simple.yaml`)
+3. Create a reusable setup key in the management dashboard
+4. Run: `./perftest --management-url https://localhost:443 --setup-key <key> --peers 3`
+5. Expected output: peers connect, traffic flows, stats printed
+6. Test with relay: `./perftest --management-url https://localhost:443 --setup-key <key> --peers 3 --force-relay`
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/misha/.REDACTED.jsonl
+
+---
+
+disable logs of the client, I wanna see just logs of the test
+
+---
+
+I stil lsee logs: INFO[0035] stop listening for remote offers and answers  peer="REDACTED"
+INFO[0035] WireGuard watcher stopped                     peer="REDACTED"
+INFO[0035] WireGuard watcher stopped                     peer="REDACTED"
+INFO[0035] WireGuard watcher stopped                     peer="REDACTED"
+INFO[0035] WireGuard watcher stopped                     peer="REDACTED"
+INFO[0035] start to Relay read loop exit                 relay="rels://selfhosted2.demo.netbird.io:443"
+INFO[0035] relay connection closed                       relay="rels://selfhosted2.demo.netbird.io:443"
+WARN[0035] relay connection was already marked as not running  relay="rels://selfhosted2.demo.netbird.io:443"
+INFO[0035] start to Relay read loop exit                 relay="rels://selfhosted2.demo.netbird.io:443"
+INFO[0035] relay connection closed                       relay="rels://selfhosted2.demo.netbird.io:443"
+WARN[0035] relay connection was already marked as not running  relay="rels://selfhosted2.demo.netbird.io:443"
+INFO[0035] stop listening for remote offers and answers  peer="REDACTED"
+INFO[0035] peer connection closed
+
+---
+
+INFO[0005] sending offer with serial: 514900c039         peer="REDACTED"
+INFO[0005] sending offer with serial: 4a5c19dee4         peer="REDACTED"
+INFO[0005] sending offer with serial: cbcb9abdf0         peer="REDACTED"
+INFO[0005] sending offer with serial: 9126e851ab         peer="REDACTED"
+INFO[0005] sending offer with serial: 293faf1177         peer="REDACTED"
+INFO[0005] sending offer with serial: 927cfc2296         peer="REDACTED"
+INFO[0005] sending offer with serial: 74936055f4         peer="REDACTED"
+INFO[0005] sending offer with serial: 3de844a43e         peer="REDACTED"
+INFO[0005] sending offer with serial: 54e2723341         peer="REDACTED"
+INFO[0005] sending offer with serial: b9112c6028         peer="REDACTED"
+INFO[0005] sending offer with serial: 837d3c9dd3         peer="REDACTED"
+INFO[0005] sending offer with serial: 09a20099ce         peer="REDACTED"
+INFO[0005] sending offer with serial: bd4539a709         peer="REDACTED"
+INFO[0005] sending offer with serial: 81a7cf2daa         peer="REDACTED"
+INFO[0005] sending offer with serial: 41312be645         peer="REDACTED"
+INFO[0005] sending offer with serial: 5013a2d198         peer="REDACTED"
+INFO[0005] sending offer with serial: f4a2b9314f         peer="REDACTED"
+INFO[0005] sending offer with serial: f1c3f77150         peer="REDACTED"
+INFO[0005] sending offer with serial: a2324e89eb         peer="REDACTED"
+INFO[0005] sending offer with serial: e9c9913bd8         peer="REDACTED"
+INFO[0005] sending offer with serial: b3a92d33c9         peer="REDACTED"
+INFO[0005] sending offer with serial: 0aa564bb31         peer="REDACTED"
+INFO[0005] sending offer with serial: 31b528931a         peer="REDACTED"
+INFO[0005] sending offer with serial: 015e5d8cfa         peer="REDACTED"
+INFO[0005] sending offer with serial: e87b2a8ece         peer="REDACTED"
+INFO[0005] sending offer with serial: d8fed8a998         peer="REDACTED"
+INFO[0005] sending offer with serial: 09adbe9bc1         peer="REDACTED"
+INFO[0005] sending offer with serial: 6d83b62a33         peer="REDACTED"
+INFO[0005] sending offer with serial: 618d8222b7         peer="REDACTED"
+INFO[0005] sending offer with serial: 5e7465539f         peer="REDACTED"
+INFO[0005] sending offer with serial: 64fc2a3332         peer="REDACTED"
+INFO[0005] sending offer with serial: 258185359d         peer="REDACTED"
+INFO[0005] sending offer with serial: 06783e7f77         peer="REDACTED"
+INFO[0005] sending offer with serial: b620f804fc         peer="REDACTED"
+INFO[0005] sending offer with serial: ae48d59f7b         peer="REDACTED"
+INFO[0005] sending offer with serial: e87f45ce05         peer="REDACTED"
+INFO[0005] sending offer with serial: fea0bdaaff         peer="REDACTED"
+INFO[0005] sending offer with serial: de04c9cdb2         peer="REDACTED"
+INFO[0005] sending offer with serial: 0307a4ff88         peer="REDACTED"
+INFO[0005] sending offer with serial: 3f753f5db8         peer="REDACTED"
+INFO[0005] sending offer with serial: 55ff42b67f         peer="REDACTED"
+INFO[0005] sending offer with serial: c8414000da         peer="REDACTED"
+  All peers connected in 2.741s
+INFO[0005] sending offer with serial: dd6306a3d4         peer="REDACTED"
+INFO[0005] sending offer with serial: 108f12e3db         peer="REDACTED"
+INFO[0005] sending offer with serial: de6c027562         peer="REDACTED"
+INFO[0005] sending offer with serial: bc7599fda6         peer="REDACTED"
+INFO[0005] sending offer with serial: fb9674b11d         peer="REDACTED"
+INFO[0005] sending offer with serial: 50756e85d0         peer="REDACTED"
+INFO[0005] sending offer with serial: c1a5c4fa28         peer="REDACTED"
+INFO[0005] sending offer with serial: bb8f8494cb         peer="REDACTED"
+  perf-peer-0: 12/23 connected (direct)
+INFO[0005] sending offer with serial: 0908dcddd4         peer="REDACTED"
+INFO[0005] sending offer with serial: 6a5a67fa8e         peer="REDACTED"
+INFO[0005] sending offer with serial: f462eb15f2         peer="REDACTED"
+INFO[0005] sending offer with serial: 00ecf3292a         peer="REDACTED"
+  perf-peer-1: 12/23 connected (direct)
+INFO[0005] sending offer with serial: 4b2242ac0b         peer="REDACTED"
+INFO[0005] sending offer with serial: 282f8ead7a         peer="REDACTED"
+  perf-peer-2: 12/23 connected (direct)
+INFO[0005] sending offer with serial: 00fde9d881         peer="REDACTED"
+  perf-peer-3: 12/23 connected (direct)
+  perf-peer-4: 12/23 connected (11 direct, 1 relayed)
+  perf-peer-5: 12/23 connected (direct)
+  perf-peer-6: 12/23 connected (direct)
+  perf-peer-7: 12/23 connected (direct)
+  perf-peer-8: 12/23 connected (11 direct, 1 relayed)
+  perf-peer-9: 12/23 connected (direct)
+
+--- Phase 4: Traffic test (30s) ---
+  Echo listener started on 100.73.56.199:9000
+  Echo listener started on 100.73.237.71:9000
+  Echo listener started on 100.73.40.88:9000
+  Echo listener started on 100.73.253.100:9000
+  Echo listener started on 100.73.164.32:9000
+  Echo listener started on 100.73.200.71:9000
+  Echo listener started on 100.73.97.94:9000
+  Echo listener started on 100.73.70.42:9000
+  Echo listener started on 100.73.254.100:9000
+  Echo listener started on 100.73.176.10:9000
+WARN[0005] could not find record for address 192.168.178.86:63657 
+WARN[0005] could not find record for address [2a02:8109:d486:ba00:dcae:9cda:ab80:b5bd]:64216 
+WARN[0005] could not find record for address [2a02:8109:d486:ba00:c64:4fdc:40ef:f
+
+---
+
+still seing logs
+
+---
+
+[Request interrupted by user]
+
+---
+
+I didn't recompile, return to io.Discrd
+
+---
+
+no discrad for the embed not global
+
+---
+
+do we show average time for transfer?
+
+---
+
+what are  Avg RTT    Min RTT    Max RTT
+
+---
+
+add configurable time of the traffic test
+
+---
+
+remove throughput
+
+---
+
+add bash script to compile and run
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+The problem with the embedded in the idp/ folder is that dex won't start and therefore management if one of the configured IdPs is down and not reachable. What can be a wworkaround?
+
+---
+
+what if we do a check somehow in teh code in the idp/ folder
+
+---
+
+where you gonan store them?
+
+---
+
+[Request interrupted by user]
+
+---
+
+where you gonan store them to restore?
+
+---
+
+it is not in the yaml, it is in the database
+
+---
+
+I see ContinueOnConnectorFailure in server/server.go in dex. How can I configure it
