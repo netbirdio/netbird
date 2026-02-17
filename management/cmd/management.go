@@ -29,11 +29,11 @@ import (
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
-	return server.NewServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+var newServer = func(cfg *server.Config) server.Server {
+	return server.NewServer(cfg)
 }
 
-func SetNewServer(fn func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server) {
+func SetNewServer(fn func(*server.Config) server.Server) {
 	newServer = fn
 }
 
@@ -110,7 +110,17 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
-			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+			srv := newServer(&server.Config{
+				NbConfig:                    config,
+				DNSDomain:                   dnsDomain,
+				MgmtSingleAccModeDomain:     mgmtSingleAccModeDomain,
+				MgmtPort:                    mgmtPort,
+				MgmtMetricsPort:             mgmtMetricsPort,
+				DisableLegacyManagementPort: disableLegacyManagementPort,
+				DisableMetrics:              disableMetrics,
+				DisableGeoliteUpdate:        disableGeoliteUpdate,
+				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
+			})
 			go func() {
 				if err := srv.Start(cmd.Context()); err != nil {
 					log.Fatalf("Server error: %v", err)
