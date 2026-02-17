@@ -46,6 +46,7 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	serverURL             string
 }
 
 // NewClient creates a new client to Management service
@@ -75,7 +76,13 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		ctx:                   ctx,
 		conn:                  conn,
 		connStateCallbackLock: sync.RWMutex{},
+		serverURL:             addr,
 	}, nil
+}
+
+// GetServerURL returns the management server URL
+func (c *GrpcClient) GetServerURL() string {
+	return c.serverURL
 }
 
 // Close closes connection to the Management Service

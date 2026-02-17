@@ -219,6 +219,11 @@ const (
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
+// MetricsExporter is an interface for exporting metrics
+type MetricsExporter interface {
+	Export(w io.Writer) error
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -229,6 +234,7 @@ type BundleGenerator struct {
 	logPath        string
 	cpuProfile     []byte
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
+	clientMetrics  MetricsExporter
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -250,6 +256,7 @@ type GeneratorDependencies struct {
 	LogPath        string
 	CPUProfile     []byte
 	RefreshStatus  func() // Optional callback to refresh status before bundle generation
+	ClientMetrics  MetricsExporter
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -268,6 +275,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logPath:        deps.LogPath,
 		cpuProfile:     deps.CPUProfile,
 		refreshStatus:  deps.RefreshStatus,
+		clientMetrics:  deps.ClientMetrics,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -349,6 +357,10 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addCorruptedStateFiles(); err != nil {
 		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
+	}
+
+	if err := g.addMetrics(); err != nil {
+		log.Errorf("failed to add metrics to debug bundle: %v", err)
 	}
 
 	if err := g.addWgShow(); err != nil {
@@ -741,6 +753,25 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 		log.Debugf("Added corrupted state file to debug bundle: %s", fileName)
 	}
 
+	return nil
+}
+
+func (g *BundleGenerator) addMetrics() error {
+	if g.clientMetrics == nil {
+		log.Debugf("skipping metrics in debug bundle: no metrics collector")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := g.clientMetrics.Export(&buf); err != nil {
+		return fmt.Errorf("export metrics: %w", err)
+	}
+
+	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
+		return fmt.Errorf("add metrics file to zip: %w", err)
+	}
+
+	log.Debugf("added metrics to debug bundle")
 	return nil
 }
 

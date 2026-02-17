@@ -33,6 +33,7 @@ require (
 	fyne.io/fyne/v2 v2.7.0
 	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
+	github.com/VictoriaMetrics/metrics v1.40.2
 	github.com/awnumar/memguard v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
@@ -264,6 +265,8 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect

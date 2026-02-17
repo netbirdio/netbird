@@ -37,6 +37,7 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
@@ -222,6 +223,9 @@ type Engine struct {
 
 	probeStunTurn *relay.StunTurnProbe
 
+	// clientMetrics collects and pushes metrics
+	clientMetrics *metrics.ClientMetrics
+
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
 }
@@ -249,6 +253,12 @@ func NewEngine(
 	checks []*mgmProto.Checks,
 	stateManager *statemanager.Manager,
 ) *Engine {
+	// Initialize metrics based on deployment type
+	var deploymentType metrics.DeploymentType
+	if mgmClient != nil {
+		deploymentType = metrics.DetermineDeploymentType(mgmClient.GetServerURL())
+	}
+
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -269,6 +279,7 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
+		clientMetrics:  metrics.NewClientMetrics(deploymentType, true),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -1079,6 +1090,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
@@ -1534,12 +1546,13 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder: e.statusRecorder,
-		Signaler:       e.signaler,
-		IFaceDiscover:  e.mobileDep.IFaceDiscover,
-		RelayManager:   e.relayManager,
-		SrWatcher:      e.srWatcher,
-		Semaphore:      e.connSemaphore,
+		StatusRecorder:  e.statusRecorder,
+		Signaler:        e.signaler,
+		IFaceDiscover:   e.mobileDep.IFaceDiscover,
+		RelayManager:    e.relayManager,
+		SrWatcher:       e.srWatcher,
+		Semaphore:       e.connSemaphore,
+		MetricsRecorder: e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1823,6 +1836,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 // GetFirewallManager returns the firewall manager
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
+}
+
+// GetClientMetrics returns the client metrics
+func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
+	return e.clientMetrics
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

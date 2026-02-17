@@ -44,12 +44,13 @@ type OfferAnswer struct {
 }
 
 type Handshaker struct {
-	mu       sync.Mutex
-	log      *log.Entry
-	config   ConnConfig
-	signaler *Signaler
-	ice      *WorkerICE
-	relay    *WorkerRelay
+	mu            sync.Mutex
+	log           *log.Entry
+	config        ConnConfig
+	signaler      *Signaler
+	ice           *WorkerICE
+	relay         *WorkerRelay
+	metricsStages *MetricsStages
 	// relayListener is not blocking because the listener is using a goroutine to process the messages
 	// and it will only keep the latest message if multiple offers are received in a short time
 	// this is to avoid blocking the handshaker if the listener is doing some heavy processing
@@ -64,13 +65,14 @@ type Handshaker struct {
 	remoteAnswerCh chan OfferAnswer
 }
 
-func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
 	return &Handshaker{
 		log:            log,
 		config:         config,
 		signaler:       signaler,
 		ice:            ice,
 		relay:          relay,
+		metricsStages:  metricsStages,
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 	}
@@ -89,6 +91,12 @@ func (h *Handshaker) Listen(ctx context.Context) {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
 			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+
+			// Record signaling received for reconnection attempts
+			if h.metricsStages != nil {
+				h.metricsStages.RecordSignalingReceived()
+			}
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
@@ -103,6 +111,12 @@ func (h *Handshaker) Listen(ctx context.Context) {
 			}
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
 			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+
+			// Record signaling received for reconnection attempts
+			if h.metricsStages != nil {
+				h.metricsStages.RecordSignalingReceived()
+			}
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
