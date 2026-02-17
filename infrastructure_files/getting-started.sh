@@ -376,11 +376,6 @@ configure_reverse_proxy() {
     TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
   fi
 
-  # Handle port binding for external proxy options (2-5)
-  if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
-    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
-  fi
-
   # Handle Docker network prompts for external proxies (options 2-4)
   case "$REVERSE_PROXY_TYPE" in
     2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
@@ -388,6 +383,13 @@ configure_reverse_proxy() {
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
+
+  # Handle port binding for external proxy options (2-5)
+  # Don't prompt this if the user specified a docker network
+  if [[ "$REVERSE_PROXY_TYPE" -ge 2 && -z "$EXTERNAL_PROXY_NETWORK" ]]; then
+    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+  fi
+
   return 0
 }
 
