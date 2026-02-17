@@ -938,7 +938,9 @@ render_docker_compose_exposed_ports() {
   $EXTERNAL_PROXY_NETWORK:
     external: true"
     dashboard_port_bindings="expose: [80]"
-    server_port_bindings="expose: [80, $NETBIRD_STUN_PORT/udp]"
+    server_port_bindings="expose: [80]
+    ports:
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'"
   fi
 
 
