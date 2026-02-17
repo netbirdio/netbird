@@ -29,11 +29,11 @@ import (
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
-	return server.NewServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
+	return server.NewServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
 }
 
-func SetNewServer(fn func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server) {
+func SetNewServer(fn func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server) {
 	newServer = fn
 }
 
@@ -110,7 +110,7 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
-			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
 			go func() {
 				if err := srv.Start(cmd.Context()); err != nil {
 					log.Fatalf("Server error: %v", err)
