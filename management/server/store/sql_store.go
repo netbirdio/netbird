@@ -5100,6 +5100,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	return logs, totalCount, nil
 }
 
+// DeleteOldAccessLogs deletes all access logs older than the specified time
+func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("timestamp < ?", olderThan).
+		Delete(&accesslogs.AccessLogEntry{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	}
+
+	return result.RowsAffected, nil
+}
+
 // applyAccessLogFilters applies filter conditions to the query
 func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.AccessLogFilter) *gorm.DB {
 	if filter.Search != nil {
