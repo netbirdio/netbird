@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	proxyproto "github.com/pires/go-proxyproto"
+	"github.com/pires/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -89,11 +89,7 @@ type Server struct {
 	ACMEChallengeType string
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
-	CertLockMethod   acme.CertLockMethod
-	OIDCClientId     string
-	OIDCClientSecret string
-	OIDCEndpoint     string
-	OIDCScopes       []string
+	CertLockMethod acme.CertLockMethod
 
 	// DebugEndpointEnabled enables the debug HTTP endpoint.
 	DebugEndpointEnabled bool
