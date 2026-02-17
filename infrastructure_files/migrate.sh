@@ -231,21 +231,43 @@ detect_reverse_proxy() {
     compose_file="$INSTALL_DIR/artifacts/docker-compose.yml"
   fi
 
-  # Check for Traefik service
+  # Check for Traefik service or labels
   if grep -q 'traefik' "$compose_file" 2>/dev/null; then
     PROXY_TYPE="traefik"
     log_info "Detected: Traefik reverse proxy"
     return 0
   fi
 
-  # Check for embedded Caddy (dashboard with LETSENCRYPT_DOMAIN + ports 80/443)
+  # Check for embedded Caddy — two patterns:
+  # 1. Old configure.sh: dashboard container with LETSENCRYPT_DOMAIN env var + ports 80/443
+  # 2. v0.62+ getting-started.sh: Caddy service in compose or standalone Caddyfile
   if grep -q 'LETSENCRYPT_DOMAIN' "$compose_file" 2>/dev/null; then
-    # Also verify it has port 443 exposed on dashboard
     if grep -q '443:443' "$compose_file" 2>/dev/null || grep -q '443:' "$compose_file" 2>/dev/null; then
       PROXY_TYPE="caddy_embedded"
-      log_info "Detected: Embedded Caddy (in dashboard container)"
+      log_info "Detected: Embedded Caddy (dashboard container with Let's Encrypt)"
       return 0
     fi
+  fi
+
+  # Check for Caddy service in docker-compose.yml (v0.62+ pattern)
+  if grep -qE '^\s+caddy:|^\s+image:.*caddy' "$compose_file" 2>/dev/null; then
+    PROXY_TYPE="caddy_embedded"
+    log_info "Detected: Caddy reverse proxy (in Docker Compose)"
+    return 0
+  fi
+
+  # Check for standalone Caddyfile in install directory (v0.62+ getting-started.sh)
+  if [[ -f "$INSTALL_DIR/Caddyfile" ]]; then
+    # Verify Caddy is referenced in docker-compose.yml or running as a container
+    if grep -q 'caddy' "$compose_file" 2>/dev/null || grep -q 'Caddyfile' "$compose_file" 2>/dev/null; then
+      PROXY_TYPE="caddy_embedded"
+      log_info "Detected: Caddy reverse proxy (Caddyfile + Docker Compose)"
+      return 0
+    fi
+    # Caddyfile exists but not in compose — might be running on host
+    PROXY_TYPE="caddy_embedded"
+    log_info "Detected: Caddy reverse proxy (standalone Caddyfile)"
+    return 0
   fi
 
   # Check for disabled Let's Encrypt (external proxy)
@@ -265,7 +287,16 @@ detect_reverse_proxy() {
 detect_idp_type() {
   log_info "Detecting identity provider type..."
 
-  # Check IdpManagerConfig.ManagerType in management.json
+  # Check for embedded IdP (v0.62.0+ getting-started.sh format)
+  local embedded_enabled
+  embedded_enabled=$(jq -r '.EmbeddedIdP.Enabled // false' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "false")
+  if [[ "$embedded_enabled" == "true" ]]; then
+    IDP_TYPE="embedded"
+    log_success "IdP type: embedded (suitable for migration)"
+    return 0
+  fi
+
+  # Check IdpManagerConfig.ManagerType (old configure.sh format)
   local manager_type
   manager_type=$(jq -r '.IdpManagerConfig.ManagerType // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "")
 
@@ -273,7 +304,7 @@ detect_idp_type() {
     IDP_TYPE="external"
     log_error "External IdP detected: $manager_type"
     echo ""
-    echo "This migration script only supports embedded IdP (Dex) setups."
+    echo "This migration script only supports embedded IdP setups."
     echo "External IdP providers (Auth0, Keycloak, Zitadel, etc.) require"
     echo "a fresh installation using getting-started.sh."
     echo ""
@@ -282,40 +313,23 @@ detect_idp_type() {
     exit 1
   fi
 
-  # Also check AuthIssuer — if it points to a different domain, it's external OIDC
+  # Check HttpConfig.AuthIssuer for well-known external providers
   local auth_issuer
   auth_issuer=$(jq -r '.HttpConfig.AuthIssuer // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "")
-  local detected_domain
-  detected_domain=$(jq -r '.HttpConfig.AuthIssuer // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null | sed 's|https\?://||' | sed 's|/.*||' | sed 's|:.*||' || echo "")
 
-  # Get domain from setup.env if available
-  local setup_domain=""
-  if [[ -f "$INSTALL_DIR/setup.env" ]]; then
-    setup_domain=$(grep '^NETBIRD_DOMAIN=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
-  fi
-
-  # If we have both, check they match
-  if [[ -n "$detected_domain" && -n "$setup_domain" && "$detected_domain" != "null" ]]; then
-    if [[ "$detected_domain" != "$setup_domain" ]]; then
-      # Check if auth issuer is a well-known external IdP
-      local known_external=false
-      for provider in "auth0.com" "accounts.google.com" "login.microsoftonline.com" "keycloak" "zitadel" "authentik" "dex"; do
-        if echo "$auth_issuer" | grep -qi "$provider" 2>/dev/null; then
-          known_external=true
-          break
-        fi
-      done
-
-      if [[ "$known_external" == "true" ]]; then
+  if [[ -n "$auth_issuer" && "$auth_issuer" != "null" ]]; then
+    for provider in "auth0.com" "accounts.google.com" "login.microsoftonline.com" "keycloak" "zitadel" "authentik"; do
+      if echo "$auth_issuer" | grep -qi "$provider" 2>/dev/null; then
         log_error "External OIDC provider detected: $auth_issuer"
         echo ""
         echo "This migration script only supports embedded IdP setups."
         echo "Please use getting-started.sh for a fresh installation."
         exit 1
       fi
-    fi
+    done
   fi
 
+  # No embedded IdP and no external IdP detected — assume old setup without IdP manager
   IDP_TYPE="embedded"
   log_success "IdP type: embedded (suitable for migration)"
 }
@@ -323,16 +337,14 @@ detect_idp_type() {
 detect_volumes() {
   log_info "Detecting Docker volumes..."
 
-  # Check for known volume name patterns
+  local volumes_list
+  volumes_list=$(docker volume ls --format '{{.Name}}' 2>/dev/null || echo "")
+
+  # Check for well-known volume name patterns (exact match)
   local volume_patterns=(
     "wiretrustee-mgmt"
     "netbird-mgmt"
   )
-
-  # Also check for compose-prefixed volumes (e.g., netbird_netbird-mgmt)
-  local volumes_list
-  volumes_list=$(docker volume ls --format '{{.Name}}' 2>/dev/null || echo "")
-
   for pattern in "${volume_patterns[@]}"; do
     if echo "$volumes_list" | grep -q "^${pattern}$"; then
       MGMT_VOLUME="$pattern"
@@ -341,13 +353,36 @@ detect_volumes() {
     fi
   done
 
-  # Check compose-prefixed patterns
+  # Check compose-prefixed patterns (e.g., netbird_netbird-mgmt, infrastructure_files_netbird-mgmt)
   local compose_prefixed
   compose_prefixed=$(echo "$volumes_list" | grep -E '(netbird|wiretrustee).*mgmt' | head -n1 || echo "")
   if [[ -n "$compose_prefixed" ]]; then
     MGMT_VOLUME="$compose_prefixed"
     log_success "Found management volume (compose-prefixed): $MGMT_VOLUME"
     return 0
+  fi
+
+  # Try to extract volume name from old docker-compose.yml
+  local compose_file=""
+  if [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+    compose_file="$INSTALL_DIR/docker-compose.yml"
+  elif [[ -f "$INSTALL_DIR/artifacts/docker-compose.yml" ]]; then
+    compose_file="$INSTALL_DIR/artifacts/docker-compose.yml"
+  fi
+  if [[ -n "$compose_file" ]]; then
+    # Look for volume mount on /var/lib/netbird in management or netbird-server service
+    local vol_name
+    vol_name=$(grep -E '^\s+-\s+\S+:/var/lib/netbird' "$compose_file" 2>/dev/null | head -1 | sed 's/.*- //' | sed 's/:.*//' | tr -d ' ' || echo "")
+    if [[ -n "$vol_name" && "$vol_name" != "." && "$vol_name" != "/" ]]; then
+      # Check if this volume exists in Docker
+      local full_vol
+      full_vol=$(echo "$volumes_list" | grep -F "$vol_name" | head -1 || echo "")
+      if [[ -n "$full_vol" ]]; then
+        MGMT_VOLUME="$full_vol"
+        log_success "Found management volume (from compose): $MGMT_VOLUME"
+        return 0
+      fi
+    fi
   fi
 
   log_warn "Could not detect management volume. A new volume will be created."
@@ -358,11 +393,20 @@ detect_domain() {
   log_info "Detecting domain..."
 
   # Try setup.env first
-  if [[ -f "$INSTALL_DIR/setup.env" ]]; then
+  if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/setup.env" ]]; then
     DOMAIN=$(grep '^NETBIRD_DOMAIN=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
   fi
 
-  # Fallback to management.json AuthIssuer
+  # Try EmbeddedIdP.Issuer (v0.62.0+ getting-started.sh format)
+  if [[ -z "$DOMAIN" ]]; then
+    local issuer
+    issuer=$(jq -r '.EmbeddedIdP.Issuer // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "")
+    if [[ -n "$issuer" && "$issuer" != "null" ]]; then
+      DOMAIN=$(echo "$issuer" | sed 's|https\?://||' | sed 's|/.*||' | sed 's|:.*||')
+    fi
+  fi
+
+  # Try HttpConfig.AuthIssuer (old configure.sh format)
   if [[ -z "$DOMAIN" ]]; then
     local issuer
     issuer=$(jq -r '.HttpConfig.AuthIssuer // ""' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "")
@@ -371,12 +415,21 @@ detect_domain() {
     fi
   fi
 
+  # Try dashboard.env NETBIRD_MGMT_API_ENDPOINT
+  if [[ -z "$DOMAIN" && -f "$INSTALL_DIR/dashboard.env" ]]; then
+    local endpoint
+    endpoint=$(grep '^NETBIRD_MGMT_API_ENDPOINT=' "$INSTALL_DIR/dashboard.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
+    if [[ -n "$endpoint" ]]; then
+      DOMAIN=$(echo "$endpoint" | sed 's|https\?://||' | sed 's|/.*||' | sed 's|:.*||')
+    fi
+  fi
+
   if [[ -z "$DOMAIN" ]]; then
-    log_error "Could not detect domain. Please set NETBIRD_DOMAIN in setup.env."
+    log_error "Could not detect domain from management.json, setup.env, or dashboard.env."
     exit 1
   fi
 
-  # Detect Let's Encrypt email
+  # Detect Let's Encrypt email from setup.env or dashboard.env LETSENCRYPT_DOMAIN
   if [[ -f "$INSTALL_DIR/setup.env" ]]; then
     LETSENCRYPT_EMAIL=$(grep '^NETBIRD_LETSENCRYPT_EMAIL=' "$INSTALL_DIR/setup.env" 2>/dev/null | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "")
   fi
@@ -468,16 +521,16 @@ extract_config_values() {
     log_warn "No relay secret found — generated a new one."
   fi
 
-  # IdpSignKeyRefreshEnabled
+  # IdpSignKeyRefreshEnabled — check both HttpConfig and EmbeddedIdP locations
   local signkey_raw
-  signkey_raw=$(jq -r '.HttpConfig.IdpSignKeyRefreshEnabled // "true"' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "true")
+  signkey_raw=$(jq -r '(.HttpConfig.IdpSignKeyRefreshEnabled // .EmbeddedIdP.SignKeyRefreshEnabled) // "true"' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "true")
   if [[ "$signkey_raw" == "false" ]]; then
     SIGNKEY_REFRESH="false"
   else
     SIGNKEY_REFRESH="true"
   fi
 
-  # ReverseProxy settings
+  # ReverseProxy settings (may not exist in v0.62+ getting-started.sh format)
   TRUSTED_PROXIES=$(jq -c '.ReverseProxy.TrustedHTTPProxies // []' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "[]")
   TRUSTED_PROXIES_COUNT=$(jq -r '.ReverseProxy.TrustedHTTPProxiesCount // 0' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "0")
   TRUSTED_PEERS=$(jq -c '.ReverseProxy.TrustedPeers // []' "$MANAGEMENT_JSON_PATH" 2>/dev/null || echo "[]")
@@ -1109,9 +1162,9 @@ print_summary() {
   echo "  Rollback command: bash $BACKUP_DIR/rollback.sh"
   echo ""
   echo "  IMPORTANT:"
-  echo "    - The embedded IdP is new. All clients will need to re-authenticate."
-  echo "    - The first user to log in to the dashboard becomes the admin."
   echo "    - Existing peers, routes, and policies are preserved in the database."
+  echo "    - The embedded IdP data is preserved in the management volume."
+  echo "    - Clients should reconnect automatically; if not: netbird down && netbird up"
   echo ""
   echo "  Next steps:"
   echo "    - Access the dashboard: https://$DOMAIN"
