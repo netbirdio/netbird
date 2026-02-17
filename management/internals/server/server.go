@@ -70,19 +70,32 @@ type BaseServer struct {
 	cancel context.CancelFunc
 }
 
+// Config holds the configuration parameters for creating a new server
+type Config struct {
+	NbConfig                    *nbconfig.Config
+	DNSDomain                   string
+	MgmtSingleAccModeDomain     string
+	MgmtPort                    int
+	MgmtMetricsPort             int
+	DisableLegacyManagementPort bool
+	DisableMetrics              bool
+	DisableGeoliteUpdate        bool
+	UserDeleteFromIDPEnabled    bool
+}
+
 // NewServer initializes and configures a new Server instance
-func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableLegacyManagementPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
+func NewServer(cfg *Config) *BaseServer {
 	return &BaseServer{
-		Config:                      config,
+		Config:                      cfg.NbConfig,
 		container:                   make(map[string]any),
-		dnsDomain:                   dnsDomain,
-		mgmtSingleAccModeDomain:     mgmtSingleAccModeDomain,
-		disableMetrics:              disableMetrics,
-		disableGeoliteUpdate:        disableGeoliteUpdate,
-		userDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
-		mgmtPort:                    mgmtPort,
-		disableLegacyManagementPort: disableLegacyManagementPort,
-		mgmtMetricsPort:             mgmtMetricsPort,
+		dnsDomain:                   cfg.DNSDomain,
+		mgmtSingleAccModeDomain:     cfg.MgmtSingleAccModeDomain,
+		disableMetrics:              cfg.DisableMetrics,
+		disableGeoliteUpdate:        cfg.DisableGeoliteUpdate,
+		userDeleteFromIDPEnabled:    cfg.UserDeleteFromIDPEnabled,
+		mgmtPort:                    cfg.MgmtPort,
+		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
+		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 	}
 }
 
