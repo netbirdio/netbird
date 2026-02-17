@@ -1,0 +1,29 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "de8ed49260bd",
+  "session_id": "2d919302-7c66-48d8-a035-00403424f4dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-17T14:19:05.455695Z",
+  "branch": "fix/skip-broken-idps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "idp/dex/provider_test.go"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 20195,
+    "cache_read_tokens": 386416,
+    "output_tokens": 605,
+    "api_call_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-17T14:19:05.441966Z",
+    "agent_lines": 62,
+    "human_added": 99962,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 100024,
+    "agent_percentage": 0.06198512357034312
+  }
+}

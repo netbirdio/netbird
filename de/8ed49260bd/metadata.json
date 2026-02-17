@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "de8ed49260bd",
+  "strategy": "manual-commit",
+  "branch": "fix/skip-broken-idps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "idp/dex/provider_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/8ed49260bd/0/metadata.json",
+      "transcript": "/de/8ed49260bd/0/full.jsonl",
+      "context": "/de/8ed49260bd/0/context.md",
+      "content_hash": "/de/8ed49260bd/0/content_hash.txt",
+      "prompt": "/de/8ed49260bd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 20195,
+    "cache_read_tokens": 386416,
+    "output_tokens": 605,
+    "api_call_count": 13
+  }
+}
