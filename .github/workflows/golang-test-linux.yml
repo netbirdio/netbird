@@ -433,7 +433,7 @@ jobs:
             CI=true \
           go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
-            -timeout 20m -v ./management/... ./shared/management/...
+            -timeout 20m ./management/... ./shared/management/...
 
   benchmark:
     name: "Management / Benchmark"
