@@ -53,6 +53,7 @@ var (
 	certLockMethod    string
 	wgPort            int
 	proxyProtocol     bool
+	preSharedKey      string
 )
 
 var rootCmd = &cobra.Command{
@@ -84,6 +85,7 @@ func init() {
 	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
 	rootCmd.Flags().IntVar(&wgPort, "wg-port", envIntOrDefault("NB_PROXY_WG_PORT", 0), "WireGuard listen port (0 = random). Fixed port only works with single-account deployments")
 	rootCmd.Flags().BoolVar(&proxyProtocol, "proxy-protocol", envBoolOrDefault("NB_PROXY_PROXY_PROTOCOL", false), "Enable PROXY protocol on TCP listeners to preserve client IPs behind L4 proxies")
+	rootCmd.Flags().StringVar(&preSharedKey, "pre-shared-key", envStringOrDefault("NB_PROXY_PRE_SHARED_KEY", ""), "Define a pre-shared key for the tunnel between proxy and peers")
 }
 
 // Execute runs the root command.
@@ -156,6 +158,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WireguardPort:            wgPort,
 		ProxyProtocol:            proxyProtocol,
+		PreSharedKey:             preSharedKey,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

@@ -102,6 +102,7 @@ type NetBird struct {
 	proxyID      string
 	proxyAddr    string
 	wgPort       int
+	preSharedKey string
 	logger       *log.Logger
 	mgmtClient   managementClient
 	transportCfg transportConfig
@@ -234,6 +235,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  true,
 		WireguardPort: &n.wgPort,
+		PreSharedKey:  n.preSharedKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)
@@ -539,7 +541,7 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 // NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, preSharedKey string, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -548,6 +550,7 @@ func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Log
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
 		wgPort:         wgPort,
+		preSharedKey:   preSharedKey,
 		logger:         logger,
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,
