@@ -83,6 +83,7 @@ require (
 	github.com/pion/stun/v3 v3.1.0
 	github.com/pion/transport/v3 v3.1.1
 	github.com/pion/turn/v3 v3.0.1
+	github.com/pires/go-proxyproto v0.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.55.0
