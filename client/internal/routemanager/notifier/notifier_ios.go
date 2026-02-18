@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
+	log "github.com/sirupsen/logrus"
 )
 
 type Notifier struct {
@@ -47,10 +48,12 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	sort.Strings(newNets)
 
 	if slices.Equal(n.currentPrefixes, newNets) {
+		log.Infof("--- dnsdebug -- OnNewPrefixes skipped: %s", newNets)
 		return
 	}
 
 	n.currentPrefixes = newNets
+	log.Infof("--- dnsdebug -- OnNewPrefixes sent: %s", newNets)
 	n.notify()
 }
 

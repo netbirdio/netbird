@@ -28,8 +28,8 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -224,6 +224,7 @@ type Engine struct {
 
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
+	runID         int
 }
 
 // Peer is an instance of the Connection Peer
@@ -276,6 +277,10 @@ func NewEngine(
 }
 
 func (e *Engine) Stop() error {
+	start := time.Now()
+	defer func() {
+		log.Infof("Engine run %d stop took %s", e.runID, time.Since(start))
+	}()
 	if e == nil {
 		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
 		log.Debugf("tried stopping engine that is nil")
@@ -408,6 +413,12 @@ func waitWithContext(ctx context.Context, wg *sync.WaitGroup) error {
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) error {
+	start := time.Now()
+	e.runID++
+	defer func() {
+		log.Infof("Engine run %d start took %s", e.runID, time.Since(start))
+	}()
+
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -832,7 +843,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
-		log.Infof("sync finished in %s", time.Since(started))
+		log.Infof("sync for runID %d finished in %s", e.runID, time.Since(started))
 	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()

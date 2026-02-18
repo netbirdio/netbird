@@ -2,6 +2,8 @@ package peer
 
 import (
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -56,12 +58,16 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 	calculatedState := n.calculateState(mgmState, signalState)
 
 	if !n.isServerStateChanged(calculatedState) {
+		log.Infof("--- dnsdebug -- updateServerStates didn't change = %s", stateToString(calculatedState))
+
 		n.serverStateLock.Unlock()
 		return
 	}
 
 	n.lastNotification = calculatedState
 	n.serverStateLock.Unlock()
+
+	log.Infof("--- dnsdebug -- updateServerStates changed = %s", stateToString(calculatedState))
 
 	n.notify(calculatedState)
 }
@@ -71,6 +77,7 @@ func (n *notifier) clientStart() {
 	n.currentClientState = true
 	n.lastNotification = stateConnecting
 	n.serverStateLock.Unlock()
+	log.Info("--- dnsdebug -- clientStart")
 
 	n.notify(stateConnecting)
 }
@@ -80,6 +87,7 @@ func (n *notifier) clientStop() {
 	n.currentClientState = false
 	n.lastNotification = stateDisconnected
 	n.serverStateLock.Unlock()
+	log.Info("--- dnsdebug -- clientStop")
 
 	n.notify(stateDisconnected)
 }
@@ -89,6 +97,8 @@ func (n *notifier) clientTearDown() {
 	n.currentClientState = false
 	n.lastNotification = stateDisconnecting
 	n.serverStateLock.Unlock()
+
+	log.Info("--- dnsdebug -- clientTearDown")
 
 	n.notify(stateDisconnecting)
 }
@@ -123,6 +133,21 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 	}
 
 	return stateConnecting
+}
+
+func stateToString(state int) string {
+	switch state {
+	case stateConnected:
+		return "connected"
+	case stateDisconnected:
+		return "disconnected"
+	case stateConnecting:
+		return "connecting"
+	case stateDisconnecting:
+		return "disconnecting"
+	default:
+		return "unknown"
+	}
 }
 
 func (n *notifier) peerListChanged(numOfPeers int) {

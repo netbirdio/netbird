@@ -32,6 +32,8 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	log.Infof("--- dnsdebug -- Adding VPN route prefix %s", prefix)
+
 	r.prefixes[prefix] = struct{}{}
 	r.notify()
 	return nil
@@ -40,6 +42,8 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	log.Infof("--- dnsdebug -- Removing VPN route prefix %s", prefix)
 
 	delete(r.prefixes, prefix)
 	r.notify()
