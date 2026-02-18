@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
 
 const Proto protocol.Protocol = "quic"
@@ -27,7 +28,7 @@ type Listener struct {
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	quicCfg := &quic.Config{
 		EnableDatagrams:   true,
-		InitialPacketSize: 1452,
+		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 	listener, err := quic.ListenAddr(l.Address, l.TLSConfig, quicCfg)
 	if err != nil {

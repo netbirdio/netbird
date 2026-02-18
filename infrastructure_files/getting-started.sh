@@ -577,9 +577,6 @@ render_docker_compose_traefik_builtin() {
   proxy:
     image: $NETBIRD_PROXY_IMAGE
     container_name: netbird-proxy
-    # Hairpin NAT fix: route domain back to traefik's static IP within Docker
-    extra_hosts:
-      - \"$NETBIRD_DOMAIN:$TRAEFIK_IP\"
     ports:
     - 51820:51820/udp
     restart: unless-stopped
@@ -822,9 +819,6 @@ NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
 NB_PROXY_ACME_CERTIFICATES=true
 NB_PROXY_ACME_CHALLENGE_TYPE=tls-alpn-01
-NB_PROXY_OIDC_CLIENT_ID=netbird-proxy
-NB_PROXY_OIDC_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
-NB_PROXY_OIDC_SCOPES=openid,profile,email
 NB_PROXY_FORWARDED_PROTO=https
 # Enable PROXY protocol to preserve client IPs through L4 proxies (Traefik TCP passthrough)
 NB_PROXY_PROXY_PROTOCOL=true
