@@ -282,8 +282,21 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 }
 
 func (pd *PrivilegeDropper) prepareControllingTerminal() error {
-	if _, err := syscall.Setsid(); err != nil && !errors.Is(err, syscall.EPERM) {
-		return fmt.Errorf("setsid: %w", err)
+	if _, err := syscall.Setsid(); err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			// EPERM can mean we're already a session leader or that a new session was not created.
+			// Only treat EPERM as non-fatal if we're already the session leader.
+			sid, gerr := unix.Getsid(0)
+			if gerr != nil {
+				return fmt.Errorf("setsid EPERM and getsid failed: %w", gerr)
+			}
+			if sid != os.Getpid() {
+				return fmt.Errorf("setsid: %w", err)
+			}
+			// Already a session leader; continue.
+		} else {
+			return fmt.Errorf("setsid: %w", err)
+		}
 	}
 
 	stdinFD := int(os.Stdin.Fd())
