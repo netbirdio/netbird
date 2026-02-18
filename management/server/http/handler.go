@@ -100,26 +100,62 @@ const (
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(ctx context.Context, deps APIHandlerDeps) (http.Handler, error) {
+	if err := registerBypassPaths(apiPrefix); err != nil {
+		return nil, err
+	}
 
-	// Register bypass paths for unauthenticated endpoints
-	if err := bypass.AddBypassPath("/api/instance"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	rootRouter := mux.NewRouter()
+	prefix := apiPrefix
+	router := rootRouter.PathPrefix(prefix).Subrouter()
+
+	setupMiddleware(router, deps)
+
+	if err := registerIntegrations(ctx, router, deps); err != nil {
+		return nil, err
 	}
-	if err := bypass.AddBypassPath("/api/setup"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+
+	embeddedIdP, embeddedIdpEnabled := deps.IdpManager.(*idpmanager.EmbeddedIdPManager)
+	instanceManager, err := nbinstance.NewManager(ctx, deps.AccountManager.GetStore(), embeddedIdP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
-	// Public invite endpoints (tokens start with nbi_)
-	if err := bypass.AddBypassPath("/api/users/invites/nbi_*"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+
+	registerCoreEndpoints(router, deps, instanceManager)
+	registerReverseProxyAndOAuth(router, deps)
+
+	if embeddedIdpEnabled {
+		corsMiddleware := cors.AllowAll()
+		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
-	if err := bypass.AddBypassPath("/api/users/invites/nbi_*/accept"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+
+	return rootRouter, nil
+}
+
+func registerBypassPaths(prefix string) error {
+	if err := bypass.AddBypassPath(prefix + "/instance"); err != nil {
+		return fmt.Errorf("failed to add bypass path: %w", err)
 	}
-	// OAuth callback for proxy authentication
+
+	if err := bypass.AddBypassPath(prefix + "/setup"); err != nil {
+		return fmt.Errorf("failed to add bypass path: %w", err)
+	}
+
+	if err := bypass.AddBypassPath(prefix + "/users/invites/nbi_*"); err != nil {
+		return fmt.Errorf("failed to add bypass path: %w", err)
+	}
+
+	if err := bypass.AddBypassPath(prefix + "/users/invites/nbi_*/accept"); err != nil {
+		return fmt.Errorf("failed to add bypass path: %w", err)
+	}
+
 	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+		return fmt.Errorf("failed to add bypass path: %w", err)
 	}
 
+	return nil
+}
+
+func setupMiddleware(router *mux.Router, deps APIHandlerDeps) {
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {
 		rpm := 6
@@ -160,26 +196,32 @@ func NewAPIHandler(ctx context.Context, deps APIHandlerDeps) (http.Handler, erro
 	)
 
 	corsMiddleware := cors.AllowAll()
-
-	rootRouter := mux.NewRouter()
 	metricsMiddleware := deps.AppMetrics.HTTPMiddleware()
 
-	prefix := apiPrefix
-	router := rootRouter.PathPrefix(prefix).Subrouter()
-
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
+}
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, deps.AccountManager, deps.IntegratedValidator, deps.AppMetrics.GetMeter(), deps.PermissionsManager, deps.PeersManager, deps.ProxyController, deps.SettingsManager); err != nil {
-		return nil, fmt.Errorf("register integrations endpoints: %w", err)
+func registerIntegrations(ctx context.Context, router *mux.Router, deps APIHandlerDeps) error {
+	prefix := apiPrefix
+	if _, err := integrations.RegisterHandlers(
+		ctx,
+		prefix,
+		router,
+		deps.AccountManager,
+		deps.IntegratedValidator,
+		deps.AppMetrics.GetMeter(),
+		deps.PermissionsManager,
+		deps.PeersManager,
+		deps.ProxyController,
+		deps.SettingsManager,
+	); err != nil {
+		return fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	// Check if embedded IdP is enabled for instance manager
-	embeddedIdP, embeddedIdpEnabled := deps.IdpManager.(*idpmanager.EmbeddedIdPManager)
-	instanceManager, err := nbinstance.NewManager(ctx, deps.AccountManager.GetStore(), embeddedIdP)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create instance manager: %w", err)
-	}
+	return nil
+}
 
+func registerCoreEndpoints(router *mux.Router, deps APIHandlerDeps, instanceManager nbinstance.Manager) {
 	accounts.AddEndpoints(deps.AccountManager, deps.SettingsManager, router, deps.EnableDeploymentMaturity)
 	peers.AddEndpoints(deps.AccountManager, router, deps.NetworkMapController, deps.PermissionsManager)
 	users.AddEndpoints(deps.AccountManager, router)
@@ -193,26 +235,33 @@ func NewAPIHandler(ctx context.Context, deps APIHandlerDeps) (http.Handler, erro
 	routes.AddEndpoints(deps.AccountManager, router)
 	dns.AddEndpoints(deps.AccountManager, router)
 	events.AddEndpoints(deps.AccountManager, router)
-	networks.AddEndpoints(deps.NetworksManager, deps.ResourceManager, deps.RouterManager, deps.GroupsManager, deps.AccountManager, router)
+	networks.AddEndpoints(
+		deps.NetworksManager,
+		deps.ResourceManager,
+		deps.RouterManager,
+		deps.GroupsManager,
+		deps.AccountManager,
+		router,
+	)
 	zonesManager.RegisterEndpoints(router, deps.ZonesManager)
 	recordsManager.RegisterEndpoints(router, deps.RecordsManager)
 	idp.AddEndpoints(deps.AccountManager, router)
 	instance.AddEndpoints(instanceManager, router)
 	instance.AddVersionEndpoint(instanceManager, router)
+}
+
+func registerReverseProxyAndOAuth(router *mux.Router, deps APIHandlerDeps) {
 	if deps.ReverseProxyManager != nil && deps.ReverseProxyDomainManager != nil {
-		reverseproxymanager.RegisterEndpoints(deps.ReverseProxyManager, *deps.ReverseProxyDomainManager, deps.ReverseProxyAccessLogs, router)
+		reverseproxymanager.RegisterEndpoints(
+			deps.ReverseProxyManager,
+			*deps.ReverseProxyDomainManager,
+			deps.ReverseProxyAccessLogs,
+			router,
+		)
 	}
 
-	// Register OAuth callback handler for proxy authentication
 	if deps.ProxyGRPCServer != nil {
 		oauthHandler := proxy.NewAuthCallbackHandler(deps.ProxyGRPCServer, deps.TrustedHTTPProxies)
 		oauthHandler.RegisterEndpoints(router)
 	}
-
-	// Mount embedded IdP handler at /oauth2 path if configured
-	if embeddedIdpEnabled {
-		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
-	}
-
-	return rootRouter, nil
 }
