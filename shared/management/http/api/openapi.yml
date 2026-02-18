@@ -250,6 +250,11 @@ components:
           example: google-oauth2|277474792786460067937
         onboarding:
           $ref: '#/components/schemas/AccountOnboarding'
+        deployment_maturity:
+          description: Optional deployment maturity stage derived from peer count, policy count, and account age. This field is informational only and does not affect account behavior.
+          type: string
+          enum: [ exploration, functional, operational, production ]
+          example: operational
       required:
         - id
         - settings

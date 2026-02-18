@@ -444,6 +444,9 @@ type Account struct {
 	Id         string            `json:"id"`
 	Onboarding AccountOnboarding `json:"onboarding"`
 	Settings   AccountSettings   `json:"settings"`
+
+	// DeploymentMaturity Optional deployment maturity stage for this account.
+	DeploymentMaturity *string `json:"deployment_maturity,omitempty"`
 }
 
 // AccountExtraSettings defines model for AccountExtraSettings.
