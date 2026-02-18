@@ -311,6 +311,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		engine.SetReadyChan(runningChan)
+		runningChan = nil
 		c.engine = engine
 		c.engineMutex.Unlock()
 
