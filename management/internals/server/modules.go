@@ -111,29 +111,40 @@ func (s *BaseServer) AccountManager() account.Manager {
 	})
 }
 
+func (s *BaseServer) seedIDPConnectors() error {
+	if !migration.IsSeedInfoPresent() {
+		return nil
+	}
+
+	conn, err := migration.SeedConnectorFromEnv()
+	if err != nil {
+		log.Fatalf("failed to parse IDP_SEED_INFO: %v", err)
+	}
+
+	log.Infof("seeding IDP connector from environment: id=%s type=%s", conn.ID, conn.Type)
+	s.Config.EmbeddedIdP.StaticConnectors = append(s.Config.EmbeddedIdP.StaticConnectors, *conn)
+
+	s.AfterInit(func(s *BaseServer) {
+		if err := migration.MigrateUsersToStaticConnectors(s, conn); err != nil {
+			log.Fatalf("failed to migrate users to static connectors: %v", err)
+		}
+	})
+
+	return nil
+}
+
 func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
 		// Use embedded IdP manager if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
-		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
-			if migration.IsSeedInfoPresent() {
-				conn, err := migration.SeedConnectorFromEnv()
-				if err != nil {
-					log.Fatalf("failed to parse IDP_SEED_INFO: %v", err)
-				}
-
-				log.Infof("seeding IDP connector from environment: id=%s type=%s", conn.ID, conn.Type)
-				s.Config.EmbeddedIdP.StaticConnectors = append(s.Config.EmbeddedIdP.StaticConnectors, *conn)
-
-				// Migrate existing users the seeded connector if present.
-				s.AfterInit(func(s *BaseServer) {
-
-					if err := migration.MigrateUsersToStaticConnectors(s, conn); err != nil {
-						log.Fatalf("failed to migrate users to static connectors: %v", err)
-					}
-				})
+		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
+		if embeddedEnabled {
+			err := s.seedIDPConnectors()
+			if err != nil {
+				log.Fatalf("failed to seed IDP connectors: %v", err)
 			}
 
 			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
