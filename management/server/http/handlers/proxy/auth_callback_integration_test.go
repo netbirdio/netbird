@@ -345,6 +345,10 @@ type testServiceManager struct {
 	store store.Store
 }
 
+func (m *testServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
 func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
