@@ -308,6 +308,7 @@ type serviceClient struct {
 	sshJWTCacheTTL             int
 
 	connected            bool
+	connectivityLost     bool
 	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
@@ -882,21 +883,41 @@ func (s *serviceClient) menuDownClick() error {
 	return nil
 }
 
+func (s *serviceClient) onStatusFailed(err error) {
+	log.Errorf("get client daemon service status: %v", err)
+	if s.connected {
+		s.connectivityLost = true
+		s.app.SendNotification(fyne.NewNotification(
+			"Warning",
+			"NetBird client service controls were interrupted.\n"+
+				"They should restore automatically.",
+		))
+	}
+	s.setDisconnectedStatus()
+}
+func (s *serviceClient) onStatusSucceeded() {
+	if s.connectivityLost {
+		s.connectivityLost = false
+		s.app.SendNotification(fyne.NewNotification(
+			"Info",
+			"NetBird client service controls were restored.",
+		))
+	}
+}
+
 func (s *serviceClient) updateStatus() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
+		s.onStatusFailed(err)
 		return err
 	}
 	err = backoff.Retry(func() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("get service status: %v", err)
-			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
-			}
-			s.setDisconnectedStatus()
+			s.onStatusFailed(err)
 			return err
 		}
+		s.onStatusSucceeded()
 
 		s.updateIndicationLock.Lock()
 		defer s.updateIndicationLock.Unlock()
