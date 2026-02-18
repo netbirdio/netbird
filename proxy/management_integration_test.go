@@ -170,11 +170,11 @@ func (m *testAccessLogManager) CleanupOldAccessLogs(ctx context.Context, retenti
 }
 
 func (m *testAccessLogManager) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
-	return
+	// noop
 }
 
 func (m *testAccessLogManager) StopPeriodicCleanup() {
-	return
+	// noop
 }
 
 func (m *testAccessLogManager) SaveAccessLog(_ context.Context, _ *accesslogs.AccessLogEntry) error {
