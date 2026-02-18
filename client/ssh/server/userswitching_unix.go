@@ -96,8 +96,8 @@ func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []st
 	}
 }
 
-// getLinuxLoginCmd returns the login command for Linux systems.
-// Handles differences between util-linux and shadow-utils login implementations.
+// getLinuxLoginCmd returns the login command and arguments for Linux systems.
+// On Arch Linux without /etc/pam.d/remote the -h flag is omitted to avoid PAM failures.
 func (s *Server) getLinuxLoginCmd(loginPath, username, remoteIP string) (string, []string) {
 	// Special handling for Arch Linux without /etc/pam.d/remote
 	var loginArgs []string
