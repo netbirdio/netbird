@@ -83,7 +83,7 @@ server:
   # Embedded authentication/identity provider (Dex) configuration (always enabled)
   auth:
     # OIDC issuer URL - must be publicly accessible
-    issuer: "https://server.mycompany.com/oauth2"
+    issuer: "https://example.com/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
     # OAuth2 redirect URIs for dashboard
