@@ -65,6 +65,32 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
+type APIHandlerDeps struct {
+	AccountManager            account.Manager
+	NetworksManager           nbnetworks.Manager
+	ResourceManager           resources.Manager
+	RouterManager             routers.Manager
+	GroupsManager             nbgroups.Manager
+	LocationManager           geolocation.Geolocation
+	AuthManager               auth.Manager
+	AppMetrics                telemetry.AppMetrics
+	IntegratedValidator       integrated_validator.IntegratedValidator
+	ProxyController           port_forwarding.Controller
+	PermissionsManager        permissions.Manager
+	PeersManager              nbpeers.Manager
+	SettingsManager           settings.Manager
+	ZonesManager              zones.Manager
+	RecordsManager            records.Manager
+	NetworkMapController      network_map.Controller
+	IdpManager                idpmanager.Manager
+	ReverseProxyManager       reverseproxy.Manager
+	ReverseProxyDomainManager *manager.Manager
+	ReverseProxyAccessLogs    accesslogs.Manager
+	ProxyGRPCServer           *nbgrpc.ProxyServiceServer
+	TrustedHTTPProxies        []netip.Prefix
+	EnableDeploymentMaturity  bool
+}
+
 const (
 	apiPrefix              = "/api"
 	rateLimitingEnabledKey = "NB_API_RATE_LIMITING_ENABLED"
@@ -73,7 +99,7 @@ const (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, reverseProxyManager reverseproxy.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, enableDeploymentMaturity bool) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, deps APIHandlerDeps) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -125,61 +151,61 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	}
 
 	authMiddleware := middleware.NewAuthMiddleware(
-		authManager,
-		accountManager.GetAccountIDFromUserAuth,
-		accountManager.SyncUserJWTGroups,
-		accountManager.GetUserFromUserAuth,
+		deps.AuthManager,
+		deps.AccountManager.GetAccountIDFromUserAuth,
+		deps.AccountManager.SyncUserJWTGroups,
+		deps.AccountManager.GetUserFromUserAuth,
 		rateLimitingConfig,
-		appMetrics.GetMeter(),
+		deps.AppMetrics.GetMeter(),
 	)
 
 	corsMiddleware := cors.AllowAll()
 
 	rootRouter := mux.NewRouter()
-	metricsMiddleware := appMetrics.HTTPMiddleware()
+	metricsMiddleware := deps.AppMetrics.HTTPMiddleware()
 
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, deps.AccountManager, deps.IntegratedValidator, deps.AppMetrics.GetMeter(), deps.PermissionsManager, deps.PeersManager, deps.ProxyController, deps.SettingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
 	// Check if embedded IdP is enabled for instance manager
-	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
-	instanceManager, err := nbinstance.NewManager(ctx, accountManager.GetStore(), embeddedIdP)
+	embeddedIdP, embeddedIdpEnabled := deps.IdpManager.(*idpmanager.EmbeddedIdPManager)
+	instanceManager, err := nbinstance.NewManager(ctx, deps.AccountManager.GetStore(), embeddedIdP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, router, enableDeploymentMaturity)
-	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
-	users.AddEndpoints(accountManager, router)
-	users.AddInvitesEndpoints(accountManager, router)
-	users.AddPublicInvitesEndpoints(accountManager, router)
-	setup_keys.AddEndpoints(accountManager, router)
-	policies.AddEndpoints(accountManager, LocationManager, router)
-	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
-	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
-	groups.AddEndpoints(accountManager, router)
-	routes.AddEndpoints(accountManager, router)
-	dns.AddEndpoints(accountManager, router)
-	events.AddEndpoints(accountManager, router)
-	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
-	zonesManager.RegisterEndpoints(router, zManager)
-	recordsManager.RegisterEndpoints(router, rManager)
-	idp.AddEndpoints(accountManager, router)
+	accounts.AddEndpoints(deps.AccountManager, deps.SettingsManager, router, deps.EnableDeploymentMaturity)
+	peers.AddEndpoints(deps.AccountManager, router, deps.NetworkMapController, deps.PermissionsManager)
+	users.AddEndpoints(deps.AccountManager, router)
+	users.AddInvitesEndpoints(deps.AccountManager, router)
+	users.AddPublicInvitesEndpoints(deps.AccountManager, router)
+	setup_keys.AddEndpoints(deps.AccountManager, router)
+	policies.AddEndpoints(deps.AccountManager, deps.LocationManager, router)
+	policies.AddPostureCheckEndpoints(deps.AccountManager, deps.LocationManager, router)
+	policies.AddLocationsEndpoints(deps.AccountManager, deps.LocationManager, deps.PermissionsManager, router)
+	groups.AddEndpoints(deps.AccountManager, router)
+	routes.AddEndpoints(deps.AccountManager, router)
+	dns.AddEndpoints(deps.AccountManager, router)
+	events.AddEndpoints(deps.AccountManager, router)
+	networks.AddEndpoints(deps.NetworksManager, deps.ResourceManager, deps.RouterManager, deps.GroupsManager, deps.AccountManager, router)
+	zonesManager.RegisterEndpoints(router, deps.ZonesManager)
+	recordsManager.RegisterEndpoints(router, deps.RecordsManager)
+	idp.AddEndpoints(deps.AccountManager, router)
 	instance.AddEndpoints(instanceManager, router)
 	instance.AddVersionEndpoint(instanceManager, router)
-	if reverseProxyManager != nil && reverseProxyDomainManager != nil {
-		reverseproxymanager.RegisterEndpoints(reverseProxyManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, router)
+	if deps.ReverseProxyManager != nil && deps.ReverseProxyDomainManager != nil {
+		reverseproxymanager.RegisterEndpoints(deps.ReverseProxyManager, *deps.ReverseProxyDomainManager, deps.ReverseProxyAccessLogs, router)
 	}
 
 	// Register OAuth callback handler for proxy authentication
-	if proxyGRPCServer != nil {
-		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies)
+	if deps.ProxyGRPCServer != nil {
+		oauthHandler := proxy.NewAuthCallbackHandler(deps.ProxyGRPCServer, deps.TrustedHTTPProxies)
 		oauthHandler.RegisterEndpoints(router)
 	}
 
