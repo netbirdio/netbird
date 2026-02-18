@@ -839,47 +839,45 @@ func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
 	return users, nil
 }
 
+// txDeferFKConstraints defers foreign key constraint checks for the duration of the transaction.
+// MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
+func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
+	switch s.storeEngine {
+	case types.PostgresStoreEngine:
+		return tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error
+	case types.SqliteStoreEngine:
+		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
+	default:
+		return nil
+	}
+}
+
 func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	type fkUpdate struct {
+		model  any
+		column string
+		where  string
+	}
+
+	updates := []fkUpdate{
+		{&types.PersonalAccessToken{}, "user_id", "user_id = ?"},
+		{&types.PersonalAccessToken{}, "created_by", "created_by = ?"},
+		{&nbpeer.Peer{}, "user_id", "user_id = ?"},
+		{&types.UserInviteRecord{}, "created_by", "created_by = ?"},
+		{&types.Account{}, "created_by", "created_by = ?"},
+		{&types.ProxyAccessToken{}, "created_by", "created_by = ?"},
+		{&types.Job{}, "triggered_by", "triggered_by = ?"},
+	}
+
 	err := s.transaction(func(tx *gorm.DB) error {
-		// Defer FK constraint checks so we can update child rows before the parent users.id PK.
-		// MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
-		switch s.storeEngine {
-		case types.PostgresStoreEngine:
-			if err := tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error; err != nil {
-				return fmt.Errorf("defer constraints: %w", err)
+		if err := s.txDeferFKConstraints(tx); err != nil {
+			return err
+		}
+
+		for _, u := range updates {
+			if err := tx.Model(u.model).Where(u.where, oldUserID).Update(u.column, newUserID).Error; err != nil {
+				return fmt.Errorf("update %s: %w", u.column, err)
 			}
-		case types.SqliteStoreEngine:
-			if err := tx.Exec("PRAGMA defer_foreign_keys = ON").Error; err != nil {
-				return fmt.Errorf("defer foreign keys: %w", err)
-			}
-		}
-
-		if err := tx.Model(&types.PersonalAccessToken{}).Where("user_id = ?", oldUserID).Update("user_id", newUserID).Error; err != nil {
-			return fmt.Errorf("update personal_access_tokens.user_id: %w", err)
-		}
-
-		if err := tx.Model(&types.PersonalAccessToken{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
-			return fmt.Errorf("update personal_access_tokens.created_by: %w", err)
-		}
-
-		if err := tx.Model(&nbpeer.Peer{}).Where("user_id = ?", oldUserID).Update("user_id", newUserID).Error; err != nil {
-			return fmt.Errorf("update peers: %w", err)
-		}
-
-		if err := tx.Model(&types.UserInviteRecord{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
-			return fmt.Errorf("update user_invites: %w", err)
-		}
-
-		if err := tx.Model(&types.Account{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
-			return fmt.Errorf("update accounts.created_by: %w", err)
-		}
-
-		if err := tx.Model(&types.ProxyAccessToken{}).Where("created_by = ?", oldUserID).Update("created_by", newUserID).Error; err != nil {
-			return fmt.Errorf("update proxy_access_tokens.created_by: %w", err)
-		}
-
-		if err := tx.Model(&types.Job{}).Where("triggered_by = ?", oldUserID).Update("triggered_by", newUserID).Error; err != nil {
-			return fmt.Errorf("update jobs.triggered_by: %w", err)
 		}
 
 		if err := tx.Model(&types.User{}).Where(accountAndIDQueryCondition, accountID, oldUserID).Update("id", newUserID).Error; err != nil {

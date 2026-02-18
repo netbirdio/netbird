@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -80,12 +81,37 @@ func TestSeedConnectorFromEnv(t *testing.T) {
 	})
 }
 
+func TestIsSeedInfoPresent(t *testing.T) {
+	t.Run("returns false when env var is not set", func(t *testing.T) {
+		os.Unsetenv(idpSeedInfoKey)
+
+		assert.False(t, IsSeedInfoPresent())
+	})
+
+	t.Run("returns false when env var is empty", func(t *testing.T) {
+		t.Setenv(idpSeedInfoKey, "")
+
+		assert.False(t, IsSeedInfoPresent())
+	})
+
+	t.Run("returns true when env var is set to a value", func(t *testing.T) {
+		t.Setenv(idpSeedInfoKey, "some-value")
+
+		assert.True(t, IsSeedInfoPresent())
+	})
+}
+
 type mockServer struct {
-	s store.Store
+	s          store.Store
+	eventStore activity.Store
 }
 
 func (m *mockServer) Store() store.Store {
 	return m.s
+}
+
+func (m *mockServer) EventStore() activity.Store {
+	return m.eventStore
 }
 
 func TestMigrateUsersToStaticConnectors(t *testing.T) {
