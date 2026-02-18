@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 // Exit codes for executor process communication
@@ -213,11 +214,6 @@ func (pd *PrivilegeDropper) validateCurrentPrivileges(targetUID, targetGID uint3
 func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config ExecutorConfig) {
 	log.Tracef("dropping privileges to UID=%d, GID=%d, groups=%v", config.UID, config.GID, config.Groups)
 
-	// TODO: Implement Pty support for executor path
-	if config.PTY {
-		config.PTY = false
-	}
-
 	if err := pd.DropPrivileges(config.UID, config.GID, config.Groups); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "privilege drop failed: %v\n", err)
 		os.Exit(ExitCodePrivilegeDropFail)
@@ -227,6 +223,30 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 		if err := os.Chdir(config.WorkingDir); err != nil {
 			log.Debugf("failed to change to working directory %s, continuing with current directory: %v", config.WorkingDir, err)
 		}
+	}
+
+	if config.PTY {
+		if err := pd.prepareControllingTerminal(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "PTY setup failed: %v\n", err)
+			os.Exit(ExitCodeShellExecFail)
+		}
+
+		argv := []string{"-" + filepath.Base(config.Shell)}
+		if config.Command == "" {
+			log.Tracef("executing login shell via exec: %s", config.Shell)
+		} else {
+			argv = append(argv, "-c", config.Command)
+			cmdParts := strings.Fields(config.Command)
+			safeCmd := safeLogCommand(cmdParts)
+			log.Tracef("executing %s -c %s via exec", config.Shell, safeCmd)
+		}
+
+		if err := syscall.Exec(config.Shell, argv, os.Environ()); err != nil {
+			log.Debugf("exec failed: %v", err)
+			os.Exit(ExitCodeShellExecFail)
+		}
+
+		os.Exit(ExitCodeSuccess)
 	}
 
 	var execCmd *exec.Cmd
@@ -261,6 +281,30 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 	}
 
 	os.Exit(ExitCodeSuccess)
+}
+
+func (pd *PrivilegeDropper) prepareControllingTerminal() error {
+	if _, err := syscall.Setsid(); err != nil && !errors.Is(err, syscall.EPERM) {
+		return fmt.Errorf("setsid: %w", err)
+	}
+
+	stdinFD := int(os.Stdin.Fd())
+	err := unix.IoctlSetInt(stdinFD, unix.TIOCSCTTY, 0)
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, syscall.EPERM) {
+		pd.log().Debugf("TIOCSCTTY denied (likely container seccomp policy), continuing: %v", err)
+		return nil
+	}
+
+	if errors.Is(err, syscall.ENOTTY) || errors.Is(err, syscall.EINVAL) {
+		pd.log().Debugf("stdin is not a PTY controlling terminal candidate, continuing: %v", err)
+		return nil
+	}
+
+	return fmt.Errorf("set controlling terminal: %w", err)
 }
 
 // validatePrivileges validates that privilege dropping to the target UID/GID is allowed

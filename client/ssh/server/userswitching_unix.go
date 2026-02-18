@@ -107,23 +107,12 @@ func (s *Server) getLinuxLoginCmd(loginPath, username, remoteIP string) (string,
 		loginArgs = []string{"-f", username, "-h", remoteIP, "-p"}
 	}
 
-	// util-linux login requires setsid -c to create a new session and set the
-	// controlling terminal. Without this, vhangup() kills the parent process.
+	// util-linux login uses vhangup() which requires a new session and controlling
+	// terminal. This is handled by pty.StartWithSize() which sets SysProcAttr.Setsid
+	// and SysProcAttr.Setctty on the command.
 	// See https://bugs.debian.org/1078023 for details.
-	// TODO: handle this via the executor using syscall.Setsid() + TIOCSCTTY + syscall.Exec()
-	// to avoid external setsid dependency.
-	if !s.loginIsUtilLinux {
-		return loginPath, loginArgs
-	}
 
-	setsidPath, err := exec.LookPath("setsid")
-	if err != nil {
-		log.Warnf("setsid not available but util-linux login detected, login may fail: %v", err)
-		return loginPath, loginArgs
-	}
-
-	args := append([]string{"-w", "-c", loginPath}, loginArgs...)
-	return setsidPath, args
+	return loginPath, loginArgs
 }
 
 // fileExists checks if a file exists
