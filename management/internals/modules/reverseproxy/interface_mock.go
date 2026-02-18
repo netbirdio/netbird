@@ -49,6 +49,20 @@ func (mr *MockManagerMockRecorder) CreateService(ctx, accountID, userID, service
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateService", reflect.TypeOf((*MockManager)(nil).CreateService), ctx, accountID, userID, service)
 }
 
+// DeleteAllServices mocks base method.
+func (m *MockManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllServices", ctx, accountID, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAllServices indicates an expected call of DeleteAllServices.
+func (mr *MockManagerMockRecorder) DeleteAllServices(ctx, accountID, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllServices", reflect.TypeOf((*MockManager)(nil).DeleteAllServices), ctx, accountID, userID)
+}
+
 // DeleteService mocks base method.
 func (m *MockManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
 	m.ctrl.T.Helper()
