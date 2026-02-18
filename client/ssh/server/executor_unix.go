@@ -245,8 +245,6 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 			log.Debugf("exec failed: %v", err)
 			os.Exit(ExitCodeShellExecFail)
 		}
-
-		os.Exit(ExitCodeSuccess)
 	}
 
 	var execCmd *exec.Cmd
