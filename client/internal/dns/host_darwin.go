@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
@@ -369,12 +371,13 @@ func (s *systemConfigurator) removeKeysContaining(suffix string) error {
 			toRemove = append(toRemove, key)
 		}
 	}
+	var multiErr *multierror.Error
 	for _, key := range toRemove {
 		if err := s.removeKeyFromSystemConfig(key); err != nil {
-			log.Warnf("failed to remove key %s: %v", key, err)
+			multiErr = multierror.Append(multiErr, fmt.Errorf("couldn't remove key %s: %w", key, err))
 		}
 	}
-	return nil
+	return nberrors.FormatErrorOrNil(multiErr)
 }
 
 // addBatchedDomains splits domains into batches and creates indexed scutil keys for each batch.
