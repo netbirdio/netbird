@@ -183,6 +183,24 @@ nfpms:
       preremove: "release_files/pre_remove.sh"
 
   - maintainer: Netbird <dev@netbird.io>
+    description: Netbird management plane.
+    homepage: https://netbird.io/
+    id: netbird-mgmt-deb
+    package_name: netbird-management
+    bindir: /usr/bin
+    builds:
+      - netbird-mgmt
+      - netbird-relay
+      - netbird-signal
+    formats:
+      - deb
+    contents:
+      - src: ./release_files/systemd/netbird-management.service
+        dst: /usr/lib/systemd/system/netbird-management.service
+      - src: ./release_files/systemd/netbird-signal.service
+        dst: /usr/lib/systemd/system/netbird-signal.service
+
+  - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
     id: netbird-rpm
