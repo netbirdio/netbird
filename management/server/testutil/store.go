@@ -32,8 +32,8 @@ func CreateMysqlTestContainer() (func(), string, error) {
 	}
 
 	var err error
-	mysqlContainer, err = mysql.RunContainer(ctx,
-		testcontainers.WithImage("mlsmaycon/warmed-mysql:8"),
+	mysqlContainer, err = mysql.Run(ctx,
+		"mlsmaycon/warmed-mysql:8",
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("testing"),
@@ -78,8 +78,8 @@ func CreatePostgresTestContainer() (func(), string, error) {
 	}
 
 	var err error
-	pgContainer, err = postgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	pgContainer, err = postgres.Run(ctx,
+		"postgres:16-alpine",
 		postgres.WithDatabase("netbird"),
 		postgres.WithUsername("root"),
 		postgres.WithPassword("netbird"),
@@ -120,7 +120,7 @@ func noOpCleanup() {
 func CreateRedisTestContainer() (func(), string, error) {
 	ctx := context.Background()
 
-	redisContainer, err := testcontainersredis.RunContainer(ctx, testcontainers.WithImage("redis:7"))
+	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
 	if err != nil {
 		return nil, "", err
 	}
