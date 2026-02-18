@@ -35,7 +35,7 @@ type handler struct {
 
 func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.Manager, router *mux.Router) {
 	addRouterEndpoints(routerManager, router)
-	addResourceEndpoints(resourceManager, groupsManager, router)
+	addResourceEndpoints(resourceManager, groupsManager, accountManager, router)
 
 	networksHandler := newHandler(networksManager, resourceManager, routerManager, groupsManager, accountManager)
 	router.HandleFunc("/networks", networksHandler.getAllNetworks).Methods("GET", "OPTIONS")

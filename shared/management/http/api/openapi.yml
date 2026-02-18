@@ -6526,6 +6526,48 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/networks/{networkId}/resources/{resourceId}/temporary-access:
+    post:
+      summary: Create a Temporary Access Peer
+      description: Creates a temporary access peer that can be used to access this resource and this resource only. The temporary access peer and its access policies will be automatically deleted after it disconnects.
+      tags: [ Networks ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema:
+            type: string
+            description: The unique identifier of a network
+        - in: path
+          name: resourceId
+          required: true
+          schema:
+            type: string
+            description: The unique identifier of a network resource
+      requestBody:
+        description: Temporary Access Peer create request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PeerTemporaryAccessRequest'
+      responses:
+        '200':
+          description: Temporary Access Peer response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeerTemporaryAccessResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/networks/{networkId}/routers:
     get:
       summary: List all Network Routers
