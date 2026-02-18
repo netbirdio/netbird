@@ -88,7 +88,7 @@ server:
     signKeyRefreshEnabled: false
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
-      - "https://app.netbird.io/nb-auth"
+      - "https://app.example.com/nb-auth"
       - "https://app.example.com/nb-silent-auth"
     # OAuth2 redirect URIs for CLI
     cliRedirectURIs:
