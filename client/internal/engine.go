@@ -28,8 +28,8 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -217,6 +217,10 @@ type Engine struct {
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
 
+	// readyChan is closed when the first sync message is received from management
+	readyChan     chan struct{}
+	readyChanOnce sync.Once
+
 	// shutdownWg tracks all long-running goroutines to ensure clean shutdown
 	shutdownWg sync.WaitGroup
 
@@ -273,6 +277,10 @@ func NewEngine(
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
+}
+
+func (e *Engine) SetReadyChan(ch chan struct{}) {
+	e.readyChan = ch
 }
 
 func (e *Engine) Stop() error {
@@ -834,6 +842,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer func() {
 		log.Infof("sync finished in %s", time.Since(started))
 	}()
+
+	e.readyChanOnce.Do(func() {
+		if e.readyChan != nil {
+			close(e.readyChan)
+		}
+	})
+
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 

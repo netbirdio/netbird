@@ -310,6 +310,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engineMutex.Lock()
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		engine.SetReadyChan(runningChan)
 		c.engine = engine
 		c.engineMutex.Unlock()
 
@@ -329,11 +330,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
-
-		if runningChan != nil {
-			close(runningChan)
-			runningChan = nil
-		}
 
 		<-engineCtx.Done()
 
