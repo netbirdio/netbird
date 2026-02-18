@@ -488,15 +488,17 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	mgmtPort, _ := strconv.Atoi(portStr)
 
 	mgmtSrv := mgmtServer.NewServer(
-		mgmtConfig,
-		dnsDomain,
-		singleAccModeDomain,
-		mgmtPort,
-		cfg.Server.MetricsPort,
-		mgmt.DisableAnonymousMetrics,
-		mgmt.DisableGeoliteUpdate,
-		// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
-		true,
+		&mgmtServer.Config{
+			NbConfig:                mgmtConfig,
+			DNSDomain:               dnsDomain,
+			MgmtSingleAccModeDomain: singleAccModeDomain,
+			MgmtPort:                mgmtPort,
+			MgmtMetricsPort:         cfg.Server.MetricsPort,
+			DisableMetrics:          mgmt.DisableAnonymousMetrics,
+			DisableGeoliteUpdate:    mgmt.DisableGeoliteUpdate,
+			// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
+			UserDeleteFromIDPEnabled: true,
+		},
 	)
 
 	return mgmtSrv, nil

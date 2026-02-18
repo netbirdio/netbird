@@ -1,26 +1,18 @@
 package accesslog
 
 import (
-	"net/http"
+	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 )
 
-// statusWriter is a simple wrapper around an http.ResponseWriter
-// that captures the setting of the status code via the WriteHeader
-// function and stores it so that it can be retrieved later.
+// statusWriter captures the HTTP status code from WriteHeader calls.
+// It embeds responsewriter.PassthroughWriter which handles all the optional
+// interfaces (Hijacker, Flusher, Pusher) automatically.
 type statusWriter struct {
-	w      http.ResponseWriter
+	*responsewriter.PassthroughWriter
 	status int
-}
-
-func (w *statusWriter) Header() http.Header {
-	return w.w.Header()
-}
-
-func (w *statusWriter) Write(data []byte) (int, error) {
-	return w.w.Write(data)
 }
 
 func (w *statusWriter) WriteHeader(status int) {
 	w.status = status
-	w.w.WriteHeader(status)
+	w.PassthroughWriter.WriteHeader(status)
 }
