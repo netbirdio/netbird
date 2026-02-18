@@ -165,6 +165,18 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 // testAccessLogManager provides access log storage for testing.
 type testAccessLogManager struct{}
 
+func (m *testAccessLogManager) CleanupOldAccessLogs(ctx context.Context, retentionDays int) (int64, error) {
+	return 0, nil
+}
+
+func (m *testAccessLogManager) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
+	return
+}
+
+func (m *testAccessLogManager) StopPeriodicCleanup() {
+	return
+}
+
 func (m *testAccessLogManager) SaveAccessLog(_ context.Context, _ *accesslogs.AccessLogEntry) error {
 	return nil
 }
