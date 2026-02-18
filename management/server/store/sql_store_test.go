@@ -39,10 +39,6 @@ import (
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
 	t.Helper()
 	for _, engine := range supportedEngines {
-		if os.Getenv("CI") == "true" && engine == types.MysqlStoreEngine {
-			t.Log("Skipping MySQL test on CI")
-			continue
-		}
 		if os.Getenv("NETBIRD_STORE_ENGINE") != "" && os.Getenv("NETBIRD_STORE_ENGINE") != string(engine) {
 			continue
 		}
