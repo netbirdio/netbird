@@ -895,9 +895,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	uCheckTime := time.Now()
 	if err := e.updateChecksIfNew(update.Checks); err != nil {
 		return err
 	}
+	log.Infof("update check finished in %s", time.Since(uCheckTime))
 
 	nm := update.GetNetworkMap()
 	if nm == nil {
