@@ -89,7 +89,7 @@ server:
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.netbird.io/nb-auth"
-      - "https://app.netbird.io/nb-silent-auth"
+      - "https://app.example.com/nb-silent-auth"
     # OAuth2 redirect URIs for CLI
     cliRedirectURIs:
       - "http://localhost:53000/"
