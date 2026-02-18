@@ -179,6 +179,10 @@ type storeBackedServiceManager struct {
 	tokenStore *nbgrpc.OneTimeTokenStore
 }
 
+func (m *storeBackedServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
 func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
