@@ -2,7 +2,10 @@
 
 package NetBirdSDK
 
-import "github.com/netbirdio/netbird/client/internal/peer"
+import (
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/client/internal/peer"
+)
 
 // EnvList is an exported struct to be bound by gomobile
 type EnvList struct {
@@ -31,4 +34,14 @@ func (el *EnvList) AllItems() map[string]string {
 // GetEnvKeyNBForceRelay Exports the environment variable for the iOS client
 func GetEnvKeyNBForceRelay() string {
 	return peer.EnvKeyNBForceRelay
+}
+
+// GetEnvKeyNBLazyConn Exports the environment variable for the iOS client
+func GetEnvKeyNBLazyConn() string {
+	return lazyconn.EnvEnableLazyConn
+}
+
+// GetEnvKeyNBInactivityThreshold Exports the environment variable for the iOS client
+func GetEnvKeyNBInactivityThreshold() string {
+	return lazyconn.EnvInactivityThreshold
 }

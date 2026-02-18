@@ -543,8 +543,6 @@ func (m *managerImpl) ReloadAllServicesForAccount(ctx context.Context, accountID
 		m.sendMappingsToCluster(mappings, cluster)
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
-
 	return nil
 }
 

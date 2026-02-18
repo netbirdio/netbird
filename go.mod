@@ -40,7 +40,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caddyserver/certmagic v0.21.3
 	github.com/cilium/ebpf v0.15.0
-	github.com/coder/websocket v1.8.13
+	github.com/coder/websocket v1.8.14
 	github.com/coreos/go-iptables v0.7.0
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/creack/pty v1.1.24
@@ -83,6 +83,7 @@ require (
 	github.com/pion/stun/v3 v3.1.0
 	github.com/pion/transport/v3 v3.1.1
 	github.com/pion/turn/v3 v3.0.1
+	github.com/pires/go-proxyproto v0.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.55.0

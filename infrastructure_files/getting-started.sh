@@ -169,7 +169,8 @@ read_proxy_docker_network() {
 read_enable_proxy() {
   echo "" > /dev/stderr
   echo "Do you want to enable the NetBird Proxy service?" > /dev/stderr
-  echo "The proxy exposes internal NetBird network resources to the internet." > /dev/stderr
+  echo "The proxy allows you to selectively expose internal NetBird network resources" > /dev/stderr
+  echo "to the internet. You control which resources are exposed through the dashboard." > /dev/stderr
   echo -n "Enable proxy? [y/N]: " > /dev/stderr
   read -r CHOICE < /dev/tty
 
@@ -182,11 +183,16 @@ read_enable_proxy() {
 }
 
 read_proxy_domain() {
+  local suggested_proxy="proxy.${BASE_DOMAIN}"
+
   echo "" > /dev/stderr
-  echo "WARNING: The proxy domain MUST NOT be a subdomain of the NetBird management" > /dev/stderr
-  echo "domain ($NETBIRD_DOMAIN). Using a subdomain will cause TLS certificate conflicts." > /dev/stderr
+  echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
+  echo "to avoid TLS certificate conflicts." > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "Enter the domain for the NetBird Proxy (e.g. proxy.my-domain.com): " > /dev/stderr
+  echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
+  echo "e.g. *.${suggested_proxy} pointing to the same server domain as $NETBIRD_DOMAIN with a CNAME record." > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
   read -r READ_PROXY_DOMAIN < /dev/tty
 
   if [[ -z "$READ_PROXY_DOMAIN" ]]; then
@@ -196,13 +202,16 @@ read_proxy_domain() {
   fi
 
   if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
-    echo "The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
 
-  if [[ "$READ_PROXY_DOMAIN" == *".${NETBIRD_DOMAIN}" ]]; then
-    echo "The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
+  echo ${READ_PROXY_DOMAIN} | grep ${NETBIRD_DOMAIN} > /dev/null
+  if [[ $? -eq 0 ]]; then
+    echo "" > /dev/stderr
+    echo "WARNING: The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
     read_proxy_domain
     return
   fi
@@ -320,6 +329,9 @@ initialize_default_values() {
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
 
+  # Traefik static IP within the internal bridge network
+  TRAEFIK_IP="172.30.0.10"
+
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
   PROXY_DOMAIN=""
@@ -334,10 +346,12 @@ configure_domain() {
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+    BASE_DOMAIN=$NETBIRD_DOMAIN
   else
     NETBIRD_PORT=443
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
+    BASE_DOMAIN=$(echo $NETBIRD_DOMAIN | sed -E 's/^[^.]+\.//')
   fi
   return 0
 }
@@ -382,7 +396,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -401,6 +415,8 @@ generate_configuration_files() {
         # This will be overwritten with the actual token after netbird-server starts
         echo "# Placeholder - will be updated with token after netbird-server starts" > proxy.env
         echo "NB_PROXY_TOKEN=placeholder" >> proxy.env
+        # TCP ServersTransport for PROXY protocol v2 to the proxy backend
+        render_traefik_dynamic > traefik-dynamic.yaml
       fi
       ;;
     1)
@@ -548,18 +564,21 @@ init_environment() {
 ############################################
 
 render_docker_compose_traefik_builtin() {
-  # Generate proxy service section if enabled
+  # Generate proxy service section and Traefik dynamic config if enabled
   local proxy_service=""
   local proxy_volumes=""
+  local traefik_file_provider=""
+  local traefik_dynamic_volume=""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
+    traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
+    traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
   proxy:
     image: $NETBIRD_PROXY_IMAGE
     container_name: netbird-proxy
-    # Hairpin NAT fix: route domain back to traefik's static IP within Docker
-    extra_hosts:
-      - \"$NETBIRD_DOMAIN:172.30.0.10\"
+    ports:
+    - 51820:51820/udp
     restart: unless-stopped
     networks: [netbird]
     depends_on:
@@ -577,6 +596,7 @@ render_docker_compose_traefik_builtin() {
       - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
       - traefik.tcp.routers.proxy-passthrough.priority=1
       - traefik.tcp.services.proxy-tls.loadbalancer.server.port=8443
+      - traefik.tcp.services.proxy-tls.loadbalancer.serverstransport=pp-v2@file
     logging:
       driver: \"json-file\"
       options:
@@ -596,7 +616,7 @@ services:
     restart: unless-stopped
     networks:
       netbird:
-        ipv4_address: 172.30.0.10
+        ipv4_address: $TRAEFIK_IP
     command:
       # Logging
       - "--log.level=INFO"
@@ -623,12 +643,14 @@ services:
       # gRPC transport settings
       - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
       - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
+$traefik_file_provider
     ports:
       - '443:443'
       - '80:80'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
+$traefik_dynamic_volume
     logging:
       driver: "json-file"
       options:
@@ -738,6 +760,10 @@ server:
     cliRedirectURIs:
       - "http://localhost:53000/"
 
+  reverseProxy:
+    trustedHTTPProxies:
+      - "$TRAEFIK_IP/32"
+
   store:
     engine: "sqlite"
     encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
@@ -767,6 +793,17 @@ EOF
   return 0
 }
 
+render_traefik_dynamic() {
+  cat <<'EOF'
+tcp:
+  serversTransports:
+    pp-v2:
+      proxyProtocol:
+        version: 2
+EOF
+  return 0
+}
+
 render_proxy_env() {
   cat <<EOF
 # NetBird Proxy Configuration
@@ -782,10 +819,11 @@ NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
 NB_PROXY_ACME_CERTIFICATES=true
 NB_PROXY_ACME_CHALLENGE_TYPE=tls-alpn-01
-NB_PROXY_OIDC_CLIENT_ID=netbird-proxy
-NB_PROXY_OIDC_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2
-NB_PROXY_OIDC_SCOPES=openid,profile,email
 NB_PROXY_FORWARDED_PROTO=https
+# Enable PROXY protocol to preserve client IPs through L4 proxies (Traefik TCP passthrough)
+NB_PROXY_PROXY_PROTOCOL=true
+# Trust Traefik's IP for PROXY protocol headers
+NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
   return 0
 }
@@ -1144,23 +1182,30 @@ print_builtin_traefik_instructions() {
   echo "  NETBIRD SETUP COMPLETE"
   echo "$MSG_SEPARATOR"
   echo ""
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo "You can access the NetBird dashboard at:"
+  echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo ""
   echo "Follow the onboarding steps to set up your NetBird instance."
   echo ""
   echo "Traefik is handling TLS certificates automatically via Let's Encrypt."
   echo "If you see certificate warnings, wait a moment for certificate issuance to complete."
   echo ""
   echo "Open ports:"
-  echo "  - 443/tcp  (HTTPS - all NetBird services)"
-  echo "  - 80/tcp   (HTTP - redirects to HTTPS)"
-  echo "  - $NETBIRD_STUN_PORT/udp  (STUN - required for NAT traversal)"
+  echo "  - 443/tcp   (HTTPS - all NetBird services)"
+  echo "  - 80/tcp    (HTTP - redirects to HTTPS)"
+  echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
     echo ""
     echo "NetBird Proxy:"
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
-    echo "  Point your proxy domains (CNAMEs) to this server's IP address."
+    echo "  Point your proxy domain to this server's domain address like in the examples below:"
+    echo ""
+    echo "  $PROXY_DOMAIN      CNAME    $NETBIRD_DOMAIN"
+    echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo ""
   fi
   return 0
 }
