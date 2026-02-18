@@ -306,7 +306,7 @@ func (pd *PrivilegeDropper) prepareControllingTerminal() error {
 	}
 
 	if errors.Is(err, syscall.EPERM) {
-		pd.log().Debugf("TIOCSCTTY denied (likely container seccomp policy), continuing: %v", err)
+		pd.log().Debugf("TIOCSCTTY failed with EPERM; possible causes include existing controlling terminal, not being a session leader, or container/seccomp restrictions; continuing: %v", err)
 		return nil
 	}
 
