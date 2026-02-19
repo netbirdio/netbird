@@ -7410,6 +7410,20 @@ paths:
             maximum: 100
           description: Number of items per page (max 100)
         - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, url, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason]
+            default: timestamp
+          description: Field to sort by (url sorts by host then path)
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order (ascending or descending)
+        - in: query
           name: search
           schema:
             type: string
