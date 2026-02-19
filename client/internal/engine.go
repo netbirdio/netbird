@@ -1562,8 +1562,10 @@ func (e *Engine) receiveSignalEvents() {
 		defer e.shutdownWg.Done()
 		// connect to a stream of messages coming from the signal server
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
+			start := time.Now()
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
+			gotLock := time.Since(start)
 
 			// Check context INSIDE lock to ensure atomicity with shutdown
 			if e.ctx.Err() != nil {
@@ -1586,6 +1588,8 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)
