@@ -20,7 +20,7 @@ func TestInitializeServiceForCreate(t *testing.T) {
 	accountID := "test-account"
 
 	t.Run("successful initialization without cluster deriver", func(t *testing.T) {
-		mgr := &managerImpl{
+		mgr := &Manager{
 			clusterDeriver: nil,
 		}
 
@@ -40,7 +40,7 @@ func TestInitializeServiceForCreate(t *testing.T) {
 	})
 
 	t.Run("verifies session keys are different", func(t *testing.T) {
-		mgr := &managerImpl{
+		mgr := &Manager{
 			clusterDeriver: nil,
 		}
 
@@ -136,7 +136,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			mockStore := store.NewMockStore(ctrl)
 			tt.setupMock(mockStore)
 
-			mgr := &managerImpl{}
+			mgr := &Manager{}
 			err := mgr.checkDomainAvailable(ctx, mockStore, accountID, tt.domain, tt.excludeServiceID)
 
 			if tt.expectedError {
@@ -166,7 +166,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 			GetServiceByDomain(ctx, accountID, "").
 			Return(nil, status.Errorf(status.NotFound, "not found"))
 
-		mgr := &managerImpl{}
+		mgr := &Manager{}
 		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "", "")
 
 		assert.NoError(t, err)
@@ -181,7 +181,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 			GetServiceByDomain(ctx, accountID, "test.com").
 			Return(&reverseproxy.Service{ID: "some-id", Domain: "test.com"}, nil)
 
-		mgr := &managerImpl{}
+		mgr := &Manager{}
 		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "test.com", "")
 
 		assert.Error(t, err)
@@ -199,7 +199,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 			GetServiceByDomain(ctx, accountID, "nil.com").
 			Return(nil, nil)
 
-		mgr := &managerImpl{}
+		mgr := &Manager{}
 		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "nil.com", "")
 
 		assert.NoError(t, err)
@@ -237,7 +237,7 @@ func TestPersistNewService(t *testing.T) {
 				return fn(txMock)
 			})
 
-		mgr := &managerImpl{store: mockStore}
+		mgr := &Manager{store: mockStore}
 		err := mgr.persistNewService(ctx, accountID, service)
 
 		assert.NoError(t, err)
@@ -265,7 +265,7 @@ func TestPersistNewService(t *testing.T) {
 				return fn(txMock)
 			})
 
-		mgr := &managerImpl{store: mockStore}
+		mgr := &Manager{store: mockStore}
 		err := mgr.persistNewService(ctx, accountID, service)
 
 		require.Error(t, err)
@@ -275,7 +275,7 @@ func TestPersistNewService(t *testing.T) {
 	})
 }
 func TestPreserveExistingAuthSecrets(t *testing.T) {
-	mgr := &managerImpl{}
+	mgr := &Manager{}
 
 	t.Run("preserve password when empty", func(t *testing.T) {
 		existing := &reverseproxy.Service{
@@ -352,7 +352,7 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 }
 
 func TestPreserveServiceMetadata(t *testing.T) {
-	mgr := &managerImpl{}
+	mgr := &Manager{}
 
 	existing := &reverseproxy.Service{
 		Meta: reverseproxy.ServiceMeta{
