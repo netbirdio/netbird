@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -2030,4 +2031,80 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 		assert.Error(t, err, "Creating user with duplicate email should fail")
 		t.Logf("Duplicate email error: %v", err)
 	})
+}
+
+func TestValidateUserUpdate_RejectsNonAdminInitiator(t *testing.T) {
+	groupsMap := map[string]*types.Group{}
+
+	initiator := &types.User{
+		Id:   "initiator",
+		Role: types.UserRoleUser,
+	}
+	oldUser := &types.User{
+		Id:   "target",
+		Role: types.UserRoleUser,
+	}
+	update := &types.User{
+		Id:   "target",
+		Role: types.UserRoleOwner,
+	}
+
+	err := validateUserUpdate(groupsMap, initiator, oldUser, update)
+	require.Error(t, err, "regular user should not be able to promote to owner")
+	assert.Contains(t, err.Error(), "only admins and owners can update users")
+}
+
+func TestSaveUser_RaceConditionPrivilegeEscalation(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerUserID := "ownerUser"
+	adminUserID := "adminUser"
+	targetUserID := "targetUser"
+
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
+	require.NoError(t, err)
+
+	account.Users[adminUserID] = types.NewAdminUser(adminUserID)
+	account.Users[targetUserID] = types.NewRegularUser(targetUserID, "", "")
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	const attempts = 50
+	var wg sync.WaitGroup
+
+	for i := range attempts {
+		account.Users[adminUserID] = types.NewAdminUser(adminUserID)
+		err = manager.Store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
+
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			manager.SaveUser(context.Background(), account.Id, ownerUserID, &types.User{
+				Id:   adminUserID,
+				Role: types.UserRoleUser,
+			})
+		}()
+
+		go func() {
+			defer wg.Done()
+			manager.SaveUser(context.Background(), account.Id, adminUserID, &types.User{
+				Id:   targetUserID,
+				Role: types.UserRoleOwner,
+			})
+		}()
+
+		wg.Wait()
+
+		targetUser, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+		require.NoError(t, err)
+		require.NotEqual(t, types.UserRoleOwner, targetUser.Role,
+			"privilege escalation detected: target user was promoted to owner via race condition (attempt %d)", i+1)
+
+		targetUser.Role = types.UserRoleUser
+		err = manager.Store.SaveUser(context.Background(), targetUser)
+		require.NoError(t, err)
+	}
 }
