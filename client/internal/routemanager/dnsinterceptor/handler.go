@@ -150,7 +150,6 @@ func (d *DnsInterceptor) addAllowedIPForPrefix(realPrefix netip.Prefix, peerKey 
 // addRouteAndAllowedIP handles both route and AllowedIPs addition for a prefix
 func (d *DnsInterceptor) addRouteAndAllowedIP(realPrefix netip.Prefix, domain domain.Domain) error {
 	// Routes use fake IPs (so traffic to fake IPs gets routed to interface)
-	log.Infof("--- dnsdebug -- addRouteAndAllowedIP - domain: %s , net: %s", domain.SafeString(), realPrefix.Addr())
 	routePrefix := d.transformRealToFakePrefix(realPrefix)
 	if _, err := d.routeRefCounter.Increment(routePrefix, struct{}{}); err != nil {
 		return fmt.Errorf("add route for IP %s: %v", routePrefix, err)
