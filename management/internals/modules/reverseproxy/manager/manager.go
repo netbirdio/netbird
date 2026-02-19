@@ -543,7 +543,7 @@ func (m *managerImpl) GetServiceIDByTargetID(ctx context.Context, accountID stri
 // CreateServiceFromPeer creates a service initiated by a peer expose request.
 // It skips user permission checks since authorization is done at the gRPC handler level.
 func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peerID string, service *reverseproxy.Service) (*reverseproxy.Service, error) {
-	service.Source = reverseproxy.SourcePeer
+	service.Source = reverseproxy.SourceEphemeral
 
 	if service.Domain == "" {
 		domain, err := m.buildRandomDomain(service.Name)
@@ -564,6 +564,9 @@ func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peer
 	if err := m.initializeServiceForCreate(ctx, accountID, service); err != nil {
 		return nil, err
 	}
+
+	now := time.Now()
+	service.Meta.LastRenewedAt = &now
 
 	if err := m.persistNewService(ctx, accountID, service); err != nil {
 		return nil, err
@@ -616,7 +619,7 @@ func (m *managerImpl) DeleteServiceFromPeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if service.Source != reverseproxy.SourcePeer {
+		if service.Source != reverseproxy.SourceEphemeral {
 			return status.Errorf(status.PermissionDenied, "cannot delete API-created service via peer expose")
 		}
 

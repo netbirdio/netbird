@@ -43,8 +43,8 @@ const (
 	TargetTypeDomain = "domain"
 	TargetTypeSubnet = "subnet"
 
-	SourceAPI  = "api"
-	SourcePeer = "peer"
+	SourcePermanent = "permanent"
+	SourceEphemeral = "ephemeral"
 )
 
 type Target struct {
@@ -121,6 +121,7 @@ type ServiceMeta struct {
 	CreatedAt           time.Time
 	CertificateIssuedAt time.Time
 	Status              string
+	LastRenewedAt       *time.Time
 }
 
 type Service struct {
@@ -137,7 +138,7 @@ type Service struct {
 	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string      `gorm:"column:session_private_key"`
 	SessionPublicKey  string      `gorm:"column:session_public_key"`
-	Source            string      `gorm:"default:'api'"`
+	Source            string      `gorm:"default:'permanent'"`
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
