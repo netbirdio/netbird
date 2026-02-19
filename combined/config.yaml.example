@@ -1,10 +1,28 @@
-# Simplified Combined NetBird Server Configuration
+# NetBird Combined Server Configuration
 # Copy this file to config.yaml and customize for your deployment
+#
+# This is a Management server with optional embedded Signal, Relay, and STUN services.
+# By default, all services run locally. You can use external services instead by
+# setting the corresponding override fields.
+#
+# Architecture:
+#   - Management: Always runs locally (this IS the management server)
+#   - Signal: Local by default; set 'signalUri' to use external (disables local)
+#   - Relay: Local by default; set 'relays' to use external (disables local)
+#   - STUN: Local on port 3478 by default; set 'stuns' to use external instead
 
-# Server-wide settings
 server:
   # Main HTTP/gRPC port for all services (Management, Signal, Relay)
   listenAddress: ":443"
+
+  # Public address that peers will use to connect to this server
+  # Used for relay connections and management DNS domain
+  # Format: protocol://hostname:port (e.g., https://server.mycompany.com:443)
+  exposedAddress: "https://server.mycompany.com:443"
+
+  # STUN server ports (defaults to [3478] if not specified; set 'stuns' to use external)
+  # stunPorts:
+  #   - 3478
 
   # Metrics endpoint port
   metricsPort: 9090
@@ -13,7 +31,7 @@ server:
   healthcheckAddress: ":9000"
 
   # Logging configuration
-  logLevel: "info"    # panic, fatal, error, warn, info, debug, trace
+  logLevel: "info"    # Default log level for all components: panic, fatal, error, warn, info, debug, trace
   logFile: "console"  # "console" or path to log file
 
   # TLS configuration (optional)
@@ -27,53 +45,45 @@ server:
       email: ""
       awsRoute53: false
 
-# Relay service configuration
-relay:
-  # Enable/disable the relay service
-  enabled: true
-
-  # Public address that peers will use to connect to this relay
-  # Format: hostname:port or ip:port
-  exposedAddress: "relay.example.com:443"
-
-  # Shared secret for relay authentication (required when enabled)
+  # Shared secret for relay authentication (required when running local relay)
   authSecret: "your-secret-key-here"
 
-  # Log level for relay (reserved for future use, currently uses global log level)
-  logLevel: "info"
-
-  # Embedded STUN server (optional)
-  stun:
-    enabled: false
-    ports: [3478]
-    logLevel: "info"
-
-# Signal service configuration
-signal:
-  # Enable/disable the signal service
-  enabled: true
-
-  # Log level for signal (reserved for future use, currently uses global log level)
-  logLevel: "info"
-
-# Management service configuration
-management:
-  # Enable/disable the management service
-  enabled: true
-
-  # Data directory for management service
+  # Data directory for all services
   dataDir: "/var/lib/netbird/"
 
-  # DNS domain for the management server
-  dnsDomain: ""
+  # ============================================================================
+  # External Service Overrides (optional)
+  # Use these to point to external Signal, Relay, or STUN servers instead of
+  # running them locally. When set, the corresponding local service is disabled.
+  # ============================================================================
+
+  # External STUN servers - disables local STUN server
+  # stuns:
+  #   - uri: "stun:stun.example.com:3478"
+  #   - uri: "stun:stun.example.com:3479"
+
+  # External relay servers - disables local relay server
+  # relays:
+  #   addresses:
+  #     - "rels://relay.example.com:443"
+  #   credentialsTTL: "12h"
+  #   secret: "relay-shared-secret"
+
+  # External signal server - disables local signal server
+  # signalUri: "https://signal.example.com:443"
+
+  # ============================================================================
+  # Management Settings
+  # ============================================================================
 
   # Metrics and updates
   disableAnonymousMetrics: false
   disableGeoliteUpdate: false
 
+  # Embedded authentication/identity provider (Dex) configuration (always enabled)
   auth:
     # OIDC issuer URL - must be publicly accessible
-    issuer: "https://management.example.com/oauth2"
+    issuer: "https://example.com/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
     # OAuth2 redirect URIs for dashboard
@@ -88,28 +98,14 @@ management:
     #   email: "admin@example.com"
     #   password: "initial-password"
 
-  # External STUN servers (for client config)
-  stuns: []
-  #  - uri: "stun:stun.example.com:3478"
-
-  # External relay servers (for client config)
-  relays:
-    addresses: []
-    #  - "rels://relay.example.com:443"
-    credentialsTTL: "12h"
-    secret: ""
-
-  # External signal server URI (for client config)
-  signalUri: ""
-
   # Store configuration
   store:
     engine: "sqlite"  # sqlite, postgres, or mysql
     dsn: ""  # Connection string for postgres or mysql
     encryptionKey: ""
 
-  # Reverse proxy settings
-  reverseProxy:
-    trustedHTTPProxies: []
-    trustedHTTPProxiesCount: 0
-    trustedPeers: []
+  # Reverse proxy settings (optional)
+  # reverseProxy:
+  #   trustedHTTPProxies: []
+  #   trustedHTTPProxiesCount: 0
+  #   trustedPeers: []
