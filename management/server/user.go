@@ -737,6 +737,14 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
+	if initiatorUserId != activity.SystemInitiator {
+		freshInitiator, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, initiatorUserId)
+		if err != nil {
+			return false, nil, nil, nil, fmt.Errorf("failed to re-read initiator user in transaction: %w", err)
+		}
+		initiatorUser = freshInitiator
+	}
+
 	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
 		return false, nil, nil, nil, err
@@ -864,7 +872,10 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 		return nil
 	}
 
-	// @todo double check these
+	if !initiatorUser.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only admins and owners can update users")
+	}
+
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
