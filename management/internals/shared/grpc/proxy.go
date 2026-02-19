@@ -486,33 +486,6 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	}
 }
 
-// GetAvailableClusters returns information about all connected proxy clusters.
-func (s *ProxyServiceServer) GetAvailableClusters() []ClusterInfo {
-	clusterCounts := make(map[string]int)
-	s.clusterProxies.Range(func(key, value interface{}) bool {
-		clusterAddr := key.(string)
-		proxySet := value.(*sync.Map)
-		count := 0
-		proxySet.Range(func(_, _ interface{}) bool {
-			count++
-			return true
-		})
-		if count > 0 {
-			clusterCounts[clusterAddr] = count
-		}
-		return true
-	})
-
-	clusters := make([]ClusterInfo, 0, len(clusterCounts))
-	for addr, count := range clusterCounts {
-		clusters = append(clusters, ClusterInfo{
-			Address:          addr,
-			ConnectedProxies: count,
-		})
-	}
-	return clusters
-}
-
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 	service, err := s.reverseProxyManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {

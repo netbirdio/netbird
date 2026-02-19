@@ -112,7 +112,8 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	}
 
 	// Create real token store
-	tokenStore := nbgrpc.NewOneTimeTokenStore(5 * time.Minute)
+	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)

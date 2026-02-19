@@ -188,7 +188,10 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 
 func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 	return Create(s, func() *nbgrpc.OneTimeTokenStore {
-		tokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
+		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 5*time.Minute, 10*time.Minute, 100)
+		if err != nil {
+			log.Fatalf("failed to create proxy token store: %v", err)
+		}
 		log.Info("One-time token store initialized for proxy authentication")
 		return tokenStore
 	})

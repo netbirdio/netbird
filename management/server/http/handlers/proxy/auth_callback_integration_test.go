@@ -178,7 +178,8 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 
 	oidcServer := newFakeOIDCServer()
 
-	tokenStore := nbgrpc.NewOneTimeTokenStore(time.Minute)
+	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	usersManager := users.NewManager(testStore)
 

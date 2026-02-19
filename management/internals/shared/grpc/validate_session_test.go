@@ -37,7 +37,10 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	proxyManager := &testValidateSessionProxyManager{store: testStore}
 	usersManager := &testValidateSessionUsersManager{store: testStore}
 
-	proxyService := NewProxyServiceServer(nil, NewOneTimeTokenStore(time.Minute), ProxyOIDCConfig{}, nil, usersManager)
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	proxyService := NewProxyServiceServer(nil, tokenStore, ProxyOIDCConfig{}, nil, usersManager)
 	proxyService.SetProxyManager(proxyManager)
 
 	createTestProxies(t, ctx, testStore)

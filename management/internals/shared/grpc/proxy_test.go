@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
@@ -41,8 +42,8 @@ func drainChannel(ch chan *proto.ProxyMapping) *proto.ProxyMapping {
 }
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore:  tokenStore,
@@ -96,8 +97,8 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore:  tokenStore,
@@ -131,8 +132,8 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore:  tokenStore,
