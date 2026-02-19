@@ -15,6 +15,6 @@ const routeSettleDelay = 500 * time.Millisecond
 // response reaches the application. Without this, the first request
 // to a newly resolved domain may bypass the tunnel.
 func waitForRouteSettlement(logger *log.Entry) {
-	logger.Debugf("waiting %v for iOS route settlement", routeSettleDelay)
+	logger.Tracef("waiting %v for iOS route settlement", routeSettleDelay)
 	time.Sleep(routeSettleDelay)
 }
