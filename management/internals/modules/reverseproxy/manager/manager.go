@@ -151,7 +151,7 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -243,7 +243,7 @@ func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, s
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.sendServiceUpdateNotifications(service, updateInfo)
+	m.sendServiceUpdateNotifications(accountID, service, updateInfo)
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return service, nil
@@ -324,7 +324,7 @@ func (m *Manager) preserveExistingAuthSecrets(service, existingService *reversep
 	}
 }
 
-func (m *Manager) SendServiceUpdateToCluster(update *proto.ProxyMapping, clusterAddr string) {
+func (m *Manager) SendServiceUpdateToCluster(accountID string, update *proto.ProxyMapping, clusterAddr string) {
 	m.proxyGRPCServer.SendServiceUpdateToCluster(update, clusterAddr)
 }
 
@@ -334,19 +334,19 @@ func (m *Manager) preserveServiceMetadata(service, existingService *reverseproxy
 	service.SessionPublicKey = existingService.SessionPublicKey
 }
 
-func (m *Manager) sendServiceUpdateNotifications(service *reverseproxy.Service, updateInfo *serviceUpdateInfo) {
+func (m *Manager) sendServiceUpdateNotifications(accountID string, service *reverseproxy.Service, updateInfo *serviceUpdateInfo) {
 	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
 
 	switch {
 	case updateInfo.domainChanged && updateInfo.oldCluster != service.ProxyCluster:
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), updateInfo.oldCluster)
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), updateInfo.oldCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
 	case !service.Enabled && updateInfo.serviceEnabledChanged:
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), service.ProxyCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), service.ProxyCluster)
 	case service.Enabled && updateInfo.serviceEnabledChanged:
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
 	default:
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", oidcCfg), service.ProxyCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Update, "", oidcCfg), service.ProxyCluster)
 	}
 }
 
@@ -402,7 +402,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, service.EventMeta())
 
-	m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -457,7 +457,7 @@ func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string
 		return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -475,7 +475,7 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 		}
-		m.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
 	}
 
 	return nil
