@@ -1589,7 +1589,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, msg.Body.SessionId)
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)
