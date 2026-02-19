@@ -61,9 +61,6 @@ type ProxyServiceServer struct {
 	// Map of cluster address -> set of proxy IDs
 	clusterProxies sync.Map
 
-	// Channel for broadcasting reverse proxy updates to all proxies
-	updatesChan chan *proto.GetMappingUpdateResponse
-
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
@@ -110,7 +107,6 @@ type proxyConnection struct {
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
-		updatesChan:       make(chan *proto.GetMappingUpdateResponse, 100),
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 		tokenStore:        tokenStore,
