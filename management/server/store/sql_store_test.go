@@ -1360,6 +1360,9 @@ func TestSqlStore_GetGroupsByIDs(t *testing.T) {
 }
 
 func TestSqlStore_CreateGroup(t *testing.T) {
+	if os.Getenv("CI") == "true" {
+		t.Log("Skipping MySQL test on CI")
+	}
 	t.Setenv("NETBIRD_STORE_ENGINE", string(types.MysqlStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
