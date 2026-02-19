@@ -71,6 +71,7 @@ func (n *notifier) clientStart() {
 	n.currentClientState = true
 	n.lastNotification = stateConnecting
 	n.serverStateLock.Unlock()
+
 	n.notify(stateConnecting)
 }
 
@@ -123,6 +124,7 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 
 	return stateConnecting
 }
+
 func (n *notifier) peerListChanged(numOfPeers int) {
 	n.serverStateLock.Lock()
 	n.lastNumberOfPeers = numOfPeers
