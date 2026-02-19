@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
@@ -2054,57 +2053,65 @@ func TestValidateUserUpdate_RejectsNonAdminInitiator(t *testing.T) {
 	assert.Contains(t, err.Error(), "only admins and owners can update users")
 }
 
-func TestSaveUser_RaceConditionPrivilegeEscalation(t *testing.T) {
-	manager, _, err := createManager(t)
+func TestProcessUserUpdate_RejectsStaleInitiatorRole(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 
-	ownerUserID := "ownerUser"
-	adminUserID := "adminUser"
-	targetUserID := "targetUser"
+	account := newAccountWithId(context.Background(), "account1", "owner1", "", "", "", false)
 
-	account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
+	adminID := "admin1"
+	account.Users[adminID] = types.NewAdminUser(adminID)
+
+	targetID := "target1"
+	account.Users[targetID] = types.NewRegularUser(targetID, "", "")
+
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	demotedAdmin, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, adminID)
 	require.NoError(t, err)
+	demotedAdmin.Role = types.UserRoleUser
+	require.NoError(t, s.SaveUser(context.Background(), demotedAdmin))
 
-	account.Users[adminUserID] = types.NewAdminUser(adminUserID)
-	account.Users[targetUserID] = types.NewRegularUser(targetUserID, "", "")
-	err = manager.Store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	const attempts = 50
-	var wg sync.WaitGroup
-
-	for i := range attempts {
-		account.Users[adminUserID] = types.NewAdminUser(adminUserID)
-		err = manager.Store.SaveAccount(context.Background(), account)
-		require.NoError(t, err)
-
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			manager.SaveUser(context.Background(), account.Id, ownerUserID, &types.User{
-				Id:   adminUserID,
-				Role: types.UserRoleUser,
-			})
-		}()
-
-		go func() {
-			defer wg.Done()
-			manager.SaveUser(context.Background(), account.Id, adminUserID, &types.User{
-				Id:   targetUserID,
-				Role: types.UserRoleOwner,
-			})
-		}()
-
-		wg.Wait()
-
-		targetUser, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
-		require.NoError(t, err)
-		require.NotEqual(t, types.UserRoleOwner, targetUser.Role,
-			"privilege escalation detected: target user was promoted to owner via race condition (attempt %d)", i+1)
-
-		targetUser.Role = types.UserRoleUser
-		err = manager.Store.SaveUser(context.Background(), targetUser)
-		require.NoError(t, err)
+	staleInitiator := &types.User{
+		Id:        adminID,
+		AccountID: account.Id,
+		Role:      types.UserRoleAdmin,
 	}
+
+	permissionsManager := permissions.NewManager(s)
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	settings, err := s.GetAccountSettings(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+
+	groups, err := s.GetAccountGroups(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	groupsMap := make(map[string]*types.Group, len(groups))
+	for _, g := range groups {
+		groupsMap[g.ID] = g
+	}
+
+	update := &types.User{
+		Id:   targetID,
+		Role: types.UserRoleAdmin,
+	}
+
+	err = s.ExecuteInTransaction(context.Background(), func(tx store.Store) error {
+		_, _, _, _, txErr := am.processUserUpdate(
+			context.Background(), tx, groupsMap, account.Id, adminID, staleInitiator, update, false, settings,
+		)
+		return txErr
+	})
+
+	require.Error(t, err, "processUserUpdate should reject stale initiator whose role was demoted")
+	assert.Contains(t, err.Error(), "only admins and owners can update users")
+
+	targetUser, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetID)
+	require.NoError(t, err)
+	assert.Equal(t, types.UserRoleUser, targetUser.Role)
 }
