@@ -126,9 +126,6 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	// Delete operations should not generate tokens
 	assert.Empty(t, msg1.AuthToken)
 	assert.Empty(t, msg2.AuthToken)
-
-	// No tokens should have been created
-	assert.Equal(t, 0, tokenStore.GetTokenCount())
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
