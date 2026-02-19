@@ -690,65 +690,81 @@ func (c *GrpcClient) Logout() error {
 	return nil
 }
 
-// ExposeService opens a bidirectional stream to the management server to expose a local port.
-func (c *GrpcClient) ExposeService(ctx context.Context, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
-		return c.handleExposeStream(ctx, serverPubKey, req, onReady)
-	})
-}
-
-func (c *GrpcClient) handleExposeStream(ctx context.Context, serverPubKey wgtypes.Key, req *proto.ExposeServiceRequest, onReady func(resp *proto.ExposeServiceResponse)) error {
-	ctx, cancelStream := context.WithCancel(ctx)
-	defer cancelStream()
-
-	stream, err := c.realClient.ExposeService(ctx)
+// CreateExpose calls the management server to create a new expose service.
+func (c *GrpcClient) CreateExpose(ctx context.Context, req *proto.ExposeServiceRequest) (*proto.ExposeServiceResponse, error) {
+	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
-		log.Errorf("failed to open expose stream: %v", err)
-		return err
+		return nil, err
 	}
 
-	encReq, err := encryption.EncryptMessage(serverPubKey, c.key, req)
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
 	if err != nil {
-		log.Errorf("failed to encrypt expose request: %v", err)
-		return err
+		return nil, fmt.Errorf("encrypt create expose request: %w", err)
 	}
-	if err := stream.Send(&proto.EncryptedMessage{
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encReq,
-	}); err != nil {
-		return fmt.Errorf("send expose request: %w", err)
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	msg, err := stream.Recv()
+	exposeResp := &proto.ExposeServiceResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, exposeResp); err != nil {
+		return nil, fmt.Errorf("decrypt create expose response: %w", err)
+	}
+
+	return exposeResp, nil
+}
+
+// RenewExpose extends the TTL of an active expose session on the management server.
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok {
-			switch s.Code() {
-			case codes.PermissionDenied, codes.AlreadyExists, codes.InvalidArgument:
-				return backoff.Permanent(err)
-			case codes.Unimplemented:
-				log.Warn("ExposeService is not supported by the current management server version")
-				return backoff.Permanent(err)
-			}
-		}
 		return err
 	}
 
-	resp := &proto.ExposeServiceResponse{}
-	if err := encryption.DecryptMessage(serverPubKey, c.key, msg.Body, resp); err != nil {
-		return fmt.Errorf("decrypt expose response: %w", err)
+	req := &proto.RenewExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt renew expose request: %w", err)
 	}
 
-	onReady(resp)
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
 
-	for {
-		_, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-				return nil
-			}
-			return err
-		}
+	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+// StopExpose terminates an active expose session on the management server.
+func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return err
 	}
+
+	req := &proto.StopExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt stop expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

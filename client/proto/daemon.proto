@@ -831,10 +831,9 @@ message ExposeServiceEvent {
 }
 
 message ExposeServiceReady {
-  string service_id = 1;
-  string service_name = 2;
-  string service_url = 3;
-  string domain = 4;
+  string service_name = 1;
+  string service_url = 2;
+  string domain = 3;
 }
 
 message ExposeServiceStopped {

@@ -1330,8 +1330,13 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return gstatus.Errorf(codes.Internal, "parse private key: %v", err)
 	}
 
+	// Use a separate context for the management client so it survives stream cancellation,
+	// allowing StopExpose cleanup to complete when the CLI disconnects.
+	mgmCtx, mgmCancel := context.WithCancel(context.Background())
+	defer mgmCancel()
+
 	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, key, mgmTlsEnabled)
+	mgmClient, err := mgm.NewClient(mgmCtx, config.ManagementURL.Host, key, mgmTlsEnabled)
 	if err != nil {
 		return gstatus.Errorf(codes.Internal, "connect to management: %v", err)
 	}
@@ -1351,48 +1356,48 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		NamePrefix: req.NamePrefix,
 	}
 
-	responseCh := make(chan *mgmProto.ExposeServiceResponse, 1)
-	errCh := make(chan error, 1)
-
-	go func() {
-		err := mgmClient.ExposeService(ctx, mgmtReq, func(resp *mgmProto.ExposeServiceResponse) {
-			responseCh <- resp
-		})
-		errCh <- err
-	}()
-
-	select {
-	case resp := <-responseCh:
-		if err := srv.Send(&proto.ExposeServiceEvent{
-			Event: &proto.ExposeServiceEvent_Ready{
-				Ready: &proto.ExposeServiceReady{
-					ServiceId:   resp.ServiceId,
-					ServiceName: resp.ServiceName,
-					ServiceUrl:  resp.ServiceUrl,
-					Domain:      resp.Domain,
-				},
-			},
-		}); err != nil {
-			return err
-		}
-	case err := <-errCh:
+	resp, err := mgmClient.CreateExpose(ctx, mgmtReq)
+	if err != nil {
 		return err
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 
-	select {
-	case err := <-errCh:
-		if err != nil {
-			_ = srv.Send(&proto.ExposeServiceEvent{
-				Event: &proto.ExposeServiceEvent_Stopped{
-					Stopped: &proto.ExposeServiceStopped{Reason: err.Error()},
-				},
-			})
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := mgmClient.StopExpose(stopCtx, resp.Domain); err != nil {
+			log.Debugf("failed to stop expose: %v", err)
 		}
+	}()
+
+	if err := srv.Send(&proto.ExposeServiceEvent{
+		Event: &proto.ExposeServiceEvent_Ready{
+			Ready: &proto.ExposeServiceReady{
+				ServiceName: resp.ServiceName,
+				ServiceUrl:  resp.ServiceUrl,
+				Domain:      resp.Domain,
+			},
+		},
+	}); err != nil {
 		return err
-	case <-ctx.Done():
-		return nil
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := mgmClient.RenewExpose(mgmCtx, resp.Domain); err != nil {
+				_ = srv.Send(&proto.ExposeServiceEvent{
+					Event: &proto.ExposeServiceEvent_Stopped{
+						Stopped: &proto.ExposeServiceStopped{Reason: "renewal failed: " + err.Error()},
+					},
+				})
+				return err
+			}
+		}
 	}
 }
 

@@ -5844,10 +5844,9 @@ func (*ExposeServiceEvent_Error) isExposeServiceEvent_Event() {}
 
 type ExposeServiceReady struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServiceId     string                 `protobuf:"bytes,1,opt,name=service_id,json=serviceId,proto3" json:"service_id,omitempty"`
-	ServiceName   string                 `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	ServiceUrl    string                 `protobuf:"bytes,3,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
-	Domain        string                 `protobuf:"bytes,4,opt,name=domain,proto3" json:"domain,omitempty"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	ServiceUrl    string                 `protobuf:"bytes,2,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
+	Domain        string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5880,13 +5879,6 @@ func (x *ExposeServiceReady) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExposeServiceReady.ProtoReflect.Descriptor instead.
 func (*ExposeServiceReady) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{87}
-}
-
-func (x *ExposeServiceReady) GetServiceId() string {
-	if x != nil {
-		return x.ServiceId
-	}
-	return ""
 }
 
 func (x *ExposeServiceReady) GetServiceName() string {
@@ -6562,14 +6554,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\x05ready\x18\x01 \x01(\v2\x1a.daemon.ExposeServiceReadyH\x00R\x05ready\x128\n" +
 	"\astopped\x18\x02 \x01(\v2\x1c.daemon.ExposeServiceStoppedH\x00R\astopped\x122\n" +
 	"\x05error\x18\x03 \x01(\v2\x1a.daemon.ExposeServiceErrorH\x00R\x05errorB\a\n" +
-	"\x05event\"\x8f\x01\n" +
-	"\x12ExposeServiceReady\x12\x1d\n" +
-	"\n" +
-	"service_id\x18\x01 \x01(\tR\tserviceId\x12!\n" +
-	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12\x1f\n" +
-	"\vservice_url\x18\x03 \x01(\tR\n" +
+	"\x05event\"p\n" +
+	"\x12ExposeServiceReady\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1f\n" +
+	"\vservice_url\x18\x02 \x01(\tR\n" +
 	"serviceUrl\x12\x16\n" +
-	"\x06domain\x18\x04 \x01(\tR\x06domain\".\n" +
+	"\x06domain\x18\x03 \x01(\tR\x06domain\".\n" +
 	"\x14ExposeServiceStopped\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\".\n" +
 	"\x12ExposeServiceError\x12\x18\n" +
