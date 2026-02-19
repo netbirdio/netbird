@@ -23,9 +23,10 @@ type Manager struct {
 
 	wgIface iFaceMapper
 
-	ipv4Client *iptables.IPTables
-	aclMgr     *aclManager
-	router     *router
+	ipv4Client         *iptables.IPTables
+	aclMgr             *aclManager
+	router             *router
+	notrackInitialized bool
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -84,7 +85,9 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.initNoTrackChain(); err != nil {
-		return fmt.Errorf("init notrack chain: %w", err)
+		log.Warnf("failed to init notrack chain, eBPF proxy traffic may not work correctly: %v", err)
+	} else {
+		m.notrackInitialized = true
 	}
 
 	// persist early to ensure cleanup of chains
@@ -181,8 +184,10 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 
 	var merr *multierror.Error
 
-	if err := m.cleanupNoTrackChain(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("cleanup notrack chain: %w", err))
+	if m.notrackInitialized {
+		if err := m.cleanupNoTrackChain(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("cleanup notrack chain: %w", err))
+		}
 	}
 
 	if err := m.aclMgr.Reset(); err != nil {
