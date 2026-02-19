@@ -5083,8 +5083,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 
 	query = s.applyAccessLogFilters(query, filter)
 
+	sortColumns := filter.GetSortColumn()
+	sortOrder := strings.ToUpper(filter.GetSortOrder())
+
+	var orderClauses []string
+	for _, col := range strings.Split(sortColumns, ",") {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			orderClauses = append(orderClauses, col+" "+sortOrder)
+		}
+	}
+	orderClause := strings.Join(orderClauses, ", ")
+
 	query = query.
-		Order("timestamp DESC").
+		Order(orderClause).
 		Limit(filter.GetLimit()).
 		Offset(filter.GetOffset())
 
@@ -5099,6 +5111,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	}
 
 	return logs, totalCount, nil
+}
+
+// DeleteOldAccessLogs deletes all access logs older than the specified time
+func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("timestamp < ?", olderThan).
+		Delete(&accesslogs.AccessLogEntry{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	}
+
+	return result.RowsAffected, nil
 }
 
 // applyAccessLogFilters applies filter conditions to the query

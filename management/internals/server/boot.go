@@ -200,6 +200,11 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
 		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager.StartPeriodicCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogRetentionDays,
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
 		return accessLogManager
 	})
 }

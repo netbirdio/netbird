@@ -475,6 +475,21 @@ func (mr *MockStoreMockRecorder) DeleteNetworkRouter(ctx, accountID, routerID in
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteNetworkRouter", reflect.TypeOf((*MockStore)(nil).DeleteNetworkRouter), ctx, accountID, routerID)
 }
 
+// DeleteOldAccessLogs mocks base method.
+func (m *MockStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOldAccessLogs", ctx, olderThan)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteOldAccessLogs indicates an expected call of DeleteOldAccessLogs.
+func (mr *MockStoreMockRecorder) DeleteOldAccessLogs(ctx, olderThan interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldAccessLogs", reflect.TypeOf((*MockStore)(nil).DeleteOldAccessLogs), ctx, olderThan)
+}
+
 // DeletePAT mocks base method.
 func (m *MockStore) DeletePAT(ctx context.Context, userID, patID string) error {
 	m.ctrl.T.Helper()
