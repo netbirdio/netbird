@@ -1,4 +1,4 @@
-package manager
+package service
 
 import (
 	"context"
@@ -36,7 +36,7 @@ type Manager struct {
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) reverseproxy.Manager {
 	return &Manager{
 		store:              store,
 		accountManager:     accountManager,

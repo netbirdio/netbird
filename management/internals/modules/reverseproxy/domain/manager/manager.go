@@ -27,21 +27,21 @@ type store interface {
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 }
 
-type proxyURLProvider interface {
-	GetConnectedProxyURLs() []string
+type proxyManager interface {
+	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
 }
 
 type Manager struct {
 	store              store
 	validator          domain.Validator
-	proxyURLProvider   proxyURLProvider
+	proxyManager       proxyManager
 	permissionsManager permissions.Manager
 }
 
-func NewManager(store store, proxyURLProvider proxyURLProvider, permissionsManager permissions.Manager) Manager {
+func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager) Manager {
 	return Manager{
-		store:            store,
-		proxyURLProvider: proxyURLProvider,
+		store:        store,
+		proxyManager: proxyMgr,
 		validator: domain.Validator{
 			Resolver: net.DefaultResolver,
 		},
@@ -67,8 +67,12 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 
 	// Add connected proxy clusters as free domains.
 	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
-	allowList := m.proxyURLAllowList()
-	log.WithFields(log.Fields{
+	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", err)
+		return nil, err
+	}
+	log.WithContext(ctx).WithFields(log.Fields{
 		"accountID":      accountID,
 		"proxyAllowList": allowList,
 	}).Debug("getting domains with proxy allow list")
@@ -107,7 +111,10 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	}
 
 	// Verify the target cluster is in the available clusters
-	allowList := m.proxyURLAllowList()
+	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
+	}
 	clusterValid := false
 	for _, cluster := range allowList {
 		if cluster == targetCluster {
@@ -221,21 +228,14 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 	}
 }
 
-// proxyURLAllowList retrieves a list of currently connected proxies and
-// their URLs
-func (m Manager) proxyURLAllowList() []string {
-	var reverseProxyAddresses []string
-	if m.proxyURLProvider != nil {
-		reverseProxyAddresses = m.proxyURLProvider.GetConnectedProxyURLs()
-	}
-	return reverseProxyAddresses
-}
-
 // DeriveClusterFromDomain determines the proxy cluster for a given domain.
 // For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
 // For custom domains, the cluster is determined by checking the registered custom domain's target cluster.
 func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error) {
-	allowList := m.proxyURLAllowList()
+	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
+	}
 	if len(allowList) == 0 {
 		return "", fmt.Errorf("no proxy clusters available")
 	}

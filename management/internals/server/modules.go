@@ -10,7 +10,9 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
-	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
+	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -99,7 +101,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
 		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy)
 		if err != nil {
-			log.Fatalf("failed to create account manager: %v", err)
+			log.Fatalf("failed to create account service: %v", err)
 		}
 
 		s.AfterInit(func(s *BaseServer) {
@@ -114,28 +116,28 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
-		// Use embedded IdP manager if embedded Dex is configured and enabled.
+		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
 		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
 			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
-				log.Fatalf("failed to create embedded IDP manager: %v", err)
+				log.Fatalf("failed to create embedded IDP service: %v", err)
 			}
 			return idpManager
 		}
 
-		// Fall back to external IdP manager
+		// Fall back to external IdP service
 		if s.Config.IdpManagerConfig != nil {
 			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
-				log.Fatalf("failed to create IDP manager: %v", err)
+				log.Fatalf("failed to create IDP service: %v", err)
 			}
 		}
 		return idpManager
 	})
 }
 
-// OAuthConfigProvider is only relevant when we have an embedded IdP manager. Otherwise must be nil
+// OAuthConfigProvider is only relevant when we have an embedded IdP service. Otherwise must be nil
 func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
 		return nil
@@ -196,9 +198,15 @@ func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
 	})
 }
 
+func (s *BaseServer) ProxyManager() proxy.Manager {
+	return Create(s, func() proxy.Manager {
+		return proxymanager.NewManager(s.Store())
+	})
+}
+
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
-		m := manager.NewManager(s.Store(), s.ReverseProxyGRPCServer(), s.PermissionsManager())
+		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager())
 		return &m
 	})
 }

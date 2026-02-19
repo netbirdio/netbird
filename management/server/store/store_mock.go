@@ -15,6 +15,7 @@ import (
 	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	accesslogs "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	domain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	zones "github.com/netbirdio/netbird/management/internals/modules/zones"
 	records "github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	types "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -148,6 +149,20 @@ func (m *MockStore) ApproveAccountPeers(ctx context.Context, accountID string) (
 func (mr *MockStoreMockRecorder) ApproveAccountPeers(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveAccountPeers", reflect.TypeOf((*MockStore)(nil).ApproveAccountPeers), ctx, accountID)
+}
+
+// CleanupStaleProxies mocks base method.
+func (m *MockStore) CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CleanupStaleProxies", ctx, inactivityDuration)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CleanupStaleProxies indicates an expected call of CleanupStaleProxies.
+func (mr *MockStoreMockRecorder) CleanupStaleProxies(ctx, inactivityDuration interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleProxies", reflect.TypeOf((*MockStore)(nil).CleanupStaleProxies), ctx, inactivityDuration)
 }
 
 // Close mocks base method.
@@ -1182,6 +1197,21 @@ func (m *MockStore) GetAccountsCounter(ctx context.Context) (int64, error) {
 func (mr *MockStoreMockRecorder) GetAccountsCounter(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountsCounter", reflect.TypeOf((*MockStore)(nil).GetAccountsCounter), ctx)
+}
+
+// GetActiveProxyClusterAddresses mocks base method.
+func (m *MockStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveProxyClusterAddresses", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveProxyClusterAddresses indicates an expected call of GetActiveProxyClusterAddresses.
+func (mr *MockStoreMockRecorder) GetActiveProxyClusterAddresses(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusterAddresses", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusterAddresses), ctx)
 }
 
 // GetAllAccounts mocks base method.
@@ -2521,6 +2551,20 @@ func (mr *MockStoreMockRecorder) SavePostureChecks(ctx, postureCheck interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostureChecks", reflect.TypeOf((*MockStore)(nil).SavePostureChecks), ctx, postureCheck)
 }
 
+// SaveProxy mocks base method.
+func (m *MockStore) SaveProxy(ctx context.Context, proxy *proxy.Proxy) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveProxy", ctx, proxy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveProxy indicates an expected call of SaveProxy.
+func (mr *MockStoreMockRecorder) SaveProxy(ctx, proxy interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveProxy", reflect.TypeOf((*MockStore)(nil).SaveProxy), ctx, proxy)
+}
+
 // SaveProxyAccessToken mocks base method.
 func (m *MockStore) SaveProxyAccessToken(ctx context.Context, token *types2.ProxyAccessToken) error {
 	m.ctrl.T.Helper()
@@ -2714,6 +2758,20 @@ func (m *MockStore) UpdateGroups(ctx context.Context, accountID string, groups [
 func (mr *MockStoreMockRecorder) UpdateGroups(ctx, accountID, groups interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGroups", reflect.TypeOf((*MockStore)(nil).UpdateGroups), ctx, accountID, groups)
+}
+
+// UpdateProxyHeartbeat mocks base method.
+func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, proxyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProxyHeartbeat", ctx, proxyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProxyHeartbeat indicates an expected call of UpdateProxyHeartbeat.
+func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, proxyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, proxyID)
 }
 
 // UpdateService mocks base method.

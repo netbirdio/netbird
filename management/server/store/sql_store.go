@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -132,7 +133,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.Service{}, &reverseproxy.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{},
+		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -5173,4 +5174,66 @@ func (s *SqlStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength 
 	}
 
 	return target, nil
+}
+
+// SaveProxy saves or updates a proxy in the database
+func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
+	result := s.db.WithContext(ctx).Save(p)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save proxy")
+	}
+	return nil
+}
+
+// UpdateProxyHeartbeat updates the last_seen timestamp for a proxy
+func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID string) error {
+	result := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Where("id = ? AND status = ?", proxyID, "connected").
+		Update("last_seen", time.Now())
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update proxy heartbeat: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update proxy heartbeat")
+	}
+	return nil
+}
+
+// GetActiveProxyClusterAddresses returns all unique cluster addresses for active proxies
+func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error) {
+	var addresses []string
+
+	result := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Distinct("cluster_address").
+		Pluck("cluster_address", &addresses)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get active proxy cluster addresses")
+	}
+
+	return addresses, nil
+}
+
+// CleanupStaleProxies deletes proxies that haven't sent heartbeat in the specified duration
+func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error {
+	cutoffTime := time.Now().Add(-inactivityDuration)
+
+	result := s.db.WithContext(ctx).
+		Where("last_seen < ?", cutoffTime).
+		Delete(&proxy.Proxy{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to cleanup stale proxies: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to cleanup stale proxies")
+	}
+
+	if result.RowsAffected > 0 {
+		log.WithContext(ctx).Infof("Cleaned up %d stale proxies", result.RowsAffected)
+	}
+
+	return nil
 }

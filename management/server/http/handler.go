@@ -19,7 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
-	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"

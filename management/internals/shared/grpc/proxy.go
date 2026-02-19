@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -70,6 +71,9 @@ type ProxyServiceServer struct {
 	// Manager for reverse proxy operations
 	reverseProxyManager reverseproxy.Manager
 
+	// Manager for proxy connections
+	proxyManager proxy.Manager
+
 	// Manager for peers
 	peersManager peers.Manager
 
@@ -107,7 +111,7 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		updatesChan:       make(chan *proto.ProxyMapping, 100),
@@ -116,9 +120,11 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		tokenStore:        tokenStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
+		proxyManager:      proxyMgr,
 		pkceCleanupCancel: cancel,
 	}
 	go s.cleanupPKCEVerifiers(ctx)
+	go s.cleanupStaleProxies(ctx)
 	return s
 }
 
@@ -138,6 +144,22 @@ func (s *ProxyServiceServer) cleanupPKCEVerifiers(ctx context.Context) {
 				}
 				return true
 			})
+		}
+	}
+}
+
+// cleanupStaleProxies periodically removes proxies that haven't sent heartbeat in 10 minutes
+func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.proxyManager.CleanupStale(ctx, 10*time.Minute); err != nil {
+				log.WithContext(ctx).Debugf("Failed to cleanup stale proxies: %v", err)
+			}
 		}
 	}
 }
@@ -184,6 +206,12 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	s.connectedProxies.Store(proxyID, conn)
 	s.addToCluster(conn.address, proxyID)
+
+	// Register proxy in database
+	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)
+	}
+
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
 		"address":       proxyAddress,
@@ -191,8 +219,13 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		"total_proxies": len(s.GetConnectedProxies()),
 	}).Info("Proxy registered in cluster")
 	defer func() {
+		if err := s.proxyManager.Disconnect(context.Background(), proxyID); err != nil {
+			log.Warnf("Failed to mark proxy %s as disconnected: %v", proxyID, err)
+		}
+
 		s.connectedProxies.Delete(proxyID)
 		s.removeFromCluster(conn.address, proxyID)
+
 		cancel()
 		log.Infof("Proxy %s disconnected", proxyID)
 	}()
@@ -204,11 +237,31 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
 
+	// Start heartbeat goroutine
+	go s.heartbeat(connCtx, proxyID)
+
 	select {
 	case err := <-errChan:
 		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
 	case <-connCtx.Done():
 		return connCtx.Err()
+	}
+}
+
+// heartbeat updates the proxy's last_seen timestamp every minute
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := s.proxyManager.Heartbeat(ctx, proxyID); err != nil {
+				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", proxyID, err)
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
