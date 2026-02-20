@@ -20,19 +20,14 @@
           "refId": "A"
         },
         {
-          "expr": "(netbird_peer_connection_stage_semaphore_to_signaling_sum / netbird_peer_connection_stage_semaphore_to_signaling_count) * 1000",
-          "legendFormat": "2. Semaphore→Signaling ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "expr": "(netbird_peer_connection_stage_signaling_received_to_connection_sum / netbird_peer_connection_stage_signaling_received_to_connection_count) * 1000",
+          "legendFormat": "2. SignalingReceived→Connection ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
           "refId": "B"
         },
         {
-          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum / netbird_peer_connection_stage_signaling_to_connection_count) * 1000",
-          "legendFormat": "3. Signaling→Connection ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
-          "refId": "C"
-        },
-        {
           "expr": "(netbird_peer_connection_stage_connection_to_handshake_sum / netbird_peer_connection_stage_connection_to_handshake_count) * 1000",
-          "legendFormat": "4. Connection→Handshake ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
-          "refId": "D"
+          "legendFormat": "3. Connection→Handshake ({{deployment_type}}/{{connection_type}}/{{attempt_type}})",
+          "refId": "C"
         }
       ],
       "fieldConfig": {
@@ -139,19 +134,14 @@
           "refId": "A"
         },
         {
-          "expr": "(netbird_peer_connection_stage_semaphore_to_signaling_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_semaphore_to_signaling_count{attempt_type=\"initial\"}) * 1000",
-          "legendFormat": "Semaphore→Signaling",
+          "expr": "(netbird_peer_connection_stage_signaling_received_to_connection_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_signaling_received_to_connection_count{attempt_type=\"initial\"}) * 1000",
+          "legendFormat": "SignalingReceived→Connection",
           "refId": "B"
-        },
-        {
-          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_signaling_to_connection_count{attempt_type=\"initial\"}) * 1000",
-          "legendFormat": "Signaling→Connection",
-          "refId": "C"
         },
         {
           "expr": "(netbird_peer_connection_stage_connection_to_handshake_sum{attempt_type=\"initial\"} / netbird_peer_connection_stage_connection_to_handshake_count{attempt_type=\"initial\"}) * 1000",
           "legendFormat": "Connection→Handshake",
-          "refId": "D"
+          "refId": "C"
         }
       ],
       "options": {
@@ -177,8 +167,8 @@
       },
       "targets": [
         {
-          "expr": "(netbird_peer_connection_stage_signaling_to_connection_sum{attempt_type=\"reconnection\"} / netbird_peer_connection_stage_signaling_to_connection_count{attempt_type=\"reconnection\"}) * 1000",
-          "legendFormat": "Signaling→Connection",
+          "expr": "(netbird_peer_connection_stage_signaling_received_to_connection_sum{attempt_type=\"reconnection\"} / netbird_peer_connection_stage_signaling_received_to_connection_count{attempt_type=\"reconnection\"}) * 1000",
+          "legendFormat": "SignalingReceived→Connection",
           "refId": "A"
         },
         {
@@ -240,6 +230,6 @@
     }
   ],
   "schemaVersion": 27,
-  "version": 3,
+  "version": 4,
   "refresh": "30s"
 }

@@ -25,32 +25,15 @@ func (s *MetricsStages) RecordSemaphoreAcquired() {
 	s.stageTimestamps.SemaphoreAcquired = time.Now()
 }
 
-// RecordSignaling records the signaling timestamp when sending offers
-// For initial connections: records when we start sending
-// For reconnections: does nothing (we wait for RecordSignalingReceived)
-func (s *MetricsStages) RecordSignaling() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.isReconnectionAttempt {
-		return
-	}
-
-	if s.stageTimestamps.Signaling.IsZero() {
-		s.stageTimestamps.Signaling = time.Now()
-	}
-}
-
-// RecordSignalingReceived records the signaling timestamp when receiving offers/answers
-// For reconnections: records when we receive the first signal
-// For initial connections: does nothing (already recorded in RecordSignaling)
+// RecordSignalingReceived records when the first signal is received from the remote peer.
+// Used as the base for all subsequent stage durations to avoid inflating metrics when
+// the remote peer was offline.
 func (s *MetricsStages) RecordSignalingReceived() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Only record for reconnections when we receive a signal
-	if s.isReconnectionAttempt && s.stageTimestamps.Signaling.IsZero() {
-		s.stageTimestamps.Signaling = time.Now()
+	if s.stageTimestamps.SignalingReceived.IsZero() {
+		s.stageTimestamps.SignalingReceived = time.Now()
 	}
 }
 
@@ -84,9 +67,8 @@ func (s *MetricsStages) Disconnected() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Reset all timestamps for reconnection
-	// For reconnections, we only track from Signaling onwards
-	// This avoids meaningless creation→semaphore and semaphore→signaling metrics
+	// Reset all timestamps for reconnection; Created and SemaphoreAcquired are not
+	// tracked for reconnections since only SignalingReceived onwards is meaningful.
 	s.stageTimestamps = metrics.ConnectionStageTimestamps{}
 	s.isReconnectionAttempt = true
 }

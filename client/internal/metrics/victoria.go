@@ -31,31 +31,26 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	timestamps ConnectionStageTimestamps,
 ) {
 	// Calculate stage durations
-	var creationToSemaphore, semaphoreToSignaling, signalingToConnection, connectionToHandshake, totalDuration float64
+	var creationToSemaphore, signalingReceivedToConnection, connectionToHandshake, totalDuration float64
 
 	if !timestamps.Created.IsZero() && !timestamps.SemaphoreAcquired.IsZero() {
 		creationToSemaphore = timestamps.SemaphoreAcquired.Sub(timestamps.Created).Seconds()
 	}
 
-	if !timestamps.SemaphoreAcquired.IsZero() && !timestamps.Signaling.IsZero() {
-		semaphoreToSignaling = timestamps.Signaling.Sub(timestamps.SemaphoreAcquired).Seconds()
-	}
-
-	if !timestamps.Signaling.IsZero() && !timestamps.ConnectionReady.IsZero() {
-		signalingToConnection = timestamps.ConnectionReady.Sub(timestamps.Signaling).Seconds()
+	// Use SignalingReceived as the base: measures negotiation time after the remote peer
+	// responded, excluding unbounded wait time when the remote peer is offline.
+	if !timestamps.SignalingReceived.IsZero() && !timestamps.ConnectionReady.IsZero() {
+		signalingReceivedToConnection = timestamps.ConnectionReady.Sub(timestamps.SignalingReceived).Seconds()
 	}
 
 	if !timestamps.ConnectionReady.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
 		connectionToHandshake = timestamps.WgHandshakeSuccess.Sub(timestamps.ConnectionReady).Seconds()
 	}
 
-	// Calculate total duration:
-	// For initial connections: Created → WgHandshakeSuccess
-	// For reconnections: Signaling → WgHandshakeSuccess (since Created is not tracked)
-	if !timestamps.Created.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
-		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.Created).Seconds()
-	} else if !timestamps.Signaling.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
-		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.Signaling).Seconds()
+	// Calculate total duration anchored at SignalingReceived → WgHandshakeSuccess.
+	// This excludes the potentially unbounded wait for the remote peer to come online.
+	if !timestamps.SignalingReceived.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
+		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.SignalingReceived).Seconds()
 	}
 
 	// Determine attempt type
@@ -72,12 +67,8 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	).Update(creationToSemaphore)
 
 	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_stage_semaphore_to_signaling", connTypeStr, attemptType),
-	).Update(semaphoreToSignaling)
-
-	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_stage_signaling_to_connection", connTypeStr, attemptType),
-	).Update(signalingToConnection)
+		m.getMetricName(agentInfo, "netbird_peer_connection_stage_signaling_received_to_connection", connTypeStr, attemptType),
+	).Update(signalingReceivedToConnection)
 
 	m.set.GetOrCreateHistogram(
 		m.getMetricName(agentInfo, "netbird_peer_connection_stage_connection_to_handshake", connTypeStr, attemptType),
@@ -87,9 +78,9 @@ func (m *victoriaMetrics) RecordConnectionStages(
 		m.getMetricName(agentInfo, "netbird_peer_connection_total_creation_to_handshake", connTypeStr, attemptType),
 	).Update(totalDuration)
 
-	log.Tracef("peer connection metrics [%s, %s, %s]: creation→semaphore: %.3fs, semaphore→signaling: %.3fs, signaling→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
+	log.Tracef("peer connection metrics [%s, %s, %s]: creation→semaphore: %.3fs, signalingReceived→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
 		agentInfo.DeploymentType.String(), connTypeStr, attemptType,
-		creationToSemaphore, semaphoreToSignaling, signalingToConnection, connectionToHandshake,
+		creationToSemaphore, signalingReceivedToConnection, connectionToHandshake,
 		totalDuration)
 }
 

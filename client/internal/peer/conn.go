@@ -627,7 +627,6 @@ func (conn *Conn) onGuardEvent() {
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
 	}
-	conn.metricsStages.RecordSignaling()
 }
 
 func (conn *Conn) onWGDisconnected() {
