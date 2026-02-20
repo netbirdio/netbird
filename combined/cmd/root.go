@@ -142,10 +142,13 @@ func initializeConfig() error {
 	}
 
 	if engine := config.Server.ActivityStore.Engine; engine != "" {
+		if strings.ToLower(engine) == "postgres" && config.Server.ActivityStore.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
 		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engine)
-	}
-	if dsn := config.Server.ActivityStore.DSN; dsn != "" {
-		os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
 	}
 
 	log.Infof("Starting combined NetBird server")
