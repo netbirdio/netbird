@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "e804d355efbc",
+  "session_id": "a9af436e-62ce-41be-bc30-3e14ad5caf90",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-20T17:34:14.938718Z",
+  "branch": "feature/support-activity-store-engine-combined",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/root.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "2131d1a3-49f3-407c-bb94-cc00848d0005",
+  "checkpoint_transcript_start": 384,
+  "transcript_lines_at_start": 384,
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 2672,
+    "cache_read_tokens": 532901,
+    "output_tokens": 775,
+    "api_call_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-20T17:34:14.799463Z",
+    "agent_lines": 7,
+    "human_added": 99852,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99859,
+    "agent_percentage": 0.007009883936350254
+  }
+}
