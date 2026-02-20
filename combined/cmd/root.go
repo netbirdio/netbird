@@ -141,6 +141,13 @@ func initializeConfig() error {
 		}
 	}
 
+	if engine := config.Server.ActivityStore.Engine; engine != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engine)
+	}
+	if dsn := config.Server.ActivityStore.DSN; dsn != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+	}
+
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
 	logEnvVars()
