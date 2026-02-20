@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -91,6 +92,54 @@ func (p *Policy) Copy() *Policy {
 	}
 	copy(c.SourcePostureChecks, p.SourcePostureChecks)
 	return c
+}
+
+func (p *Policy) Equal(other *Policy) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+
+	if p.ID != other.ID ||
+		p.AccountID != other.AccountID ||
+		p.Name != other.Name ||
+		p.Description != other.Description ||
+		p.Enabled != other.Enabled {
+		return false
+	}
+
+	if !stringSlicesEqualUnordered(p.SourcePostureChecks, other.SourcePostureChecks) {
+		return false
+	}
+
+	if len(p.Rules) != len(other.Rules) {
+		return false
+	}
+
+	otherRules := make(map[string]*PolicyRule, len(other.Rules))
+	for _, r := range other.Rules {
+		otherRules[r.ID] = r
+	}
+	for _, r := range p.Rules {
+		otherRule, ok := otherRules[r.ID]
+		if !ok {
+			return false
+		}
+		if !r.Equal(otherRule) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (p *Policy) Normalize() {
+	if p == nil {
+		return
+	}
+	slices.Sort(p.SourcePostureChecks)
+	for _, r := range p.Rules {
+		r.Normalize()
+	}
 }
 
 // EventMeta returns activity event meta related to this policy

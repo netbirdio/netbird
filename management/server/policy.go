@@ -46,31 +46,56 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var isUpdate = policy.ID != ""
 	var updateAccountPeers bool
 	var action = activity.PolicyAdded
+	var unchanged bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validatePolicy(ctx, transaction, accountID, policy); err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, isUpdate)
-		if err != nil {
-			return err
-		}
-
-		saveFunc := transaction.CreatePolicy
 		if isUpdate {
-			action = activity.PolicyUpdated
-			saveFunc = transaction.SavePolicy
-		}
+			existingPolicy, getErr := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
+			if getErr != nil {
+				return getErr
+			}
 
-		if err = saveFunc(ctx, policy); err != nil {
-			return err
+			existingPolicy.Normalize()
+			policy.Normalize()
+
+			if policy.Equal(existingPolicy) {
+				unchanged = true
+				return nil
+			}
+
+			action = activity.PolicyUpdated
+
+			updateAccountPeers, err = arePolicyChangesAffectPeersWithExisting(ctx, transaction, policy, existingPolicy)
+			if err != nil {
+				return err
+			}
+
+			if err = transaction.SavePolicy(ctx, policy); err != nil {
+				return err
+			}
+		} else {
+			updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, false)
+			if err != nil {
+				return err
+			}
+
+			if err = transaction.CreatePolicy(ctx, policy); err != nil {
+				return err
+			}
 		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if unchanged {
+		return policy, nil
 	}
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
@@ -146,24 +171,36 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 			return false, err
 		}
 
-		if !policy.Enabled && !existingPolicy.Enabled {
-			return false, nil
-		}
+		return arePolicyChangesAffectPeersWithExisting(ctx, transaction, policy, existingPolicy)
+	}
 
-		for _, rule := range existingPolicy.Rules {
-			if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
-				return true, nil
-			}
-		}
-
-		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
-		if err != nil {
-			return false, err
-		}
-
-		if hasPeers {
+	for _, rule := range policy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
 			return true, nil
 		}
+	}
+
+	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
+}
+
+func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction store.Store, policy *types.Policy, existingPolicy *types.Policy) (bool, error) {
+	if !policy.Enabled && !existingPolicy.Enabled {
+		return false, nil
+	}
+
+	for _, rule := range existingPolicy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+			return true, nil
+		}
+	}
+
+	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
 	}
 
 	for _, rule := range policy.Rules {
