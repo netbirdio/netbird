@@ -13,6 +13,8 @@ type Store interface {
 	Get(ctx context.Context, accountID string, offset, limit int, descending bool) ([]*Event, error)
 	// Close the sink flushing events if necessary
 	Close(ctx context.Context) error
+	// UpdateUserID replaces oldUserID with newUserID across stored events
+	UpdateUserID(ctx context.Context, oldUserID, newUserID string) error
 }
 
 // InMemoryEventStore implements the Store interface storing data in-memory
@@ -53,5 +55,10 @@ func (store *InMemoryEventStore) Close(_ context.Context) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.events = make([]*Event, 0)
+	return nil
+}
+
+// UpdateUserID is a no-op for the in-memory store.
+func (store *InMemoryEventStore) UpdateUserID(_ context.Context, _, _ string) error {
 	return nil
 }

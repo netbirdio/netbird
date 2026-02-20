@@ -1002,6 +1002,61 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	assert.False(t, user.IsBlocked())
 }
 
+func TestGetUserFromUserAuth_UpdatesEmailName(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+
+	err = testStore.SaveAccount(context.Background(), account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	permissionsManager := permissions.NewManager(testStore)
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	// Verify user starts with empty email/name
+	userBefore, err := testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, mockUserID)
+	if err != nil {
+		t.Fatalf("Error getting user: %s", err)
+	}
+	assert.Empty(t, userBefore.Email)
+	assert.Empty(t, userBefore.Name)
+
+	// Call GetUserFromUserAuth with email and name in claims
+	claims := auth.UserAuth{
+		UserId:    mockUserID,
+		AccountId: mockAccountID,
+		Email:     "new@example.com",
+		Name:      "New Name",
+	}
+
+	user, err := am.GetUserFromUserAuth(context.Background(), claims)
+	if err != nil {
+		t.Fatalf("Error when getting user from auth: %s", err)
+	}
+
+	// Assert returned user has updated values
+	assert.Equal(t, "new@example.com", user.Email)
+	assert.Equal(t, "New Name", user.Name)
+
+	// Fetch from store again and assert persistence
+	userAfter, err := testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, mockUserID)
+	if err != nil {
+		t.Fatalf("Error getting user: %s", err)
+	}
+	assert.Equal(t, "new@example.com", userAfter.Email)
+	assert.Equal(t, "New Name", userAfter.Name)
+}
+
 func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
