@@ -94,7 +94,31 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ReverseProxyManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies)
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), nbhttp.APIHandlerDeps{
+			AccountManager:            s.AccountManager(),
+			NetworksManager:           s.NetworksManager(),
+			ResourceManager:           s.ResourcesManager(),
+			RouterManager:             s.RoutesManager(),
+			GroupsManager:             s.GroupsManager(),
+			LocationManager:           s.GeoLocationManager(),
+			AuthManager:               s.AuthManager(),
+			AppMetrics:                s.Metrics(),
+			IntegratedValidator:       s.IntegratedValidator(),
+			ProxyController:           s.ProxyController(),
+			PermissionsManager:        s.PermissionsManager(),
+			PeersManager:              s.PeersManager(),
+			SettingsManager:           s.SettingsManager(),
+			ZonesManager:              s.ZonesManager(),
+			RecordsManager:            s.RecordsManager(),
+			NetworkMapController:      s.NetworkMapController(),
+			IdpManager:                s.IdpManager(),
+			ReverseProxyManager:       s.ReverseProxyManager(),
+			ReverseProxyDomainManager: s.ReverseProxyDomainManager(),
+			ReverseProxyAccessLogs:    s.AccessLogsManager(),
+			ProxyGRPCServer:           s.ReverseProxyGRPCServer(),
+			TrustedHTTPProxies:        s.Config.ReverseProxy.TrustedHTTPProxies,
+			EnableDeploymentMaturity:  s.Config.EnableDeploymentMaturity,
+		})
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}

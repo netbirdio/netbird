@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	goversion "github.com/hashicorp/go-version"
 
@@ -36,22 +37,24 @@ const (
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager  account.Manager
-	settingsManager settings.Manager
+	accountManager           account.Manager
+	settingsManager          settings.Manager
+	enableDeploymentMaturity bool
 }
 
-func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
-	accountsHandler := newHandler(accountManager, settingsManager)
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router, enableDeploymentMaturity bool) {
+	accountsHandler := newHandler(accountManager, settingsManager, enableDeploymentMaturity)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager account.Manager, settingsManager settings.Manager) *handler {
+func newHandler(accountManager account.Manager, settingsManager settings.Manager, enableDeploymentMaturity bool) *handler {
 	return &handler{
-		accountManager:  accountManager,
-		settingsManager: settingsManager,
+		accountManager:           accountManager,
+		settingsManager:          settingsManager,
+		enableDeploymentMaturity: enableDeploymentMaturity,
 	}
 }
 
@@ -135,6 +138,38 @@ func calculateRequiredAddresses(peerCount int) int64 {
 	return requiredAddresses
 }
 
+func (h *handler) computeDeploymentMaturity(ctx context.Context, accountID, userID string, meta *types.AccountMeta) *string {
+	if !h.enableDeploymentMaturity {
+		return nil
+	}
+
+	if meta == nil || meta.CreatedAt.IsZero() {
+		return nil
+	}
+
+	// NOTE: This computation runs per account request.
+	// For large deployments, consider caching or recomputing
+	// only on peer/policy mutation events.
+
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
+	if err != nil {
+		log.Debugf("failed to compute deployment maturity: %v", err)
+		return nil
+	}
+
+	policies, err := h.accountManager.ListPolicies(ctx, accountID, userID)
+	if err != nil {
+		log.Debugf("failed to compute deployment maturity: %v", err)
+		return nil
+	}
+
+	activeDays := int(time.Since(meta.CreatedAt).Hours() / 24)
+
+	stage := types.EvaluateDeploymentMaturity(len(peers), len(policies), activeDays)
+	value := string(stage)
+	return &value
+}
+
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
 func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
@@ -163,7 +198,9 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, settings, meta, onboarding)
+	maturity := h.computeDeploymentMaturity(r.Context(), accountID, userID, meta)
+
+	resp := toAccountResponse(accountID, settings, meta, onboarding, maturity)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
@@ -290,7 +327,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
+	maturity := h.computeDeploymentMaturity(r.Context(), accountID, userID, meta)
+
+	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding, maturity)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -319,7 +358,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding, maturity *string) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -363,7 +402,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		}
 	}
 
-	return &api.Account{
+	account := &api.Account{
 		Id:             accountID,
 		Settings:       apiSettings,
 		CreatedAt:      meta.CreatedAt,
@@ -372,4 +411,10 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DomainCategory: meta.DomainCategory,
 		Onboarding:     apiOnboarding,
 	}
+
+	if maturity != nil {
+		account.DeploymentMaturity = maturity
+	}
+
+	return account
 }
