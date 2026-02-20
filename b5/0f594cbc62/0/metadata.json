@@ -1,0 +1,30 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b50f594cbc62",
+  "session_id": "a9af436e-62ce-41be-bc30-3e14ad5caf90",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-20T16:51:33.406889Z",
+  "branch": "feature/support-activity-store-engine-combined",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/config.yaml.example"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "0d7df6cf-9ba1-4ebd-8468-1b782bcf77d3",
+  "token_usage": {
+    "input_tokens": 82,
+    "cache_creation_tokens": 193718,
+    "cache_read_tokens": 2920722,
+    "output_tokens": 5342,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-20T16:51:33.296983Z",
+    "agent_lines": 56,
+    "human_added": 99860,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99916,
+    "agent_percentage": 0.056047079546819326
+  }
+}

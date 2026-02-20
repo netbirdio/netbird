@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b50f594cbc62",
+  "strategy": "manual-commit",
+  "branch": "feature/support-activity-store-engine-combined",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/config.yaml.example"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b5/0f594cbc62/0/metadata.json",
+      "transcript": "/b5/0f594cbc62/0/full.jsonl",
+      "context": "/b5/0f594cbc62/0/context.md",
+      "content_hash": "/b5/0f594cbc62/0/content_hash.txt",
+      "prompt": "/b5/0f594cbc62/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 82,
+    "cache_creation_tokens": 193718,
+    "cache_read_tokens": 2920722,
+    "output_tokens": 5342,
+    "api_call_count": 52
+  }
+}
