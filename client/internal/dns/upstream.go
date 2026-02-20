@@ -303,7 +303,7 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
-		u.disable(errors.ErrorOrNil())
+		u.disableLocked(errors.ErrorOrNil())
 
 		if u.statusRecorder == nil {
 			return
@@ -351,9 +351,13 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		return fmt.Errorf("upstream check call error")
 	}
 
-	err := backoff.Retry(operation, exponentialBackOff)
+	err := backoff.Retry(operation, backoff.WithContext(exponentialBackOff, u.ctx))
 	if err != nil {
-		log.Warn(err)
+		if errors.Is(err, context.Canceled) {
+			log.Debugf("upstream retry loop exited for upstreams %s", u.upstreamServersString())
+		} else {
+			log.Warnf("upstream retry loop exited for upstreams %s: %v", u.upstreamServersString(), err)
+		}
 		return
 	}
 
@@ -375,6 +379,12 @@ func isTimeout(err error) bool {
 }
 
 func (u *upstreamResolverBase) disable(err error) {
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+	u.disableLocked(err)
+}
+
+func (u *upstreamResolverBase) disableLocked(err error) {
 	if u.disabled {
 		return
 	}
