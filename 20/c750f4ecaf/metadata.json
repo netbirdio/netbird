@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "20c750f4ecaf",
+  "strategy": "manual-commit",
+  "branch": "feature/support-activity-store-engine-combined",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/20/c750f4ecaf/0/metadata.json",
+      "transcript": "/20/c750f4ecaf/0/full.jsonl",
+      "context": "/20/c750f4ecaf/0/context.md",
+      "content_hash": "/20/c750f4ecaf/0/content_hash.txt",
+      "prompt": "/20/c750f4ecaf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 1360,
+    "cache_read_tokens": 435034,
+    "output_tokens": 100,
+    "api_call_count": 5
+  }
+}
