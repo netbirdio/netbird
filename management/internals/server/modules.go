@@ -8,11 +8,11 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
-	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -105,7 +105,7 @@ func (s *BaseServer) AccountManager() account.Manager {
 		}
 
 		s.AfterInit(func(s *BaseServer) {
-			accountManager.SetServiceManager(s.ReverseProxyManager())
+			accountManager.SetServiceManager(s.ServiceManager())
 		})
 
 		return accountManager
@@ -164,7 +164,7 @@ func (s *BaseServer) GroupsManager() groups.Manager {
 
 func (s *BaseServer) ResourcesManager() resources.Manager {
 	return Create(s, func() resources.Manager {
-		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ReverseProxyManager())
+		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ServiceManager())
 	})
 }
 
@@ -192,8 +192,8 @@ func (s *BaseServer) RecordsManager() records.Manager {
 	})
 }
 
-func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
-	return Create(s, func() reverseproxy.Manager {
+func (s *BaseServer) ServiceManager() service.Manager {
+	return Create(s, func() service.Manager {
 		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ReverseProxyGRPCServer(), s.ReverseProxyDomainManager())
 	})
 }

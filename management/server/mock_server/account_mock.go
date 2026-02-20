@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -148,7 +148,7 @@ type MockAccountManager struct {
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
 }
 
-func (am *MockAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
 	// Mock implementation - no-op
 }
 

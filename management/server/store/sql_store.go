@@ -28,10 +28,10 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -132,7 +132,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
-		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.Service{}, &reverseproxy.Target{}, &domain.Domain{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
 	)
 	if err != nil {
@@ -2064,7 +2064,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	return checks, nil
 }
 
-func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
 	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
 		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
 		pass_host_header, rewrite_redirects, session_private_key, session_public_key
@@ -2079,8 +2079,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 		return nil, err
 	}
 
-	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*reverseproxy.Service, error) {
-		var s reverseproxy.Service
+	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*rpservice.Service, error) {
+		var s rpservice.Service
 		var auth []byte
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
@@ -2110,7 +2110,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 			}
 		}
 
-		s.Meta = reverseproxy.ServiceMeta{}
+		s.Meta = rpservice.ServiceMeta{}
 		if createdAt.Valid {
 			s.Meta.CreatedAt = createdAt.Time
 		}
@@ -2130,7 +2130,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 			s.SessionPublicKey = sessionPublicKey.String
 		}
 
-		s.Targets = []*reverseproxy.Target{}
+		s.Targets = []*rpservice.Target{}
 		return &s, nil
 	})
 	if err != nil {
@@ -2142,7 +2142,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 	}
 
 	serviceIDs := make([]string, len(services))
-	serviceMap := make(map[string]*reverseproxy.Service)
+	serviceMap := make(map[string]*rpservice.Service)
 	for i, s := range services {
 		serviceIDs[i] = s.ID
 		serviceMap[s.ID] = s
@@ -2153,8 +2153,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 		return nil, err
 	}
 
-	targets, err := pgx.CollectRows(targetRows, func(row pgx.CollectableRow) (*reverseproxy.Target, error) {
-		var t reverseproxy.Target
+	targets, err := pgx.CollectRows(targetRows, func(row pgx.CollectableRow) (*rpservice.Target, error) {
+		var t rpservice.Target
 		var path sql.NullString
 		err := row.Scan(
 			&t.ID,
@@ -4826,7 +4826,7 @@ func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStren
 	return peerID, nil
 }
 
-func (s *SqlStore) CreateService(ctx context.Context, service *reverseproxy.Service) error {
+func (s *SqlStore) CreateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
@@ -4840,16 +4840,19 @@ func (s *SqlStore) CreateService(ctx context.Context, service *reverseproxy.Serv
 	return nil
 }
 
-func (s *SqlStore) UpdateService(ctx context.Context, service *reverseproxy.Service) error {
+func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service) error {
 	serviceCopy := service.Copy()
 	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt service data: %w", err)
 	}
 
+	// Create target type instance outside transaction to avoid variable shadowing
+	targetType := &rpservice.Target{}
+
 	// Use a transaction to ensure atomic updates of the service and its targets
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete existing targets
-		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(&reverseproxy.Target{}).Error; err != nil {
+		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(targetType).Error; err != nil {
 			return err
 		}
 
@@ -4870,7 +4873,7 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *reverseproxy.Serv
 }
 
 func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
-	result := s.db.Delete(&reverseproxy.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+	result := s.db.Delete(&rpservice.Service{}, accountAndIDQueryCondition, accountID, serviceID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete service from store")
@@ -4883,13 +4886,13 @@ func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID strin
 	return nil
 }
 
-func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error) {
+func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var service *reverseproxy.Service
+	var service *rpservice.Service
 	result := tx.Take(&service, accountAndIDQueryCondition, accountID, serviceID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -4907,8 +4910,8 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	return service, nil
 }
 
-func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
-	var service *reverseproxy.Service
+func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+	var service *rpservice.Service
 	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -4926,13 +4929,13 @@ func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain str
 	return service, nil
 }
 
-func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error) {
+func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var serviceList []*reverseproxy.Service
+	var serviceList []*rpservice.Service
 	result := tx.Find(&serviceList)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
@@ -4948,13 +4951,13 @@ func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength
 	return serviceList, nil
 }
 
-func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var serviceList []*reverseproxy.Service
+	var serviceList []*rpservice.Service
 	result := tx.Find(&serviceList, accountIDCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
@@ -5182,13 +5185,13 @@ func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.Acces
 	return query
 }
 
-func (s *SqlStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error) {
+func (s *SqlStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var target *reverseproxy.Target
+	var target *rpservice.Target
 	result := tx.Take(&target, "account_id = ? AND target_id = ?", accountID, targetID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {

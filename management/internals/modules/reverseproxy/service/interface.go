@@ -1,6 +1,6 @@
-package reverseproxy
+package service
 
-//go:generate go run github.com/golang/mock/mockgen -package reverseproxy -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go run github.com/golang/mock/mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type Manager interface {
 	UpdateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
 	DeleteService(ctx context.Context, accountID, userID, serviceID string) error
 	SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error
-	SetStatus(ctx context.Context, accountID, serviceID string, status ProxyStatus) error
+	SetStatus(ctx context.Context, accountID, serviceID string, status Status) error
 	ReloadAllServicesForAccount(ctx context.Context, accountID string) error
 	ReloadService(ctx context.Context, accountID, serviceID string) error
 	GetGlobalServices(ctx context.Context) ([]*Service, error)

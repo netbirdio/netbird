@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/shared/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -140,5 +140,5 @@ type Manager interface {
 	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
 	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
 	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
-	SetServiceManager(serviceManager reverseproxy.Manager)
+	SetServiceManager(serviceManager service.Manager)
 }

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -83,9 +83,9 @@ type DefaultAccountManager struct {
 
 	requestBuffer *AccountRequestBuffer
 
-	proxyController     port_forwarding.Controller
-	settingsManager     settings.Manager
-	reverseProxyManager reverseproxy.Manager
+	proxyController port_forwarding.Controller
+	settingsManager settings.Manager
+	serviceManager  service.Manager
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -115,8 +115,8 @@ type DefaultAccountManager struct {
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
 
-func (am *DefaultAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
-	am.reverseProxyManager = serviceManager
+func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
+	am.serviceManager = serviceManager
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -394,7 +394,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
 	if reloadReverseProxy {
-		if err = am.reverseProxyManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+		if err = am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
 			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
 		}
 	}

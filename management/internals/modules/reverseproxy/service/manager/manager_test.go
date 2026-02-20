@@ -1,4 +1,4 @@
-package service
+package manager
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -24,9 +24,9 @@ func TestInitializeServiceForCreate(t *testing.T) {
 			clusterDeriver: nil,
 		}
 
-		service := &reverseproxy.Service{
+		service := &rpservice.Service{
 			Domain: "example.com",
-			Auth:   reverseproxy.AuthConfig{},
+			Auth:   rpservice.AuthConfig{},
 		}
 
 		err := mgr.initializeServiceForCreate(ctx, accountID, service)
@@ -44,8 +44,8 @@ func TestInitializeServiceForCreate(t *testing.T) {
 			clusterDeriver: nil,
 		}
 
-		service1 := &reverseproxy.Service{Domain: "test1.com", Auth: reverseproxy.AuthConfig{}}
-		service2 := &reverseproxy.Service{Domain: "test2.com", Auth: reverseproxy.AuthConfig{}}
+		service1 := &rpservice.Service{Domain: "test1.com", Auth: rpservice.AuthConfig{}}
+		service2 := &rpservice.Service{Domain: "test2.com", Auth: rpservice.AuthConfig{}}
 
 		err1 := mgr.initializeServiceForCreate(ctx, accountID, service1)
 		err2 := mgr.initializeServiceForCreate(ctx, accountID, service2)
@@ -87,7 +87,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
 					GetServiceByDomain(ctx, accountID, "exists.com").
-					Return(&reverseproxy.Service{ID: "existing-id", Domain: "exists.com"}, nil)
+					Return(&rpservice.Service{ID: "existing-id", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
 			errorType:     status.AlreadyExists,
@@ -99,7 +99,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
 					GetServiceByDomain(ctx, accountID, "exists.com").
-					Return(&reverseproxy.Service{ID: "service-123", Domain: "exists.com"}, nil)
+					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: false,
 		},
@@ -110,7 +110,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
 					GetServiceByDomain(ctx, accountID, "exists.com").
-					Return(&reverseproxy.Service{ID: "service-123", Domain: "exists.com"}, nil)
+					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
 			errorType:     status.AlreadyExists,
@@ -179,7 +179,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
 			GetServiceByDomain(ctx, accountID, "test.com").
-			Return(&reverseproxy.Service{ID: "some-id", Domain: "test.com"}, nil)
+			Return(&rpservice.Service{ID: "some-id", Domain: "test.com"}, nil)
 
 		mgr := &Manager{}
 		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "test.com", "")
@@ -215,10 +215,10 @@ func TestPersistNewService(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockStore := store.NewMockStore(ctrl)
-		service := &reverseproxy.Service{
+		service := &rpservice.Service{
 			ID:      "service-123",
 			Domain:  "new.com",
-			Targets: []*reverseproxy.Target{},
+			Targets: []*rpservice.Target{},
 		}
 
 		// Mock ExecuteInTransaction to execute the function immediately
@@ -248,10 +248,10 @@ func TestPersistNewService(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockStore := store.NewMockStore(ctrl)
-		service := &reverseproxy.Service{
+		service := &rpservice.Service{
 			ID:      "service-123",
 			Domain:  "existing.com",
-			Targets: []*reverseproxy.Target{},
+			Targets: []*rpservice.Target{},
 		}
 
 		mockStore.EXPECT().
@@ -260,7 +260,7 @@ func TestPersistNewService(t *testing.T) {
 				txMock := store.NewMockStore(ctrl)
 				txMock.EXPECT().
 					GetServiceByDomain(ctx, accountID, "existing.com").
-					Return(&reverseproxy.Service{ID: "other-id", Domain: "existing.com"}, nil)
+					Return(&rpservice.Service{ID: "other-id", Domain: "existing.com"}, nil)
 
 				return fn(txMock)
 			})
@@ -278,18 +278,18 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 	mgr := &Manager{}
 
 	t.Run("preserve password when empty", func(t *testing.T) {
-		existing := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PasswordAuth: &reverseproxy.PasswordAuthConfig{
+		existing := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PasswordAuth: &rpservice.PasswordAuthConfig{
 					Enabled:  true,
 					Password: "hashed-password",
 				},
 			},
 		}
 
-		updated := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PasswordAuth: &reverseproxy.PasswordAuthConfig{
+		updated := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PasswordAuth: &rpservice.PasswordAuthConfig{
 					Enabled:  true,
 					Password: "",
 				},
@@ -302,18 +302,18 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 	})
 
 	t.Run("preserve pin when empty", func(t *testing.T) {
-		existing := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PinAuth: &reverseproxy.PINAuthConfig{
+		existing := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PinAuth: &rpservice.PINAuthConfig{
 					Enabled: true,
 					Pin:     "hashed-pin",
 				},
 			},
 		}
 
-		updated := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PinAuth: &reverseproxy.PINAuthConfig{
+		updated := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PinAuth: &rpservice.PINAuthConfig{
 					Enabled: true,
 					Pin:     "",
 				},
@@ -326,18 +326,18 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 	})
 
 	t.Run("do not preserve when password is provided", func(t *testing.T) {
-		existing := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PasswordAuth: &reverseproxy.PasswordAuthConfig{
+		existing := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PasswordAuth: &rpservice.PasswordAuthConfig{
 					Enabled:  true,
 					Password: "old-password",
 				},
 			},
 		}
 
-		updated := &reverseproxy.Service{
-			Auth: reverseproxy.AuthConfig{
-				PasswordAuth: &reverseproxy.PasswordAuthConfig{
+		updated := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				PasswordAuth: &rpservice.PasswordAuthConfig{
 					Enabled:  true,
 					Password: "new-password",
 				},
@@ -354,8 +354,8 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 func TestPreserveServiceMetadata(t *testing.T) {
 	mgr := &Manager{}
 
-	existing := &reverseproxy.Service{
-		Meta: reverseproxy.ServiceMeta{
+	existing := &rpservice.Service{
+		Meta: rpservice.ServiceMeta{
 			CertificateIssuedAt: time.Now(),
 			Status:              "active",
 		},
@@ -363,7 +363,7 @@ func TestPreserveServiceMetadata(t *testing.T) {
 		SessionPublicKey:  "public-key",
 	}
 
-	updated := &reverseproxy.Service{
+	updated := &rpservice.Service{
 		Domain: "updated.com",
 	}
 

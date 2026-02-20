@@ -12,10 +12,10 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	dns "github.com/netbirdio/netbird/dns"
-	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	accesslogs "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	domain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	zones "github.com/netbirdio/netbird/management/internals/modules/zones"
 	records "github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	types "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -308,7 +308,7 @@ func (mr *MockStoreMockRecorder) CreatePolicy(ctx, policy interface{}) *gomock.C
 }
 
 // CreateService mocks base method.
-func (m *MockStore) CreateService(ctx context.Context, service *reverseproxy.Service) error {
+func (m *MockStore) CreateService(ctx context.Context, service *service.Service) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateService", ctx, service)
 	ret0, _ := ret[0].(error)
@@ -1110,10 +1110,10 @@ func (mr *MockStoreMockRecorder) GetAccountRoutes(ctx, lockStrength, accountID i
 }
 
 // GetAccountServices mocks base method.
-func (m *MockStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+func (m *MockStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*service.Service, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAccountServices", ctx, lockStrength, accountID)
-	ret0, _ := ret[0].([]*reverseproxy.Service)
+	ret0, _ := ret[0].([]*service.Service)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1843,10 +1843,10 @@ func (mr *MockStoreMockRecorder) GetRouteByID(ctx, lockStrength, accountID, rout
 }
 
 // GetServiceByDomain mocks base method.
-func (m *MockStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
+func (m *MockStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*service.Service, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetServiceByDomain", ctx, accountID, domain)
-	ret0, _ := ret[0].(*reverseproxy.Service)
+	ret0, _ := ret[0].(*service.Service)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1858,10 +1858,10 @@ func (mr *MockStoreMockRecorder) GetServiceByDomain(ctx, accountID, domain inter
 }
 
 // GetServiceByID mocks base method.
-func (m *MockStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error) {
+func (m *MockStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*service.Service, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetServiceByID", ctx, lockStrength, accountID, serviceID)
-	ret0, _ := ret[0].(*reverseproxy.Service)
+	ret0, _ := ret[0].(*service.Service)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1873,10 +1873,10 @@ func (mr *MockStoreMockRecorder) GetServiceByID(ctx, lockStrength, accountID, se
 }
 
 // GetServiceTargetByTargetID mocks base method.
-func (m *MockStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID, targetID string) (*reverseproxy.Target, error) {
+func (m *MockStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID, targetID string) (*service.Target, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetServiceTargetByTargetID", ctx, lockStrength, accountID, targetID)
-	ret0, _ := ret[0].(*reverseproxy.Target)
+	ret0, _ := ret[0].(*service.Target)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1888,10 +1888,10 @@ func (mr *MockStoreMockRecorder) GetServiceTargetByTargetID(ctx, lockStrength, a
 }
 
 // GetServices mocks base method.
-func (m *MockStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error) {
+func (m *MockStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*service.Service, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetServices", ctx, lockStrength)
-	ret0, _ := ret[0].([]*reverseproxy.Service)
+	ret0, _ := ret[0].([]*service.Service)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2790,7 +2790,7 @@ func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, proxyID interface{}) 
 }
 
 // UpdateService mocks base method.
-func (m *MockStore) UpdateService(ctx context.Context, service *reverseproxy.Service) error {
+func (m *MockStore) UpdateService(ctx context.Context, service *service.Service) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateService", ctx, service)
 	ret0, _ := ret[0].(error)

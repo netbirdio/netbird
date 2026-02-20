@@ -25,10 +25,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -253,13 +253,13 @@ type Store interface {
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
-	CreateService(ctx context.Context, service *reverseproxy.Service) error
-	UpdateService(ctx context.Context, service *reverseproxy.Service) error
+	CreateService(ctx context.Context, service *rpservice.Service) error
+	UpdateService(ctx context.Context, service *rpservice.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
-	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
-	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
-	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
-	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
+	GetServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
@@ -271,7 +271,7 @@ type Store interface {
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
-	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 
 	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
 	UpdateProxyHeartbeat(ctx context.Context, proxyID string) error

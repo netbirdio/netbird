@@ -1,4 +1,4 @@
-package service
+package manager
 
 import (
 	"encoding/json"
@@ -6,10 +6,10 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -17,11 +17,11 @@ import (
 )
 
 type handler struct {
-	manager reverseproxy.Manager
+	manager rpservice.Manager
 }
 
 // RegisterEndpoints registers all service HTTP endpoints.
-func RegisterEndpoints(manager reverseproxy.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
+func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
@@ -72,7 +72,7 @@ func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := new(reverseproxy.Service)
+	service := new(rpservice.Service)
 	service.FromAPIRequest(&req, userAuth.AccountId)
 
 	if err = service.Validate(); err != nil {
@@ -130,7 +130,7 @@ func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := new(reverseproxy.Service)
+	service := new(rpservice.Service)
 	service.ID = serviceID
 	service.FromAPIRequest(&req, userAuth.AccountId)
 

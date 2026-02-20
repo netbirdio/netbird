@@ -1,4 +1,4 @@
-package reverseproxy
+package service
 
 import (
 	"errors"
@@ -26,15 +26,15 @@ const (
 	Delete Operation = "delete"
 )
 
-type ProxyStatus string
+type Status string
 
 const (
-	StatusPending            ProxyStatus = "pending"
-	StatusActive             ProxyStatus = "active"
-	StatusTunnelNotCreated   ProxyStatus = "tunnel_not_created"
-	StatusCertificatePending ProxyStatus = "certificate_pending"
-	StatusCertificateFailed  ProxyStatus = "certificate_failed"
-	StatusError              ProxyStatus = "error"
+	StatusPending            Status = "pending"
+	StatusActive             Status = "active"
+	StatusTunnelNotCreated   Status = "tunnel_not_created"
+	StatusCertificatePending Status = "certificate_pending"
+	StatusCertificateFailed  Status = "certificate_failed"
+	StatusError              Status = "error"
 
 	TargetTypePeer   = "peer"
 	TargetTypeHost   = "host"
