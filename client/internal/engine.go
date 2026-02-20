@@ -217,6 +217,10 @@ type Engine struct {
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
 
+	// readyChan is closed when the first sync message is received from management
+	readyChan     chan struct{}
+	readyChanOnce sync.Once
+
 	// shutdownWg tracks all long-running goroutines to ensure clean shutdown
 	shutdownWg sync.WaitGroup
 
@@ -273,6 +277,10 @@ func NewEngine(
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
+}
+
+func (e *Engine) SetReadyChan(ch chan struct{}) {
+	e.readyChan = ch
 }
 
 func (e *Engine) Stop() error {
@@ -834,6 +842,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer func() {
 		log.Infof("sync finished in %s", time.Since(started))
 	}()
+
+	e.readyChanOnce.Do(func() {
+		if e.readyChan != nil {
+			close(e.readyChan)
+		}
+	})
+
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -880,9 +895,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	uCheckTime := time.Now()
 	if err := e.updateChecksIfNew(update.Checks); err != nil {
 		return err
 	}
+	log.Infof("update check finished in %s", time.Since(uCheckTime))
 
 	nm := update.GetNetworkMap()
 	if nm == nil {
@@ -925,7 +942,9 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			return fmt.Errorf("update relay token: %w", err)
 		}
 
-		e.relayManager.UpdateServerURLs(update.Urls)
+		if !relayClient.IsDisableRelay() {
+			e.relayManager.UpdateServerURLs(update.Urls)
+		}
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
