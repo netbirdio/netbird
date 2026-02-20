@@ -42,11 +42,6 @@ func (s *Server) detectSuPtySupport(context.Context) bool {
 	return false
 }
 
-// detectUtilLinuxLogin always returns false on JS/WASM
-func (s *Server) detectUtilLinuxLogin(context.Context) bool {
-	return false
-}
-
 // executeCommandWithPty is not supported on JS/WASM
 func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	logger.Errorf("PTY command execution not supported on JS/WASM")
