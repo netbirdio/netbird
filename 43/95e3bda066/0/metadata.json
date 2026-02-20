@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "4395e3bda066",
+  "session_id": "a9af436e-62ce-41be-bc30-3e14ad5caf90",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-20T17:52:44.309641Z",
+  "branch": "feature/metrics-embedded-idp",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "78f0312e-124f-4091-8975-1e1395e54efc",
+  "checkpoint_transcript_start": 410,
+  "transcript_lines_at_start": 410,
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 25545,
+    "cache_read_tokens": 3585930,
+    "output_tokens": 4571,
+    "api_call_count": 35
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-20T17:52:44.132176Z",
+    "agent_lines": 50,
+    "human_added": 99860,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99910,
+    "agent_percentage": 0.050045040536482836
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "4395e3bda066",
+  "strategy": "manual-commit",
+  "branch": "feature/metrics-embedded-idp",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/43/95e3bda066/0/metadata.json",
+      "transcript": "/43/95e3bda066/0/full.jsonl",
+      "context": "/43/95e3bda066/0/context.md",
+      "content_hash": "/43/95e3bda066/0/content_hash.txt",
+      "prompt": "/43/95e3bda066/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 25545,
+    "cache_read_tokens": 3585930,
+    "output_tokens": 4571,
+    "api_call_count": 35
+  }
+}
