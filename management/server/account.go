@@ -714,6 +714,11 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
 	}
 
+	err = am.reverseProxyManager.DeleteAllServices(ctx, accountID, userID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to delete service %s: %v", accountID, err)
+	}
+
 	for _, otherUser := range account.Users {
 		if otherUser.Id == userID {
 			continue

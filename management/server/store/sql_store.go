@@ -4906,6 +4906,28 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	return service, nil
 }
 
+func (s *SqlStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
+}
+
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
 	var service *reverseproxy.Service
 	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
