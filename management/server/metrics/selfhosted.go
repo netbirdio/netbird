@@ -373,6 +373,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["rosenpass_enabled"] = rosenpassEnabled
 	metricsProperties["local_users_count"] = localUsers
 	metricsProperties["idp_users_count"] = idpUsers
+	metricsProperties["embedded_idp_count"] = len(embeddedIdpTypes)
 
 	for idpType, count := range embeddedIdpTypes {
 		metricsProperties["embedded_idp_users_"+idpType] = count

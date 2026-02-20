@@ -344,6 +344,9 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["embedded_idp_users_zitadel"] != 1 {
 		t.Errorf("expected 1 embedded_idp_users_zitadel, got %v", properties["embedded_idp_users_zitadel"])
 	}
+	if properties["embedded_idp_count"] != 1 {
+		t.Errorf("expected 1 embedded_idp_count, got %v", properties["embedded_idp_count"])
+	}
 }
 
 func TestExtractIdpType(t *testing.T) {
