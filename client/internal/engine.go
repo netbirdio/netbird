@@ -128,6 +128,7 @@ type EngineConfig struct {
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
+	DisableDefaultRoute bool
 	DisableDNS          bool
 	DisableFirewall     bool
 	BlockLANAccess      bool
@@ -481,6 +482,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
+		DisableDefaultRoute: e.config.DisableDefaultRoute,
 	})
 	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)

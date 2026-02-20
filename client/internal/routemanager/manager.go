@@ -74,6 +74,7 @@ type ManagerConfig struct {
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
+	DisableDefaultRoute bool
 }
 
 // DefaultManager is the default instance of a route manager
@@ -103,6 +104,7 @@ type DefaultManager struct {
 	useNewDNSRoute      bool
 	disableClientRoutes bool
 	disableServerRoutes bool
+	disableDefaultRoute bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
@@ -133,6 +135,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		peerStore:           config.PeerStore,
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
+		disableDefaultRoute: config.DisableDefaultRoute,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
 	}
 	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
@@ -184,9 +187,16 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 
 	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			if m.disableDefaultRoute && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
+				log.Infof("Default route %s is disabled by user, skipping system route", prefix)
+				return struct{}{}, refcounter.ErrIgnore
+			}
 			return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
+			if m.disableDefaultRoute && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
+				return nil
+			}
 			return m.sysOps.RemoveVPNRoute(prefix, toInterface())
 		},
 	)

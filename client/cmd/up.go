@@ -414,6 +414,10 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.DisableServerRoutes = &disableServerRoutes
 	}
 
+	if cmd.Flag(disableDefaultRouteFlag).Changed {
+		req.DisableDefaultRoute = &disableDefaultRoute
+	}
+
 	if cmd.Flag(disableDNSFlag).Changed {
 		req.DisableDns = &disableDNS
 	}
@@ -532,6 +536,9 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		ic.DisableServerRoutes = &disableServerRoutes
 	}
+	if cmd.Flag(disableDefaultRouteFlag).Changed {
+		ic.DisableDefaultRoute = &disableDefaultRoute
+	}
 	if cmd.Flag(disableDNSFlag).Changed {
 		ic.DisableDNS = &disableDNS
 	}
@@ -645,6 +652,9 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	}
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		loginRequest.DisableServerRoutes = &disableServerRoutes
+	}
+	if cmd.Flag(disableDefaultRouteFlag).Changed {
+		loginRequest.DisableDefaultRoute = &disableDefaultRoute
 	}
 	if cmd.Flag(disableDNSFlag).Changed {
 		loginRequest.DisableDns = &disableDNS
