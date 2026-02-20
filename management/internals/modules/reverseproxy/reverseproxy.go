@@ -139,6 +139,7 @@ type Service struct {
 	SessionPrivateKey string      `gorm:"column:session_private_key"`
 	SessionPublicKey  string      `gorm:"column:session_public_key"`
 	Source            string      `gorm:"default:'permanent'"`
+	SourcePeer        string
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
@@ -316,6 +317,52 @@ func isDefaultPort(scheme string, port int) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
+// FromExposeRequest builds a Service from a peer expose gRPC request.
+func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       int(req.Port),
+				Protocol:   "http",
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if req.Domain != "" {
+		service.Domain = serviceName + "." + req.Domain
+	}
+
+	if req.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     req.Pin,
+		}
+	}
+
+	if req.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: req.Password,
+		}
+	}
+
+	if len(req.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: req.UserGroups,
+		}
+	}
+
+	return service
+}
+
 func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {
 	s.Name = req.Name
 	s.Domain = req.Domain
@@ -435,6 +482,7 @@ func (s *Service) Copy() *Service {
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
 		Source:            s.Source,
+		SourcePeer:        s.SourcePeer,
 	}
 }
 

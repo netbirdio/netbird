@@ -20,6 +20,8 @@ type Manager interface {
 	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
 	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
+	ValidateExposePermission(ctx context.Context, accountID, peerID string) error
 	CreateServiceFromPeer(ctx context.Context, accountID, peerID string, service *Service) (*Service, error)
 	DeleteServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
+	ExpireServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
 }

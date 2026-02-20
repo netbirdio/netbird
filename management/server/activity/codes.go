@@ -212,6 +212,8 @@ const (
 	PeerServiceExposed Activity = 111
 	// PeerServiceUnexposed indicates that a peer-exposed service was removed
 	PeerServiceUnexposed Activity = 112
+	// PeerServiceExposeExpired indicates that a peer-exposed service was removed due to TTL expiration
+	PeerServiceExposeExpired Activity = 113
 
 	AccountDeleted Activity = 99999
 )
@@ -351,8 +353,9 @@ var activityMap = map[Activity]Code{
 	ServiceUpdated: {"Service updated", "service.update"},
 	ServiceDeleted: {"Service deleted", "service.delete"},
 
-	PeerServiceExposed:   {"Peer exposed service", "service.peer.expose"},
-	PeerServiceUnexposed: {"Peer unexposed service", "service.peer.unexpose"},
+	PeerServiceExposed:       {"Peer exposed service", "service.peer.expose"},
+	PeerServiceUnexposed:     {"Peer unexposed service", "service.peer.unexpose"},
+	PeerServiceExposeExpired: {"Peer exposed service expired", "service.peer.expose.expire"},
 }
 
 // StringCode returns a string code of the activity
