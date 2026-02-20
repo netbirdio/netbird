@@ -1,0 +1,5 @@
+# netbird runtime directories
+d /var/log/netbird 0755 root root -
+d /var/run/netbird 0755 root root -
+d /var/lib/netbird 0755 root root -
+d /var/cache/netbird 0755 root root -

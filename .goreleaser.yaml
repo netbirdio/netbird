@@ -178,6 +178,11 @@ nfpms:
     formats:
       - deb
 
+    contents:
+      - src: release_files/systemd/netbird.tmpfiles
+        dst: /usr/share/netbird/netbird.tmpfiles
+        type: config
+
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -191,6 +196,11 @@ nfpms:
       - netbird
     formats:
       - rpm
+
+    contents:
+      - src: release_files/systemd/netbird.tmpfiles
+        dst: /usr/share/netbird/netbird.tmpfiles
+        type: config
 
     scripts:
       postinstall: "release_files/post_install.sh"
