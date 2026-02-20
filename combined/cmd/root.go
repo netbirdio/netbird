@@ -142,10 +142,11 @@ func initializeConfig() error {
 	}
 
 	if engine := config.Server.ActivityStore.Engine; engine != "" {
-		if strings.ToLower(engine) == "postgres" && config.Server.ActivityStore.DSN == "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
 			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
 		}
-		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engine)
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
 		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
 			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
 		}
@@ -678,8 +679,11 @@ func logEnvVars() {
 		if strings.HasPrefix(env, "NB_") {
 			key, _, _ := strings.Cut(env, "=")
 			value := os.Getenv(key)
-			if strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") {
+			keyLower := strings.ToLower(key)
+			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") {
 				value = maskSecret(value)
+			} else if strings.Contains(keyLower, "dsn") {
+				value = maskDSNPassword(value)
 			}
 			log.Infof("  %s=%s", key, value)
 			found = true
