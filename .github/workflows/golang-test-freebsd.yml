@@ -15,7 +15,7 @@ jobs:
     name: "Client / Unit"
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Test in FreeBSD
         id: test
         uses: vmactions/freebsd-vm@v1
