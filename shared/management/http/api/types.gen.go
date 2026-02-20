@@ -16,6 +16,14 @@ const (
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
+// Defines values for CreateIntegrationRequestPlatform.
+const (
+	CreateIntegrationRequestPlatformDatadog     CreateIntegrationRequestPlatform = "datadog"
+	CreateIntegrationRequestPlatformFirehose    CreateIntegrationRequestPlatform = "firehose"
+	CreateIntegrationRequestPlatformGenericHttp CreateIntegrationRequestPlatform = "generic_http"
+	CreateIntegrationRequestPlatformS3          CreateIntegrationRequestPlatform = "s3"
+)
+
 // Defines values for DNSRecordType.
 const (
 	DNSRecordTypeA     DNSRecordType = "A"
@@ -106,6 +114,9 @@ const (
 	EventActivityCodeRuleAdd                                       EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                                    EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                                    EventActivityCode = "rule.update"
+	EventActivityCodeServiceCreate                                 EventActivityCode = "service.create"
+	EventActivityCodeServiceDelete                                 EventActivityCode = "service.delete"
+	EventActivityCodeServiceUpdate                                 EventActivityCode = "service.update"
 	EventActivityCodeServiceUserCreate                             EventActivityCode = "service.user.create"
 	EventActivityCodeServiceUserDelete                             EventActivityCode = "service.user.delete"
 	EventActivityCodeSetupkeyAdd                                   EventActivityCode = "setupkey.add"
@@ -188,6 +199,20 @@ const (
 	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
 )
 
+// Defines values for IntegrationResponsePlatform.
+const (
+	IntegrationResponsePlatformDatadog     IntegrationResponsePlatform = "datadog"
+	IntegrationResponsePlatformFirehose    IntegrationResponsePlatform = "firehose"
+	IntegrationResponsePlatformGenericHttp IntegrationResponsePlatform = "generic_http"
+	IntegrationResponsePlatformS3          IntegrationResponsePlatform = "s3"
+)
+
+// Defines values for InvoiceResponseType.
+const (
+	InvoiceResponseTypeAccount InvoiceResponseType = "account"
+	InvoiceResponseTypeTenants InvoiceResponseType = "tenants"
+)
+
 // Defines values for JobResponseStatus.
 const (
 	JobResponseStatusFailed    JobResponseStatus = "failed"
@@ -266,6 +291,49 @@ const (
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
+// Defines values for ReverseProxyDomainType.
+const (
+	ReverseProxyDomainTypeCustom ReverseProxyDomainType = "custom"
+	ReverseProxyDomainTypeFree   ReverseProxyDomainType = "free"
+)
+
+// Defines values for SentinelOneMatchAttributesNetworkStatus.
+const (
+	SentinelOneMatchAttributesNetworkStatusConnected    SentinelOneMatchAttributesNetworkStatus = "connected"
+	SentinelOneMatchAttributesNetworkStatusDisconnected SentinelOneMatchAttributesNetworkStatus = "disconnected"
+	SentinelOneMatchAttributesNetworkStatusQuarantined  SentinelOneMatchAttributesNetworkStatus = "quarantined"
+)
+
+// Defines values for ServiceMetaStatus.
+const (
+	ServiceMetaStatusActive             ServiceMetaStatus = "active"
+	ServiceMetaStatusCertificateFailed  ServiceMetaStatus = "certificate_failed"
+	ServiceMetaStatusCertificatePending ServiceMetaStatus = "certificate_pending"
+	ServiceMetaStatusError              ServiceMetaStatus = "error"
+	ServiceMetaStatusPending            ServiceMetaStatus = "pending"
+	ServiceMetaStatusTunnelNotCreated   ServiceMetaStatus = "tunnel_not_created"
+)
+
+// Defines values for ServiceTargetProtocol.
+const (
+	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
+	ServiceTargetProtocolHttps ServiceTargetProtocol = "https"
+)
+
+// Defines values for ServiceTargetTargetType.
+const (
+	ServiceTargetTargetTypePeer     ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
+)
+
+// Defines values for TenantResponseStatus.
+const (
+	TenantResponseStatusActive   TenantResponseStatus = "active"
+	TenantResponseStatusExisting TenantResponseStatus = "existing"
+	TenantResponseStatusInvited  TenantResponseStatus = "invited"
+	TenantResponseStatusPending  TenantResponseStatus = "pending"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -297,6 +365,29 @@ const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
 	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
 	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
+)
+
+// Defines values for GetApiEventsProxyParamsMethod.
+const (
+	GetApiEventsProxyParamsMethodDELETE  GetApiEventsProxyParamsMethod = "DELETE"
+	GetApiEventsProxyParamsMethodGET     GetApiEventsProxyParamsMethod = "GET"
+	GetApiEventsProxyParamsMethodHEAD    GetApiEventsProxyParamsMethod = "HEAD"
+	GetApiEventsProxyParamsMethodOPTIONS GetApiEventsProxyParamsMethod = "OPTIONS"
+	GetApiEventsProxyParamsMethodPATCH   GetApiEventsProxyParamsMethod = "PATCH"
+	GetApiEventsProxyParamsMethodPOST    GetApiEventsProxyParamsMethod = "POST"
+	GetApiEventsProxyParamsMethodPUT     GetApiEventsProxyParamsMethod = "PUT"
+)
+
+// Defines values for GetApiEventsProxyParamsStatus.
+const (
+	GetApiEventsProxyParamsStatusFailed  GetApiEventsProxyParamsStatus = "failed"
+	GetApiEventsProxyParamsStatusSuccess GetApiEventsProxyParamsStatus = "success"
+)
+
+// Defines values for PutApiIntegrationsMspTenantsIdInviteJSONBodyValue.
+const (
+	PutApiIntegrationsMspTenantsIdInviteJSONBodyValueAccept  PutApiIntegrationsMspTenantsIdInviteJSONBodyValue = "accept"
+	PutApiIntegrationsMspTenantsIdInviteJSONBodyValueDecline PutApiIntegrationsMspTenantsIdInviteJSONBodyValue = "decline"
 )
 
 // AccessiblePeer defines model for AccessiblePeer.
@@ -449,6 +540,15 @@ type AvailablePorts struct {
 	Udp int `json:"udp"`
 }
 
+// BearerAuthConfig defines model for BearerAuthConfig.
+type BearerAuthConfig struct {
+	// DistributionGroups List of group IDs that can use bearer auth
+	DistributionGroups *[]string `json:"distribution_groups,omitempty"`
+
+	// Enabled Whether bearer auth is enabled
+	Enabled bool `json:"enabled"`
+}
+
 // BundleParameters These parameters control what gets included in the bundle and how it is processed.
 type BundleParameters struct {
 	// Anonymize Whether sensitive data should be anonymized in the bundle.
@@ -488,6 +588,21 @@ type BundleWorkloadResponse struct {
 	// Type Identifies the type of workload the job will execute.
 	// Currently only `"bundle"` is supported.
 	Type WorkloadType `json:"type"`
+}
+
+// BypassResponse Response for bypassed peer operations.
+type BypassResponse struct {
+	// PeerId The ID of the bypassed peer.
+	PeerId string `json:"peer_id"`
+}
+
+// CheckoutResponse defines model for CheckoutResponse.
+type CheckoutResponse struct {
+	// SessionId The unique identifier for the checkout session.
+	SessionId string `json:"session_id"`
+
+	// Url URL to redirect the user to the checkout session.
+	Url string `json:"url"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -532,6 +647,36 @@ type Country struct {
 // CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 type CountryCode = string
 
+// CreateIntegrationRequest Request payload for creating a new event streaming integration. Also used as the structure for the PUT request body, but not all fields are applicable for updates (see PUT operation description).
+type CreateIntegrationRequest struct {
+	// Config Platform-specific configuration as key-value pairs. For creation, all necessary credentials and settings must be provided. For updates, provide the fields to change or the entire new configuration.
+	Config map[string]string `json:"config"`
+
+	// Enabled Specifies whether the integration is enabled. During creation (POST), this value is sent by the client, but the provided backend manager function `CreateIntegration` does not appear to use it directly, so its effect on creation should be verified. During updates (PUT), this field is used to enable or disable the integration.
+	Enabled bool `json:"enabled"`
+
+	// Platform The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
+	Platform CreateIntegrationRequestPlatform `json:"platform"`
+}
+
+// CreateIntegrationRequestPlatform The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
+type CreateIntegrationRequestPlatform string
+
+// CreateScimIntegrationRequest Request payload for creating an SCIM IDP integration
+type CreateScimIntegrationRequest struct {
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// Prefix The connection prefix used for the SCIM provider
+	Prefix string `json:"prefix"`
+
+	// Provider Name of the SCIM identity provider
+	Provider string `json:"provider"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
 // CreateSetupKeyRequest defines model for CreateSetupKeyRequest.
 type CreateSetupKeyRequest struct {
 	// AllowExtraDnsLabels Allow extra DNS labels to be added to the peer
@@ -554,6 +699,24 @@ type CreateSetupKeyRequest struct {
 
 	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
 	UsageLimit int `json:"usage_limit"`
+}
+
+// CreateTenantRequest defines model for CreateTenantRequest.
+type CreateTenantRequest struct {
+	// Domain The name for the MSP tenant
+	Domain string `json:"domain"`
+
+	// Groups MSP users Groups that can access the Tenant and Roles to assume
+	Groups []TenantGroupResponse `json:"groups"`
+
+	// Name The name for the MSP tenant
+	Name string `json:"name"`
+}
+
+// DNSChallengeResponse defines model for DNSChallengeResponse.
+type DNSChallengeResponse struct {
+	// DnsChallenge The DNS challenge to set in a TXT record
+	DnsChallenge string `json:"dns_challenge"`
 }
 
 // DNSRecord defines model for DNSRecord.
@@ -596,6 +759,234 @@ type DNSRecordType string
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
 	DisabledManagementGroups []string `json:"disabled_management_groups"`
+}
+
+// EDRFalconRequest Request payload for creating or updating a EDR Falcon integration
+type EDRFalconRequest struct {
+	// ClientId CrowdStrike API client ID
+	ClientId string `json:"client_id"`
+
+	// CloudId CrowdStrike cloud identifier (e.g., "us-1", "us-2", "eu-1")
+	CloudId string `json:"cloud_id"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integration applies to
+	Groups []string `json:"groups"`
+
+	// Secret CrowdStrike API client secret
+	Secret string `json:"secret"`
+
+	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
+	ZtaScoreThreshold int `json:"zta_score_threshold"`
+}
+
+// EDRFalconResponse Represents a Falcon EDR integration
+type EDRFalconResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// CloudId CrowdStrike cloud identifier
+	CloudId string `json:"cloud_id"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
+	ZtaScoreThreshold int `json:"zta_score_threshold"`
+}
+
+// EDRHuntressRequest Request payload for creating or updating a EDR Huntress integration
+type EDRHuntressRequest struct {
+	// ApiKey Huntress API key
+	ApiKey string `json:"api_key"`
+
+	// ApiSecret Huntress API secret
+	ApiSecret string `json:"api_secret"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving agents
+	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
+}
+
+// EDRHuntressResponse Represents a Huntress EDR integration configuration
+type EDRHuntressResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving agents
+	MatchAttributes HuntressMatchAttributes `json:"match_attributes"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// EDRIntuneRequest Request payload for creating or updating a EDR Intune integration.
+type EDRIntuneRequest struct {
+	// ClientId The Azure application client id
+	ClientId string `json:"client_id"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// Secret The Azure application client secret
+	Secret string `json:"secret"`
+
+	// TenantId The Azure tenant id
+	TenantId string `json:"tenant_id"`
+}
+
+// EDRIntuneResponse Represents a Intune EDR integration configuration
+type EDRIntuneResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// ClientId The Azure application client id
+	ClientId string `json:"client_id"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// TenantId The Azure tenant id
+	TenantId string `json:"tenant_id"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// EDRSentinelOneRequest Request payload for creating or updating a EDR SentinelOne integration
+type EDRSentinelOneRequest struct {
+	// ApiToken SentinelOne API token
+	ApiToken string `json:"api_token"`
+
+	// ApiUrl The Base URL of SentinelOne API
+	ApiUrl string `json:"api_url"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving agents
+	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+}
+
+// EDRSentinelOneResponse Represents a SentinelOne EDR integration configuration
+type EDRSentinelOneResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// ApiUrl The Base URL of SentinelOne API
+	ApiUrl string `json:"api_url"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving agents
+	MatchAttributes SentinelOneMatchAttributes `json:"match_attributes"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ErrorResponse Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
+type ErrorResponse struct {
+	// Message A human-readable error message.
+	Message *string `json:"message,omitempty"`
 }
 
 // Event defines model for Event.
@@ -642,6 +1033,9 @@ type GeoLocationCheck struct {
 
 // GeoLocationCheckAction Action to take upon policy match
 type GeoLocationCheckAction string
+
+// GetTenantsResponse defines model for GetTenantsResponse.
+type GetTenantsResponse = []TenantResponse
 
 // Group defines model for Group.
 type Group struct {
@@ -699,6 +1093,21 @@ type GroupRequest struct {
 	Resources *[]Resource `json:"resources,omitempty"`
 }
 
+// HuntressMatchAttributes Attribute conditions to match when approving agents
+type HuntressMatchAttributes struct {
+	// DefenderPolicyStatus Policy status of Defender AV for Managed Antivirus.
+	DefenderPolicyStatus *string `json:"defender_policy_status,omitempty"`
+
+	// DefenderStatus Status of Defender AV Managed Antivirus.
+	DefenderStatus *string `json:"defender_status,omitempty"`
+
+	// DefenderSubstatus Sub-status of Defender AV Managed Antivirus.
+	DefenderSubstatus *string `json:"defender_substatus,omitempty"`
+
+	// FirewallStatus Status of agent firewall. Can be one of Disabled, Enabled, Pending Isolation, Isolated, Pending Release.
+	FirewallStatus *string `json:"firewall_status,omitempty"`
+}
+
 // IdentityProvider defines model for IdentityProvider.
 type IdentityProvider struct {
 	// ClientId OAuth2 client ID
@@ -737,6 +1146,21 @@ type IdentityProviderRequest struct {
 
 // IdentityProviderType Type of identity provider
 type IdentityProviderType string
+
+// IdpIntegrationSyncLog Represents a synchronization log entry for an integration
+type IdpIntegrationSyncLog struct {
+	// Id The unique identifier for the sync log
+	Id int64 `json:"id"`
+
+	// Level The log level
+	Level string `json:"level"`
+
+	// Message Log message
+	Message string `json:"message"`
+
+	// Timestamp Timestamp of when the log was created
+	Timestamp time.Time `json:"timestamp"`
+}
 
 // IngressPeer defines model for IngressPeer.
 type IngressPeer struct {
@@ -892,6 +1316,57 @@ type InstanceVersionInfo struct {
 	ManagementUpdateAvailable bool `json:"management_update_available"`
 }
 
+// IntegrationResponse Represents an event streaming integration.
+type IntegrationResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId *string `json:"account_id,omitempty"`
+
+	// Config Configuration for the integration. Sensitive keys (like API keys, secret keys) are masked with '****' in responses, as indicated by the GetIntegration handler logic.
+	Config *map[string]string `json:"config,omitempty"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Enabled Whether the integration is currently active.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Id The unique numeric identifier for the integration.
+	Id *int64 `json:"id,omitempty"`
+
+	// Platform The event streaming platform.
+	Platform *IntegrationResponsePlatform `json:"platform,omitempty"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
+// IntegrationResponsePlatform The event streaming platform.
+type IntegrationResponsePlatform string
+
+// InvoicePDFResponse defines model for InvoicePDFResponse.
+type InvoicePDFResponse struct {
+	// Url URL to redirect the user to invoice.
+	Url string `json:"url"`
+}
+
+// InvoiceResponse defines model for InvoiceResponse.
+type InvoiceResponse struct {
+	// Id The Stripe invoice id
+	Id string `json:"id"`
+
+	// PeriodEnd The end date of the invoice period.
+	PeriodEnd time.Time `json:"period_end"`
+
+	// PeriodStart The start date of the invoice period.
+	PeriodStart time.Time `json:"period_start"`
+
+	// Type The invoice type
+	Type InvoiceResponseType `json:"type"`
+}
+
+// InvoiceResponseType The invoice type
+type InvoiceResponseType string
+
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
 	Workload WorkloadRequest `json:"workload"`
@@ -910,6 +1385,12 @@ type JobResponse struct {
 
 // JobResponseStatus defines model for JobResponse.Status.
 type JobResponseStatus string
+
+// LinkAuthConfig defines model for LinkAuthConfig.
+type LinkAuthConfig struct {
+	// Enabled Whether link auth is enabled
+	Enabled bool `json:"enabled"`
+}
 
 // Location Describe geographical location information
 type Location struct {
@@ -1279,6 +1760,24 @@ type OSVersionCheck struct {
 
 	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
+}
+
+// PINAuthConfig defines model for PINAuthConfig.
+type PINAuthConfig struct {
+	// Enabled Whether PIN auth is enabled
+	Enabled bool `json:"enabled"`
+
+	// Pin PIN value
+	Pin string `json:"pin"`
+}
+
+// PasswordAuthConfig defines model for PasswordAuthConfig.
+type PasswordAuthConfig struct {
+	// Enabled Whether password auth is enabled
+	Enabled bool `json:"enabled"`
+
+	// Password Auth password
+	Password string `json:"password"`
 }
 
 // PasswordChangeRequest defines model for PasswordChangeRequest.
@@ -1797,6 +2296,15 @@ type PolicyUpdate struct {
 	SourcePostureChecks *[]string `json:"source_posture_checks,omitempty"`
 }
 
+// PortalResponse defines model for PortalResponse.
+type PortalResponse struct {
+	// SessionId The unique identifier for the customer portal session.
+	SessionId string `json:"session_id"`
+
+	// Url URL to redirect the user to the customer portal.
+	Url string `json:"url"`
+}
+
 // PostureCheck defines model for PostureCheck.
 type PostureCheck struct {
 	// Checks List of objects that perform the actual checks
@@ -1824,6 +2332,21 @@ type PostureCheckUpdate struct {
 	Name string `json:"name"`
 }
 
+// Price defines model for Price.
+type Price struct {
+	// Currency Currency code for this price.
+	Currency string `json:"currency"`
+
+	// Price Price amount in minor units (e.g., cents).
+	Price int `json:"price"`
+
+	// PriceId Unique identifier for the price.
+	PriceId string `json:"price_id"`
+
+	// Unit Unit of measurement for this price (e.g., per user).
+	Unit string `json:"unit"`
+}
+
 // Process Describes the operational activity within a peer's system.
 type Process struct {
 	// LinuxPath Path to the process executable file in a Linux operating system
@@ -1841,6 +2364,96 @@ type ProcessCheck struct {
 	Processes []Process `json:"processes"`
 }
 
+// Product defines model for Product.
+type Product struct {
+	// Description Detailed description of the product.
+	Description string `json:"description"`
+
+	// Features List of features provided by the product.
+	Features []string `json:"features"`
+
+	// Free Indicates whether the product is free or not.
+	Free bool `json:"free"`
+
+	// Name Name of the product.
+	Name string `json:"name"`
+
+	// Prices List of prices for the product in different currencies
+	Prices []Price `json:"prices"`
+}
+
+// ProxyAccessLog defines model for ProxyAccessLog.
+type ProxyAccessLog struct {
+	// AuthMethodUsed Authentication method used (e.g., password, pin, oidc)
+	AuthMethodUsed *string `json:"auth_method_used,omitempty"`
+
+	// CityName City name from geolocation
+	CityName *string `json:"city_name,omitempty"`
+
+	// CountryCode Country code from geolocation
+	CountryCode *string `json:"country_code,omitempty"`
+
+	// DurationMs Duration of the request in milliseconds
+	DurationMs int `json:"duration_ms"`
+
+	// Host Host header of the request
+	Host string `json:"host"`
+
+	// Id Unique identifier for the access log entry
+	Id string `json:"id"`
+
+	// Method HTTP method of the request
+	Method string `json:"method"`
+
+	// Path Path of the request
+	Path string `json:"path"`
+
+	// Reason Reason for the request result (e.g., authentication failure)
+	Reason *string `json:"reason,omitempty"`
+
+	// ServiceId ID of the service that handled the request
+	ServiceId string `json:"service_id"`
+
+	// SourceIp Source IP address of the request
+	SourceIp *string `json:"source_ip,omitempty"`
+
+	// StatusCode HTTP status code returned
+	StatusCode int `json:"status_code"`
+
+	// Timestamp Timestamp when the request was made
+	Timestamp time.Time `json:"timestamp"`
+
+	// UserId ID of the authenticated user, if applicable
+	UserId *string `json:"user_id,omitempty"`
+}
+
+// ProxyAccessLogsResponse defines model for ProxyAccessLogsResponse.
+type ProxyAccessLogsResponse struct {
+	// Data List of proxy access log entries
+	Data []ProxyAccessLog `json:"data"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of log records available
+	TotalRecords int `json:"total_records"`
+}
+
+// ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
+type ProxyCluster struct {
+	// Address Cluster address used for CNAME targets
+	Address string `json:"address"`
+
+	// ConnectedProxies Number of proxy nodes connected in this cluster
+	ConnectedProxies int `json:"connected_proxies"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -1850,6 +2463,36 @@ type Resource struct {
 
 // ResourceType defines model for ResourceType.
 type ResourceType string
+
+// ReverseProxyDomain defines model for ReverseProxyDomain.
+type ReverseProxyDomain struct {
+	// Domain Domain name
+	Domain string `json:"domain"`
+
+	// Id Domain ID
+	Id string `json:"id"`
+
+	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
+	TargetCluster *string `json:"target_cluster,omitempty"`
+
+	// Type Type of Reverse Proxy Domain
+	Type ReverseProxyDomainType `json:"type"`
+
+	// Validated Whether the domain has been validated
+	Validated bool `json:"validated"`
+}
+
+// ReverseProxyDomainRequest defines model for ReverseProxyDomainRequest.
+type ReverseProxyDomainRequest struct {
+	// Domain Domain name
+	Domain string `json:"domain"`
+
+	// TargetCluster The proxy cluster this domain should be validated against
+	TargetCluster string `json:"target_cluster"`
+}
+
+// ReverseProxyDomainType Type of Reverse Proxy Domain
+type ReverseProxyDomainType string
 
 // Route defines model for Route.
 type Route struct {
@@ -1949,6 +2592,172 @@ type RulePortRange struct {
 	// Start The starting port of the range
 	Start int `json:"start"`
 }
+
+// ScimIntegration Represents a SCIM IDP integration
+type ScimIntegration struct {
+	// AuthToken SCIM API token (full on creation, masked otherwise)
+	AuthToken string `json:"auth_token"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// Provider Name of the SCIM identity provider
+	Provider string `json:"provider"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
+}
+
+// ScimTokenResponse Response containing the regenerated SCIM token
+type ScimTokenResponse struct {
+	// AuthToken The newly generated SCIM API token
+	AuthToken string `json:"auth_token"`
+}
+
+// SentinelOneMatchAttributes Attribute conditions to match when approving agents
+type SentinelOneMatchAttributes struct {
+	// ActiveThreats The maximum allowed number of active threats on the agent
+	ActiveThreats *int `json:"active_threats,omitempty"`
+
+	// EncryptedApplications Whether disk encryption is enabled on the agent
+	EncryptedApplications *bool `json:"encrypted_applications,omitempty"`
+
+	// FirewallEnabled Whether the agent firewall is enabled
+	FirewallEnabled *bool `json:"firewall_enabled,omitempty"`
+
+	// Infected Whether the agent is currently flagged as infected
+	Infected *bool `json:"infected,omitempty"`
+
+	// IsActive Whether the agent has been recently active and reporting
+	IsActive *bool `json:"is_active,omitempty"`
+
+	// IsUpToDate Whether the agent is running the latest available version
+	IsUpToDate *bool `json:"is_up_to_date,omitempty"`
+
+	// NetworkStatus The current network connectivity status of the device
+	NetworkStatus *SentinelOneMatchAttributesNetworkStatus `json:"network_status,omitempty"`
+
+	// OperationalState The current operational state of the agent
+	OperationalState *string `json:"operational_state,omitempty"`
+}
+
+// SentinelOneMatchAttributesNetworkStatus The current network connectivity status of the device
+type SentinelOneMatchAttributesNetworkStatus string
+
+// Service defines model for Service.
+type Service struct {
+	Auth ServiceAuthConfig `json:"auth"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Id Service ID
+	Id   string      `json:"id"`
+	Meta ServiceMeta `json:"meta"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// ProxyCluster The proxy cluster handling this service (derived from domain)
+	ProxyCluster *string `json:"proxy_cluster,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceAuthConfig defines model for ServiceAuthConfig.
+type ServiceAuthConfig struct {
+	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
+	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
+	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
+}
+
+// ServiceMeta defines model for ServiceMeta.
+type ServiceMeta struct {
+	// CertificateIssuedAt Timestamp when the certificate was issued (empty if not yet issued)
+	CertificateIssuedAt *time.Time `json:"certificate_issued_at,omitempty"`
+
+	// CreatedAt Timestamp when the service was created
+	CreatedAt time.Time `json:"created_at"`
+
+	// Status Current status of the service
+	Status ServiceMetaStatus `json:"status"`
+}
+
+// ServiceMetaStatus Current status of the service
+type ServiceMetaStatus string
+
+// ServiceRequest defines model for ServiceRequest.
+type ServiceRequest struct {
+	Auth ServiceAuthConfig `json:"auth"`
+
+	// Domain Domain for the service
+	Domain string `json:"domain"`
+
+	// Enabled Whether the service is enabled
+	Enabled bool `json:"enabled"`
+
+	// Name Service name
+	Name string `json:"name"`
+
+	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
+
+	// Targets List of target backends for this service
+	Targets []ServiceTarget `json:"targets"`
+}
+
+// ServiceTarget defines model for ServiceTarget.
+type ServiceTarget struct {
+	// Enabled Whether this target is enabled
+	Enabled bool `json:"enabled"`
+
+	// Host Backend ip or domain for this target
+	Host *string `json:"host,omitempty"`
+
+	// Path URL path prefix for this target
+	Path *string `json:"path,omitempty"`
+
+	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+	Port int `json:"port"`
+
+	// Protocol Protocol to use when connecting to the backend
+	Protocol ServiceTargetProtocol `json:"protocol"`
+
+	// TargetId Target ID
+	TargetId string `json:"target_id"`
+
+	// TargetType Target type (e.g., "peer", "resource")
+	TargetType ServiceTargetTargetType `json:"target_type"`
+}
+
+// ServiceTargetProtocol Protocol to use when connecting to the backend
+type ServiceTargetProtocol string
+
+// ServiceTargetTargetType Target type (e.g., "peer", "resource")
+type ServiceTargetTargetType string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
@@ -2119,6 +2928,117 @@ type SetupResponse struct {
 
 	// UserId The ID of the created user
 	UserId string `json:"user_id"`
+}
+
+// Subscription defines model for Subscription.
+type Subscription struct {
+	// Active Indicates whether the subscription is active or not.
+	Active bool `json:"active"`
+
+	// Currency Currency code of the subscription.
+	Currency string `json:"currency"`
+
+	// Features List of features included in the subscription.
+	Features *[]string `json:"features,omitempty"`
+
+	// PlanTier The tier of the plan for the subscription.
+	PlanTier string `json:"plan_tier"`
+
+	// Price Price amount in minor units (e.g., cents).
+	Price int `json:"price"`
+
+	// PriceId Unique identifier for the price of the subscription.
+	PriceId string `json:"price_id"`
+
+	// Provider The provider of the subscription.
+	Provider string `json:"provider"`
+
+	// RemainingTrial The remaining time for the trial period, in seconds.
+	RemainingTrial *int `json:"remaining_trial,omitempty"`
+
+	// UpdatedAt The date and time when the subscription was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TenantGroupResponse defines model for TenantGroupResponse.
+type TenantGroupResponse struct {
+	// Id The Group ID
+	Id string `json:"id"`
+
+	// Role The Role name
+	Role string `json:"role"`
+}
+
+// TenantResponse defines model for TenantResponse.
+type TenantResponse struct {
+	// ActivatedAt The date and time when the tenant was activated.
+	ActivatedAt *time.Time `json:"activated_at,omitempty"`
+
+	// CreatedAt The date and time when the tenant was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// DnsChallenge The DNS challenge to set in a TXT record
+	DnsChallenge string `json:"dns_challenge"`
+
+	// Domain The tenant account domain
+	Domain string `json:"domain"`
+
+	// Groups MSP users Groups that can access the Tenant and Roles to assume
+	Groups []TenantGroupResponse `json:"groups"`
+
+	// Id The updated MSP tenant account ID
+	Id string `json:"id"`
+
+	// InvitedAt The date and time when the existing tenant was invited.
+	InvitedAt *time.Time `json:"invited_at,omitempty"`
+
+	// Name The name for the MSP tenant
+	Name string `json:"name"`
+
+	// Status The status of the tenant
+	Status TenantResponseStatus `json:"status"`
+
+	// UpdatedAt The date and time when the tenant was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TenantResponseStatus The status of the tenant
+type TenantResponseStatus string
+
+// UpdateScimIntegrationRequest Request payload for updating an SCIM IDP integration
+type UpdateScimIntegrationRequest struct {
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateTenantRequest defines model for UpdateTenantRequest.
+type UpdateTenantRequest struct {
+	// Groups MSP users Groups that can access the Tenant and Roles to assume
+	Groups []TenantGroupResponse `json:"groups"`
+
+	// Name The name for the MSP tenant
+	Name string `json:"name"`
+}
+
+// UsageStats defines model for UsageStats.
+type UsageStats struct {
+	// ActivePeers Number of active peers.
+	ActivePeers int64 `json:"active_peers"`
+
+	// ActiveUsers Number of active users.
+	ActiveUsers int64 `json:"active_users"`
+
+	// TotalPeers Total number of peers.
+	TotalPeers int64 `json:"total_peers"`
+
+	// TotalUsers Total number of users.
+	TotalUsers int64 `json:"total_users"`
 }
 
 // User defines model for User.
@@ -2401,10 +3321,121 @@ type GetApiEventsNetworkTrafficParamsConnectionType string
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string
 
+// GetApiEventsProxyParams defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParams struct {
+	// Page Page number for pagination (1-indexed)
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page (max 100)
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Search General search across request ID, host, path, source IP, user email, and user name
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// SourceIp Filter by source IP address
+	SourceIp *string `form:"source_ip,omitempty" json:"source_ip,omitempty"`
+
+	// Host Filter by host header
+	Host *string `form:"host,omitempty" json:"host,omitempty"`
+
+	// Path Filter by request path (supports partial matching)
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// UserId Filter by authenticated user ID
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// UserEmail Filter by user email (partial matching)
+	UserEmail *string `form:"user_email,omitempty" json:"user_email,omitempty"`
+
+	// UserName Filter by user name (partial matching)
+	UserName *string `form:"user_name,omitempty" json:"user_name,omitempty"`
+
+	// Method Filter by HTTP method
+	Method *GetApiEventsProxyParamsMethod `form:"method,omitempty" json:"method,omitempty"`
+
+	// Status Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+	Status *GetApiEventsProxyParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// StatusCode Filter by HTTP status code
+	StatusCode *int `form:"status_code,omitempty" json:"status_code,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format)
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format)
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiEventsProxyParamsMethod defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsMethod string
+
+// GetApiEventsProxyParamsStatus defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsStatus string
+
 // GetApiGroupsParams defines parameters for GetApiGroups.
 type GetApiGroupsParams struct {
 	// Name Filter groups by name (exact match)
 	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
+// PostApiIntegrationsBillingAwsMarketplaceActivateJSONBody defines parameters for PostApiIntegrationsBillingAwsMarketplaceActivate.
+type PostApiIntegrationsBillingAwsMarketplaceActivateJSONBody struct {
+	// PlanTier The plan tier to activate the subscription for.
+	PlanTier string `json:"plan_tier"`
+}
+
+// PostApiIntegrationsBillingAwsMarketplaceEnrichJSONBody defines parameters for PostApiIntegrationsBillingAwsMarketplaceEnrich.
+type PostApiIntegrationsBillingAwsMarketplaceEnrichJSONBody struct {
+	// AwsUserId The AWS user ID.
+	AwsUserId string `json:"aws_user_id"`
+}
+
+// PostApiIntegrationsBillingCheckoutJSONBody defines parameters for PostApiIntegrationsBillingCheckout.
+type PostApiIntegrationsBillingCheckoutJSONBody struct {
+	// BaseURL The base URL for the redirect after checkout.
+	BaseURL string `json:"baseURL"`
+
+	// EnableTrial Enables a 14-day trial for the account.
+	EnableTrial *bool `json:"enableTrial,omitempty"`
+
+	// PriceID The Price ID for checkout.
+	PriceID string `json:"priceID"`
+}
+
+// GetApiIntegrationsBillingPortalParams defines parameters for GetApiIntegrationsBillingPortal.
+type GetApiIntegrationsBillingPortalParams struct {
+	// BaseURL The base URL for the redirect after accessing the portal.
+	BaseURL string `form:"baseURL" json:"baseURL"`
+}
+
+// PutApiIntegrationsBillingSubscriptionJSONBody defines parameters for PutApiIntegrationsBillingSubscription.
+type PutApiIntegrationsBillingSubscriptionJSONBody struct {
+	// PlanTier The plan tier to change the subscription to.
+	PlanTier *string `json:"plan_tier,omitempty"`
+
+	// PriceID The Price ID to change the subscription to.
+	PriceID *string `json:"priceID,omitempty"`
+}
+
+// PutApiIntegrationsMspTenantsIdInviteJSONBody defines parameters for PutApiIntegrationsMspTenantsIdInvite.
+type PutApiIntegrationsMspTenantsIdInviteJSONBody struct {
+	// Value Accept or decline the invitation.
+	Value PutApiIntegrationsMspTenantsIdInviteJSONBodyValue `json:"value"`
+}
+
+// PutApiIntegrationsMspTenantsIdInviteJSONBodyValue defines parameters for PutApiIntegrationsMspTenantsIdInvite.
+type PutApiIntegrationsMspTenantsIdInviteJSONBodyValue string
+
+// PostApiIntegrationsMspTenantsIdSubscriptionJSONBody defines parameters for PostApiIntegrationsMspTenantsIdSubscription.
+type PostApiIntegrationsMspTenantsIdSubscriptionJSONBody struct {
+	// PriceID The Price ID to change the subscription to.
+	PriceID string `json:"priceID"`
+}
+
+// PostApiIntegrationsMspTenantsIdUnlinkJSONBody defines parameters for PostApiIntegrationsMspTenantsIdUnlink.
+type PostApiIntegrationsMspTenantsIdUnlinkJSONBody struct {
+	// Owner The new owners user ID.
+	Owner string `json:"owner"`
 }
 
 // GetApiPeersParams defines parameters for GetApiPeers.
@@ -2452,6 +3483,12 @@ type PostApiDnsZonesZoneIdRecordsJSONRequestBody = DNSRecordRequest
 // PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody defines body for PutApiDnsZonesZoneIdRecordsRecordId for application/json ContentType.
 type PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody = DNSRecordRequest
 
+// CreateIntegrationJSONRequestBody defines body for CreateIntegration for application/json ContentType.
+type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
+
+// UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
+type UpdateIntegrationJSONRequestBody = CreateIntegrationRequest
+
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest
 
@@ -2469,6 +3506,63 @@ type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
 
 // PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
 type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
+
+// PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody defines body for PostApiIntegrationsBillingAwsMarketplaceActivate for application/json ContentType.
+type PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody PostApiIntegrationsBillingAwsMarketplaceActivateJSONBody
+
+// PostApiIntegrationsBillingAwsMarketplaceEnrichJSONRequestBody defines body for PostApiIntegrationsBillingAwsMarketplaceEnrich for application/json ContentType.
+type PostApiIntegrationsBillingAwsMarketplaceEnrichJSONRequestBody PostApiIntegrationsBillingAwsMarketplaceEnrichJSONBody
+
+// PostApiIntegrationsBillingCheckoutJSONRequestBody defines body for PostApiIntegrationsBillingCheckout for application/json ContentType.
+type PostApiIntegrationsBillingCheckoutJSONRequestBody PostApiIntegrationsBillingCheckoutJSONBody
+
+// PutApiIntegrationsBillingSubscriptionJSONRequestBody defines body for PutApiIntegrationsBillingSubscription for application/json ContentType.
+type PutApiIntegrationsBillingSubscriptionJSONRequestBody PutApiIntegrationsBillingSubscriptionJSONBody
+
+// CreateFalconEDRIntegrationJSONRequestBody defines body for CreateFalconEDRIntegration for application/json ContentType.
+type CreateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
+
+// UpdateFalconEDRIntegrationJSONRequestBody defines body for UpdateFalconEDRIntegration for application/json ContentType.
+type UpdateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
+
+// CreateHuntressEDRIntegrationJSONRequestBody defines body for CreateHuntressEDRIntegration for application/json ContentType.
+type CreateHuntressEDRIntegrationJSONRequestBody = EDRHuntressRequest
+
+// UpdateHuntressEDRIntegrationJSONRequestBody defines body for UpdateHuntressEDRIntegration for application/json ContentType.
+type UpdateHuntressEDRIntegrationJSONRequestBody = EDRHuntressRequest
+
+// CreateEDRIntegrationJSONRequestBody defines body for CreateEDRIntegration for application/json ContentType.
+type CreateEDRIntegrationJSONRequestBody = EDRIntuneRequest
+
+// UpdateEDRIntegrationJSONRequestBody defines body for UpdateEDRIntegration for application/json ContentType.
+type UpdateEDRIntegrationJSONRequestBody = EDRIntuneRequest
+
+// CreateSentinelOneEDRIntegrationJSONRequestBody defines body for CreateSentinelOneEDRIntegration for application/json ContentType.
+type CreateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
+
+// UpdateSentinelOneEDRIntegrationJSONRequestBody defines body for UpdateSentinelOneEDRIntegration for application/json ContentType.
+type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
+
+// PostApiIntegrationsMspTenantsJSONRequestBody defines body for PostApiIntegrationsMspTenants for application/json ContentType.
+type PostApiIntegrationsMspTenantsJSONRequestBody = CreateTenantRequest
+
+// PutApiIntegrationsMspTenantsIdJSONRequestBody defines body for PutApiIntegrationsMspTenantsId for application/json ContentType.
+type PutApiIntegrationsMspTenantsIdJSONRequestBody = UpdateTenantRequest
+
+// PutApiIntegrationsMspTenantsIdInviteJSONRequestBody defines body for PutApiIntegrationsMspTenantsIdInvite for application/json ContentType.
+type PutApiIntegrationsMspTenantsIdInviteJSONRequestBody PutApiIntegrationsMspTenantsIdInviteJSONBody
+
+// PostApiIntegrationsMspTenantsIdSubscriptionJSONRequestBody defines body for PostApiIntegrationsMspTenantsIdSubscription for application/json ContentType.
+type PostApiIntegrationsMspTenantsIdSubscriptionJSONRequestBody PostApiIntegrationsMspTenantsIdSubscriptionJSONBody
+
+// PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody defines body for PostApiIntegrationsMspTenantsIdUnlink for application/json ContentType.
+type PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody PostApiIntegrationsMspTenantsIdUnlinkJSONBody
+
+// CreateSCIMIntegrationJSONRequestBody defines body for CreateSCIMIntegration for application/json ContentType.
+type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
+
+// UpdateSCIMIntegrationJSONRequestBody defines body for UpdateSCIMIntegration for application/json ContentType.
+type UpdateSCIMIntegrationJSONRequestBody = UpdateScimIntegrationRequest
 
 // PostApiNetworksJSONRequestBody defines body for PostApiNetworks for application/json ContentType.
 type PostApiNetworksJSONRequestBody = NetworkRequest
@@ -2514,6 +3608,15 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
+
+// PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
+type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest
+
+// PostApiReverseProxiesServicesJSONRequestBody defines body for PostApiReverseProxiesServices for application/json ContentType.
+type PostApiReverseProxiesServicesJSONRequestBody = ServiceRequest
+
+// PutApiReverseProxiesServicesServiceIdJSONRequestBody defines body for PutApiReverseProxiesServicesServiceId for application/json ContentType.
+type PutApiReverseProxiesServicesServiceIdJSONRequestBody = ServiceRequest
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

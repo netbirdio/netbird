@@ -18,6 +18,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -149,6 +151,11 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
+		return
+	}
+
+	if peer.ProxyMeta.Embedded {
+		util.WriteError(ctx, status.Errorf(status.InvalidArgument, "not allowed to read peer"), w)
 		return
 	}
 
@@ -319,6 +326,9 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
+		if peer.ProxyMeta.Embedded {
+			continue
+		}
 		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
@@ -368,9 +378,9 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.permissionsManager.ValidateAccountAccess(r.Context(), accountID, user, false)
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
 		return
 	}
 
@@ -380,9 +390,12 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the user is regular user and does not own the peer
-	// with the given peerID return an empty list
-	if !user.HasAdminPower() && !user.IsServiceUser && !userAuth.IsChild {
+	if !allowed && !userAuth.IsChild {
+		if account.Settings.RegularUsersViewBlocked {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
+
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)

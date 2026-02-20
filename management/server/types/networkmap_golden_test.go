@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -70,7 +71,7 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 	normalizeAndSortNetworkMap(legacyNetworkMap)
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
@@ -115,7 +116,7 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 	b.Run("old builder", func(b *testing.B) {
 		for range b.N {
 			for _, peerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -177,7 +178,7 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 	normalizeAndSortNetworkMap(legacyNetworkMap)
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
@@ -240,7 +241,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -317,7 +318,7 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 	normalizeAndSortNetworkMap(legacyNetworkMap)
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
@@ -402,7 +403,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	b.Run("old builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -458,7 +459,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 	normalizeAndSortNetworkMap(legacyNetworkMap)
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
@@ -537,7 +538,7 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 	normalizeAndSortNetworkMap(legacyNetworkMap)
 	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling legacy network map to JSON")
@@ -597,7 +598,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	b.Run("old builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})

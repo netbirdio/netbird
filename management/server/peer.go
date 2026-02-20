@@ -221,6 +221,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			return err
 		}
 
+		if peer.ProxyMeta.Embedded {
+			return fmt.Errorf("not allowed to update peer")
+		}
+
 		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
@@ -489,6 +493,14 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var settings *types.Settings
 	var eventsToStore []func()
 
+	serviceID, err := am.reverseProxyManager.GetServiceIDByTargetID(ctx, accountID, peerID)
+	if err != nil {
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
+	}
+	if serviceID != "" {
+		return status.NewPeerInUseError(peerID, serviceID)
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
@@ -549,6 +561,99 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 	return account.Network.Copy(), err
 }
 
+type peerAddAuthConfig struct {
+	AccountID           string
+	SetupKeyID          string
+	SetupKeyName        string
+	GroupsToAdd         []string
+	AllowExtraDNSLabels bool
+	Ephemeral           bool
+}
+
+func (am *DefaultAccountManager) processPeerAddAuth(ctx context.Context, accountID, userID, encodedHashedKey string, peer *nbpeer.Peer, temporary, addedByUser, addedBySetupKey bool, opEvent *activity.Event) (*peerAddAuthConfig, error) {
+	config := &peerAddAuthConfig{
+		AccountID: accountID,
+		Ephemeral: peer.Ephemeral,
+	}
+
+	switch {
+	case addedByUser:
+		if err := am.handleUserAddedPeer(ctx, accountID, userID, temporary, opEvent, config); err != nil {
+			return nil, err
+		}
+	case addedBySetupKey:
+		if err := am.handleSetupKeyAddedPeer(ctx, encodedHashedKey, peer, opEvent, config); err != nil {
+			return nil, err
+		}
+	default:
+		if peer.ProxyMeta.Embedded {
+			log.WithContext(ctx).Debugf("adding peer for proxy embedded, accountID: %s", accountID)
+		} else {
+			log.WithContext(ctx).Warnf("adding peer without setup key or userID, accountID: %s", accountID)
+		}
+	}
+
+	opEvent.AccountID = config.AccountID
+	if temporary {
+		config.Ephemeral = true
+	}
+
+	return config, nil
+}
+
+func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accountID, userID string, temporary bool, opEvent *activity.Event, config *peerAddAuthConfig) error {
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return status.Errorf(status.NotFound, "failed adding new peer: user not found")
+	}
+	if user.PendingApproval {
+		return status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
+	}
+
+	if temporary {
+		allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+		if err != nil {
+			return status.NewPermissionValidationError(err)
+		}
+		if !allowed {
+			return status.NewPermissionDeniedError()
+		}
+	} else {
+		config.AccountID = user.AccountID
+		config.GroupsToAdd = user.AutoGroups
+	}
+
+	opEvent.InitiatorID = userID
+	opEvent.Activity = activity.PeerAddedByUser
+	return nil
+}
+
+func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, encodedHashedKey string, peer *nbpeer.Peer, opEvent *activity.Event, config *peerAddAuthConfig) error {
+	sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
+	if err != nil {
+		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+	}
+
+	if !sk.IsValid() {
+		return status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
+	}
+
+	if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
+		return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
+	}
+
+	opEvent.InitiatorID = sk.Id
+	opEvent.Activity = activity.PeerAddedWithSetupKey
+	config.GroupsToAdd = sk.AutoGroups
+	config.Ephemeral = sk.Ephemeral
+	config.SetupKeyID = sk.Id
+	config.SetupKeyName = sk.Name
+	config.AllowExtraDNSLabels = sk.AllowExtraDNSLabels
+	config.AccountID = sk.AccountID
+
+	return nil
+}
+
 // AddPeer adds a new peer to the Store.
 // Each Account has a list of pre-authorized SetupKey and if no Account has a given key err with a code status.PermissionDenied
 // will be returned, meaning the setup key is invalid or not found.
@@ -557,7 +662,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	if setupKey == "" && userID == "" {
+	if setupKey == "" && userID == "" && !peer.ProxyMeta.Embedded {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 	}
@@ -566,6 +671,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	hashedKey := sha256.Sum256([]byte(upperKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 	addedByUser := len(userID) > 0
+	addedBySetupKey := len(setupKey) > 0
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
@@ -583,63 +689,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	var newPeer *nbpeer.Peer
 
-	var setupKeyID string
-	var setupKeyName string
-	var ephemeral bool
-	var groupsToAdd []string
-	var allowExtraDNSLabels bool
-	if addedByUser {
-		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-		if err != nil {
-			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
-		}
-		if user.PendingApproval {
-			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
-		}
-		if temporary {
-			allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
-			if err != nil {
-				return nil, nil, nil, status.NewPermissionValidationError(err)
-			}
-
-			if !allowed {
-				return nil, nil, nil, status.NewPermissionDeniedError()
-			}
-		} else {
-			accountID = user.AccountID
-			groupsToAdd = user.AutoGroups
-		}
-		opEvent.InitiatorID = userID
-		opEvent.Activity = activity.PeerAddedByUser
-	} else {
-		// Validate the setup key
-		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
-		if err != nil {
-			return nil, nil, nil, status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
-		}
-
-		// we will check key twice for early return
-		if !sk.IsValid() {
-			return nil, nil, nil, status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
-		}
-
-		opEvent.InitiatorID = sk.Id
-		opEvent.Activity = activity.PeerAddedWithSetupKey
-		groupsToAdd = sk.AutoGroups
-		ephemeral = sk.Ephemeral
-		setupKeyID = sk.Id
-		setupKeyName = sk.Name
-		allowExtraDNSLabels = sk.AllowExtraDNSLabels
-		accountID = sk.AccountID
-		if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
-			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
-		}
+	peerAddConfig, err := am.processPeerAddAuth(ctx, accountID, userID, encodedHashedKey, peer, temporary, addedByUser, addedBySetupKey, opEvent)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	opEvent.AccountID = accountID
-
-	if temporary {
-		ephemeral = true
-	}
+	accountID = peerAddConfig.AccountID
+	ephemeral := peerAddConfig.Ephemeral
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 		if am.idpManager != nil {
@@ -669,10 +724,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
+		ProxyMeta:                   peer.ProxyMeta,
 		Location:                    peer.Location,
 		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
-		AllowExtraDNSLabels:         allowExtraDNSLabels,
+		AllowExtraDNSLabels:         peerAddConfig.AllowExtraDNSLabels,
 	}
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -690,7 +746,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 	}
 
-	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra, temporary)
+	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, peerAddConfig.GroupsToAdd, settings.Extra, temporary)
 
 	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -726,8 +782,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				return err
 			}
 
-			if len(groupsToAdd) > 0 {
-				for _, g := range groupsToAdd {
+			if len(peerAddConfig.GroupsToAdd) > 0 {
+				for _, g := range peerAddConfig.GroupsToAdd {
 					err = transaction.AddPeerToGroup(ctx, newPeer.AccountID, newPeer.ID, g)
 					if err != nil {
 						return err
@@ -735,17 +791,20 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				}
 			}
 
-			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
-			if err != nil {
-				return fmt.Errorf("failed adding peer to All group: %w", err)
+			if !peer.ProxyMeta.Embedded {
+				err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+				if err != nil {
+					return fmt.Errorf("failed adding peer to All group: %w", err)
+				}
 			}
 
-			if addedByUser {
+			switch {
+			case addedByUser:
 				err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 				if err != nil {
 					log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 				}
-			} else {
+			case addedBySetupKey:
 				sk, err := transaction.GetSetupKeyBySecret(ctx, store.LockingStrengthUpdate, encodedHashedKey)
 				if err != nil {
 					return fmt.Errorf("failed to get setup key: %w", err)
@@ -756,7 +815,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
 				}
 
-				err = transaction.IncrementSetupKeyUsage(ctx, setupKeyID)
+				err = transaction.IncrementSetupKeyUsage(ctx, peerAddConfig.SetupKeyID)
 				if err != nil {
 					return fmt.Errorf("failed to increment setup key usage: %w", err)
 				}
@@ -797,7 +856,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.networkMapController.GetDNSDomain(settings))
 	if !addedByUser {
-		opEvent.Meta["setup_key_name"] = setupKeyName
+		opEvent.Meta["setup_key_name"] = peerAddConfig.SetupKeyName
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)

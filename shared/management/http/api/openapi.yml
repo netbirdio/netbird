@@ -36,11 +36,59 @@ tags:
     x-cloud-only: true
   - name: Identity Providers
     description: Interact with and view information about identity providers.
+  - name: Services
+    description: Interact with and view information about reverse proxy services.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
   - name: Jobs
     description: Interact with and view information about remote jobs.
     x-experimental: true
+
+  - name: Usage
+    description: Retrieve current usage statistics for the account.
+    x-cloud-only: true
+  - name: Subscription
+    description: Manage and view information about account subscriptions.
+    x-cloud-only: true
+  - name: Plans
+    description: Retrieve available plans and products.
+    x-cloud-only: true
+  - name: Checkout
+    description: Manage checkout sessions for plan subscriptions.
+    x-cloud-only: true
+  - name: AWS Marketplace
+    description: Manage AWS Marketplace subscriptions.
+    x-cloud-only: true
+  - name: Portal
+    description: Access customer portal for subscription management.
+    x-cloud-only: true
+  - name: Invoice
+    description: Manage and retrieve account invoices.
+    x-cloud-only: true
+  - name: MSP
+    description: MSP portal for Tenant management.
+    x-cloud-only: true
+  - name: IDP
+    description: Manage identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: EDR Intune Integrations
+    description: Manage Microsoft Intune EDR integrations.
+    x-cloud-only: true
+  - name: EDR SentinelOne Integrations
+    description: Manage SentinelOne EDR integrations.
+    x-cloud-only: true
+  - name: EDR Falcon Integrations
+    description: Manage CrowdStrike Falcon EDR integrations.
+    x-cloud-only: true
+  - name: EDR Huntress Integrations
+    description: Manage Huntress EDR integrations.
+    x-cloud-only: true
+  - name: EDR Peers
+    description: Manage EDR compliance bypass for peers.
+    x-cloud-only: true
+  - name: Event Streaming Integrations
+    description: Manage event streaming integrations.
+    x-cloud-only: true
 
 components:
   schemas:
@@ -61,8 +109,8 @@ components:
     WorkloadType:
       type: string
       description: |
-         Identifies the type of workload the job will execute.
-         Currently only `"bundle"` is supported.
+        Identifies the type of workload the job will execute.
+        Currently only `"bundle"` is supported.
       enum:
         - bundle
       example: "bundle"
@@ -110,8 +158,8 @@ components:
         parameters:
           $ref: '#/components/schemas/BundleParameters'
       required:
-      - type
-      - parameters
+        - type
+        - parameters
     BundleWorkloadResponse:
       type: object
       properties:
@@ -162,7 +210,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, succeeded, failed]
+          enum: [ pending, succeeded, failed ]
         failed_reason:
           type: string
           nullable: true
@@ -371,7 +419,7 @@ components:
         status:
           description: User's status
           type: string
-          enum: [ "active","invited","blocked" ]
+          enum: [ "active", "invited", "blocked" ]
           example: active
         last_login:
           description: Last time this user performed a login to the dashboard
@@ -439,7 +487,7 @@ components:
           propertyNames:
             type: string
             description: The module name
-          example: {"networks": { "read": true, "create": false, "update": false, "delete": false}, "peers": { "read": false, "create": false, "update": false, "delete": false} }
+          example: { "networks": { "read": true, "create": false, "update": false, "delete": false }, "peers": { "read": false, "create": false, "update": false, "delete": false } }
       required:
         - modules
         - is_restricted
@@ -1234,7 +1282,7 @@ components:
         issued:
           description: How the group was issued (api, integration, jwt)
           type: string
-          enum: ["api", "integration", "jwt"]
+          enum: [ "api", "integration", "jwt" ]
           example: api
       required:
         - id
@@ -1295,7 +1343,7 @@ components:
         action:
           description: Policy rule accept or drops packets
           type: string
-          enum: ["accept","drop"]
+          enum: [ "accept", "drop" ]
           example: "accept"
         bidirectional:
           description: Define if the rule is applicable in both directions, sources, and destinations.
@@ -1304,7 +1352,7 @@ components:
         protocol:
           description: Policy rule type of the traffic
           type: string
-          enum: ["all", "tcp", "udp", "icmp", "netbird-ssh"]
+          enum: [ "all", "tcp", "udp", "icmp", "netbird-ssh" ]
           example: "tcp"
         ports:
           description: Policy rule affected ports
@@ -1615,7 +1663,7 @@ components:
           type: array
           items:
             type: string
-          example: ["192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56"]
+          example: [ "192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56" ]
         action:
           description: Action to take upon policy match
           type: string
@@ -1786,11 +1834,11 @@ components:
         - description
         - network_id
         - enabled
-        # Only one property has to be set
-        #- peer
-        #- peer_groups
-        # Only one property has to be set
-        #- network
+          # Only one property has to be set
+          #- peer
+          #- peer_groups
+          # Only one property has to be set
+          #- network
         #- domains
         - metric
         - masquerade
@@ -1829,7 +1877,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceType'
         - type: string
-          enum: ["peer"]
+          enum: [ "peer" ]
           example: peer
     NetworkRequest:
       type: object
@@ -2242,7 +2290,8 @@ components:
             "dns.zone.record.create", "dns.zone.record.update", "dns.zone.record.delete",
             "peer.job.create",
             "user.password.change",
-            "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete"
+            "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete",
+            "service.create", "service.update", "service.delete"
           ]
           example: route.add
         initiator_id:
@@ -2266,7 +2315,7 @@ components:
           type: object
           additionalProperties:
             type: string
-          example: { "name": "my route", "network_range": "10.64.0.0/24", "peer_id": "chacbco6lnnbn6cg5s91"}
+          example: { "name": "my route", "network_range": "10.64.0.0/24", "peer_id": "chacbco6lnnbn6cg5s91" }
       required:
         - id
         - timestamp
@@ -2558,9 +2607,9 @@ components:
           description: "Email of the user who initiated the event (if any)."
           example: "alice@netbird.io"
         name:
-            type: string
-            description: "Name of the user who initiated the event (if any)."
-            example: "Alice Smith"
+          type: string
+          description: "Name of the user who initiated the event (if any)."
+          example: "Alice Smith"
       required:
         - id
         - email
@@ -2701,6 +2750,105 @@ components:
         - page_size
         - total_records
         - total_pages
+    ProxyAccessLog:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Unique identifier for the access log entry"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        service_id:
+          type: string
+          description: "ID of the service that handled the request"
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Timestamp when the request was made"
+          example: "2024-01-31T15:30:00Z"
+        method:
+          type: string
+          description: "HTTP method of the request"
+          example: "GET"
+        host:
+          type: string
+          description: "Host header of the request"
+          example: "example.com"
+        path:
+          type: string
+          description: "Path of the request"
+          example: "/api/users"
+        duration_ms:
+          type: integer
+          description: "Duration of the request in milliseconds"
+          example: 150
+        status_code:
+          type: integer
+          description: "HTTP status code returned"
+          example: 200
+        source_ip:
+          type: string
+          description: "Source IP address of the request"
+          example: "192.168.1.100"
+        reason:
+          type: string
+          description: "Reason for the request result (e.g., authentication failure)"
+          example: "Authentication failed"
+        user_id:
+          type: string
+          description: "ID of the authenticated user, if applicable"
+          example: "user-123"
+        auth_method_used:
+          type: string
+          description: "Authentication method used (e.g., password, pin, oidc)"
+          example: "oidc"
+        country_code:
+          type: string
+          description: "Country code from geolocation"
+          example: "US"
+        city_name:
+          type: string
+          description: "City name from geolocation"
+          example: "San Francisco"
+      required:
+        - id
+        - service_id
+        - timestamp
+        - method
+        - host
+        - path
+        - duration_ms
+        - status_code
+    ProxyAccessLogsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          description: List of proxy access log entries
+          items:
+            $ref: "#/components/schemas/ProxyAccessLog"
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        page_size:
+          type: integer
+          description: Number of items per page
+          example: 50
+        total_records:
+          type: integer
+          description: Total number of log records available
+          example: 523
+        total_pages:
+          type: integer
+          description: Total number of pages available
+          example: 11
+      required:
+        - data
+        - page
+        - page_size
+        - total_records
+        - total_pages
     IdentityProviderType:
       type: string
       description: Type of identity provider
@@ -2766,6 +2914,251 @@ components:
         - issuer
         - client_id
         - client_secret
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Service ID
+        name:
+          type: string
+          description: Service name
+        domain:
+          type: string
+          description: Domain for the service
+        proxy_cluster:
+          type: string
+          description: The proxy cluster handling this service (derived from domain)
+          example: "eu.proxy.netbird.io"
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+        meta:
+          $ref: '#/components/schemas/ServiceMeta'
+      required:
+        - id
+        - name
+        - domain
+        - targets
+        - enabled
+        - auth
+        - meta
+    ServiceMeta:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the service was created
+          example: "2024-02-03T10:30:00Z"
+        certificate_issued_at:
+          type: string
+          format: date-time
+          description: Timestamp when the certificate was issued (empty if not yet issued)
+          example: "2024-02-03T10:35:00Z"
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - tunnel_not_created
+            - certificate_pending
+            - certificate_failed
+            - error
+          description: Current status of the service
+          example: "active"
+      required:
+        - created_at
+        - status
+    ServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Service name
+        domain:
+          type: string
+          description: Domain for the service
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceTarget'
+          description: List of target backends for this service
+        enabled:
+          type: boolean
+          description: Whether the service is enabled
+          default: true
+        pass_host_header:
+          type: boolean
+          description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+        rewrite_redirects:
+          type: boolean
+          description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+        auth:
+          $ref: '#/components/schemas/ServiceAuthConfig'
+      required:
+        - name
+        - domain
+        - targets
+        - auth
+        - enabled
+    ServiceTarget:
+      type: object
+      properties:
+        target_id:
+          type: string
+          description: Target ID
+        target_type:
+          type: string
+          description: Target type (e.g., "peer", "resource")
+          enum: [peer, resource]
+        path:
+          type: string
+          description: URL path prefix for this target
+        protocol:
+          type: string
+          description: Protocol to use when connecting to the backend
+          enum: [http, https]
+        host:
+          type: string
+          description: Backend ip or domain for this target
+        port:
+          type: integer
+          description: Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+        enabled:
+          type: boolean
+          description: Whether this target is enabled
+      required:
+        - target_id
+        - target_type
+        - protocol
+        - port
+        - enabled
+    ServiceAuthConfig:
+      type: object
+      properties:
+        password_auth:
+          $ref: '#/components/schemas/PasswordAuthConfig'
+        pin_auth:
+          $ref: '#/components/schemas/PINAuthConfig'
+        bearer_auth:
+          $ref: '#/components/schemas/BearerAuthConfig'
+        link_auth:
+          $ref: '#/components/schemas/LinkAuthConfig'
+    PasswordAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether password auth is enabled
+        password:
+          type: string
+          description: Auth password
+      required:
+        - enabled
+        - password
+    PINAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether PIN auth is enabled
+        pin:
+          type: string
+          description: PIN value
+      required:
+        - enabled
+        - pin
+    BearerAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether bearer auth is enabled
+        distribution_groups:
+          type: array
+          items:
+            type: string
+          description: List of group IDs that can use bearer auth
+      required:
+        - enabled
+    LinkAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether link auth is enabled
+      required:
+        - enabled
+    ProxyCluster:
+      type: object
+      description: A proxy cluster represents a group of proxy nodes serving the same address
+      properties:
+        address:
+          type: string
+          description: Cluster address used for CNAME targets
+          example: "eu.proxy.netbird.io"
+        connected_proxies:
+          type: integer
+          description: Number of proxy nodes connected in this cluster
+          example: 3
+      required:
+        - address
+        - connected_proxies
+    ReverseProxyDomainType:
+      type: string
+      description: Type of Reverse Proxy Domain
+      enum:
+        - free
+        - custom
+      example: free
+    ReverseProxyDomain:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Domain ID
+        domain:
+          type: string
+          description: Domain name
+        validated:
+          type: boolean
+          description: Whether the domain has been validated
+        type:
+          $ref: '#/components/schemas/ReverseProxyDomainType'
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain is validated against (only for custom domains)
+      required:
+        - id
+        - domain
+        - validated
+        - type
+    ReverseProxyDomainRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Domain name
+        target_cluster:
+          type: string
+          description: The proxy cluster this domain should be validated against
+      required:
+        - domain
+        - target_cluster
     InstanceStatus:
       type: object
       description: Instance status information
@@ -2836,6 +3229,980 @@ components:
       required:
         - management_current_version
         - management_update_available
+    UsageStats:
+      type: object
+      properties:
+        active_users:
+          type: integer
+          format: int64
+          description: Number of active users.
+          example: 15
+        total_users:
+          type: integer
+          format: int64
+          description: Total number of users.
+          example: 20
+        active_peers:
+          type: integer
+          format: int64
+          description: Number of active peers.
+          example: 10
+        total_peers:
+          type: integer
+          format: int64
+          description: Total number of peers.
+          example: 25
+      required:
+        - active_users
+        - total_users
+        - active_peers
+        - total_peers
+    Product:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the product.
+          example: "Basic Plan"
+        description:
+          type: string
+          description: Detailed description of the product.
+          example: "This is the basic plan with limited features."
+        features:
+          type: array
+          description: List of features provided by the product.
+          items:
+            type: string
+          example: [ "5 free users", "Basic support" ]
+        prices:
+          type: array
+          description: List of prices for the product in different currencies
+          items:
+            $ref: "#/components/schemas/Price"
+        free:
+          type: boolean
+          description: Indicates whether the product is free or not.
+          example: false
+      required:
+        - name
+        - description
+        - features
+        - prices
+        - free
+    Price:
+      type: object
+      properties:
+        price_id:
+          type: string
+          description: Unique identifier for the price.
+          example: "price_H2KmRb4u1tP0sR7s"
+        currency:
+          type: string
+          description: Currency code for this price.
+          example: "USD"
+        price:
+          type: integer
+          description: Price amount in minor units (e.g., cents).
+          example: 1000
+        unit:
+          type: string
+          description: Unit of measurement for this price (e.g., per user).
+          example: "user"
+      required:
+        - price_id
+        - currency
+        - price
+        - unit
+    Subscription:
+      type: object
+      properties:
+        active:
+          type: boolean
+          description: Indicates whether the subscription is active or not.
+          example: true
+        plan_tier:
+          type: string
+          description: The tier of the plan for the subscription.
+          example: "basic"
+        price_id:
+          type: string
+          description: Unique identifier for the price of the subscription.
+          example: "price_1HhxOpBzq4JbCqRmJxkpzL2V"
+        remaining_trial:
+          type: integer
+          description: The remaining time for the trial period, in seconds.
+          example: 3600
+        features:
+          type: array
+          description: List of features included in the subscription.
+          items:
+            type: string
+          example: [ "free", "idp-sync", "audit-logs" ]
+        currency:
+          type: string
+          description: Currency code of the subscription.
+          example: "USD"
+        price:
+          type: integer
+          description: Price amount in minor units (e.g., cents).
+          example: 1000
+        provider:
+          type: string
+          description: The provider of the subscription.
+          example: [ "stripe", "aws" ]
+        updated_at:
+          type: string
+          format: date-time
+          description: The date and time when the subscription was last updated.
+          example: "2021-08-01T12:00:00Z"
+      required:
+        - active
+        - plan_tier
+        - price_id
+        - updated_at
+        - currency
+        - price
+        - provider
+    PortalResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: The unique identifier for the customer portal session.
+          example: "cps_test_123456789"
+        url:
+          type: string
+          description: URL to redirect the user to the customer portal.
+          example: "https://billing.stripe.com/session/a1b2c3d4e5f6g7h8i9j0k"
+      required:
+        - session_id
+        - url
+    CheckoutResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: The unique identifier for the checkout session.
+          example: "cs_test_a1b2c3d4e5f6g7h8i9j0"
+        url:
+          type: string
+          description: URL to redirect the user to the checkout session.
+          example: "https://checkout.stripe.com/pay/cs_test_a1b2c3d4e5f6g7h8i9j0"
+      required:
+        - session_id
+        - url
+    StripeWebhookEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          description: The type of event received from Stripe.
+          example: "customer.subscription.updated"
+        data:
+          type: object
+          description: The data associated with the event from Stripe.
+          example:
+            object:
+              id: "sub_123456789"
+              object: "subscription"
+              status: "active"
+              items:
+                object: "list"
+                data:
+                  - id: "si_123456789"
+                    object: "subscription_item"
+                    price:
+                      id: "price_1HhxOpBzq4JbCqRmJxkpzL2V"
+                      object: "price"
+                      unit_amount: 2000
+                      currency: "usd"
+              billing_cycle_anchor: 1609459200
+    InvoiceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The Stripe invoice id
+          example: "in_1MtHbELkdIwHu7ixl4OzzPMv"
+        type:
+          type: string
+          description: The invoice type
+          enum:
+            - account
+            - tenants
+        period_start:
+          type: string
+          format: date-time
+          description: The start date of the invoice period.
+          example: "2021-08-01T12:00:00Z"
+        period_end:
+          type: string
+          format: date-time
+          description: The end date of the invoice period.
+          example: "2021-08-31T12:00:00Z"
+      required:
+        - id
+        - type
+        - period_start
+        - period_end
+    InvoicePDFResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          description: URL to redirect the user to invoice.
+          example: "https://invoice.stripe.com/i/acct_1M2DaBKina4I2KUb/test_YWNjdF8xTTJEdVBLaW5hM0kyS1ViLF1SeFpQdEJZd3lUOGNEajNqeWdrdXY2RFM4aHcyCnpsLDEzMjg3GTgyNQ02000JoIHc1X?s=db"
+      required:
+        - url
+    CreateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name for the MSP tenant
+          example: "My new tenant"
+        domain:
+          type: string
+          description: The name for the MSP tenant
+          example: "tenant.com"
+        groups:
+          description: MSP users Groups that can access the Tenant and Roles to assume
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantGroupResponse"
+      required:
+        - name
+        - domain
+        - groups
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name for the MSP tenant
+          example: "My new tenant"
+        groups:
+          description: MSP users Groups that can access the Tenant and Roles to assume
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantGroupResponse"
+      required:
+        - name
+        - groups
+    GetTenantsResponse:
+      type: array
+      items:
+        $ref: "#/components/schemas/TenantResponse"
+    DNSChallengeResponse:
+      type: object
+      properties:
+        dns_challenge:
+          type: string
+          description: The DNS challenge to set in a TXT record
+          example: YXNkYSBkYXNhc2Rhc2RhIGFzZGFzZDJhc2QyNDUxNQ
+      required:
+        - dns_challenge
+    TenantGroupResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The Group ID
+          example: ch8i4ug6lnn4g9hqv7m0
+        role:
+          type: string
+          description: The Role name
+          example: "admin"
+      required:
+        - id
+        - role
+    TenantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The updated MSP tenant account ID
+          example: ch8i4ug6lnn4g9hqv7m0
+        name:
+          type: string
+          description: The name for the MSP tenant
+          example: "My new tenant"
+        domain:
+          type: string
+          description: The tenant account domain
+          example: "tenant.com"
+        groups:
+          description: MSP users Groups that can access the Tenant and Roles to assume
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantGroupResponse"
+        activated_at:
+          type: string
+          format: date-time
+          description: The date and time when the tenant was activated.
+          example: "2021-08-01T12:00:00Z"
+        dns_challenge:
+          type: string
+          description: The DNS challenge to set in a TXT record
+          example: YXNkYSBkYXNhc2Rhc2RhIGFzZGFzZDJhc2QyNDUxNQ
+        created_at:
+          type: string
+          format: date-time
+          description: The date and time when the tenant was created.
+          example: "2021-08-01T12:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: The date and time when the tenant was last updated.
+          example: "2021-08-01T12:00:00Z"
+        invited_at:
+          type: string
+          format: date-time
+          description: The date and time when the existing tenant was invited.
+          example: "2021-08-01T12:00:00Z"
+        status:
+          type: string
+          description: The status of the tenant
+          enum:
+            - existing
+            - invited
+            - pending
+            - active
+          example: "active"
+      required:
+        - id
+        - name
+        - domain
+        - groups
+        - created_at
+        - updated_at
+        - status
+        - dns_challenge
+    CreateIntegrationRequest:
+      type: object
+      description: "Request payload for creating a new event streaming integration. Also used as the structure for the PUT request body, but not all fields are applicable for updates (see PUT operation description)."
+      required:
+        - platform
+        - config
+        - enabled
+      properties:
+        platform:
+          type: string
+          description: The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
+          enum: [ "datadog", "s3", "firehose", "generic_http" ]
+          example: "s3"
+        config:
+          type: object
+          additionalProperties:
+            type: string
+          description: Platform-specific configuration as key-value pairs. For creation, all necessary credentials and settings must be provided. For updates, provide the fields to change or the entire new configuration.
+          example: { "bucket_name": "my-event-logs", "region": "us-east-1", "access_key_id": "AKIA...", "secret_access_key": "YOUR_SECRET_KEY" }
+        enabled:
+          type: boolean
+          description: "Specifies whether the integration is enabled. During creation (POST), this value is sent by the client, but the provided backend manager function `CreateIntegration` does not appear to use it directly, so its effect on creation should be verified. During updates (PUT), this field is used to enable or disable the integration."
+          example: true
+    IntegrationResponse:
+      type: object
+      description: Represents an event streaming integration.
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+          minimum: 0
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "acc_abcdef123456"
+        enabled:
+          type: boolean
+          description: Whether the integration is currently active.
+          example: true
+        platform:
+          type: string
+          description: The event streaming platform.
+          enum: [ "datadog", "s3", "firehose", "generic_http" ]
+          example: "datadog"
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        config:
+          type: object
+          additionalProperties:
+            type: string
+          description: Configuration for the integration. Sensitive keys (like API keys, secret keys) are masked with '****' in responses, as indicated by the GetIntegration handler logic.
+          example: { "api_key": "****", "site": "datadoghq.com", "region": "us-east-1" }
+    EDRIntuneRequest:
+      type: object
+      description: "Request payload for creating or updating a EDR Intune integration."
+      required:
+        - client_id
+        - tenant_id
+        - secret
+        - groups
+        - last_synced_interval
+      properties:
+        client_id:
+          type: string
+          description: The Azure application client id
+        tenant_id:
+          type: string
+          description: The Azure tenant id
+        secret:
+          type: string
+          description: The Azure application client secret
+        groups:
+          type: array
+          description: The Groups this integrations applies to
+          items:
+            type: string
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours. Minimum value is 24 hours.
+          minimum: 24
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+    EDRIntuneResponse:
+      type: object
+      description: Represents a Intune EDR integration configuration
+      required:
+        - id
+        - account_id
+        - created_by
+        - last_synced_at
+        - created_at
+        - updated_at
+        - client_id
+        - tenant_id
+        - groups
+        - last_synced_interval
+        - enabled
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+          minimum: 0
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "acc_abcdef123456"
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        client_id:
+          type: string
+          description: The Azure application client id
+          example: "acc_abcdef123456"
+        tenant_id:
+          type: string
+          description: The Azure tenant id
+          example: "acc_abcdef123456"
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours.
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+    EDRSentinelOneRequest:
+      type: object
+      description: Request payload for creating or updating a EDR SentinelOne integration
+      properties:
+        api_token:
+          type: string
+          description: SentinelOne API token
+        api_url:
+          type: string
+          description: The Base URL of SentinelOne API
+        groups:
+          type: array
+          description: The Groups this integrations applies to
+          items:
+            type: string
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours. Minimum value is 24 hours.
+          minimum: 24
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/SentinelOneMatchAttributes'
+      required:
+        - api_token
+        - api_url
+        - groups
+        - last_synced_interval
+        - match_attributes
+    EDRSentinelOneResponse:
+      type: object
+      description: Represents a SentinelOne EDR integration configuration
+      required:
+        - id
+        - account_id
+        - created_by
+        - last_synced_at
+        - created_at
+        - updated_at
+        - api_url
+        - groups
+        - last_synced_interval
+        - match_attributes
+        - enabled
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "ch8i4ug6lnn4g9hqv7l0"
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        api_url:
+          type: string
+          description: The Base URL of SentinelOne API
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours.
+        match_attributes:
+          $ref: '#/components/schemas/SentinelOneMatchAttributes'
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+    SentinelOneMatchAttributes:
+      type: object
+      description: Attribute conditions to match when approving agents
+      additionalProperties: false
+      properties:
+        active_threats:
+          description: The maximum allowed number of active threats on the agent
+          type: integer
+          example: 0
+        encrypted_applications:
+          description: Whether disk encryption is enabled on the agent
+          type: boolean
+        firewall_enabled:
+          description: Whether the agent firewall is enabled
+          type: boolean
+        infected:
+          description: Whether the agent is currently flagged as infected
+          type: boolean
+        is_active:
+          description: Whether the agent has been recently active and reporting
+          type: boolean
+        is_up_to_date:
+          description: Whether the agent is running the latest available version
+          type: boolean
+        network_status:
+          description: The current network connectivity status of the device
+          type: string
+          enum: [ "connected", "disconnected", "quarantined" ]
+        operational_state:
+          description: The current operational state of the agent
+          type: string
+
+    EDRFalconRequest:
+      type: object
+      description: Request payload for creating or updating a EDR Falcon integration
+      properties:
+        client_id:
+          type: string
+          description: CrowdStrike API client ID
+        secret:
+          type: string
+          description: CrowdStrike API client secret
+        cloud_id:
+          type: string
+          description: CrowdStrike cloud identifier (e.g., "us-1", "us-2", "eu-1")
+        groups:
+          type: array
+          description: The Groups this integration applies to
+          items:
+            type: string
+        zta_score_threshold:
+          type: integer
+          description: The minimum Zero Trust Assessment score required for agent approval (0-100)
+          minimum: 0
+          maximum: 100
+          example: 75
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+      required:
+        - client_id
+        - secret
+        - cloud_id
+        - groups
+        - zta_score_threshold
+    EDRFalconResponse:
+      type: object
+      description: Represents a Falcon EDR integration
+      required:
+        - id
+        - account_id
+        - last_synced_at
+        - created_by
+        - created_at
+        - updated_at
+        - cloud_id
+        - groups
+        - zta_score_threshold
+        - enabled
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "ch8i4ug6lnn4g9hqv7l0"
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        cloud_id:
+          type: string
+          description: CrowdStrike cloud identifier
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        zta_score_threshold:
+          type: integer
+          description: The minimum Zero Trust Assessment score required for agent approval (0-100)
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+
+    EDRHuntressRequest:
+      type: object
+      description: Request payload for creating or updating a EDR Huntress integration
+      properties:
+        api_key:
+          type: string
+          description: Huntress API key
+        api_secret:
+          type: string
+          description: Huntress API secret
+        groups:
+          type: array
+          description: The Groups this integrations applies to
+          items:
+            type: string
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours. Minimum value is 24 hours
+          minimum: 24
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/HuntressMatchAttributes'
+      required:
+        - api_key
+        - api_secret
+        - groups
+        - last_synced_interval
+        - match_attributes
+    EDRHuntressResponse:
+      type: object
+      description: Represents a Huntress EDR integration configuration
+      required:
+        - id
+        - account_id
+        - created_by
+        - last_synced_at
+        - created_at
+        - updated_at
+        - groups
+        - last_synced_interval
+        - match_attributes
+        - enabled
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "ch8i4ug6lnn4g9hqv7l0"
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours.
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/HuntressMatchAttributes'
+
+    HuntressMatchAttributes:
+      type: object
+      description: Attribute conditions to match when approving agents
+      additionalProperties: false
+      properties:
+        defender_policy_status:
+          type: string
+          description: Policy status of Defender AV for Managed Antivirus.
+          example: "Compliant"
+        defender_status:
+          type: string
+          description: Status of Defender AV Managed Antivirus.
+          example: "Healthy"
+        defender_substatus:
+          type: string
+          description: Sub-status of Defender AV Managed Antivirus.
+          example: "Up to date"
+        firewall_status:
+          type: string
+          description: Status of agent firewall. Can be one of Disabled, Enabled, Pending Isolation, Isolated, Pending Release.
+          example: "Enabled"
+
+    CreateScimIntegrationRequest:
+      type: object
+      description: Request payload for creating an SCIM IDP integration
+      required:
+        - prefix
+        - provider
+      properties:
+        prefix:
+          type: string
+          description: The connection prefix used for the SCIM provider
+        provider:
+          type: string
+          description: Name of the SCIM identity provider
+        group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups to sync
+          items:
+            type: string
+          example: [ "Engineering", "Sales" ]
+        user_group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups which users to sync
+          items:
+            type: string
+          example: [ "Users" ]
+    UpdateScimIntegrationRequest:
+      type: object
+      description: Request payload for updating an SCIM IDP integration
+      properties:
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          example: true
+        group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups to sync
+          items:
+            type: string
+          example: [ "Engineering", "Sales" ]
+        user_group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups which users to sync
+          items:
+            type: string
+          example: [ "Users" ]
+    ScimIntegration:
+      type: object
+      description: Represents a SCIM IDP integration
+      required:
+        - id
+        - enabled
+        - provider
+        - group_prefixes
+        - user_group_prefixes
+        - auth_token
+        - last_synced_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique identifier for the integration
+          example: 123
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          example: true
+        provider:
+          type: string
+          description: Name of the SCIM identity provider
+        group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups to sync
+          items:
+            type: string
+          example: [ "Engineering", "Sales" ]
+        user_group_prefixes:
+          type: array
+          description: List of start_with string patterns for groups which users to sync
+          items:
+            type: string
+          example: [ "Users" ]
+        auth_token:
+          type: string
+          description: SCIM API token (full on creation, masked otherwise)
+          example: "nbs_abc***********************************"
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced
+          example: "2023-05-15T10:30:00Z"
+    IdpIntegrationSyncLog:
+      type: object
+      description: Represents a synchronization log entry for an integration
+      required:
+        - id
+        - level
+        - timestamp
+        - message
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique identifier for the sync log
+          example: 123
+        level:
+          type: string
+          description: The log level
+          example: "info"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of when the log was created
+          example: "2023-05-15T10:30:00Z"
+        message:
+          type: string
+          description: Log message
+          example: "Successfully synchronized users and groups"
+    ScimTokenResponse:
+      type: object
+      description: Response containing the regenerated SCIM token
+      required:
+        - auth_token
+      properties:
+        auth_token:
+          type: string
+          description: The newly generated SCIM API token
+          example: "nbs_F3f0d..."
+    BypassResponse:
+      type: object
+      description: Response for bypassed peer operations.
+      required:
+        - peer_id
+      properties:
+        peer_id:
+          type: string
+          description: The ID of the bypassed peer.
+          example: "chacbco6lnnbn6cg5s91"
+    ErrorResponse:
+      type: object
+      description: "Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided."
+      properties:
+        message:
+          type: string
+          description: A human-readable error message.
+          example: "couldn't parse JSON request"
   responses:
     not_found:
       description: Resource not found
@@ -2894,8 +4261,8 @@ paths:
       description: Returns version information for NetBird components including the current management server version and latest available versions from GitHub.
       tags: [ Instance ]
       security:
-        - BearerAuth: []
-        - TokenAuth: []
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
       responses:
         '200':
           description: Version information
@@ -2942,8 +4309,8 @@ paths:
       description: Retrieve all jobs for a given peer
       tags: [ Jobs ]
       security:
-        - BearerAuth: []
-        - TokenAuth: []
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
       parameters:
         - in: path
           name: peerId
@@ -2973,8 +4340,8 @@ paths:
       description: Create a new job for a given peer
       tags: [ Jobs ]
       security:
-        - BearerAuth: []
-        - TokenAuth: []
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
       parameters:
         - in: path
           name: peerId
@@ -3010,8 +4377,8 @@ paths:
       description: Retrieve details of a specific job
       tags: [ Jobs ]
       security:
-        - BearerAuth: []
-        - TokenAuth: []
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
       parameters:
         - in: path
           name: peerId
@@ -3401,7 +4768,7 @@ paths:
       responses:
         '200':
           description: Invite status code
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -3458,7 +4825,7 @@ paths:
       responses:
         '200':
           description: User rejected successfully
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -3492,7 +4859,7 @@ paths:
       responses:
         '200':
           description: Password changed successfully
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -3670,7 +5037,7 @@ paths:
       summary: Get invite information
       description: Retrieves public information about an invite. This endpoint is unauthenticated and protected by the token itself.
       tags: [ Users ]
-      security: []
+      security: [ ]
       parameters:
         - in: path
           name: token
@@ -3697,7 +5064,7 @@ paths:
       summary: Accept an invite
       description: Accepts an invite and creates the user with the provided password. This endpoint is unauthenticated and protected by the token itself.
       tags: [ Users ]
-      security: []
+      security: [ ]
       parameters:
         - in: path
           name: token
@@ -5971,21 +7338,21 @@ paths:
           required: false
           schema:
             type: string
-            enum: [TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP]
+            enum: [ TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP ]
         - name: connection_type
           in: query
           description: Filter by connection type
           required: false
           schema:
             type: string
-            enum: [P2P, ROUTED]
+            enum: [ P2P, ROUTED ]
         - name: direction
           in: query
           description: Filter by direction
           required: false
           schema:
             type: string
-            enum: [INGRESS, EGRESS, DIRECTION_UNKNOWN]
+            enum: [ INGRESS, EGRESS, DIRECTION_UNKNOWN ]
         - name: search
           in: query
           description: Case-insensitive partial match on user email, source/destination names, and source/destination addresses
@@ -6015,6 +7382,120 @@ paths:
                 $ref: "#/components/schemas/NetworkTrafficEventsResponse"
         '400':
           "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/events/proxy:
+    get:
+      summary: List all Reverse Proxy Access Logs
+      description: Returns a paginated list of all reverse proxy access log entries
+      tags: [ Events ]
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number for pagination (1-indexed)
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of items per page (max 100)
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, url, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason]
+            default: timestamp
+          description: Field to sort by (url sorts by host then path)
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order (ascending or descending)
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: General search across request ID, host, path, source IP, user email, and user name
+        - in: query
+          name: source_ip
+          schema:
+            type: string
+          description: Filter by source IP address
+        - in: query
+          name: host
+          schema:
+            type: string
+          description: Filter by host header
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Filter by request path (supports partial matching)
+        - in: query
+          name: user_id
+          schema:
+            type: string
+          description: Filter by authenticated user ID
+        - in: query
+          name: user_email
+          schema:
+            type: string
+          description: Filter by user email (partial matching)
+        - in: query
+          name: user_name
+          schema:
+            type: string
+          description: Filter by user name (partial matching)
+        - in: query
+          name: method
+          schema:
+            type: string
+            enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+          description: Filter by HTTP method
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [success, failed]
+          description: Filter by status (success = 2xx/3xx, failed = 1xx/4xx/5xx)
+        - in: query
+          name: status_code
+          schema:
+            type: integer
+            minimum: 100
+            maximum: 599
+          description: Filter by HTTP status code
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format)
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format)
+      responses:
+        "200":
+          description: Paginated list of reverse proxy access logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyAccessLogsResponse"
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':
@@ -6354,5 +7835,2020 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/integrations/billing/usage:
+    get:
+      summary: Get current usage
+      tags:
+        - Usage
+      responses:
+        "200":
+          description: Current usage data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageStats"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/subscription:
+    get:
+      summary: Get current subscription
+      tags:
+        - Subscription
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: No subscription found
+        "500":
+          $ref: "#/components/responses/internal_error"
+    put:
+      summary: Change subscription
+      tags:
+        - Subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priceID:
+                  type: string
+                  description: The Price ID to change the subscription to.
+                  example: "price_1HhxOpBzq4JbCqRmJxkpzL2V"
+                plan_tier:
+                  type: string
+                  description: The plan tier to change the subscription to.
+                  example: business
+      responses:
+        "200":
+          description: Subscription successfully changed
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/plans:
+    get:
+      summary: Get available plans
+      tags:
+        - Plans
+      responses:
+        "200":
+          description: List of available plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/checkout:
+    post:
+      summary: Create checkout session
+      tags:
+        - Checkout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                baseURL:
+                  type: string
+                  description: The base URL for the redirect after checkout.
+                  example: "https://app.netbird.io/plans/success"
+                priceID:
+                  type: string
+                  description: The Price ID for checkout.
+                  example: "price_1HhxOpBzq4JbCqRmJxkpzL2V"
+                enableTrial:
+                  type: boolean
+                  description: Enables a 14-day trial for the account.
+              required:
+                - baseURL
+                - priceID
+      responses:
+        "200":
+          description: Checkout session URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/portal:
+    get:
+      summary: Get customer portal URL
+      tags:
+        - Portal
+      parameters:
+        - in: query
+          name: baseURL
+          schema:
+            type: string
+          required: true
+          description: The base URL for the redirect after accessing the portal.
+          example: "https://app.netbird.io/plans"
+      responses:
+        "200":
+          description: Customer portal URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/invoices:
+    get:
+      summary: Get account's paid invoices
+      tags:
+        - Invoice
+      responses:
+        "200":
+          description: The account's paid invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InvoiceResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/invoices/{id}/pdf:
+    get:
+      summary: Get account invoice URL to Stripe.
+      tags:
+        - Invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of the invoice
+      responses:
+        "200":
+          description: The invoice URL to Stripe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoicePDFResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/invoices/{id}/csv:
+    get:
+      summary: Get account invoice CSV.
+      tags:
+        - Invoice
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of the invoice
+      responses:
+        "200":
+          description: The invoice CSV
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename=in_1MtHbELkdIwHu7ixl4OzzPMv.csv
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                description,qty,unit_price,amount
+                line item 2, 5, 1.00, 5.00
+                line item 1, 10, 0.50, 5.00
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/aws/marketplace/activate:
+    post:
+      summary: Activate AWS Marketplace subscription.
+      tags:
+        - AWS Marketplace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plan_tier:
+                  type: string
+                  description: The plan tier to activate the subscription for.
+                  example: business
+              required:
+                - plan_tier
+      responses:
+        "200":
+          description: AWS subscription successfully activated
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/billing/aws/marketplace/enrich:
+    post:
+      summary: Enrich AWS Marketplace subscription with Account ID.
+      tags:
+        - AWS Marketplace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                aws_user_id:
+                  type: string
+                  description: The AWS user ID.
+                  example: eRF345hgdgFyu
+              required:
+                - aws_user_id
+      responses:
+        "200":
+          description: AWS subscription successfully enriched with Account ID.
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/tenants:
+    get:
+      summary: Get MSP tenants
+      tags:
+        - MSP
+      responses:
+        "200":
+          description: Get MSP tenants response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetTenantsResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    post:
+      summary: Create MSP tenant
+      tags:
+        - MSP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "200":
+          description: Create MSP tenant Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/tenants/{id}:
+    put:
+      summary: Update MSP tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantRequest"
+      responses:
+        "200":
+          description: Update MSP tenant Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/tenants/{id}/unlink:
+    post:
+      summary: Unlink a tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner:
+                  type: string
+                  description: The new owners user ID.
+                  example: "google-oauth2|123456789012345678901"
+              required:
+                - owner
+      responses:
+        "200":
+          description: Successfully unlinked the tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/tenants/{id}/dns:
+    post:
+      summary: Verify a tenant domain DNS challenge
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      responses:
+        "200":
+          description: Successfully verified the DNS challenge
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+        "501":
+          description: DNS Challenge Failed Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DNSChallengeResponse"
+  /api/integrations/msp/tenants/{id}/subscription:
+    post:
+      summary: Create subscription for Tenant
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a tenant account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priceID:
+                  type: string
+                  description: The Price ID to change the subscription to.
+                  example: "price_1HhxOpBzq4JbCqRmJxkpzL2V"
+              required:
+                - priceID
+      responses:
+        "200":
+          description: Successfully created subscription for Tenant
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/tenants/{id}/invite:
+    post:
+      summary: Invite existing account as a Tenant to the MSP account
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an existing tenant account
+      responses:
+        "200":
+          description: Successfully invited existing Tenant to the MSP account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+    put:
+      summary: Response by the invited Tenant account owner
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of an existing tenant account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  type: string
+                  description: Accept or decline the invitation.
+                  enum:
+                    - accept
+                    - decline
+              required:
+                - value
+      responses:
+        "200":
+          description: Successful response
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "403":
+          $ref: "#/components/responses/requires_authentication"
+        "404":
+          description: The tenant was not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/edr/intune:
+    post:
+      tags:
+        - EDR Intune Integrations
+      summary: Create EDR Intune Integration
+      description: |
+        Creates a new EDR Intune integration for the authenticated account.
+      operationId: createEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRIntuneRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRIntuneResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR Intune Integrations
+      summary: Get EDR Intune Integration
+      description: Retrieves a specific EDR Intune integration by its ID.
+      operationId: getEDRIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details. Config keys are masked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRIntuneResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR Intune Integrations
+      summary: Update EDR Intune Integration
+      description: |
+        Updates an existing EDR Intune Integration. The request body structure is `EDRIntuneRequest`.
+      operationId: updateEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRIntuneRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRIntuneResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR Intune Integrations
+      summary: Delete EDR Intune Integration
+      description: Deletes an EDR Intune Integration by its ID.
+      operationId: deleteIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/edr/sentinelone:
+    post:
+      tags:
+        - EDR SentinelOne Integrations
+      summary: Create EDR SentinelOne Integration
+      description: Creates a new EDR SentinelOne integration
+      operationId: createSentinelOneEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRSentinelOneRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRSentinelOneResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR SentinelOne Integrations
+      summary: Get EDR SentinelOne Integration
+      description: Retrieves a specific EDR SentinelOne integration by its ID.
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRSentinelOneResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR SentinelOne Integrations
+      summary: Update EDR SentinelOne Integration
+      description: Updates an existing EDR SentinelOne Integration.
+      operationId: updateSentinelOneEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRSentinelOneRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRSentinelOneResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR SentinelOne Integrations
+      summary: Delete EDR SentinelOne Integration
+      description: Deletes an EDR SentinelOne Integration by its ID.
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/integrations/edr/falcon:
+    post:
+      tags:
+        - EDR Falcon Integrations
+      summary: Create EDR Falcon Integration
+      description: Creates a new EDR Falcon integration
+      operationId: createFalconEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFalconRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFalconResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR Falcon Integrations
+      summary: Get EDR Falcon Integration
+      description: Retrieves a specific EDR Falcon integration by its ID.
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFalconResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR Falcon Integrations
+      summary: Update EDR Falcon Integration
+      description: Updates an existing EDR Falcon Integration.
+      operationId: updateFalconEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFalconRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFalconResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR Falcon Integrations
+      summary: Delete EDR Falcon Integration
+      description: Deletes an existing EDR Falcon Integration by its ID.
+      responses:
+        '202':
+          description: Integration deleted successfully. Typically returns no content.
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/integrations/scim-idp:
+    post:
+      tags:
+        - IDP
+      summary: Create SCIM IDP Integration
+      description: Creates a new SCIM integration
+      operationId: createSCIMIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScimIntegrationRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - IDP
+      summary: Get All SCIM IDP Integrations
+      description: Retrieves all SCIM IDP integrations for the authenticated account
+      operationId: getAllSCIMIntegrations
+      responses:
+        '200':
+          description: A list of SCIM IDP integrations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScimIntegration'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/scim-idp/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the SCIM IDP integration.
+        schema:
+          type: string
+          example: "ch8i4ug6lnn4g9hqv7m0"
+    get:
+      tags:
+        - IDP
+      summary: Get SCIM IDP Integration
+      description: Retrieves an SCIM IDP integration by ID.
+      operationId: getSCIMIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - IDP
+      summary: Update SCIM IDP Integration
+      description: Updates an existing SCIM IDP Integration.
+      operationId: updateSCIMIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScimIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - IDP
+      summary: Delete SCIM IDP Integration
+      description: Deletes an SCIM IDP integration by ID.
+      operationId: deleteSCIMIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/scim-idp/{id}/token:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the SCIM IDP integration.
+        schema:
+          type: string
+          example: "ch8i4ug6lnn4g9hqv7m0"
+    post:
+      tags:
+        - IDP
+      summary: Regenerate SCIM Token
+      description: Regenerates the SCIM API token for an SCIM IDP integration.
+      operationId: regenerateSCIMToken
+      responses:
+        '200':
+          description: Token regenerated successfully. Returns the new token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScimTokenResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/scim-idp/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the SCIM IDP integration.
+        schema:
+          type: string
+          example: "ch8i4ug6lnn4g9hqv7m0"
+    get:
+      tags:
+        - IDP
+      summary: Get SCIM Integration Sync Logs
+      description: Retrieves synchronization logs for a SCIM IDP integration.
+      operationId: getSCIMIntegrationLogs
+      responses:
+        '200':
+          description: Successfully retrieved the integration sync logs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdpIntegrationSyncLog'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/integrations/edr/huntress:
+    post:
+      tags:
+        - EDR Huntress Integrations
+      summary: Create EDR Huntress Integration
+      description: Creates a new EDR Huntress integration
+      operationId: createHuntressEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRHuntressRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRHuntressResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR Huntress Integrations
+      summary: Get EDR Huntress Integration
+      description: Retrieves a specific EDR Huntress integration by its ID.
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRHuntressResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR Huntress Integrations
+      summary: Update EDR Huntress Integration
+      description: Updates an existing EDR Huntress Integration.
+      operationId: updateHuntressEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRHuntressRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRHuntressResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR Huntress Integrations
+      summary: Delete EDR Huntress Integration
+      description: Deletes an EDR Huntress Integration by its ID.
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/peers/{peer-id}/edr/bypass:
+    parameters:
+      - name: peer-id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The unique identifier of the peer
+    post:
+      tags:
+        - EDR Peers
+      summary: Bypass compliance for a non-compliant peer
+      description: |
+        Allows an admin to bypass EDR compliance checks for a specific peer.
+        The peer will remain bypassed until the admin revokes it OR the device becomes
+        naturally compliant in the EDR system.
+      operationId: bypassCompliance
+      responses:
+        '200':
+          description: Peer compliance bypassed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BypassResponse'
+        '400':
+          description: Bad Request (peer not in non-compliant state)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR Peers
+      summary: Revoke compliance bypass for a peer
+      description: Removes the compliance bypass, subjecting the peer to normal EDR validation.
+      operationId: revokeBypass
+      responses:
+        '200':
+          description: Compliance bypass revoked successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/peers/edr/bypassed:
+    get:
+      tags:
+        - EDR Peers
+      summary: List all bypassed peers
+      description: Returns all peers that have compliance bypassed by an admin.
+      operationId: listBypassedPeers
+      responses:
+        '200':
+          description: List of bypassed peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BypassResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/event-streaming:
+    post:
+      tags:
+        - Event Streaming Integrations
+      summary: Create Event Streaming Integration
+      description: |
+        Creates a new event streaming integration for the authenticated account.
+        The request body should conform to `CreateIntegrationRequest`.
+        Note: Based on the provided Go code, the `enabled` field from the request is part of the `CreateIntegrationRequest` struct,
+        but the backend `manager.CreateIntegration` function signature shown does not directly use this `enabled` field.
+        The actual behavior for `enabled` during creation should be confirmed (e.g., it might have a server-side default or be handled by other logic).
+      operationId: createIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - Event Streaming Integrations
+      summary: List Event Streaming Integrations
+      description: Retrieves all event streaming integrations for the authenticated account.
+      operationId: getAllIntegrations
+      responses:
+        '200':
+          description: A list of event streaming integrations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IntegrationResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/event-streaming/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique numeric identifier of the event streaming integration.
+        schema:
+          type: integer
+          example: 123
+    get:
+      tags:
+        - Event Streaming Integrations
+      summary: Get Event Streaming Integration
+      description: Retrieves a specific event streaming integration by its ID.
+      operationId: getIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details. Config keys are masked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - Event Streaming Integrations
+      summary: Update Event Streaming Integration
+      description: |
+        Updates an existing event streaming integration. The request body structure is `CreateIntegrationRequest`.
+        However, for updates:
+        - The `platform` field, if provided in the body, is ignored by the backend manager function, as the platform of an existing integration is typically immutable.
+        - The `enabled` and `config` fields from the request body are used to update the integration.
+      operationId: updateIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Event Streaming Integrations
+      summary: Delete Event Streaming Integration
+      description: Deletes an event streaming integration by its ID.
+      operationId: deleteIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/reverse-proxies/services:
+    get:
+      summary: List all Services
+      description: Returns a list of all reverse proxy services
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Service
+      description: Creates a new reverse proxy service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: New service request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/clusters:
+    get:
+      summary: List available proxy clusters
+      description: Returns a list of available proxy clusters with their connection status
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of proxy clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProxyCluster'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/services/{serviceId}:
+    get:
+      summary: Retrieve a Service
+      description: Get information about a specific reverse proxy service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: A service object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a Service
+      description: Update an existing service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      requestBody:
+        description: Service update request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequest'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Service
+      description: Delete an existing service
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serviceId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a service
+      responses:
+        '200':
+          description: Service deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains:
+    get:
+      summary: Retrieve Service Domains
+      description: Get information about domains that can be used for service endpoints.
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of ReverseProxyDomains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReverseProxyDomain'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Custom domain
+      description: Create a new Custom domain for use with service endpoints, this will trigger an initial validation check
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        description: Custom domain creation request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseProxyDomainRequest'
+      responses:
+        '200':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains/{domainId}:
+    delete:
+      summary: Delete a Custom domain
+      description: Delete an existing service custom domain
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '204':
+          description: Service custom domain deleted
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/domains/{domainId}/validate:
+    get:
+      summary: Validate a custom domain
+      description: Trigger domain ownership validation for a custom domain
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: domainId
+          required: true
+          schema:
+            type: string
+          description: The custom domain ID
+      responses:
+        '202':
+          description: Reverse proxy custom domain validation triggered
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"

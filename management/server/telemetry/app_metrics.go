@@ -122,6 +122,7 @@ type defaultAppMetrics struct {
 	Meter                 metric2.Meter
 	listener              net.Listener
 	ctx                   context.Context
+	externallyManaged     bool
 	idpMetrics            *IDPMetrics
 	httpMiddleware        *HTTPMiddleware
 	grpcMetrics           *GRPCMetrics
@@ -171,6 +172,9 @@ func (appMetrics *defaultAppMetrics) Close() error {
 // Expose metrics on a given port and endpoint. If endpoint is empty a defaultEndpoint one will be used.
 // Exposes metrics in the Prometheus format https://prometheus.io/
 func (appMetrics *defaultAppMetrics) Expose(ctx context.Context, port int, endpoint string) error {
+	if appMetrics.externallyManaged {
+		return nil
+	}
 	if endpoint == "" {
 		endpoint = defaultEndpoint
 	}
@@ -244,6 +248,52 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 	return &defaultAppMetrics{
 		Meter:                 meter,
 		ctx:                   ctx,
+		idpMetrics:            idpMetrics,
+		httpMiddleware:        middleware,
+		grpcMetrics:           grpcMetrics,
+		storeMetrics:          storeMetrics,
+		updateChannelMetrics:  updateChannelMetrics,
+		accountManagerMetrics: accountManagerMetrics,
+	}, nil
+}
+
+// NewAppMetricsWithMeter creates AppMetrics using an externally provided meter.
+// The caller is responsible for exposing metrics via HTTP. Expose() and Close() are no-ops.
+func NewAppMetricsWithMeter(ctx context.Context, meter metric2.Meter) (AppMetrics, error) {
+	idpMetrics, err := NewIDPMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize IDP metrics: %w", err)
+	}
+
+	middleware, err := NewMetricsMiddleware(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize HTTP middleware metrics: %w", err)
+	}
+
+	grpcMetrics, err := NewGRPCMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize gRPC metrics: %w", err)
+	}
+
+	storeMetrics, err := NewStoreMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize store metrics: %w", err)
+	}
+
+	updateChannelMetrics, err := NewUpdateChannelMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize update channel metrics: %w", err)
+	}
+
+	accountManagerMetrics, err := NewAccountManagerMetrics(ctx, meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
+	}
+
+	return &defaultAppMetrics{
+		Meter:                 meter,
+		ctx:                   ctx,
+		externallyManaged:     true,
 		idpMetrics:            idpMetrics,
 		httpMiddleware:        middleware,
 		grpcMetrics:           grpcMetrics,
