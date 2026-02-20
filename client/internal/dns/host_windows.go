@@ -277,7 +277,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		}
 	}
 
-	log.Infof("added %d NRPT rules for %d domains. Domain list: %v", ruleIndex, len(domains), domains)
+	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
 	return ruleIndex, nil
 }
 
