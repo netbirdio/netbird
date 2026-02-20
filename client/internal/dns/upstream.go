@@ -303,7 +303,7 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
-		u.disableLocked(errors.ErrorOrNil())
+		u.disable(errors.ErrorOrNil())
 
 		if u.statusRecorder == nil {
 			return
@@ -379,12 +379,6 @@ func isTimeout(err error) bool {
 }
 
 func (u *upstreamResolverBase) disable(err error) {
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
-	u.disableLocked(err)
-}
-
-func (u *upstreamResolverBase) disableLocked(err error) {
 	if u.disabled {
 		return
 	}
