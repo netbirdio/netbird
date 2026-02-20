@@ -86,7 +86,7 @@ require (
 	github.com/pires/go-proxyproto v0.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.23.2
-	github.com/quic-go/quic-go v0.55.0
+	github.com/quic-go/quic-go v0.57.0
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v3 v3.24.4
