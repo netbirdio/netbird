@@ -44,6 +44,34 @@ func init() {
 	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use, only 'http' is supported (e.g. --protocol http)")
 }
 
+func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
+	port, err := strconv.ParseUint(portStr, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid port number: %s", portStr)
+	}
+	if port == 0 || port > 65535 {
+		return 0, fmt.Errorf("invalid port number: must be between 1 and 65535")
+	}
+
+	if exposeProtocol != "http" {
+		return 0, fmt.Errorf("unsupported protocol %q: only 'http' is supported", exposeProtocol)
+	}
+
+	if exposePin != "" && !pinRegexp.MatchString(exposePin) {
+		return 0, fmt.Errorf("invalid pin: must be exactly 6 digits")
+	}
+
+	if cmd.Flags().Changed("with-password") && exposePassword == "" {
+		return 0, fmt.Errorf("password cannot be empty")
+	}
+
+	if cmd.Flags().Changed("with-user-groups") && len(exposeUserGroups) == 0 {
+		return 0, fmt.Errorf("user groups cannot be empty")
+	}
+
+	return port, nil
+}
+
 func exposeFn(cmd *cobra.Command, args []string) error {
 	SetFlagsFromEnvVars(rootCmd)
 
@@ -54,28 +82,9 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 
 	cmd.Root().SilenceUsage = false
 
-	port, err := strconv.ParseUint(args[0], 10, 32)
+	port, err := validateExposeFlags(cmd, args[0])
 	if err != nil {
-		return fmt.Errorf("invalid port number: %s", args[0])
-	}
-	if port == 0 || port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
-	}
-
-	if exposeProtocol != "http" {
-		return fmt.Errorf("unsupported protocol %q: only 'http' is supported", exposeProtocol)
-	}
-
-	if exposePin != "" && !pinRegexp.MatchString(exposePin) {
-		return fmt.Errorf("invalid pin: must be exactly 6 digits")
-	}
-
-	if cmd.Flags().Changed("with-password") && exposePassword == "" {
-		return fmt.Errorf("password cannot be empty")
-	}
-
-	if cmd.Flags().Changed("with-user-groups") && len(exposeUserGroups) == 0 {
-		return fmt.Errorf("user groups cannot be empty")
+		return err
 	}
 
 	cmd.Root().SilenceUsage = true
@@ -102,7 +111,7 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	req := &proto.ExposeServiceRequest{
+	stream, err := client.ExposeService(ctx, &proto.ExposeServiceRequest{
 		Port:       uint32(port),
 		Protocol:   proto.ExposeProtocol_EXPOSE_HTTP,
 		Pin:        exposePin,
@@ -110,13 +119,19 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 		UserGroups: exposeUserGroups,
 		Domain:     exposeDomain,
 		NamePrefix: exposeNamePrefix,
-	}
-
-	stream, err := client.ExposeService(ctx, req)
+	})
 	if err != nil {
 		return fmt.Errorf("expose service: %w", err)
 	}
 
+	if err := handleExposeReady(cmd, stream, port); err != nil {
+		return err
+	}
+
+	return waitForExposeEvents(cmd, ctx, stream)
+}
+
+func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServiceClient, port uint64) error {
 	event, err := stream.Recv()
 	if err != nil {
 		return fmt.Errorf("receive expose event: %w", err)
@@ -132,6 +147,7 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 		cmd.Printf("  Port:     %d\n", port)
 		cmd.Println()
 		cmd.Println("Press Ctrl+C to stop exposing.")
+		return nil
 	case *proto.ExposeServiceEvent_Error:
 		return fmt.Errorf("expose failed: %s", e.Error.Message)
 	case *proto.ExposeServiceEvent_Stopped:
@@ -139,12 +155,15 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("unexpected expose event: %T", event.Event)
 	}
+}
 
+func waitForExposeEvents(cmd *cobra.Command, ctx context.Context, stream proto.DaemonService_ExposeServiceClient) error {
 	for {
 		event, err := stream.Recv()
 		if err != nil {
 			if ctx.Err() != nil {
 				cmd.Println("\nService stopped.")
+				//nolint:nilerr
 				return nil
 			}
 			return err
