@@ -2114,7 +2114,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 			s.Meta.CreatedAt = createdAt.Time
 		}
 		if certIssuedAt.Valid {
-			s.Meta.CertificateIssuedAt = certIssuedAt.Time
+			t := certIssuedAt.Time
+			s.Meta.CertificateIssuedAt = &t
 		}
 		if status.Valid {
 			s.Meta.Status = status.String

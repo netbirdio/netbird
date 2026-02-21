@@ -421,7 +421,8 @@ func (m *managerImpl) SetCertificateIssuedAt(ctx context.Context, accountID, ser
 			return fmt.Errorf("failed to get service: %w", err)
 		}
 
-		service.Meta.CertificateIssuedAt = time.Now()
+		now := time.Now()
+		service.Meta.CertificateIssuedAt = &now
 
 		if err = transaction.UpdateService(ctx, service); err != nil {
 			return fmt.Errorf("failed to update service certificate timestamp: %w", err)

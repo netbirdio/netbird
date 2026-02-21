@@ -120,7 +120,7 @@ type OIDCValidationConfig struct {
 
 type ServiceMeta struct {
 	CreatedAt           time.Time
-	CertificateIssuedAt time.Time
+	CertificateIssuedAt *time.Time
 	Status              string
 	LastRenewedAt       *time.Time
 }
@@ -216,8 +216,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Status:    api.ServiceMetaStatus(s.Meta.Status),
 	}
 
-	if !s.Meta.CertificateIssuedAt.IsZero() {
-		meta.CertificateIssuedAt = &s.Meta.CertificateIssuedAt
+	if s.Meta.CertificateIssuedAt != nil {
+		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
 	}
 
 	resp := &api.Service{

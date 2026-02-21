@@ -366,7 +366,7 @@ func TestPreserveServiceMetadata(t *testing.T) {
 
 	existing := &reverseproxy.Service{
 		Meta: reverseproxy.ServiceMeta{
-			CertificateIssuedAt: time.Now(),
+			CertificateIssuedAt: func() *time.Time { t := time.Now(); return &t }(),
 			Status:              "active",
 		},
 		SessionPrivateKey: "private-key",
