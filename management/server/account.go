@@ -376,6 +376,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -490,6 +491,21 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 			"version": newSettings.AutoUpdateVersion,
 		})
 	}
+}
+
+func (am *DefaultAccountManager) handlePeerExposeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	oldEnabled := oldSettings.Extra != nil && oldSettings.Extra.PeerExposeEnabled
+	newEnabled := newSettings.Extra != nil && newSettings.Extra.PeerExposeEnabled
+
+	if oldEnabled == newEnabled {
+		return
+	}
+
+	event := activity.AccountPeerExposeEnabled
+	if !newEnabled {
+		event = activity.AccountPeerExposeDisabled
+	}
+	am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
