@@ -771,7 +771,7 @@ func TestValidateExposePermission(t *testing.T) {
 	t.Run("disallowed when no groups configured", func(t *testing.T) {
 		mgr, testStore := setupIntegrationTest(t)
 
-		// Enable expose but with empty groups (allow all)
+		// Enable expose with empty groups — no groups configured means no peer is allowed
 		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
 		require.NoError(t, err)
 		s.Extra.PeerExposeGroups = []string{}

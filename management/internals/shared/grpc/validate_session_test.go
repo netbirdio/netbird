@@ -318,5 +318,3 @@ type testValidateSessionUsersManager struct {
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 }
-
-//nbx_V0roAjwD71s3SMxY1C1qaZTmxhsXtn3V7r3Z

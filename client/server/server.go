@@ -1389,7 +1389,10 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := mgmClient.RenewExpose(mgmCtx, resp.Domain); err != nil {
+			renewCtx, renewCancel := context.WithTimeout(mgmCtx, 10*time.Second)
+			err := mgmClient.RenewExpose(renewCtx, resp.Domain)
+			renewCancel()
+			if err != nil {
 				_ = srv.Send(&proto.ExposeServiceEvent{
 					Event: &proto.ExposeServiceEvent_Stopped{
 						Stopped: &proto.ExposeServiceStopped{Reason: "renewal failed: " + err.Error()},

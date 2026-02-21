@@ -52,6 +52,9 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid port number: %s", args[0])
 	}
+	if port == 0 || port > 65535 {
+		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+	}
 
 	if exposeProtocol != "http" {
 		return fmt.Errorf("unsupported protocol %q: only 'http' is supported", exposeProtocol)
@@ -113,6 +116,8 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("expose failed: %s", e.Error.Message)
 	case *proto.ExposeServiceEvent_Stopped:
 		return fmt.Errorf("expose stopped: %s", e.Stopped.Reason)
+	default:
+		return fmt.Errorf("unexpected expose event: %T", event.Event)
 	}
 
 	for {
@@ -131,6 +136,8 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 			return nil
 		case *proto.ExposeServiceEvent_Error:
 			return fmt.Errorf("expose error: %s", e.Error.Message)
+		default:
+			log.Debugf("unexpected expose event: %T", event.Event)
 		}
 	}
 }

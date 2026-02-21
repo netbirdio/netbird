@@ -69,16 +69,22 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, status.Errorf(codes.PermissionDenied, "permission denied")
 	}
 
-	if s.countPeerExposes(peer.ID) >= maxExposesPerPeer {
-		return nil, status.Errorf(codes.ResourceExhausted, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
-	}
-
 	serviceName, err := reverseproxy.GenerateExposeName(exposeReq.NamePrefix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "generate service name: %v", err)
 	}
 
 	service := reverseproxy.FromExposeRequest(exposeReq, accountID, peer.ID, serviceName)
+
+	// Serialize the count check to prevent concurrent CreateExpose calls from
+	// exceeding maxExposesPerPeer. The lock is held only for the check; the
+	// actual service creation happens outside the lock.
+	s.exposeCreateMu.Lock()
+	if s.countPeerExposes(peer.ID) >= maxExposesPerPeer {
+		s.exposeCreateMu.Unlock()
+		return nil, status.Errorf(codes.ResourceExhausted, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
+	}
+	s.exposeCreateMu.Unlock()
 
 	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, service)
 	if err != nil {
@@ -216,12 +222,12 @@ func (s *Server) authenticateExposePeer(ctx context.Context, peerKey wgtypes.Key
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
 			return "", nil, status.Errorf(codes.PermissionDenied, "peer is not registered")
 		}
-		return "", nil, err
+		return "", nil, status.Errorf(codes.Internal, "lookup account for peer")
 	}
 
 	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
-		return "", nil, status.Errorf(codes.Unauthenticated, "peer is not registered")
+		return "", nil, status.Errorf(codes.PermissionDenied, "peer is not registered")
 	}
 
 	return accountID, peer, nil
