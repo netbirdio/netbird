@@ -32,17 +32,16 @@ var exposeCmd = &cobra.Command{
 	Short:   "Expose a local port via the NetBird reverse proxy",
 	Args:    cobra.ExactArgs(1),
 	Example: "netbird expose --with-password safe-pass 8080",
-
-	RunE: exposeFn,
+	RunE:    exposeFn,
 }
 
 func init() {
-	exposeCmd.Flags().StringVar(&exposePin, "with-pin", "", "Protect the exposed service with a PIN")
-	exposeCmd.Flags().StringVar(&exposePassword, "with-password", "", "Protect the exposed service with a password")
-	exposeCmd.Flags().StringSliceVar(&exposeUserGroups, "with-user-groups", nil, "Restrict access to specific user groups")
-	exposeCmd.Flags().StringVar(&exposeDomain, "with-custom-domain", "", "Custom domain for the exposed service. Must be configured to your account")
-	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name")
-	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use (only 'http' is supported)")
+	exposeCmd.Flags().StringVar(&exposePin, "with-pin", "", "Protect the exposed service with a 6-digit PIN (e.g. --with-pin 123456)")
+	exposeCmd.Flags().StringVar(&exposePassword, "with-password", "", "Protect the exposed service with a password (e.g. --with-password my-secret)")
+	exposeCmd.Flags().StringSliceVar(&exposeUserGroups, "with-user-groups", nil, "Restrict access to specific user groups (e.g. --with-user-groups devops,Backend)")
+	exposeCmd.Flags().StringVar(&exposeDomain, "with-custom-domain", "", "Custom domain for the exposed service, must be configured to your account (e.g. --with-custom-domain myapp.example.com)")
+	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name (e.g. --with-name-prefix my-app)")
+	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use, only 'http' is supported (e.g. --protocol http)")
 }
 
 func exposeFn(cmd *cobra.Command, args []string) error {
@@ -52,6 +51,8 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 		log.Errorf("failed initializing log %v", err)
 		return err
 	}
+
+	cmd.Root().SilenceUsage = false
 
 	port, err := strconv.ParseUint(args[0], 10, 32)
 	if err != nil {
@@ -76,6 +77,8 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("with-user-groups") && len(exposeUserGroups) == 0 {
 		return fmt.Errorf("user groups cannot be empty")
 	}
+
+	cmd.Root().SilenceUsage = true
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
