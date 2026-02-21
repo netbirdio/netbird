@@ -449,11 +449,11 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
-				txMock.EXPECT().
-					GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
-					Return(testPeer, nil)
 				return fn(txMock)
 			})
+		mockStore.EXPECT().
+			GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
+			Return(testPeer, nil)
 
 		mgr := &managerImpl{
 			store:           mockStore,
@@ -547,11 +547,11 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
-				txMock.EXPECT().
-					GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
-					Return(testPeer, nil)
 				return fn(txMock)
 			})
+		mockStore.EXPECT().
+			GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
+			Return(testPeer, nil)
 
 		mgr := &managerImpl{
 			store:           mockStore,
@@ -587,11 +587,11 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 				txMock.EXPECT().
 					DeleteService(ctx, accountID, serviceID).
 					Return(nil)
-				txMock.EXPECT().
-					GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
-					Return(testPeer, nil)
 				return fn(txMock)
 			})
+		mockStore.EXPECT().
+			GetPeerByID(ctx, store.LockingStrengthNone, accountID, ownerPeerID).
+			Return(testPeer, nil)
 
 		mgr := &managerImpl{
 			store:           mockStore,

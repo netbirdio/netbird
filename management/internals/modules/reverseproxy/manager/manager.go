@@ -674,7 +674,6 @@ func (m *managerImpl) ExpireServiceFromPeer(ctx context.Context, accountID, peer
 
 func (m *managerImpl) deletePeerService(ctx context.Context, accountID, peerID, serviceID string, activityCode activity.Activity) error {
 	var service *reverseproxy.Service
-	var peer *nbpeer.Peer
 	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
 		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
@@ -694,15 +693,16 @@ func (m *managerImpl) deletePeerService(ctx context.Context, accountID, peerID, 
 			return fmt.Errorf("delete service: %w", err)
 		}
 
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-		if err != nil {
-			return fmt.Errorf("get peer: %w", err)
-		}
-
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peer %s for event metadata: %v", peerID, err)
+		peer = nil
 	}
 
 	meta := addPeerInfoToEventMeta(service.EventMeta(), peer)
