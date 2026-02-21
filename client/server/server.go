@@ -21,11 +21,11 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -1320,43 +1320,27 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		s.mutex.Unlock()
 		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
 	}
-	config := s.config
+	connectClient := s.connectClient
 	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return gstatus.Errorf(codes.Internal, "expose manager not available")
+	}
 
 	ctx := srv.Context()
 
-	key, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		return gstatus.Errorf(codes.Internal, "parse private key: %v", err)
-	}
-
-	// Use a separate context for the management client so it survives stream cancellation,
-	// allowing StopExpose cleanup to complete when the CLI disconnects.
-	mgmCtx, mgmCancel := context.WithCancel(context.Background())
-	defer mgmCancel()
-
-	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
-	mgmClient, err := mgm.NewClient(mgmCtx, config.ManagementURL.Host, key, mgmTlsEnabled)
-	if err != nil {
-		return gstatus.Errorf(codes.Internal, "connect to management: %v", err)
-	}
-	defer func() {
-		if err := mgmClient.Close(); err != nil {
-			log.Debugf("failed to close management client: %v", err)
-		}
-	}()
-
-	mgmtReq := &mgmProto.ExposeServiceRequest{
-		Port:       req.Port,
-		Protocol:   mgmProto.ExposeProtocol(req.Protocol),
-		Pin:        req.Pin,
-		Password:   req.Password,
-		UserGroups: req.UserGroups,
-		Domain:     req.Domain,
-		NamePrefix: req.NamePrefix,
-	}
-
-	resp, err := mgmClient.CreateExpose(ctx, mgmtReq)
+	mgmReq := expose.NewManagementRequest(req)
+	result, err := mgr.Expose(ctx, mgmReq)
 	if err != nil {
 		return err
 	}
@@ -1364,7 +1348,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := mgmClient.StopExpose(stopCtx, resp.Domain); err != nil {
+		if err := mgr.Stop(stopCtx, result.Domain); err != nil {
 			log.Debugf("failed to stop expose: %v", err)
 		}
 	}()
@@ -1372,9 +1356,9 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	if err := srv.Send(&proto.ExposeServiceEvent{
 		Event: &proto.ExposeServiceEvent_Ready{
 			Ready: &proto.ExposeServiceReady{
-				ServiceName: resp.ServiceName,
-				ServiceUrl:  resp.ServiceUrl,
-				Domain:      resp.Domain,
+				ServiceName: result.ServiceName,
+				ServiceUrl:  result.ServiceURL,
+				Domain:      result.Domain,
 			},
 		},
 	}); err != nil {
@@ -1389,10 +1373,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			renewCtx, renewCancel := context.WithTimeout(mgmCtx, 10*time.Second)
-			err := mgmClient.RenewExpose(renewCtx, resp.Domain)
-			renewCancel()
-			if err != nil {
+			if err := mgr.Renew(ctx, result.Domain); err != nil {
 				_ = srv.Send(&proto.ExposeServiceEvent{
 					Event: &proto.ExposeServiceEvent_Stopped{
 						Stopped: &proto.ExposeServiceStopped{Reason: "renewal failed: " + err.Error()},
