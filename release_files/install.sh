@@ -13,6 +13,8 @@ UI_APP="netbird-ui"
 # Set default variable
 OS_NAME=""
 OS_TYPE=""
+DARWIN="darwin"
+LINUX="linux"
 ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
@@ -52,35 +54,36 @@ get_release() {
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
+    APP_TYPE=$1
 	echo "Using the following tag name for binary installation: ${TAG_NAME}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
     # for Darwin, download the signed NetBird-UI
-    if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
-    if [ "$1" = "$UI_APP" ]; then
-       BINARY_NAME="$1-${OS_TYPE}_${BINARY_BASE_NAME}"
-       if [ "$OS_TYPE" = "darwin" ]; then
-         BINARY_NAME="$1_${BINARY_BASE_NAME}"
+    if [ "$APP_TYPE" = "$UI_APP" ]; then
+       BINARY_NAME="${APP_TYPE}-${OS_TYPE}_${BINARY_BASE_NAME}"
+       if [ "$OS_TYPE" = "$DARWIN" ]; then
+         BINARY_NAME="${APP_TYPE}_${BINARY_BASE_NAME}"
        fi
     else
-       BINARY_NAME="$1_${BINARY_BASE_NAME}"
+       BINARY_NAME="${APP_TYPE}_${BINARY_BASE_NAME}"
     fi
 
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
-    echo "Installing $1 from $DOWNLOAD_URL"
+    echo "Installing $APP_TYPE from $DOWNLOAD_URL"
     if [ -n "$GITHUB_TOKEN" ]; then
-      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --remote-time --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" --header "Authorization: token ${GITHUB_TOKEN}" "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO "$DOWNLOAD_URL" || curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      cd "${TMPDIR:-/tmp}" && curl --fail --silent --show-error --location --remote-name --remote-time --time-cond "${TMPDIR:-/tmp}/${BINARY_NAME}" "$DOWNLOAD_URL" || curl --fail --silent --show-error --location --remote-name --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
-    if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
+    if [ "$OS_TYPE" = "$DARWIN" ] && [ "$APP_TYPE" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
 
         if test -d "$INSTALL_DIR" ; then
@@ -94,7 +97,7 @@ download_release_binary() {
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        ${SUDO} mv "${APP_TYPE%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
@@ -185,9 +188,8 @@ install_pkg() {
 
   PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
-  ${SUDO} installer -pkg /tmp/netbird.pkg -target /
-  rm -f /tmp/netbird.pkg
+  curl --fail --silent --show-error --location --remote-time --time-cond "${TMPDIR:-/tmp}/netbird.pkg" --output "${TMPDIR:-/tmp}/netbird.pkg" "${PKG_URL}"
+  ${SUDO} installer -pkg "${TMPDIR:-/tmp}/netbird.pkg" -target /
 }
 
 check_use_bin_variable() {
@@ -389,7 +391,7 @@ fi
 if type uname >/dev/null 2>&1; then
 	case "$(uname)" in
         Linux)
-          OS_TYPE="linux"
+          OS_TYPE="$LINUX"
           UNAME_OUTPUT="$(uname -a)"
           if echo "$UNAME_OUTPUT" | grep -qi "synology"; then
             OS_NAME="synology"
@@ -440,7 +442,7 @@ if type uname >/dev/null 2>&1; then
 		;;
 		Darwin)
             OS_NAME="macos"
-			OS_TYPE="darwin"
+            OS_TYPE="$DARWIN"
             INSTALL_DIR="/usr/local/bin"
 
             # Check the availability of a compatible package manager
