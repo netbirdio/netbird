@@ -14,9 +14,14 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -601,5 +606,296 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		assert.Equal(t, "100.64.0.1", storedMeta["peer_ip"], "meta should contain peer IP")
 		assert.Equal(t, "test-service", storedMeta["name"], "meta should contain service name")
 		assert.Equal(t, "test.example.com", storedMeta["domain"], "meta should contain service domain")
+	})
+}
+
+// noopExtraSettings is a minimal extra_settings.Manager for tests without external integrations.
+type noopExtraSettings struct{}
+
+func (n *noopExtraSettings) GetExtraSettings(_ context.Context, _ string) (*types.ExtraSettings, error) {
+	return &types.ExtraSettings{}, nil
+}
+
+func (n *noopExtraSettings) UpdateExtraSettings(_ context.Context, _, _ string, _ *types.ExtraSettings) (bool, error) {
+	return false, nil
+}
+
+var _ extra_settings.Manager = (*noopExtraSettings)(nil)
+
+// testClusterDeriver is a minimal ClusterDeriver that returns a fixed domain list.
+type testClusterDeriver struct {
+	domains []string
+}
+
+func (d *testClusterDeriver) DeriveClusterFromDomain(_ context.Context, _, domain string) (string, error) {
+	return "test-cluster", nil
+}
+
+func (d *testClusterDeriver) GetClusterDomains() []string {
+	return d.domains
+}
+
+const (
+	testAccountID = "test-account"
+	testPeerID    = "test-peer-1"
+	testGroupID   = "test-group-1"
+	testUserID    = "test-user"
+)
+
+// setupIntegrationTest creates a real SQLite store with seeded test data for integration tests.
+func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
+	t.Helper()
+
+	ctx := context.Background()
+	testStore, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	err = testStore.SaveAccount(ctx, &types.Account{
+		Id:        testAccountID,
+		CreatedBy: testUserID,
+		Settings: &types.Settings{
+			Extra: &types.ExtraSettings{
+				PeerExposeEnabled: true,
+				PeerExposeGroups:  []string{testGroupID},
+			},
+		},
+		Peers: map[string]*nbpeer.Peer{
+			testPeerID: {
+				ID:        testPeerID,
+				AccountID: testAccountID,
+				Key:       "test-key",
+				DNSLabel:  "test-peer",
+				Name:      "test-peer",
+				IP:        net.ParseIP("100.64.0.1"),
+				Status:    &nbpeer.PeerStatus{Connected: true},
+				Meta:      nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+			},
+		},
+		Groups: map[string]*types.Group{
+			testGroupID: {
+				ID:        testGroupID,
+				AccountID: testAccountID,
+				Name:      "Expose Group",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	err = testStore.AddPeerToGroup(ctx, testAccountID, testPeerID, testGroupID)
+	require.NoError(t, err)
+
+	permsMgr := permissions.NewManager(testStore)
+	usersMgr := users.NewManager(testStore)
+	settingsMgr := settings.NewManager(testStore, usersMgr, &noopExtraSettings{}, permsMgr, settings.IdpConfig{})
+
+	var storedEvents []activity.Activity
+	accountMgr := &mock_server.MockAccountManager{
+		StoreEventFunc: func(_ context.Context, _, _, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
+			storedEvents = append(storedEvents, activityID.(activity.Activity))
+		},
+		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+		// Note: MockAccountManager.GetGroupByName checks GetGroupFunc (bug in mock),
+		// so we set it to enable GetGroupByNameFunc dispatch.
+		GetGroupFunc: func(_ context.Context, _, _, _ string) (*types.Group, error) { return nil, nil },
+		GetGroupByNameFunc: func(ctx context.Context, accountID, groupName string) (*types.Group, error) {
+			// Mock receives swapped params due to mock/interface signature mismatch.
+			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+		},
+	}
+
+	tokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Hour)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil)
+	t.Cleanup(proxySrv.Close)
+
+	mgr := &managerImpl{
+		store:              testStore,
+		accountManager:     accountMgr,
+		permissionsManager: permsMgr,
+		settingsManager:    settingsMgr,
+		proxyGRPCServer:    proxySrv,
+		clusterDeriver: &testClusterDeriver{
+			domains: []string{"test.netbird.io"},
+		},
+	}
+
+	return mgr, testStore
+}
+
+func TestValidateExposePermission(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("allowed when peer is in expose group", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+		err := mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		assert.NoError(t, err)
+	})
+
+	t.Run("denied when peer is not in expose group", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		// Add a peer that is NOT in the expose group
+		otherPeerID := "other-peer"
+		err := testStore.AddPeerToAccount(ctx, &nbpeer.Peer{
+			ID:        otherPeerID,
+			AccountID: testAccountID,
+			Key:       "other-key",
+			DNSLabel:  "other-peer",
+			Name:      "other-peer",
+			IP:        net.ParseIP("100.64.0.2"),
+			Status:    &nbpeer.PeerStatus{},
+			Meta:      nbpeer.PeerSystemMeta{Hostname: "other-peer"},
+		})
+		require.NoError(t, err)
+
+		err = mgr.ValidateExposePermission(ctx, testAccountID, otherPeerID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not in an allowed expose group")
+	})
+
+	t.Run("denied when expose is disabled", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		// Disable peer expose
+		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
+		require.NoError(t, err)
+		s.Extra.PeerExposeEnabled = false
+		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
+		require.NoError(t, err)
+
+		err = mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not enabled")
+	})
+
+	t.Run("disallowed when no groups configured", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		// Enable expose but with empty groups (allow all)
+		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
+		require.NoError(t, err)
+		s.Extra.PeerExposeGroups = []string{}
+		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
+		require.NoError(t, err)
+
+		err = mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		assert.Error(t, err)
+	})
+
+	t.Run("error when settings manager is nil", func(t *testing.T) {
+		mgr := &managerImpl{settingsManager: nil}
+		err := mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "settings manager not available")
+	})
+}
+
+func TestCreateServiceFromPeer(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("creates service with random domain", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		service := &reverseproxy.Service{
+			Name:    "my-expose",
+			Enabled: true,
+			Targets: []*reverseproxy.Target{
+				{
+					AccountID:  testAccountID,
+					Port:       8080,
+					Protocol:   "http",
+					TargetId:   testPeerID,
+					TargetType: reverseproxy.TargetTypePeer,
+					Enabled:    true,
+				},
+			},
+		}
+
+		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		require.NoError(t, err)
+		assert.NotEmpty(t, created.ID, "service should have an ID")
+		assert.Contains(t, created.Domain, "test.netbird.io", "domain should use cluster domain")
+		assert.Equal(t, reverseproxy.SourceEphemeral, created.Source, "source should be ephemeral")
+		assert.Equal(t, testPeerID, created.SourcePeer, "source peer should be set")
+		assert.NotNil(t, created.Meta.LastRenewedAt, "last renewed should be set")
+
+		// Verify service is persisted in store
+		persisted, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, persisted.ID)
+		assert.Equal(t, created.Domain, persisted.Domain)
+	})
+
+	t.Run("creates service with custom domain", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		service := &reverseproxy.Service{
+			Name:    "custom",
+			Domain:  "custom.example.com",
+			Enabled: true,
+			Targets: []*reverseproxy.Target{
+				{
+					AccountID:  testAccountID,
+					Port:       80,
+					Protocol:   "http",
+					TargetId:   testPeerID,
+					TargetType: reverseproxy.TargetTypePeer,
+					Enabled:    true,
+				},
+			},
+		}
+
+		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		require.NoError(t, err)
+		assert.Equal(t, "custom.example.com", created.Domain, "should keep the provided domain")
+	})
+
+	t.Run("replaces host by peer IP lookup", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		service := &reverseproxy.Service{
+			Name:    "lookup-test",
+			Enabled: true,
+			Targets: []*reverseproxy.Target{
+				{
+					AccountID:  testAccountID,
+					Port:       3000,
+					Protocol:   "http",
+					TargetId:   testPeerID,
+					TargetType: reverseproxy.TargetTypePeer,
+					Enabled:    true,
+				},
+			},
+		}
+
+		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		require.NoError(t, err)
+		require.Len(t, created.Targets, 1)
+		assert.Equal(t, "100.64.0.1", created.Targets[0].Host, "host should be resolved to peer IP")
+	})
+}
+
+func TestGetGroupIDsFromNames(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resolves group names to IDs", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+		ids, err := mgr.getGroupIDsFromNames(ctx, testAccountID, []string{"Expose Group"})
+		require.NoError(t, err)
+		require.Len(t, ids, 1, "should return exactly one group ID")
+		assert.Equal(t, testGroupID, ids[0])
+	})
+
+	t.Run("returns error for unknown group", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+		_, err := mgr.getGroupIDsFromNames(ctx, testAccountID, []string{"nonexistent"})
+		require.Error(t, err)
+	})
+
+	t.Run("returns error for empty group list", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+		_, err := mgr.getGroupIDsFromNames(ctx, testAccountID, []string{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no group names provided")
 	})
 }

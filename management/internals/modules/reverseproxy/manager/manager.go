@@ -564,7 +564,7 @@ func (m *managerImpl) ValidateExposePermission(ctx context.Context, accountID, p
 	}
 
 	if len(extraSettings.PeerExposeGroups) == 0 {
-		return nil
+		return fmt.Errorf("no group is set for peer expose")
 	}
 
 	peerGroupIDs, err := m.store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)

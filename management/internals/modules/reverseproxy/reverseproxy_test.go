@@ -403,3 +403,146 @@ func TestAuthConfig_ClearSecrets(t *testing.T) {
 		t.Errorf("PIN not cleared, got: %s", config.PinAuth.Pin)
 	}
 }
+
+func TestGenerateExposeName(t *testing.T) {
+	t.Run("no prefix generates 12-char name", func(t *testing.T) {
+		name, err := GenerateExposeName("")
+		require.NoError(t, err)
+		assert.Len(t, name, 12)
+		assert.Regexp(t, `^[a-z0-9]+$`, name)
+	})
+
+	t.Run("with prefix generates prefix-XXXX", func(t *testing.T) {
+		name, err := GenerateExposeName("myapp")
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(name, "myapp-"), "name should start with prefix")
+		suffix := strings.TrimPrefix(name, "myapp-")
+		assert.Len(t, suffix, 4, "suffix should be 4 chars")
+		assert.Regexp(t, `^[a-z0-9]+$`, suffix)
+	})
+
+	t.Run("unique names", func(t *testing.T) {
+		names := make(map[string]bool)
+		for i := 0; i < 50; i++ {
+			name, err := GenerateExposeName("")
+			require.NoError(t, err)
+			names[name] = true
+		}
+		assert.Greater(t, len(names), 45, "should generate mostly unique names")
+	})
+
+	t.Run("valid prefixes", func(t *testing.T) {
+		validPrefixes := []string{"a", "ab", "a1", "my-app", "web-server-01", "a-b"}
+		for _, prefix := range validPrefixes {
+			name, err := GenerateExposeName(prefix)
+			assert.NoError(t, err, "prefix %q should be valid", prefix)
+			assert.True(t, strings.HasPrefix(name, prefix+"-"), "name should start with %q-", prefix)
+		}
+	})
+
+	t.Run("invalid prefixes", func(t *testing.T) {
+		invalidPrefixes := []string{
+			"-starts-with-dash",
+			"ends-with-dash-",
+			"has.dots",
+			"HAS-UPPER",
+			"has spaces",
+			"has/slash",
+			"a--",
+		}
+		for _, prefix := range invalidPrefixes {
+			_, err := GenerateExposeName(prefix)
+			assert.Error(t, err, "prefix %q should be invalid", prefix)
+			assert.Contains(t, err.Error(), "invalid name prefix")
+		}
+	})
+}
+
+func TestFromExposeRequest(t *testing.T) {
+	t.Run("basic HTTP service", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: proto.ExposeProtocol_EXPOSE_HTTP,
+		}
+
+		service := FromExposeRequest(req, "account-1", "peer-1", "mysvc")
+
+		assert.Equal(t, "account-1", service.AccountID)
+		assert.Equal(t, "mysvc", service.Name)
+		assert.True(t, service.Enabled)
+		assert.Empty(t, service.Domain, "domain should be empty when not specified")
+		require.Len(t, service.Targets, 1)
+
+		target := service.Targets[0]
+		assert.Equal(t, 8080, target.Port)
+		assert.Equal(t, "http", target.Protocol)
+		assert.Equal(t, "peer-1", target.TargetId)
+		assert.Equal(t, TargetTypePeer, target.TargetType)
+		assert.True(t, target.Enabled)
+		assert.Equal(t, "account-1", target.AccountID)
+	})
+
+	t.Run("with custom domain", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port:   3000,
+			Domain: "example.com",
+		}
+
+		service := FromExposeRequest(req, "acc", "peer", "web")
+		assert.Equal(t, "web.example.com", service.Domain)
+	})
+
+	t.Run("with PIN auth", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port: 80,
+			Pin:  "1234",
+		}
+
+		service := FromExposeRequest(req, "acc", "peer", "svc")
+		require.NotNil(t, service.Auth.PinAuth)
+		assert.True(t, service.Auth.PinAuth.Enabled)
+		assert.Equal(t, "1234", service.Auth.PinAuth.Pin)
+		assert.Nil(t, service.Auth.PasswordAuth)
+		assert.Nil(t, service.Auth.BearerAuth)
+	})
+
+	t.Run("with password auth", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port:     80,
+			Password: "secret",
+		}
+
+		service := FromExposeRequest(req, "acc", "peer", "svc")
+		require.NotNil(t, service.Auth.PasswordAuth)
+		assert.True(t, service.Auth.PasswordAuth.Enabled)
+		assert.Equal(t, "secret", service.Auth.PasswordAuth.Password)
+	})
+
+	t.Run("with user groups (bearer auth)", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port:       80,
+			UserGroups: []string{"admins", "devs"},
+		}
+
+		service := FromExposeRequest(req, "acc", "peer", "svc")
+		require.NotNil(t, service.Auth.BearerAuth)
+		assert.True(t, service.Auth.BearerAuth.Enabled)
+		assert.Equal(t, []string{"admins", "devs"}, service.Auth.BearerAuth.DistributionGroups)
+	})
+
+	t.Run("with all auth types", func(t *testing.T) {
+		req := &proto.ExposeServiceRequest{
+			Port:       443,
+			Domain:     "myco.com",
+			Pin:        "9999",
+			Password:   "pass",
+			UserGroups: []string{"ops"},
+		}
+
+		service := FromExposeRequest(req, "acc", "peer", "full")
+		assert.Equal(t, "full.myco.com", service.Domain)
+		require.NotNil(t, service.Auth.PinAuth)
+		require.NotNil(t, service.Auth.PasswordAuth)
+		require.NotNil(t, service.Auth.BearerAuth)
+	})
+}
