@@ -35,8 +35,8 @@ func init() {
 	exposeCmd.Flags().StringVar(&exposePin, "with-pin", "", "Protect the exposed service with a PIN")
 	exposeCmd.Flags().StringVar(&exposePassword, "with-password", "", "Protect the exposed service with a password")
 	exposeCmd.Flags().StringSliceVar(&exposeUserGroups, "with-user-groups", nil, "Restrict access to specific user groups")
-	exposeCmd.Flags().StringVar(&exposeDomain, "domain", "", "Custom domain for the exposed service")
-	exposeCmd.Flags().StringVar(&exposeNamePrefix, "name-prefix", "", "Prefix for the generated service name")
+	exposeCmd.Flags().StringVar(&exposeDomain, "with-custom-domain", "", "Custom domain for the exposed service. Must be configured to your account")
+	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name")
 	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use (only 'http' is supported)")
 }
 
