@@ -695,11 +695,7 @@ func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
 			storedEvents = append(storedEvents, activityID.(activity.Activity))
 		},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
-		// Note: MockAccountManager.GetGroupByName checks GetGroupFunc (bug in mock),
-		// so we set it to enable GetGroupByNameFunc dispatch.
-		GetGroupFunc: func(_ context.Context, _, _, _ string) (*types.Group, error) { return &types.Group{}, nil },
 		GetGroupByNameFunc: func(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-			// Mock receives swapped params due to mock/interface signature mismatch.
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
 		},
 	}
