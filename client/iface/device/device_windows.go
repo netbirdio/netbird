@@ -1,10 +1,13 @@
 package device
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,7 +23,11 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
-const wintunDriverRecoveryWait = 2 * time.Second
+const (
+	wintunServiceName         = "wintun"
+	wintunDriverRecoveryWait  = 2 * time.Second
+	wintunRecoveryTimeout     = 15 * time.Second
+)
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
@@ -209,13 +216,19 @@ func (t *TunDevice) GetICEBind() EndpointManager {
 
 // isWintunDriverError checks whether the TUN creation error indicates a stale
 // or broken wintun kernel driver registration. This typically manifests as
-// "The system cannot find the file specified" when the driver entry in the
+// ERROR_FILE_NOT_FOUND (syscall.Errno 2) when the driver entry in the
 // Windows service registry is present but the driver fails to load (e.g.,
 // after a Windows update changes the kernel ABI).
 func isWintunDriverError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Prefer precise errno check when available
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno == syscall.ERROR_FILE_NOT_FOUND
+	}
+	// Fallback: string match for wrapped errors that lost the Errno type
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "the system cannot find the file specified")
 }
@@ -236,29 +249,37 @@ func isWintunDriverError(err error) bool {
 func tryRecoverWintunDriver() error {
 	scCmd := getSystem32Command("sc.exe")
 
+	ctx, cancel := context.WithTimeout(context.Background(), wintunRecoveryTimeout)
+	defer cancel()
+
 	// Check current wintun driver state before taking action
-	out, err := exec.Command(scCmd, "query", "wintun").CombinedOutput()
+	out, err := exec.CommandContext(ctx, scCmd, "query", wintunServiceName).CombinedOutput()
 	if err != nil {
-		// Service doesn't exist — nothing to recover, let wintun re-create it
-		log.Debug("wintun service not found, skipping recovery")
-		return nil
+		outStr := strings.ToLower(string(out))
+		// Exit code 1060 / "failed 1060" means the service does not exist —
+		// nothing to recover, let wintun re-create it on next attempt.
+		if strings.Contains(outStr, "1060") {
+			log.Debugf("%s service not found, skipping recovery", wintunServiceName)
+			return nil
+		}
+		return fmt.Errorf("failed to query %s service: %w (output: %s)", wintunServiceName, err, string(out))
 	}
 
 	outStr := strings.ToLower(string(out))
 
 	// Only proceed if the driver is stopped (not running)
 	if strings.Contains(outStr, "running") {
-		return fmt.Errorf("wintun driver is running, recovery not applicable")
+		return fmt.Errorf("%s driver is running, recovery not applicable", wintunServiceName)
 	}
 
-	log.Warn("wintun driver is in a failed state, removing stale service entry for re-registration")
+	log.Warnf("%s driver is in a failed state, removing stale service entry for re-registration", wintunServiceName)
 
-	out, err = exec.Command(scCmd, "delete", "wintun").CombinedOutput()
+	out, err = exec.CommandContext(ctx, scCmd, "delete", wintunServiceName).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to delete wintun service: %w (output: %s)", err, string(out))
+		return fmt.Errorf("failed to delete %s service: %w (output: %s)", wintunServiceName, err, string(out))
 	}
 
-	log.Info("stale wintun service entry removed, waiting for cleanup")
+	log.Infof("stale %s service entry removed, waiting for cleanup", wintunServiceName)
 	time.Sleep(wintunDriverRecoveryWait)
 
 	return nil

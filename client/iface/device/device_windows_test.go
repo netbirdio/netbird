@@ -2,6 +2,9 @@ package device
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"syscall"
 	"testing"
 )
 
@@ -32,6 +35,11 @@ func TestIsWintunDriverError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "wintun driver error - syscall errno",
+			err:      syscall.ERROR_FILE_NOT_FOUND,
+			expected: true,
+		},
+		{
 			name:     "unrelated error - access denied",
 			err:      errors.New("Access is denied"),
 			expected: false,
@@ -44,6 +52,11 @@ func TestIsWintunDriverError(t *testing.T) {
 		{
 			name:     "unrelated error - generic",
 			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+		{
+			name:     "unrelated syscall error",
+			err:      syscall.ERROR_ACCESS_DENIED,
 			expected: false,
 		},
 	}
@@ -65,9 +78,8 @@ func TestGetSystem32Command(t *testing.T) {
 		wantPath bool // true if we expect a full path (command not on PATH)
 	}{
 		{
-			name:     "sc.exe should be found",
-			command:  "sc.exe",
-			wantPath: false, // sc.exe is in System32 which is on PATH
+			name:    "sc.exe should be found on PATH",
+			command: "sc.exe",
 		},
 		{
 			name:     "nonexistent command returns full path",
@@ -78,6 +90,14 @@ func TestGetSystem32Command(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Dynamically detect whether the command is on PATH
+			_, lookErr := exec.LookPath(tt.command)
+			onPath := lookErr == nil
+
+			if !tt.wantPath && !onPath {
+				t.Skipf("%s not found on PATH, skipping", tt.command)
+			}
+
 			result := getSystem32Command(tt.command)
 			if result == "" {
 				t.Error("getSystem32Command returned empty string")
@@ -87,8 +107,7 @@ func TestGetSystem32Command(t *testing.T) {
 				if result != expected {
 					t.Errorf("getSystem32Command(%q) = %q, want %q", tt.command, result, expected)
 				}
-			} else {
-				// Should return the bare command name if found on PATH
+			} else if onPath {
 				if result != tt.command {
 					t.Errorf("getSystem32Command(%q) = %q, want %q", tt.command, result, tt.command)
 				}
@@ -98,6 +117,12 @@ func TestGetSystem32Command(t *testing.T) {
 }
 
 func TestTryRecoverWintunDriver(t *testing.T) {
+	// Skip in CI or non-privileged environments to avoid running
+	// destructive sc.exe commands (e.g., deleting the wintun service).
+	if os.Getenv("NETBIRD_INTEGRATION_TEST") == "" {
+		t.Skip("skipping integration test; set NETBIRD_INTEGRATION_TEST=1 to run")
+	}
+
 	// This test exercises the actual tryRecoverWintunDriver function.
 	// It calls sc.exe to query the wintun service state.
 	// The behavior depends on the current system state:
