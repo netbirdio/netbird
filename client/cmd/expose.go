@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"syscall"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 )
+
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
 
 var (
 	exposePin        string
@@ -25,10 +28,12 @@ var (
 )
 
 var exposeCmd = &cobra.Command{
-	Use:   "expose <port>",
-	Short: "Expose a local port via the NetBird reverse proxy",
-	Args:  cobra.ExactArgs(1),
-	RunE:  exposeFn,
+	Use:     "expose <port>",
+	Short:   "Expose a local port via the NetBird reverse proxy",
+	Args:    cobra.ExactArgs(1),
+	Example: "netbird expose --with-password safe-pass 8080",
+
+	RunE: exposeFn,
 }
 
 func init() {
@@ -58,6 +63,18 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 
 	if exposeProtocol != "http" {
 		return fmt.Errorf("unsupported protocol %q: only 'http' is supported", exposeProtocol)
+	}
+
+	if exposePin != "" && !pinRegexp.MatchString(exposePin) {
+		return fmt.Errorf("invalid pin: must be exactly 6 digits")
+	}
+
+	if cmd.Flags().Changed("with-password") && exposePassword == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	if cmd.Flags().Changed("with-user-groups") && len(exposeUserGroups) == 0 {
+		return fmt.Errorf("user groups cannot be empty")
 	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())

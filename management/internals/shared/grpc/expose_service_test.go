@@ -12,6 +12,26 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 )
 
+func TestPinValidation(t *testing.T) {
+	tests := []struct {
+		pin   string
+		valid bool
+	}{
+		{"123456", true},
+		{"000000", true},
+		{"12345", false},
+		{"1234567", false},
+		{"abcdef", false},
+		{"12345a", false},
+		{"", false},
+		{"12 345", false},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.valid, pinRegexp.MatchString(tt.pin), "pin %q", tt.pin)
+	}
+}
+
 func TestExposeKey(t *testing.T) {
 	assert.Equal(t, "peer1:example.com", exposeKey("peer1", "example.com"))
 	assert.Equal(t, "peer2:other.com", exposeKey("peer2", "other.com"))

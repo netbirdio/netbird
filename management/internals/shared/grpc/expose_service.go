@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"regexp"
 	"sync"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
+
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
 
 const (
 	exposeTTL          = 90 * time.Second
@@ -57,6 +60,16 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 
 	if exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTP {
 		return nil, status.Errorf(codes.InvalidArgument, "only HTTP protocol is supported")
+	}
+
+	if exposeReq.Pin != "" && !pinRegexp.MatchString(exposeReq.Pin) {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid pin: must be exactly 6 digits")
+	}
+
+	for _, g := range exposeReq.UserGroups {
+		if g == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "user group name cannot be empty")
+		}
 	}
 
 	reverseProxyMgr := s.getReverseProxyManager()
