@@ -178,6 +178,10 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	}
 
 	if req.Settings.Extra != nil {
+		if req.Settings.Extra.PeerExposeEnabled && len(req.Settings.Extra.PeerExposeGroups) == 0 {
+			return nil, status.Errorf(status.InvalidArgument, "peer expose requires at least one group")
+		}
+
 		returnSettings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
 			UserApprovalRequired:     req.Settings.Extra.UserApprovalRequired,
