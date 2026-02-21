@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
@@ -22,9 +23,11 @@ import (
 const (
 	exposeTTL          = 90 * time.Second
 	exposeReapInterval = 30 * time.Second
+	maxExposesPerPeer  = 10
 )
 
 type activeExpose struct {
+	mu          sync.Mutex
 	serviceID   string
 	domain      string
 	accountID   string
@@ -62,12 +65,17 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 	}
 
 	if err := reverseProxyMgr.ValidateExposePermission(ctx, accountID, peer.ID); err != nil {
-		return nil, status.Errorf(codes.PermissionDenied, "%v", err)
+		log.WithContext(ctx).Debugf("expose permission denied for peer %s: %v", peer.ID, err)
+		return nil, status.Errorf(codes.PermissionDenied, "permission denied")
+	}
+
+	if s.countPeerExposes(peer.ID) >= maxExposesPerPeer {
+		return nil, status.Errorf(codes.ResourceExhausted, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
 	}
 
 	serviceName, err := reverseproxy.GenerateExposeName(exposeReq.NamePrefix)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "generate service name: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "generate service name: %v", err)
 	}
 
 	service := reverseproxy.FromExposeRequest(exposeReq, accountID, peer.ID, serviceName)
@@ -119,7 +127,9 @@ func (s *Server) RenewExpose(ctx context.Context, req *proto.EncryptedMessage) (
 	}
 
 	expose := val.(*activeExpose)
+	expose.mu.Lock()
 	expose.lastRenewed = time.Now()
+	expose.mu.Unlock()
 
 	return s.encryptResponse(peerKey, &proto.RenewExposeResponse{})
 }
@@ -169,7 +179,11 @@ func (s *Server) StartExposeReaper(ctx context.Context) {
 func (s *Server) reapExpiredExposes() {
 	s.activeExposes.Range(func(key, val any) bool {
 		expose := val.(*activeExpose)
-		if time.Since(expose.lastRenewed) > exposeTTL {
+		expose.mu.Lock()
+		expired := time.Since(expose.lastRenewed) > exposeTTL
+		expose.mu.Unlock()
+
+		if expired {
 			if _, deleted := s.activeExposes.LoadAndDelete(key); deleted {
 				log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
 				s.cleanupExpose(expose, true)
@@ -241,6 +255,17 @@ func (s *Server) cleanupExpose(expose *activeExpose, expired bool) {
 	if err != nil {
 		log.Errorf("failed to delete peer-exposed service %s: %v", expose.serviceID, err)
 	}
+}
+
+func (s *Server) countPeerExposes(peerID string) int {
+	count := 0
+	s.activeExposes.Range(func(_, val any) bool {
+		if expose := val.(*activeExpose); expose.peerID == peerID {
+			count++
+		}
+		return true
+	})
+	return count
 }
 
 func (s *Server) getReverseProxyManager() reverseproxy.Manager {

@@ -639,7 +639,7 @@ func (m *managerImpl) getGroupIDsFromNames(ctx context.Context, accountID string
 	if len(groupNames) == 0 {
 		return []string{}, fmt.Errorf("no group names provided")
 	}
-	groupIDs := make([]string, len(groupNames))
+	groupIDs := make([]string, 0, len(groupNames))
 	for _, groupName := range groupNames {
 		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
 		if err != nil {

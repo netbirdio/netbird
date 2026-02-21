@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -524,8 +525,15 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 
 const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 
+var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
 // GenerateExposeName generates a random service name for peer-exposed services.
+// The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).
 func GenerateExposeName(prefix string) (string, error) {
+	if prefix != "" && !validNamePrefix.MatchString(prefix) {
+		return "", fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", prefix)
+	}
+
 	suffixLen := 12
 	if prefix != "" {
 		suffixLen = 4
