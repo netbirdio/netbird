@@ -328,7 +328,7 @@ func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, servi
 			{
 				AccountID:  accountID,
 				Port:       int(req.Port),
-				Protocol:   "http",
+				Protocol:   exposeProtocolToString(req.Protocol),
 				TargetId:   peerID,
 				TargetType: TargetTypePeer,
 				Enabled:    true,
@@ -362,6 +362,17 @@ func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, servi
 	}
 
 	return service
+}
+
+func exposeProtocolToString(p proto.ExposeProtocol) string {
+	switch p {
+	case proto.ExposeProtocol_EXPOSE_HTTP:
+		return "http"
+	case proto.ExposeProtocol_EXPOSE_HTTPS:
+		return "https"
+	default:
+		return "http"
+	}
 }
 
 func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {

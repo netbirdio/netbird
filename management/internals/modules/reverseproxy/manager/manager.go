@@ -591,7 +591,7 @@ func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peer
 	if service.Domain == "" {
 		domain, err := m.buildRandomDomain(service.Name)
 		if err != nil {
-			return nil, fmt.Errorf("build random domain for service %s: %w", service.ID, err)
+			return nil, fmt.Errorf("build random domain for service %s: %w", service.Name, err)
 		}
 		service.Domain = domain
 	}
@@ -717,7 +717,12 @@ func (m *managerImpl) deletePeerService(ctx context.Context, accountID, peerID, 
 }
 
 func addPeerInfoToEventMeta(meta map[string]any, peer *nbpeer.Peer) map[string]any {
+	if peer == nil {
+		return meta
+	}
 	meta["peer_name"] = peer.Name
-	meta["peer_ip"] = peer.IP.String()
+	if peer.IP != nil {
+		meta["peer_ip"] = peer.IP.String()
+	}
 	return meta
 }
