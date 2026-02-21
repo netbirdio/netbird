@@ -668,7 +668,7 @@ func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
 				DNSLabel:  "test-peer",
 				Name:      "test-peer",
 				IP:        net.ParseIP("100.64.0.1"),
-				Status:    &nbpeer.PeerStatus{Connected: true},
+				Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 				Meta:      nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 			},
 		},
@@ -743,7 +743,7 @@ func TestValidateExposePermission(t *testing.T) {
 			DNSLabel:  "other-peer",
 			Name:      "other-peer",
 			IP:        net.ParseIP("100.64.0.2"),
-			Status:    &nbpeer.PeerStatus{},
+			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
 			Meta:      nbpeer.PeerSystemMeta{Hostname: "other-peer"},
 		})
 		require.NoError(t, err)
