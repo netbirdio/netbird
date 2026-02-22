@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -43,14 +44,27 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
 	"github.com/netbirdio/netbird/proxy/internal/metrics"
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	nbtcp "github.com/netbirdio/netbird/proxy/internal/tcp"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	udprelay "github.com/netbirdio/netbird/proxy/internal/udp"
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
+
+// serviceID is a typed key for service lookups.
+type serviceID = string
+
+// portRouter bundles a per-port Router with its listener and cancel func.
+type portRouter struct {
+	router   *nbtcp.Router
+	listener net.Listener
+	cancel   context.CancelFunc
+}
 
 type Server struct {
 	mgmtClient    proto.ProxyServiceClient
@@ -64,6 +78,16 @@ type Server struct {
 	healthServer  *health.Server
 	healthChecker *health.Checker
 	meter         *metrics.Metrics
+	mainRouter    *nbtcp.Router
+	mainPort      uint16
+	udpMu         sync.Mutex
+	udpRelays     map[serviceID]*udprelay.Relay
+	udpRelayWg    sync.WaitGroup
+	portMu        sync.RWMutex
+	portRouters   map[uint16]*portRouter
+	svcPorts      map[serviceID][]uint16
+	lastMappings  map[serviceID]*proto.ProxyMapping
+	portRouterWg  sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -110,20 +134,28 @@ type Server struct {
 	// When set, forwarding headers from these sources are preserved and
 	// appended to instead of being stripped.
 	TrustedProxies []netip.Prefix
-	// WireguardPort is the port for the WireGuard interface. Use 0 for a
-	// random OS-assigned port. A fixed port only works with single-account
-	// deployments; multiple accounts will fail to bind the same port.
-	WireguardPort int
+	// WireguardPort is the port for the NetBird tunnel interface. Use 0
+	// for a random OS-assigned port. A fixed port only works with
+	// single-account deployments; multiple accounts will fail to bind
+	// the same port.
+	WireguardPort uint16
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	// When enabled, the real client IP is extracted from the PROXY header
 	// sent by upstream L4 proxies that support PROXY protocol.
 	ProxyProtocol bool
 	// PreSharedKey used for tunnel between proxy and peers (set globally not per account)
 	PreSharedKey string
+	// SupportsCustomPorts indicates whether the proxy can bind arbitrary
+	// ports for TCP/UDP/TLS services.
+	SupportsCustomPorts bool
+	// DefaultDialTimeout is the default timeout for establishing backend
+	// connections when no per-service timeout is configured. Zero means
+	// each transport uses its own hardcoded default (typically 30s).
+	DefaultDialTimeout time.Duration
 }
 
-// NotifyStatus sends a status update to management about tunnel connectivity
-func (s *Server) NotifyStatus(ctx context.Context, accountID, serviceID, domain string, connected bool) error {
+// NotifyStatus sends a status update to management about tunnel connectivity.
+func (s *Server) NotifyStatus(ctx context.Context, accountID, serviceID string, connected bool) error {
 	status := proto.ProxyStatus_PROXY_STATUS_TUNNEL_NOT_CREATED
 	if connected {
 		status = proto.ProxyStatus_PROXY_STATUS_ACTIVE
@@ -151,6 +183,10 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, service
 
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.initDefaults()
+	s.udpRelays = make(map[serviceID]*udprelay.Relay)
+	s.portRouters = make(map[uint16]*portRouter)
+	s.svcPorts = make(map[serviceID][]uint16)
+	s.lastMappings = make(map[serviceID]*proto.ProxyMapping)
 
 	reg := prometheus.NewRegistry()
 	s.meter = metrics.New(reg)
@@ -205,14 +241,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	handler = s.meter.Middleware(handler)
 	handler = s.hijackTracker.Middleware(handler)
 
-	// Start the reverse proxy HTTPS server.
-	s.https = &http.Server{
-		Addr:      addr,
-		Handler:   handler,
-		TLSConfig: tlsConfig,
-		ErrorLog:  newHTTPServerLogger(s.Logger, logtagValueHTTPS),
-	}
-
+	// Start a raw TCP listener; the SNI router peeks at ClientHello
+	// and routes to either the HTTP handler or a TCP relay.
 	lc := net.ListenConfig{}
 	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
@@ -221,11 +251,32 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	if s.ProxyProtocol {
 		ln = s.wrapProxyProtocol(ln)
 	}
+	s.mainPort = uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // port from OS is always valid
+
+	// Set up the SNI router for TCP/HTTP multiplexing on the main port.
+	s.mainRouter = nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
+	s.mainRouter.SetObserver(s.meter)
+
+	// The HTTP server uses the chanListener fed by the SNI router.
+	s.https = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		ErrorLog:          newHTTPServerLogger(s.Logger, logtagValueHTTPS),
+	}
 
 	httpsErr := make(chan error, 1)
 	go func() {
-		s.Logger.Debugf("starting reverse proxy server on %s", addr)
-		httpsErr <- s.https.ServeTLS(ln, "", "")
+		s.Logger.Debug("starting HTTPS server on SNI router HTTP channel")
+		httpsErr <- s.https.ServeTLS(s.mainRouter.HTTPListener(), "", "")
+	}()
+
+	routerErr := make(chan error, 1)
+	go func() {
+		s.Logger.Debugf("starting SNI router on %s", addr)
+		routerErr <- s.mainRouter.Serve(ctx, ln)
 	}()
 
 	select {
@@ -233,6 +284,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		s.shutdownServices()
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("https server: %w", err)
+		}
+		return nil
+	case err := <-routerErr:
+		s.shutdownServices()
+		if err != nil {
+			return fmt.Errorf("SNI router: %w", err)
 		}
 		return nil
 	case <-ctx.Done():
@@ -362,6 +419,13 @@ const (
 	// shutdownServiceTimeout is the maximum time to wait for auxiliary
 	// services (health probe, debug endpoint, ACME) to shut down.
 	shutdownServiceTimeout = 5 * time.Second
+
+	// httpReadHeaderTimeout limits how long the server waits to read
+	// request headers after accepting a connection. Prevents slowloris.
+	httpReadHeaderTimeout = 10 * time.Second
+	// httpIdleTimeout limits how long an idle keep-alive connection
+	// stays open before the server closes it.
+	httpIdleTimeout = 120 * time.Second
 )
 
 func (s *Server) dialManagement() (*grpc.ClientConn, error) {
@@ -482,6 +546,9 @@ func (s *Server) gracefulShutdown() {
 		s.Logger.Infof("closed %d hijacked connection(s)", n)
 	}
 
+	// Drain all router relay connections (main + per-port) in parallel.
+	s.drainAllRouters(shutdownDrainTimeout)
+
 	// Step 5: Stop all remaining background services.
 	s.shutdownServices()
 	s.Logger.Info("graceful shutdown complete")
@@ -489,6 +556,34 @@ func (s *Server) gracefulShutdown() {
 
 // shutdownServices stops all background services concurrently and waits for
 // them to finish.
+// drainAllRouters drains active relay connections on the main router and
+// all per-port routers in parallel, up to the given timeout.
+func (s *Server) drainAllRouters(timeout time.Duration) {
+	var wg sync.WaitGroup
+
+	drain := func(name string, router *nbtcp.Router) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok := router.Drain(timeout); !ok {
+				s.Logger.Warnf("timed out draining %s relay connections", name)
+			}
+		}()
+	}
+
+	if s.mainRouter != nil {
+		drain("main router", s.mainRouter)
+	}
+
+	s.portMu.RLock()
+	for port, pr := range s.portRouters {
+		drain(fmt.Sprintf("port %d", port), pr.router)
+	}
+	s.portMu.RUnlock()
+
+	wg.Wait()
+}
+
 func (s *Server) shutdownServices() {
 	var wg sync.WaitGroup
 
@@ -526,7 +621,159 @@ func (s *Server) shutdownServices() {
 		}()
 	}
 
+	// Close all UDP relays and wait for their goroutines to exit.
+	s.udpMu.Lock()
+	for id, relay := range s.udpRelays {
+		relay.Close()
+		delete(s.udpRelays, id)
+	}
+	s.udpMu.Unlock()
+	s.udpRelayWg.Wait()
+
+	// Close all per-port routers.
+	s.portMu.Lock()
+	for port, pr := range s.portRouters {
+		pr.cancel()
+		if err := pr.listener.Close(); err != nil {
+			s.Logger.Debugf("close listener on port %d: %v", port, err)
+		}
+		delete(s.portRouters, port)
+	}
+	maps.Clear(s.svcPorts)
+	maps.Clear(s.lastMappings)
+	s.portMu.Unlock()
+
+	// Wait for per-port router serve goroutines to exit.
+	s.portRouterWg.Wait()
+
 	wg.Wait()
+}
+
+// resolveDialFunc returns a DialContextFunc that dials through the
+// NetBird tunnel for the given account.
+func (s *Server) resolveDialFunc(accountID types.AccountID) (types.DialContextFunc, error) {
+	client, ok := s.netbird.GetClient(accountID)
+	if !ok {
+		return nil, fmt.Errorf("no client for account %s", accountID)
+	}
+	return client.DialContext, nil
+}
+
+// notifyError reports a resource error back to management so it can be
+// surfaced to the user (e.g. port bind failure, dialer resolution error).
+func (s *Server) notifyError(ctx context.Context, mapping *proto.ProxyMapping, err error) {
+	s.sendStatusUpdate(ctx, mapping.GetAccountId(), mapping.GetId(), proto.ProxyStatus_PROXY_STATUS_ERROR, err)
+}
+
+// sendStatusUpdate sends a status update for a service to management.
+func (s *Server) sendStatusUpdate(ctx context.Context, accountID, serviceID string, st proto.ProxyStatus, err error) {
+	req := &proto.SendStatusUpdateRequest{
+		ServiceId: serviceID,
+		AccountId: accountID,
+		Status:    st,
+	}
+	if err != nil {
+		msg := err.Error()
+		req.ErrorMessage = &msg
+	}
+	if _, sendErr := s.mgmtClient.SendStatusUpdate(ctx, req); sendErr != nil {
+		s.Logger.Debugf("failed to send status update for %s: %v", serviceID, sendErr)
+	}
+}
+
+// routerForPort returns the router that handles the given listen port. If port
+// is 0 or matches the main listener port, the main router is returned.
+// Otherwise a new per-port router is created and started.
+func (s *Server) routerForPort(ctx context.Context, port uint16) (*nbtcp.Router, error) {
+	if port == 0 || port == s.mainPort {
+		return s.mainRouter, nil
+	}
+	return s.getOrCreatePortRouter(ctx, port)
+}
+
+// routerForPortExisting returns the router for the given port without creating
+// one. Returns the main router for port 0 / mainPort, or nil if no per-port
+// router exists.
+func (s *Server) routerForPortExisting(port uint16) *nbtcp.Router {
+	if port == 0 || port == s.mainPort {
+		return s.mainRouter
+	}
+	s.portMu.RLock()
+	pr := s.portRouters[port]
+	s.portMu.RUnlock()
+	if pr != nil {
+		return pr.router
+	}
+	return nil
+}
+
+// getOrCreatePortRouter returns an existing per-port router or creates one
+// with a new TCP listener and starts serving.
+func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp.Router, error) {
+	s.portMu.Lock()
+	defer s.portMu.Unlock()
+
+	if pr, ok := s.portRouters[port]; ok {
+		return pr.router, nil
+	}
+
+	listenAddr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen TCP on %s: %w", listenAddr, err)
+	}
+
+	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
+	router.SetObserver(s.meter)
+	portCtx, cancel := context.WithCancel(ctx)
+
+	s.portRouters[port] = &portRouter{
+		router:   router,
+		listener: ln,
+		cancel:   cancel,
+	}
+
+	s.portRouterWg.Add(1)
+	go func() {
+		defer s.portRouterWg.Done()
+		if err := router.Serve(portCtx, ln); err != nil {
+			s.Logger.Debugf("port %d router stopped: %v", port, err)
+		}
+	}()
+
+	s.Logger.Debugf("started per-port router on %s", listenAddr)
+	return router, nil
+}
+
+// cleanupPortIfEmpty tears down a per-port router if it has no remaining
+// routes or fallback. The main port is never cleaned up. Active relay
+// connections are drained before the listener is closed.
+func (s *Server) cleanupPortIfEmpty(port uint16) {
+	if port == 0 || port == s.mainPort {
+		return
+	}
+
+	s.portMu.Lock()
+	pr, ok := s.portRouters[port]
+	if !ok || !pr.router.IsEmpty() {
+		s.portMu.Unlock()
+		return
+	}
+
+	// Cancel and close the listener while holding the lock so that
+	// getOrCreatePortRouter sees the entry is gone before we drain.
+	pr.cancel()
+	if err := pr.listener.Close(); err != nil {
+		s.Logger.Debugf("close listener on port %d: %v", port, err)
+	}
+	delete(s.portRouters, port)
+	s.portMu.Unlock()
+
+	// Drain active relay connections outside the lock.
+	if ok := pr.router.Drain(nbtcp.DefaultDrainTimeout); !ok {
+		s.Logger.Warnf("timed out draining relay connections on port %d", port)
+	}
+	s.Logger.Debugf("cleaned up empty per-port router on port %d", port)
 }
 
 func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
@@ -554,6 +801,9 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			Version:   s.Version,
 			StartedAt: timestamppb.New(s.startTime),
 			Address:   s.ProxyURL,
+			Capabilities: &proto.ProxyCapabilities{
+				SupportsCustomPorts: s.SupportsCustomPorts,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("create mapping stream: %w", err)
@@ -626,25 +876,28 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 		s.Logger.WithFields(log.Fields{
 			"type":   mapping.GetType(),
 			"domain": mapping.GetDomain(),
-			"path":   mapping.GetPath(),
+			"mode":   mapping.GetMode(),
+			"port":   mapping.GetListenPort(),
 			"id":     mapping.GetId(),
 		}).Debug("Processing mapping update")
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
 			if err := s.addMapping(ctx, mapping); err != nil {
-				// TODO: Retry this? Or maybe notify the management server that this mapping has failed?
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
 					"domain":     mapping.GetDomain(),
 					"error":      err,
 				}).Error("Error adding new mapping, ignoring this mapping and continuing processing")
+				s.notifyError(ctx, mapping, err)
 			}
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED:
-			if err := s.updateMapping(ctx, mapping); err != nil {
+			if err := s.modifyMapping(ctx, mapping); err != nil {
 				s.Logger.WithFields(log.Fields{
 					"service_id": mapping.GetId(),
 					"domain":     mapping.GetDomain(),
-				}).Errorf("failed to update mapping: %v", err)
+					"error":      err,
+				}).Error("failed to modify mapping")
+				s.notifyError(ctx, mapping, err)
 			}
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED:
 			s.removeMapping(ctx, mapping)
@@ -652,26 +905,298 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 	}
 }
 
+// addMapping registers a service mapping and starts the appropriate relay or routes.
 func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	d := domain.Domain(mapping.GetDomain())
 	accountID := types.AccountID(mapping.GetAccountId())
-	serviceID := mapping.GetId()
+	svcID := mapping.GetId()
 	authToken := mapping.GetAuthToken()
 
-	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, serviceID); err != nil {
-		return fmt.Errorf("create peer for domain %q: %w", d, err)
-	}
-	if s.acme != nil {
-		s.acme.AddDomain(d, string(accountID), serviceID)
+	svcKey := s.serviceKeyForMapping(mapping)
+	if err := s.netbird.AddPeer(ctx, accountID, svcKey, authToken, svcID); err != nil {
+		return fmt.Errorf("create peer for service %s: %w", svcID, err)
 	}
 
-	// Pass the mapping through to the update function to avoid duplicating the
-	// setup, currently update is simply a subset of this function, so this
-	// separation makes sense...to me at least.
-	if err := s.updateMapping(ctx, mapping); err != nil {
+	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
 		s.removeMapping(ctx, mapping)
+		return err
+	}
+	s.storeMapping(mapping)
+	return nil
+}
+
+// modifyMapping updates a service mapping in place without tearing down the
+// NetBird peer. It cleans up old routes using the previously stored mapping
+// state and re-applies them from the new mapping.
+func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	if old := s.loadMapping(mapping.GetId()); old != nil {
+		s.cleanupMappingRoutes(old)
+	} else {
+		s.cleanupMappingRoutes(mapping)
+	}
+	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
+		s.cleanupMappingRoutes(mapping)
+		return err
+	}
+	s.storeMapping(mapping)
+	return nil
+}
+
+// setupMappingRoutes configures the appropriate routes or relays for the given
+// service mapping based on its mode. The NetBird peer must already exist.
+func (s *Server) setupMappingRoutes(ctx context.Context, mapping *proto.ProxyMapping) error {
+	switch types.ServiceMode(mapping.GetMode()) {
+	case types.ServiceModeTCP:
+		return s.setupTCPMapping(ctx, mapping)
+	case types.ServiceModeUDP:
+		return s.setupUDPMapping(ctx, mapping)
+	case types.ServiceModeTLS:
+		return s.setupTLSMapping(ctx, mapping)
+	default:
+		return s.setupHTTPMapping(ctx, mapping)
+	}
+}
+
+// setupHTTPMapping configures HTTP reverse proxy, auth, and ACME routes.
+func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	d := domain.Domain(mapping.GetDomain())
+	accountID := types.AccountID(mapping.GetAccountId())
+	svcID := mapping.GetId()
+
+	if len(mapping.GetPath()) == 0 {
+		return nil
+	}
+
+	if s.acme != nil {
+		s.acme.AddDomain(d, string(accountID), svcID)
+	}
+	s.mainRouter.AddRoute(mapping.GetDomain(), nbtcp.Route{
+		Type:      nbtcp.RouteHTTP,
+		AccountID: accountID,
+		ServiceID: svcID,
+	})
+	if err := s.updateMapping(ctx, mapping); err != nil {
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
+	return nil
+}
+
+// setupTCPMapping sets up a TCP port-forwarding fallback route on the listen port.
+func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	svcID := mapping.GetId()
+	accountID := types.AccountID(mapping.GetAccountId())
+
+	port, err := netutil.ValidatePort(mapping.GetListenPort())
+	if err != nil {
+		return fmt.Errorf("TCP service %s: %w", svcID, err)
+	}
+
+	targetAddr := s.l4TargetAddress(mapping)
+	if targetAddr == "" {
+		return fmt.Errorf("empty target address for TCP service %s", svcID)
+	}
+
+	if s.WireguardPort != 0 && port == s.WireguardPort {
+		return fmt.Errorf("port %d conflicts with tunnel port", port)
+	}
+
+	router, err := s.routerForPort(ctx, port)
+	if err != nil {
+		return fmt.Errorf("router for TCP port %d: %w", port, err)
+	}
+
+	router.SetFallback(nbtcp.Route{
+		Type:          nbtcp.RouteTCP,
+		AccountID:     accountID,
+		ServiceID:     svcID,
+		Target:        targetAddr,
+		ProxyProtocol: s.l4ProxyProtocol(mapping),
+		DialTimeout:   s.l4DialTimeout(mapping),
+	})
+
+	s.portMu.Lock()
+	s.svcPorts[svcID] = []uint16{port}
+	s.portMu.Unlock()
+
+	s.meter.L4ServiceAdded(types.ServiceModeTCP)
+	s.sendStatusUpdate(ctx, mapping.GetAccountId(), svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	return nil
+}
+
+// setupUDPMapping starts a UDP relay on the listen port.
+func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	svcID := mapping.GetId()
+	accountID := types.AccountID(mapping.GetAccountId())
+
+	port, err := netutil.ValidatePort(mapping.GetListenPort())
+	if err != nil {
+		return fmt.Errorf("UDP service %s: %w", svcID, err)
+	}
+
+	targetAddr := s.l4TargetAddress(mapping)
+	if targetAddr == "" {
+		return fmt.Errorf("empty target address for UDP service %s", svcID)
+	}
+
+	if err := s.addUDPRelay(ctx, accountID, svcID, targetAddr, port, s.l4DialTimeout(mapping), l4SessionIdleTimeout(mapping)); err != nil {
+		return fmt.Errorf("UDP relay for service %s: %w", svcID, err)
+	}
+
+	s.meter.L4ServiceAdded(types.ServiceModeUDP)
+	s.sendStatusUpdate(ctx, mapping.GetAccountId(), svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	return nil
+}
+
+// setupTLSMapping configures a TLS SNI-routed passthrough on the listen port.
+func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	svcID := mapping.GetId()
+	accountID := types.AccountID(mapping.GetAccountId())
+
+	tlsPort, err := netutil.ValidatePort(mapping.GetListenPort())
+	if err != nil {
+		return fmt.Errorf("TLS service %s: %w", svcID, err)
+	}
+
+	targetAddr := s.l4TargetAddress(mapping)
+	if targetAddr == "" {
+		return fmt.Errorf("empty target address for TLS service %s", svcID)
+	}
+
+	if s.WireguardPort != 0 && tlsPort == s.WireguardPort {
+		return fmt.Errorf("port %d conflicts with tunnel port", tlsPort)
+	}
+
+	router, err := s.routerForPort(ctx, tlsPort)
+	if err != nil {
+		return fmt.Errorf("router for TLS port %d: %w", tlsPort, err)
+	}
+
+	router.AddRoute(mapping.GetDomain(), nbtcp.Route{
+		Type:          nbtcp.RouteTCP,
+		AccountID:     accountID,
+		ServiceID:     svcID,
+		Target:        targetAddr,
+		ProxyProtocol: s.l4ProxyProtocol(mapping),
+		DialTimeout:   s.l4DialTimeout(mapping),
+	})
+
+	if tlsPort != s.mainPort {
+		s.portMu.Lock()
+		s.svcPorts[svcID] = []uint16{tlsPort}
+		s.portMu.Unlock()
+	}
+
+	s.Logger.WithFields(log.Fields{
+		"domain":  mapping.GetDomain(),
+		"target":  targetAddr,
+		"port":    tlsPort,
+		"service": svcID,
+	}).Info("TLS passthrough mapping added")
+
+	s.meter.L4ServiceAdded(types.ServiceModeTLS)
+	s.sendStatusUpdate(ctx, mapping.GetAccountId(), svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	return nil
+}
+
+// serviceKeyForMapping returns the appropriate ServiceKey for a mapping.
+// TCP/UDP use an ID-based key; HTTP/TLS use a domain-based key.
+func (s *Server) serviceKeyForMapping(mapping *proto.ProxyMapping) roundtrip.ServiceKey {
+	switch types.ServiceMode(mapping.GetMode()) {
+	case types.ServiceModeTCP, types.ServiceModeUDP:
+		return roundtrip.L4ServiceKey(mapping.GetId())
+	default:
+		return roundtrip.DomainServiceKey(mapping.GetDomain())
+	}
+}
+
+// l4TargetAddress extracts and validates the target address from a mapping's
+// first path entry. Returns empty string if no paths exist or the address is
+// not a valid host:port.
+func (s *Server) l4TargetAddress(mapping *proto.ProxyMapping) string {
+	paths := mapping.GetPath()
+	if len(paths) == 0 {
+		return ""
+	}
+	target := paths[0].GetTarget()
+	if _, _, err := net.SplitHostPort(target); err != nil {
+		s.Logger.WithFields(log.Fields{
+			"service_id": mapping.GetId(),
+			"target":     target,
+		}).Warnf("invalid L4 target address: %v", err)
+		return ""
+	}
+	return target
+}
+
+// l4ProxyProtocol returns whether the first target has PROXY protocol enabled.
+func (s *Server) l4ProxyProtocol(mapping *proto.ProxyMapping) bool {
+	paths := mapping.GetPath()
+	if len(paths) == 0 {
+		return false
+	}
+	return paths[0].GetOptions().GetProxyProtocol()
+}
+
+// l4DialTimeout returns the dial timeout from the first target's options,
+// falling back to the server's DefaultDialTimeout.
+func (s *Server) l4DialTimeout(mapping *proto.ProxyMapping) time.Duration {
+	paths := mapping.GetPath()
+	if len(paths) > 0 {
+		if d := paths[0].GetOptions().GetRequestTimeout(); d != nil {
+			return d.AsDuration()
+		}
+	}
+	return s.DefaultDialTimeout
+}
+
+// l4SessionIdleTimeout returns the configured session idle timeout from the
+// mapping options, or 0 to use the relay's default.
+func l4SessionIdleTimeout(mapping *proto.ProxyMapping) time.Duration {
+	paths := mapping.GetPath()
+	if len(paths) > 0 {
+		if d := paths[0].GetOptions().GetSessionIdleTimeout(); d != nil {
+			return d.AsDuration()
+		}
+	}
+	return 0
+}
+
+// addUDPRelay starts a UDP relay on the specified listen port.
+func (s *Server) addUDPRelay(ctx context.Context, accountID types.AccountID, svcID, targetAddress string, listenPort uint16, dialTimeout, sessionTTL time.Duration) error {
+	if s.WireguardPort != 0 && listenPort == s.WireguardPort {
+		return fmt.Errorf("UDP port %d conflicts with tunnel port", listenPort)
+	}
+
+	// Close existing relay if present (idempotent re-add).
+	s.removeUDPRelay(svcID)
+
+	listenAddr := fmt.Sprintf(":%d", listenPort)
+
+	listener, err := net.ListenPacket("udp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen UDP on %s: %w", listenAddr, err)
+	}
+
+	dialFn, err := s.resolveDialFunc(accountID)
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("resolve dialer for UDP: %w", err)
+	}
+
+	entry := s.Logger.WithFields(log.Fields{
+		"target":      targetAddress,
+		"listen_port": listenPort,
+		"service_id":  svcID,
+	})
+
+	relay := udprelay.New(ctx, entry, listener, targetAddress, accountID, dialFn, dialTimeout, sessionTTL, 0)
+	relay.SetObserver(s.meter)
+
+	s.udpMu.Lock()
+	s.udpRelays[svcID] = relay
+	s.udpMu.Unlock()
+
+	s.udpRelayWg.Go(relay.Serve)
+	entry.Info("UDP relay added")
 	return nil
 }
 
@@ -696,35 +1221,125 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, mapping.GetAccountId(), mapping.GetId()); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
-	s.proxy.AddMapping(s.protoToMapping(mapping))
-	s.meter.AddMapping(s.protoToMapping(mapping))
+	m := s.protoToMapping(ctx, mapping)
+	s.proxy.AddMapping(m)
+	s.meter.AddMapping(m)
 	return nil
 }
 
+// removeMapping tears down routes/relays and the NetBird peer for a service.
+// Uses the stored mapping state when available to ensure all previously
+// configured routes are cleaned up.
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
-	d := domain.Domain(mapping.GetDomain())
 	accountID := types.AccountID(mapping.GetAccountId())
-	if err := s.netbird.RemovePeer(ctx, accountID, d); err != nil {
+	svcKey := s.serviceKeyForMapping(mapping)
+	if err := s.netbird.RemovePeer(ctx, accountID, svcKey); err != nil {
 		s.Logger.WithFields(log.Fields{
 			"account_id": accountID,
-			"domain":     d,
+			"service_id": mapping.GetId(),
 			"error":      err,
-		}).Error("Error removing NetBird peer connection for domain, continuing additional domain cleanup but peer connection may still exist")
+		}).Error("failed to remove NetBird peer, continuing cleanup")
 	}
-	if s.acme != nil {
-		s.acme.RemoveDomain(d)
+
+	if old := s.deleteMapping(mapping.GetId()); old != nil {
+		s.cleanupMappingRoutes(old)
+	} else {
+		s.cleanupMappingRoutes(mapping)
 	}
-	s.auth.RemoveDomain(mapping.GetDomain())
-	s.proxy.RemoveMapping(s.protoToMapping(mapping))
-	s.meter.RemoveMapping(s.protoToMapping(mapping))
 }
 
-func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
+// cleanupMappingRoutes removes HTTP/TLS/L4 routes and custom port state for a
+// service without touching the NetBird peer. This is used for both full
+// removal and in-place modification of mappings.
+func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
+	svcID := mapping.GetId()
+	host := mapping.GetDomain()
+
+	// HTTP/TLS cleanup (only relevant when a domain is set).
+	if host != "" {
+		d := domain.Domain(host)
+		if s.acme != nil {
+			s.acme.RemoveDomain(d)
+		}
+		s.auth.RemoveDomain(host)
+		if s.proxy.RemoveMapping(proxy.Mapping{Host: host}) {
+			s.meter.RemoveMapping(proxy.Mapping{Host: host})
+		}
+		// Close hijacked connections (WebSocket) for this domain.
+		if n := s.hijackTracker.CloseByHost(host); n > 0 {
+			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
+		}
+		// Remove SNI route from the main router (covers both HTTP and main-port TLS).
+		s.mainRouter.RemoveRoute(host, svcID)
+	}
+
+	// Extract and delete tracked custom-port entries atomically.
+	s.portMu.Lock()
+	entries := s.svcPorts[svcID]
+	delete(s.svcPorts, svcID)
+	s.portMu.Unlock()
+
+	for _, entry := range entries {
+		if router := s.routerForPortExisting(entry); router != nil {
+			if host != "" {
+				router.RemoveRoute(host, svcID)
+			} else {
+				router.RemoveFallback(svcID)
+			}
+		}
+		s.cleanupPortIfEmpty(entry)
+	}
+
+	// UDP relay cleanup (idempotent).
+	s.removeUDPRelay(svcID)
+
+	// Decrement L4 service gauge if this was an L4 mapping.
+	if mode := types.ServiceMode(mapping.GetMode()); mode.IsL4() {
+		s.meter.L4ServiceRemoved(mode)
+	}
+}
+
+// removeUDPRelay stops and removes a UDP relay by service ID.
+func (s *Server) removeUDPRelay(svcID string) {
+	s.udpMu.Lock()
+	relay, ok := s.udpRelays[svcID]
+	if ok {
+		delete(s.udpRelays, svcID)
+	}
+	s.udpMu.Unlock()
+
+	if ok {
+		relay.Close()
+		s.Logger.WithField("service_id", svcID).Info("UDP relay removed")
+	}
+}
+
+func (s *Server) storeMapping(mapping *proto.ProxyMapping) {
+	s.portMu.Lock()
+	s.lastMappings[mapping.GetId()] = mapping
+	s.portMu.Unlock()
+}
+
+func (s *Server) loadMapping(svcID string) *proto.ProxyMapping {
+	s.portMu.RLock()
+	m := s.lastMappings[svcID]
+	s.portMu.RUnlock()
+	return m
+}
+
+func (s *Server) deleteMapping(svcID string) *proto.ProxyMapping {
+	s.portMu.Lock()
+	m := s.lastMappings[svcID]
+	delete(s.lastMappings, svcID)
+	s.portMu.Unlock()
+	return m
+}
+
+func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) proxy.Mapping {
 	paths := make(map[string]*proxy.PathTarget)
 	for _, pathMapping := range mapping.GetPath() {
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
-			// TODO: Should we warn management about this so it can be bubbled up to a user to reconfigure?
 			s.Logger.WithFields(log.Fields{
 				"service_id": mapping.GetId(),
 				"account_id": mapping.GetAccountId(),
@@ -732,6 +1347,7 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 				"path":       pathMapping.GetPath(),
 				"target":     pathMapping.GetTarget(),
 			}).WithError(err).Error("failed to parse target URL for path, skipping")
+			s.notifyError(ctx, mapping, fmt.Errorf("invalid target URL %q for path %q: %w", pathMapping.GetTarget(), pathMapping.GetPath(), err))
 			continue
 		}
 
@@ -743,6 +1359,9 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 			if d := opts.GetRequestTimeout(); d != nil {
 				pt.RequestTimeout = d.AsDuration()
 			}
+		}
+		if pt.RequestTimeout == 0 && s.DefaultDialTimeout > 0 {
+			pt.RequestTimeout = s.DefaultDialTimeout
 		}
 		paths[pathMapping.GetPath()] = pt
 	}

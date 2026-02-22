@@ -166,7 +166,7 @@ func (c *Client) printClientRow(item any) {
 		return
 	}
 
-	domains := c.extractDomains(client)
+	services := c.extractServiceKeys(client)
 	hasClient := "no"
 	if hc, ok := client["has_client"].(bool); ok && hc {
 		hasClient = "yes"
@@ -175,20 +175,20 @@ func (c *Client) printClientRow(item any) {
 	_, _ = fmt.Fprintf(c.out, "%-38s %-12v %s %s\n",
 		client["account_id"],
 		client["age"],
-		domains,
+		services,
 		hasClient,
 	)
 }
 
-func (c *Client) extractDomains(client map[string]any) string {
-	d, ok := client["domains"].([]any)
+func (c *Client) extractServiceKeys(client map[string]any) string {
+	d, ok := client["service_keys"].([]any)
 	if !ok || len(d) == 0 {
 		return "-"
 	}
 
 	parts := make([]string, len(d))
-	for i, domain := range d {
-		parts[i] = fmt.Sprint(domain)
+	for i, key := range d {
+		parts[i] = fmt.Sprint(key)
 	}
 	return strings.Join(parts, ", ")
 }

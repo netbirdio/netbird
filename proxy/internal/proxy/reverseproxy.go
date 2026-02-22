@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
@@ -86,9 +87,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx = roundtrip.WithSkipTLSVerify(ctx)
 	}
 	if pt.RequestTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, pt.RequestTimeout)
-		defer cancel()
+		ctx = types.WithDialTimeout(ctx, pt.RequestTimeout)
 	}
 
 	rewriteMatchedPath := result.matchedPath

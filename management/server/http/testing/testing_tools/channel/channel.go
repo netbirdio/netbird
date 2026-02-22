@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -109,6 +110,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
+	domainManager.SetClusterCapabilities(serviceProxyController)
 	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, domainManager)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)

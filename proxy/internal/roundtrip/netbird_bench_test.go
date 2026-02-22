@@ -1,6 +1,7 @@
 package roundtrip
 
 import (
+	"context"
 	"crypto/rand"
 	"math/big"
 	"sync"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
-	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // Simple benchmark for comparison with AddPeer contention.
@@ -29,8 +29,8 @@ func BenchmarkHasClient(b *testing.B) {
 			target = id
 		}
 		nb.clients[id] = &clientEntry{
-			domains: map[domain.Domain]domainInfo{
-				domain.Domain(rand.Text()): {
+			services: map[ServiceKey]serviceInfo{
+				ServiceKey(rand.Text()): {
 					serviceID: rand.Text(),
 				},
 			},
@@ -70,8 +70,8 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 			target = id
 		}
 		nb.clients[id] = &clientEntry{
-			domains: map[domain.Domain]domainInfo{
-				domain.Domain(rand.Text()): {
+			services: map[ServiceKey]serviceInfo{
+				ServiceKey(rand.Text()): {
 					serviceID: rand.Text(),
 				},
 			},
@@ -81,19 +81,22 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 	}
 
 	// Launch workers that continuously call AddPeer with new random accountIDs.
+	ctx, cancel := context.WithCancel(b.Context())
 	var wg sync.WaitGroup
 	for range addPeerWorkers {
-		wg.Go(func() {
-			for {
-				if err := nb.AddPeer(b.Context(),
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				if err := nb.AddPeer(ctx,
 					types.AccountID(rand.Text()),
-					domain.Domain(rand.Text()),
+					ServiceKey(rand.Text()),
 					rand.Text(),
 					rand.Text()); err != nil {
-					b.Log(err)
+					return
 				}
 			}
-		})
+		}()
 	}
 
 	// Benchmark calling HasClient during AddPeer contention.
@@ -104,4 +107,6 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 		}
 	})
 	b.StopTimer()
+	cancel()
+	wg.Wait()
 }

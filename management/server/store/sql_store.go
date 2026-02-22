@@ -30,6 +30,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
@@ -4996,6 +4997,29 @@ func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain str
 	return service, nil
 }
 
+// GetHTTPServiceByDomain returns the HTTP/HTTPS service for the given domain, excluding L4 services
+// that share the cluster domain.
+func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+	var service *rpservice.Service
+	result := s.db.Preload("Targets").
+		Where("account_id = ? AND domain = ? AND (mode = '' OR mode = ?)", accountID, domain, "http").
+		First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get HTTP service by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get HTTP service by domain from store")
+	}
+
+	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt service data: %w", err)
+	}
+
+	return service, nil
+}
+
 func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
@@ -5041,16 +5065,16 @@ func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingS
 }
 
 // RenewEphemeralService updates the last_renewed_at timestamp for an ephemeral service.
-func (s *SqlStore) RenewEphemeralService(ctx context.Context, accountID, peerID, domain string) error {
+func (s *SqlStore) RenewEphemeralService(ctx context.Context, accountID, peerID, serviceID string) error {
 	result := s.db.Model(&rpservice.Service{}).
-		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Where("id = ? AND account_id = ? AND source_peer = ? AND source = ?", serviceID, accountID, peerID, rpservice.SourceEphemeral).
 		Update("meta_last_renewed_at", time.Now())
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to renew ephemeral service: %v", result.Error)
 		return status.Errorf(status.Internal, "renew ephemeral service")
 	}
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
+		return status.Errorf(status.NotFound, "no active expose session for service %s", serviceID)
 	}
 	return nil
 }
@@ -5131,6 +5155,37 @@ func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength Lock
 		return false, status.Errorf(status.Internal, "check ephemeral service existence")
 	}
 	return id != "", nil
+}
+
+// GetServicesByClusterAndPort returns services matching the given proxy cluster, mode, and listen port.
+func (s *SqlStore) GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var services []*rpservice.Service
+	result := tx.Where("proxy_cluster = ? AND mode = ? AND listen_port = ?", proxyCluster, mode, listenPort).Find(&services)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "query services by cluster and port")
+	}
+
+	return services, nil
+}
+
+// GetServicesByCluster returns all services for the given proxy cluster.
+func (s *SqlStore) GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var services []*rpservice.Service
+	result := tx.Where("proxy_cluster = ?", proxyCluster).Find(&services)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "query services by cluster")
+	}
+	return services, nil
 }
 
 func (s *SqlStore) GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error) {
