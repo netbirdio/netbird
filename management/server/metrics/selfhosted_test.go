@@ -6,6 +6,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -115,6 +116,31 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					},
 				},
 			},
+			Services: []*reverseproxy.Service{
+				{
+					ID:      "svc1",
+					Enabled: true,
+					Targets: []*reverseproxy.Target{
+						{TargetType: "peer"},
+						{TargetType: "host"},
+					},
+					Auth: reverseproxy.AuthConfig{
+						PasswordAuth: &reverseproxy.PasswordAuthConfig{Enabled: true},
+					},
+					Meta: reverseproxy.ServiceMeta{Status: string(reverseproxy.StatusActive)},
+				},
+				{
+					ID:      "svc2",
+					Enabled: false,
+					Targets: []*reverseproxy.Target{
+						{TargetType: "domain"},
+					},
+					Auth: reverseproxy.AuthConfig{
+						BearerAuth: &reverseproxy.BearerAuthConfig{Enabled: true},
+					},
+					Meta: reverseproxy.ServiceMeta{Status: string(reverseproxy.StatusPending)},
+				},
+			},
 		},
 		{
 			Id:       "2",
@@ -213,6 +239,11 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 // GetStoreEngine returns FileStoreEngine
 func (mockDatasource) GetStoreEngine() types.Engine {
 	return types.FileStoreEngine
+}
+
+// GetCustomDomainsCounts returns test custom domain counts.
+func (mockDatasource) GetCustomDomainsCounts(_ context.Context) (int64, int64, error) {
+	return 3, 2, nil
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -346,6 +377,49 @@ func TestGenerateProperties(t *testing.T) {
 	}
 	if properties["embedded_idp_count"] != 1 {
 		t.Errorf("expected 1 embedded_idp_count, got %v", properties["embedded_idp_count"])
+	}
+
+	if properties["services"] != 2 {
+		t.Errorf("expected 2 services, got %v", properties["services"])
+	}
+	if properties["services_enabled"] != 1 {
+		t.Errorf("expected 1 services_enabled, got %v", properties["services_enabled"])
+	}
+	if properties["services_targets"] != 3 {
+		t.Errorf("expected 3 services_targets, got %v", properties["services_targets"])
+	}
+	if properties["services_status_active"] != 1 {
+		t.Errorf("expected 1 services_status_active, got %v", properties["services_status_active"])
+	}
+	if properties["services_status_pending"] != 1 {
+		t.Errorf("expected 1 services_status_pending, got %v", properties["services_status_pending"])
+	}
+	if properties["services_status_error"] != 0 {
+		t.Errorf("expected 0 services_status_error, got %v", properties["services_status_error"])
+	}
+	if properties["services_target_type_peer"] != 1 {
+		t.Errorf("expected 1 services_target_type_peer, got %v", properties["services_target_type_peer"])
+	}
+	if properties["services_target_type_host"] != 1 {
+		t.Errorf("expected 1 services_target_type_host, got %v", properties["services_target_type_host"])
+	}
+	if properties["services_target_type_domain"] != 1 {
+		t.Errorf("expected 1 services_target_type_domain, got %v", properties["services_target_type_domain"])
+	}
+	if properties["services_auth_password"] != 1 {
+		t.Errorf("expected 1 services_auth_password, got %v", properties["services_auth_password"])
+	}
+	if properties["services_auth_oidc"] != 1 {
+		t.Errorf("expected 1 services_auth_oidc, got %v", properties["services_auth_oidc"])
+	}
+	if properties["services_auth_pin"] != 0 {
+		t.Errorf("expected 0 services_auth_pin, got %v", properties["services_auth_pin"])
+	}
+	if properties["custom_domains"] != int64(3) {
+		t.Errorf("expected 3 custom_domains, got %v", properties["custom_domains"])
+	}
+	if properties["custom_domains_validated"] != int64(2) {
+		t.Errorf("expected 2 custom_domains_validated, got %v", properties["custom_domains_validated"])
 	}
 }
 
