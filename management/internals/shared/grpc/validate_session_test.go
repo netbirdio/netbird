@@ -295,6 +295,22 @@ func (m *testValidateSessionProxyManager) GetServiceIDByTargetID(_ context.Conte
 	return "", nil
 }
 
+func (m *testValidateSessionProxyManager) ValidateExposePermission(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ExpireServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }

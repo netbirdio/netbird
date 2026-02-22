@@ -21,6 +21,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
@@ -1310,6 +1311,81 @@ func (s *Server) WaitJWTToken(
 		TokenType: tokenInfo.TokenType,
 		ExpiresIn: int64(tokenInfo.ExpiresIn),
 	}, nil
+}
+
+// ExposeService exposes a local port via the NetBird reverse proxy.
+func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+	}
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return gstatus.Errorf(codes.Internal, "expose manager not available")
+	}
+
+	ctx := srv.Context()
+
+	exposeCtx, exposeCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer exposeCancel()
+
+	mgmReq := expose.NewManagementRequest(req)
+	result, err := mgr.Expose(exposeCtx, mgmReq)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := mgr.Stop(stopCtx, result.Domain); err != nil {
+			log.Debugf("failed to stop expose: %v", err)
+		}
+	}()
+
+	if err := srv.Send(&proto.ExposeServiceEvent{
+		Event: &proto.ExposeServiceEvent_Ready{
+			Ready: &proto.ExposeServiceReady{
+				ServiceName: result.ServiceName,
+				ServiceUrl:  result.ServiceURL,
+				Domain:      result.Domain,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := mgr.Renew(ctx, result.Domain); err != nil {
+				_ = srv.Send(&proto.ExposeServiceEvent{
+					Event: &proto.ExposeServiceEvent_Stopped{
+						Stopped: &proto.ExposeServiceStopped{Reason: "renewal failed: " + err.Error()},
+					},
+				})
+				return err
+			}
+		}
+	}
 }
 
 func isUnixRunningDesktop() bool {

@@ -690,6 +690,83 @@ func (c *GrpcClient) Logout() error {
 	return nil
 }
 
+// CreateExpose calls the management server to create a new expose service.
+func (c *GrpcClient) CreateExpose(ctx context.Context, req *proto.ExposeServiceRequest) (*proto.ExposeServiceResponse, error) {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt create expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	exposeResp := &proto.ExposeServiceResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, exposeResp); err != nil {
+		return nil, fmt.Errorf("decrypt create expose response: %w", err)
+	}
+
+	return exposeResp, nil
+}
+
+// RenewExpose extends the TTL of an active expose session on the management server.
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.RenewExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt renew expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+// StopExpose terminates an active expose session on the management server.
+func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.StopExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt stop expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil

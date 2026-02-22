@@ -110,6 +110,11 @@ type ExtraSettings struct {
 	FlowPacketCounterEnabled bool     `gorm:"-"`
 	FlowENCollectionEnabled  bool     `gorm:"-"`
 	FlowDnsCollectionEnabled bool     `gorm:"-"`
+
+	// PeerExposeEnabled enables or disables peer-initiated service expose
+	PeerExposeEnabled bool
+	// PeerExposeGroups list of peer group IDs allowed to expose services
+	PeerExposeGroups []string `gorm:"serializer:json"`
 }
 
 // Copy copies the ExtraSettings struct
@@ -124,5 +129,7 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+		PeerExposeEnabled:         e.PeerExposeEnabled,
+		PeerExposeGroups:          slices.Clone(e.PeerExposeGroups),
 	}
 }

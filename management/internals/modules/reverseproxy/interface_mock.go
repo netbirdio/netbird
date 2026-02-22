@@ -49,6 +49,21 @@ func (mr *MockManagerMockRecorder) CreateService(ctx, accountID, userID, service
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateService", reflect.TypeOf((*MockManager)(nil).CreateService), ctx, accountID, userID, service)
 }
 
+// CreateServiceFromPeer mocks base method.
+func (m *MockManager) CreateServiceFromPeer(ctx context.Context, accountID, peerID string, service *Service) (*Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateServiceFromPeer", ctx, accountID, peerID, service)
+	ret0, _ := ret[0].(*Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateServiceFromPeer indicates an expected call of CreateServiceFromPeer.
+func (mr *MockManagerMockRecorder) CreateServiceFromPeer(ctx, accountID, peerID, service interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateServiceFromPeer", reflect.TypeOf((*MockManager)(nil).CreateServiceFromPeer), ctx, accountID, peerID, service)
+}
+
 // DeleteService mocks base method.
 func (m *MockManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
 	m.ctrl.T.Helper()
@@ -61,6 +76,48 @@ func (m *MockManager) DeleteService(ctx context.Context, accountID, userID, serv
 func (mr *MockManagerMockRecorder) DeleteService(ctx, accountID, userID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteService", reflect.TypeOf((*MockManager)(nil).DeleteService), ctx, accountID, userID, serviceID)
+}
+
+// DeleteServiceFromPeer mocks base method.
+func (m *MockManager) DeleteServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteServiceFromPeer", ctx, accountID, peerID, serviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteServiceFromPeer indicates an expected call of DeleteServiceFromPeer.
+func (mr *MockManagerMockRecorder) DeleteServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteServiceFromPeer", reflect.TypeOf((*MockManager)(nil).DeleteServiceFromPeer), ctx, accountID, peerID, serviceID)
+}
+
+// ExpireServiceFromPeer mocks base method.
+func (m *MockManager) ExpireServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExpireServiceFromPeer", ctx, accountID, peerID, serviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ExpireServiceFromPeer indicates an expected call of ExpireServiceFromPeer.
+func (mr *MockManagerMockRecorder) ExpireServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpireServiceFromPeer", reflect.TypeOf((*MockManager)(nil).ExpireServiceFromPeer), ctx, accountID, peerID, serviceID)
+}
+
+// ValidateExposePermission mocks base method.
+func (m *MockManager) ValidateExposePermission(ctx context.Context, accountID, peerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateExposePermission", ctx, accountID, peerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateExposePermission indicates an expected call of ValidateExposePermission.
+func (mr *MockManagerMockRecorder) ValidateExposePermission(ctx, accountID, peerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateExposePermission", reflect.TypeOf((*MockManager)(nil).ValidateExposePermission), ctx, accountID, peerID)
 }
 
 // GetAccountServices mocks base method.

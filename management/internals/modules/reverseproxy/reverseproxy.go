@@ -1,10 +1,13 @@
 package reverseproxy
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -40,6 +43,9 @@ const (
 	TargetTypeHost   = "host"
 	TargetTypeDomain = "domain"
 	TargetTypeSubnet = "subnet"
+
+	SourcePermanent = "permanent"
+	SourceEphemeral = "ephemeral"
 )
 
 type Target struct {
@@ -114,8 +120,9 @@ type OIDCValidationConfig struct {
 
 type ServiceMeta struct {
 	CreatedAt           time.Time
-	CertificateIssuedAt time.Time
+	CertificateIssuedAt *time.Time
 	Status              string
+	LastRenewedAt       *time.Time
 }
 
 type Service struct {
@@ -132,6 +139,8 @@ type Service struct {
 	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string      `gorm:"column:session_private_key"`
 	SessionPublicKey  string      `gorm:"column:session_public_key"`
+	Source            string      `gorm:"default:'permanent'"`
+	SourcePeer        string
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
@@ -207,8 +216,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Status:    api.ServiceMetaStatus(s.Meta.Status),
 	}
 
-	if !s.Meta.CertificateIssuedAt.IsZero() {
-		meta.CertificateIssuedAt = &s.Meta.CertificateIssuedAt
+	if s.Meta.CertificateIssuedAt != nil {
+		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
 	}
 
 	resp := &api.Service{
@@ -309,6 +318,63 @@ func isDefaultPort(scheme string, port int) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
+// FromExposeRequest builds a Service from a peer expose gRPC request.
+func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       int(req.Port),
+				Protocol:   exposeProtocolToString(req.Protocol),
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if req.Domain != "" {
+		service.Domain = serviceName + "." + req.Domain
+	}
+
+	if req.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     req.Pin,
+		}
+	}
+
+	if req.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: req.Password,
+		}
+	}
+
+	if len(req.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: req.UserGroups,
+		}
+	}
+
+	return service
+}
+
+func exposeProtocolToString(p proto.ExposeProtocol) string {
+	switch p {
+	case proto.ExposeProtocol_EXPOSE_HTTP:
+		return "http"
+	case proto.ExposeProtocol_EXPOSE_HTTPS:
+		return "https"
+	default:
+		return "http"
+	}
+}
+
 func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {
 	s.Name = req.Name
 	s.Domain = req.Domain
@@ -403,7 +469,11 @@ func (s *Service) Validate() error {
 }
 
 func (s *Service) EventMeta() map[string]any {
-	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster}
+	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster, "source": s.Source, "auth": s.isAuthEnabled()}
+}
+
+func (s *Service) isAuthEnabled() bool {
+	return s.Auth.PasswordAuth != nil || s.Auth.PinAuth != nil || s.Auth.BearerAuth != nil
 }
 
 func (s *Service) Copy() *Service {
@@ -427,6 +497,8 @@ func (s *Service) Copy() *Service {
 		Meta:              s.Meta,
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
+		Source:            s.Source,
+		SourcePeer:        s.SourcePeer,
 	}
 }
 
@@ -460,4 +532,44 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// GenerateExposeName generates a random service name for peer-exposed services.
+// The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).
+func GenerateExposeName(prefix string) (string, error) {
+	if prefix != "" && !validNamePrefix.MatchString(prefix) {
+		return "", fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", prefix)
+	}
+
+	suffixLen := 12
+	if prefix != "" {
+		suffixLen = 4
+	}
+
+	suffix, err := randomAlphanumeric(suffixLen)
+	if err != nil {
+		return "", fmt.Errorf("generate random name: %w", err)
+	}
+
+	if prefix == "" {
+		return suffix, nil
+	}
+	return prefix + "-" + suffix, nil
+}
+
+func randomAlphanumeric(n int) (string, error) {
+	result := make([]byte, n)
+	charsetLen := big.NewInt(int64(len(alphanumCharset)))
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		result[i] = alphanumCharset[idx.Int64()]
+	}
+	return string(result), nil
 }

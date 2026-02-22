@@ -72,6 +72,22 @@ func (m *mockReverseProxyManager) GetServiceIDByTargetID(_ context.Context, _, _
 	return "", nil
 }
 
+func (m *mockReverseProxyManager) ValidateExposePermission(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockReverseProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+	return &reverseproxy.Service{}, nil
+}
+
+func (m *mockReverseProxyManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *mockReverseProxyManager) ExpireServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 type mockUsersManager struct {
 	users map[string]*types.User
 	err   error

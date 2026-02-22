@@ -407,7 +407,7 @@ func (am *MockAccountManager) AddPeer(
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
 func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-	if am.GetGroupFunc != nil {
+	if am.GetGroupByNameFunc != nil {
 		return am.GetGroupByNameFunc(ctx, accountID, groupName)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
