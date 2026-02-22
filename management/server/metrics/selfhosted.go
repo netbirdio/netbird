@@ -210,6 +210,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		rosenpassEnabled          int
 		localUsers                int
 		idpUsers                  int
+		embeddedIdpTypes          map[string]int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -218,6 +219,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	rulesProtocol = make(map[string]int)
 	rulesDirection = make(map[string]int)
 	activeUsersLastDay = make(map[string]struct{})
+	embeddedIdpTypes = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
@@ -277,6 +279,8 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 							localUsers++
 						} else {
 							idpUsers++
+							idpType := extractIdpType(idpID)
+							embeddedIdpTypes[idpType]++
 						}
 					}
 				}
@@ -369,6 +373,11 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["rosenpass_enabled"] = rosenpassEnabled
 	metricsProperties["local_users_count"] = localUsers
 	metricsProperties["idp_users_count"] = idpUsers
+	metricsProperties["embedded_idp_count"] = len(embeddedIdpTypes)
+
+	for idpType, count := range embeddedIdpTypes {
+		metricsProperties["embedded_idp_users_"+idpType] = count
+	}
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count
@@ -454,6 +463,17 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 	req.Header.Add("content-type", "application/json")
 
 	return req, cancel, nil
+}
+
+// extractIdpType extracts the IdP type from a Dex connector ID.
+// Connector IDs are formatted as "<type>-<xid>" (e.g., "okta-abc123", "zitadel-xyz").
+// Returns the type prefix, or "oidc" if no known prefix is found.
+func extractIdpType(connectorID string) string {
+	idx := strings.LastIndex(connectorID, "-")
+	if idx <= 0 {
+		return "oidc"
+	}
+	return strings.ToLower(connectorID[:idx])
 }
 
 func getMinMaxVersion(inputList []string) (string, string) {
