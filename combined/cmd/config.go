@@ -70,6 +70,7 @@ type ServerConfig struct {
 	DisableGeoliteUpdate    bool               `yaml:"disableGeoliteUpdate"`
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
+	ActivityStore           StoreConfig        `yaml:"activityStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 }
 

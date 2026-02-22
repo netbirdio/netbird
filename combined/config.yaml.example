@@ -104,6 +104,11 @@ server:
     dsn: ""  # Connection string for postgres or mysql
     encryptionKey: ""
 
+  # Activity events store configuration (optional, defaults to sqlite in dataDir)
+  # activityStore:
+  #   engine: "sqlite"  # sqlite or postgres
+  #   dsn: ""  # Connection string for postgres
+
   # Reverse proxy settings (optional)
   # reverseProxy:
   #   trustedHTTPProxies: []
