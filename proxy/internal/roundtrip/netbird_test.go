@@ -49,7 +49,11 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, nil, nil, &mockMgmtClient{})
+	return NewNetBird("test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr:     "http://invalid.test:9999",
+		WGPort:       0,
+		PreSharedKey: "",
+	}, nil, nil, &mockMgmtClient{})
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
@@ -282,7 +286,11 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 
 func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, nil, notifier, &mockMgmtClient{})
+	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr:     "http://invalid.test:9999",
+		WGPort:       0,
+		PreSharedKey: "",
+	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
 	// Add first domain — creates a new client entry.
@@ -308,7 +316,11 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, nil, notifier, &mockMgmtClient{})
+	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr:     "http://invalid.test:9999",
+		WGPort:       0,
+		PreSharedKey: "",
+	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
 	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "key-1", "svc-1")
