@@ -686,7 +686,14 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 				log.Errorf("down service: %v", err)
 			}
 
-			_, err = conn.Up(s.ctx, &proto.UpRequest{})
+			upReq := &proto.UpRequest{}
+			if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+				if currUser, uErr := user.Current(); uErr == nil {
+					upReq.ProfileName = &activeProf.Name
+					upReq.Username = &currUser.Username
+				}
+			}
+			_, err = conn.Up(s.ctx, upReq)
 			if err != nil {
 				log.Errorf("up service: %v", err)
 				return
@@ -850,9 +857,17 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+	upReq := &proto.UpRequest{
 		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
-	}); err != nil {
+	}
+	if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+		if currUser, uErr := user.Current(); uErr == nil {
+			upReq.ProfileName = &activeProf.Name
+			upReq.Username = &currUser.Username
+		}
+	}
+
+	if _, err := conn.Up(ctx, upReq); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -1558,6 +1573,11 @@ func (s *serviceClient) loadSettings() {
 		return
 	}
 
+	// Refresh cached management URL to prevent stale state after profile switch
+	if cfg.ManagementUrl != "" {
+		s.managementURL = cfg.ManagementUrl
+	}
+
 	if cfg.ServerSSHAllowed {
 		s.mAllowSSH.Check()
 	} else {
@@ -1715,7 +1735,15 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 			return
 		}
 
-		_, err = conn.Up(ctx, &proto.UpRequest{})
+		upReq := &proto.UpRequest{}
+		if activeProf, profErr := s.profileManager.GetActiveProfile(); profErr == nil {
+			if currUser, uErr := user.Current(); uErr == nil {
+				upReq.ProfileName = &activeProf.Name
+				upReq.Username = &currUser.Username
+			}
+		}
+
+		_, err = conn.Up(ctx, upReq)
 		if err != nil {
 			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
 			log.Errorf("Reconnecting failed with: %v", err)

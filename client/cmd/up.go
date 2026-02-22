@@ -149,7 +149,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	// override the default profile filepath if provided
-	if configPath != "" {
+	if isFlagChanged(cmd, "config") && configPath != "" {
 		_ = profilemanager.NewServiceManager(configPath)
 	}
 
@@ -158,7 +158,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return err
 	}
 
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	customDNSAddressConverted, err := parseCustomDNSAddress(isFlagChanged(cmd, dnsResolverAddress))
 	if err != nil {
 		return err
 	}
@@ -338,8 +338,12 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	req.ProfileName = profileName
 	req.Username = username
 
-	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
+	if rootCmd.PersistentFlags().Changed("management-url") {
+		req.ManagementUrl = managementURL
+	}
+	if rootCmd.PersistentFlags().Changed("admin-url") {
+		req.AdminURL = adminURL
+	}
 	req.NatExternalIPs = natExternalIPs
 	req.CustomDNSAddress = customDNSAddressConverted
 	req.ExtraIFaceBlacklist = extraIFaceBlackList
@@ -347,90 +351,90 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
 	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
 
-	if cmd.Flag(enableRosenpassFlag).Changed {
+	if isFlagChanged(cmd, enableRosenpassFlag) {
 		req.RosenpassEnabled = &rosenpassEnabled
 	}
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+	if isFlagChanged(cmd, rosenpassPermissiveFlag) {
 		req.RosenpassPermissive = &rosenpassPermissive
 	}
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
+	if isFlagChanged(cmd, serverSSHAllowedFlag) {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
-	if cmd.Flag(enableSSHRootFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRootFlag) {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
+	if isFlagChanged(cmd, enableSSHSFTPFlag) {
 		req.EnableSSHSFTP = &enableSSHSFTP
 	}
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHLocalPortForwardFlag) {
 		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRemotePortForwardFlag) {
 		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
-	if cmd.Flag(disableSSHAuthFlag).Changed {
+	if isFlagChanged(cmd, disableSSHAuthFlag) {
 		req.DisableSSHAuth = &disableSSHAuth
 	}
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+	if isFlagChanged(cmd, sshJWTCacheTTLFlag) {
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
-	if cmd.Flag(interfaceNameFlag).Changed {
+	if isFlagChanged(cmd, interfaceNameFlag) {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
 			return nil
 		}
 		req.InterfaceName = &interfaceName
 	}
-	if cmd.Flag(wireguardPortFlag).Changed {
+	if isFlagChanged(cmd, wireguardPortFlag) {
 		p := int64(wireguardPort)
 		req.WireguardPort = &p
 	}
 
-	if cmd.Flag(mtuFlag).Changed {
+	if isFlagChanged(cmd, mtuFlag) {
 		m := int64(mtu)
 		req.Mtu = &m
 	}
 
-	if cmd.Flag(networkMonitorFlag).Changed {
+	if isFlagChanged(cmd, networkMonitorFlag) {
 		req.NetworkMonitor = &networkMonitor
 	}
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		req.OptionalPreSharedKey = &preSharedKey
 	}
-	if cmd.Flag(disableAutoConnectFlag).Changed {
+	if isFlagChanged(cmd, disableAutoConnectFlag) {
 		req.DisableAutoConnect = &autoConnectDisabled
 	}
 
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+	if isFlagChanged(cmd, dnsRouteIntervalFlag) {
 		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
 
-	if cmd.Flag(disableClientRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableClientRoutesFlag) {
 		req.DisableClientRoutes = &disableClientRoutes
 	}
 
-	if cmd.Flag(disableServerRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableServerRoutesFlag) {
 		req.DisableServerRoutes = &disableServerRoutes
 	}
 
-	if cmd.Flag(disableDNSFlag).Changed {
+	if isFlagChanged(cmd, disableDNSFlag) {
 		req.DisableDns = &disableDNS
 	}
 
-	if cmd.Flag(disableFirewallFlag).Changed {
+	if isFlagChanged(cmd, disableFirewallFlag) {
 		req.DisableFirewall = &disableFirewall
 	}
 
-	if cmd.Flag(blockLANAccessFlag).Changed {
+	if isFlagChanged(cmd, blockLANAccessFlag) {
 		req.BlockLanAccess = &blockLANAccess
 	}
 
-	if cmd.Flag(blockInboundFlag).Changed {
+	if isFlagChanged(cmd, blockInboundFlag) {
 		req.BlockInbound = &blockInbound
 	}
 
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
+	if isFlagChanged(cmd, enableLazyConnectionFlag) {
 		req.LazyConnectionEnabled = &lazyConnEnabled
 	}
 
@@ -447,62 +451,62 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		DNSLabels:           dnsLabelsValidated,
 	}
 
-	if cmd.Flag(enableRosenpassFlag).Changed {
+	if isFlagChanged(cmd, enableRosenpassFlag) {
 		ic.RosenpassEnabled = &rosenpassEnabled
 	}
 
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+	if isFlagChanged(cmd, rosenpassPermissiveFlag) {
 		ic.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
+	if isFlagChanged(cmd, serverSSHAllowedFlag) {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
 
-	if cmd.Flag(enableSSHRootFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRootFlag) {
 		ic.EnableSSHRoot = &enableSSHRoot
 	}
 
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
+	if isFlagChanged(cmd, enableSSHSFTPFlag) {
 		ic.EnableSSHSFTP = &enableSSHSFTP
 	}
 
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHLocalPortForwardFlag) {
 		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
 
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRemotePortForwardFlag) {
 		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
 
-	if cmd.Flag(disableSSHAuthFlag).Changed {
+	if isFlagChanged(cmd, disableSSHAuthFlag) {
 		ic.DisableSSHAuth = &disableSSHAuth
 	}
 
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+	if isFlagChanged(cmd, sshJWTCacheTTLFlag) {
 		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
 	}
 
-	if cmd.Flag(interfaceNameFlag).Changed {
+	if isFlagChanged(cmd, interfaceNameFlag) {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			return nil, err
 		}
 		ic.InterfaceName = &interfaceName
 	}
 
-	if cmd.Flag(wireguardPortFlag).Changed {
+	if isFlagChanged(cmd, wireguardPortFlag) {
 		p := int(wireguardPort)
 		ic.WireguardPort = &p
 	}
 
-	if cmd.Flag(mtuFlag).Changed {
+	if isFlagChanged(cmd, mtuFlag) {
 		if err := iface.ValidateMTU(mtu); err != nil {
 			return nil, err
 		}
 		ic.MTU = &mtu
 	}
 
-	if cmd.Flag(networkMonitorFlag).Changed {
+	if isFlagChanged(cmd, networkMonitorFlag) {
 		ic.NetworkMonitor = &networkMonitor
 	}
 
@@ -510,7 +514,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.PreSharedKey = &preSharedKey
 	}
 
-	if cmd.Flag(disableAutoConnectFlag).Changed {
+	if isFlagChanged(cmd, disableAutoConnectFlag) {
 		ic.DisableAutoConnect = &autoConnectDisabled
 
 		if autoConnectDisabled {
@@ -522,32 +526,32 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		}
 	}
 
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+	if isFlagChanged(cmd, dnsRouteIntervalFlag) {
 		ic.DNSRouteInterval = &dnsRouteInterval
 	}
 
-	if cmd.Flag(disableClientRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableClientRoutesFlag) {
 		ic.DisableClientRoutes = &disableClientRoutes
 	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableServerRoutesFlag) {
 		ic.DisableServerRoutes = &disableServerRoutes
 	}
-	if cmd.Flag(disableDNSFlag).Changed {
+	if isFlagChanged(cmd, disableDNSFlag) {
 		ic.DisableDNS = &disableDNS
 	}
-	if cmd.Flag(disableFirewallFlag).Changed {
+	if isFlagChanged(cmd, disableFirewallFlag) {
 		ic.DisableFirewall = &disableFirewall
 	}
 
-	if cmd.Flag(blockLANAccessFlag).Changed {
+	if isFlagChanged(cmd, blockLANAccessFlag) {
 		ic.BlockLANAccess = &blockLANAccess
 	}
 
-	if cmd.Flag(blockInboundFlag).Changed {
+	if isFlagChanged(cmd, blockInboundFlag) {
 		ic.BlockInbound = &blockInbound
 	}
 
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
+	if isFlagChanged(cmd, enableLazyConnectionFlag) {
 		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
 	return &ic, nil
@@ -556,7 +560,6 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
-		ManagementUrl:       managementURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,
@@ -567,64 +570,68 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
+	if rootCmd.PersistentFlags().Changed("management-url") {
+		loginRequest.ManagementUrl = managementURL
+	}
+
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
-	if cmd.Flag(enableRosenpassFlag).Changed {
+	if isFlagChanged(cmd, enableRosenpassFlag) {
 		loginRequest.RosenpassEnabled = &rosenpassEnabled
 	}
 
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+	if isFlagChanged(cmd, rosenpassPermissiveFlag) {
 		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
+	if isFlagChanged(cmd, serverSSHAllowedFlag) {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
 	}
 
-	if cmd.Flag(enableSSHRootFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRootFlag) {
 		loginRequest.EnableSSHRoot = &enableSSHRoot
 	}
 
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
+	if isFlagChanged(cmd, enableSSHSFTPFlag) {
 		loginRequest.EnableSSHSFTP = &enableSSHSFTP
 	}
 
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHLocalPortForwardFlag) {
 		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
 
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+	if isFlagChanged(cmd, enableSSHRemotePortForwardFlag) {
 		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
 
-	if cmd.Flag(disableSSHAuthFlag).Changed {
+	if isFlagChanged(cmd, disableSSHAuthFlag) {
 		loginRequest.DisableSSHAuth = &disableSSHAuth
 	}
 
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+	if isFlagChanged(cmd, sshJWTCacheTTLFlag) {
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 
-	if cmd.Flag(disableAutoConnectFlag).Changed {
+	if isFlagChanged(cmd, disableAutoConnectFlag) {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
 	}
 
-	if cmd.Flag(interfaceNameFlag).Changed {
+	if isFlagChanged(cmd, interfaceNameFlag) {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			return nil, err
 		}
 		loginRequest.InterfaceName = &interfaceName
 	}
 
-	if cmd.Flag(wireguardPortFlag).Changed {
+	if isFlagChanged(cmd, wireguardPortFlag) {
 		wp := int64(wireguardPort)
 		loginRequest.WireguardPort = &wp
 	}
 
-	if cmd.Flag(mtuFlag).Changed {
+	if isFlagChanged(cmd, mtuFlag) {
 		if err := iface.ValidateMTU(mtu); err != nil {
 			return nil, err
 		}
@@ -632,36 +639,36 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.Mtu = &m
 	}
 
-	if cmd.Flag(networkMonitorFlag).Changed {
+	if isFlagChanged(cmd, networkMonitorFlag) {
 		loginRequest.NetworkMonitor = &networkMonitor
 	}
 
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+	if isFlagChanged(cmd, dnsRouteIntervalFlag) {
 		loginRequest.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
 
-	if cmd.Flag(disableClientRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableClientRoutesFlag) {
 		loginRequest.DisableClientRoutes = &disableClientRoutes
 	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
+	if isFlagChanged(cmd, disableServerRoutesFlag) {
 		loginRequest.DisableServerRoutes = &disableServerRoutes
 	}
-	if cmd.Flag(disableDNSFlag).Changed {
+	if isFlagChanged(cmd, disableDNSFlag) {
 		loginRequest.DisableDns = &disableDNS
 	}
-	if cmd.Flag(disableFirewallFlag).Changed {
+	if isFlagChanged(cmd, disableFirewallFlag) {
 		loginRequest.DisableFirewall = &disableFirewall
 	}
 
-	if cmd.Flag(blockLANAccessFlag).Changed {
+	if isFlagChanged(cmd, blockLANAccessFlag) {
 		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
-	if cmd.Flag(blockInboundFlag).Changed {
+	if isFlagChanged(cmd, blockInboundFlag) {
 		loginRequest.BlockInbound = &blockInbound
 	}
 
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
+	if isFlagChanged(cmd, enableLazyConnectionFlag) {
 		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
 	return &loginRequest, nil
@@ -781,4 +788,12 @@ func isValidAddrPort(input string) bool {
 	}
 	_, err := netip.ParseAddrPort(input)
 	return err == nil
+}
+
+func isFlagChanged(cmd *cobra.Command, name string) bool {
+	flag := cmd.Flag(name)
+	if flag == nil {
+		return false
+	}
+	return flag.Changed
 }
