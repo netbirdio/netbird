@@ -271,6 +271,9 @@ type Store interface {
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+
+	// GetCustomDomainsCounts returns the total and validated custom domain counts.
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 }
 
 const (

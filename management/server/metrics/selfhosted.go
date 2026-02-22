@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -51,6 +52,7 @@ type properties map[string]interface{}
 type DataSource interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetStoreEngine() types.Engine
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -211,6 +213,16 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		localUsers                int
 		idpUsers                  int
 		embeddedIdpTypes          map[string]int
+		services                  int
+		servicesEnabled           int
+		servicesTargets           int
+		servicesStatusActive      int
+		servicesStatusPending     int
+		servicesStatusError       int
+		servicesTargetType        map[string]int
+		servicesAuthPassword      int
+		servicesAuthPin           int
+		servicesAuthOIDC          int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -220,9 +232,12 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	rulesDirection = make(map[string]int)
 	activeUsersLastDay = make(map[string]struct{})
 	embeddedIdpTypes = make(map[string]int)
+	servicesTargetType = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
+
+	customDomains, customDomainsValidated, _ := w.dataSource.GetCustomDomainsCounts(ctx)
 
 	for _, account := range w.dataSource.GetAllAccounts(ctx) {
 		accounts++
@@ -335,6 +350,37 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 				peerActiveVersions = append(peerActiveVersions, peer.Meta.WtVersion)
 			}
 		}
+
+		for _, service := range account.Services {
+			services++
+			if service.Enabled {
+				servicesEnabled++
+			}
+			servicesTargets += len(service.Targets)
+
+			switch reverseproxy.ProxyStatus(service.Meta.Status) {
+			case reverseproxy.StatusActive:
+				servicesStatusActive++
+			case reverseproxy.StatusPending:
+				servicesStatusPending++
+			case reverseproxy.StatusError, reverseproxy.StatusCertificateFailed, reverseproxy.StatusTunnelNotCreated:
+				servicesStatusError++
+			}
+
+			for _, target := range service.Targets {
+				servicesTargetType[target.TargetType]++
+			}
+
+			if service.Auth.PasswordAuth != nil && service.Auth.PasswordAuth.Enabled {
+				servicesAuthPassword++
+			}
+			if service.Auth.PinAuth != nil && service.Auth.PinAuth.Enabled {
+				servicesAuthPin++
+			}
+			if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled {
+				servicesAuthOIDC++
+			}
+		}
 	}
 
 	minActivePeerVersion, maxActivePeerVersion := getMinMaxVersion(peerActiveVersions)
@@ -374,6 +420,22 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["local_users_count"] = localUsers
 	metricsProperties["idp_users_count"] = idpUsers
 	metricsProperties["embedded_idp_count"] = len(embeddedIdpTypes)
+
+	metricsProperties["services"] = services
+	metricsProperties["services_enabled"] = servicesEnabled
+	metricsProperties["services_targets"] = servicesTargets
+	metricsProperties["services_status_active"] = servicesStatusActive
+	metricsProperties["services_status_pending"] = servicesStatusPending
+	metricsProperties["services_status_error"] = servicesStatusError
+	metricsProperties["services_auth_password"] = servicesAuthPassword
+	metricsProperties["services_auth_pin"] = servicesAuthPin
+	metricsProperties["services_auth_oidc"] = servicesAuthOIDC
+	metricsProperties["custom_domains"] = customDomains
+	metricsProperties["custom_domains_validated"] = customDomainsValidated
+
+	for targetType, count := range servicesTargetType {
+		metricsProperties["services_target_type_"+targetType] = count
+	}
 
 	for idpType, count := range embeddedIdpTypes {
 		metricsProperties["embedded_idp_users_"+idpType] = count
