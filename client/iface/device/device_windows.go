@@ -1,8 +1,14 @@
 package device
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/netip"
+	"os/exec"
+	"strings"
+	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -15,6 +21,12 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+)
+
+const (
+	wintunServiceName         = "wintun"
+	wintunDriverRecoveryWait  = 2 * time.Second
+	wintunRecoveryTimeout     = 15 * time.Second
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
@@ -62,7 +74,18 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Info("create tun interface")
 	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
 	if err != nil {
-		return nil, fmt.Errorf("error creating tun device: %s", err)
+		if isWintunDriverError(err) {
+			log.Warnf("TUN creation failed with wintun driver error, attempting recovery: %s", err)
+			if recoverErr := tryRecoverWintunDriver(); recoverErr != nil {
+				log.Warnf("wintun driver recovery failed: %s", recoverErr)
+			} else {
+				log.Info("wintun driver recovery completed, retrying TUN creation")
+				tunDevice, err = tun.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error creating tun device: %s", err)
+		}
 	}
 	t.nativeTunDevice = tunDevice.(*tun.NativeTun)
 	t.filteredDevice = newDeviceFilter(tunDevice)
@@ -189,4 +212,85 @@ func (t *TunDevice) GetNet() *netstack.Net {
 // GetICEBind returns the ICEBind instance
 func (t *TunDevice) GetICEBind() EndpointManager {
 	return t.iceBind
+}
+
+// isWintunDriverError checks whether the TUN creation error indicates a stale
+// or broken wintun kernel driver registration. This typically manifests as
+// ERROR_FILE_NOT_FOUND (syscall.Errno 2) when the driver entry in the
+// Windows service registry is present but the driver fails to load (e.g.,
+// after a Windows update changes the kernel ABI).
+func isWintunDriverError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Prefer precise errno check when available
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno == syscall.ERROR_FILE_NOT_FOUND
+	}
+	// Fallback: string match for wrapped errors that lost the Errno type
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "the system cannot find the file specified")
+}
+
+// tryRecoverWintunDriver attempts to recover from a broken wintun kernel driver
+// registration by removing the stale service entry. The wintun library will
+// automatically re-install the driver on the next CreateTUN call.
+//
+// This addresses a known issue where the wintun driver entry becomes stale
+// after Windows updates (especially on Windows 11 Insider builds), causing
+// the driver to fail with ERROR_GEN_FAILURE (error 31). Removing the stale
+// entry allows re-registration with the current kernel.
+//
+// Requires administrator privileges, which are available when running as the
+// NetBird Windows service (LocalSystem account).
+//
+// See: https://github.com/netbirdio/netbird/issues/5408
+func tryRecoverWintunDriver() error {
+	scCmd := getSystem32Command("sc.exe")
+
+	ctx, cancel := context.WithTimeout(context.Background(), wintunRecoveryTimeout)
+	defer cancel()
+
+	// Check current wintun driver state before taking action
+	out, err := exec.CommandContext(ctx, scCmd, "query", wintunServiceName).CombinedOutput()
+	if err != nil {
+		outStr := strings.ToLower(string(out))
+		// Exit code 1060 / "failed 1060" means the service does not exist —
+		// nothing to recover, let wintun re-create it on next attempt.
+		if strings.Contains(outStr, "1060") {
+			log.Debugf("%s service not found, skipping recovery", wintunServiceName)
+			return nil
+		}
+		return fmt.Errorf("failed to query %s service: %w (output: %s)", wintunServiceName, err, string(out))
+	}
+
+	outStr := strings.ToLower(string(out))
+
+	// Only proceed if the driver is stopped (not running)
+	if strings.Contains(outStr, "running") {
+		return fmt.Errorf("%s driver is running, recovery not applicable", wintunServiceName)
+	}
+
+	log.Warnf("%s driver is in a failed state, removing stale service entry for re-registration", wintunServiceName)
+
+	out, err = exec.CommandContext(ctx, scCmd, "delete", wintunServiceName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to delete %s service: %w (output: %s)", wintunServiceName, err, string(out))
+	}
+
+	log.Infof("stale %s service entry removed, waiting for cleanup", wintunServiceName)
+	time.Sleep(wintunDriverRecoveryWait)
+
+	return nil
+}
+
+// getSystem32Command returns the full path to a System32 command if it cannot
+// be found on PATH. This mirrors the pattern used in the iface package.
+func getSystem32Command(command string) string {
+	_, err := exec.LookPath(command)
+	if err == nil {
+		return command
+	}
+	return `C:\windows\system32\` + command
 }
