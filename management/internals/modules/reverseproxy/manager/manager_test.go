@@ -11,7 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	storetypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -372,4 +379,68 @@ func TestPreserveServiceMetadata(t *testing.T) {
 	assert.Equal(t, existing.Meta, updated.Meta)
 	assert.Equal(t, existing.SessionPrivateKey, updated.SessionPrivateKey)
 	assert.Equal(t, existing.SessionPublicKey, updated.SessionPublicKey)
+}
+
+func TestDeleteService_DeletesTargets(t *testing.T) {
+	ctx := context.Background()
+	accountID := "test-account"
+	userID := "test-user"
+
+	sqlStore, err := store.NewStore(ctx, storetypes.SqliteStoreEngine, t.TempDir(), nil, false)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockPerms := permissions.NewMockManager(ctrl)
+	mockAcct := account.NewMockManager(ctrl)
+	mockGRPC := &nbgrpc.ProxyServiceServer{}
+
+	mgr := &managerImpl{
+		store:              sqlStore,
+		permissionsManager: mockPerms,
+		accountManager:     mockAcct,
+		proxyGRPCServer:    mockGRPC,
+	}
+
+	service := &reverseproxy.Service{
+		ID:           "service-1",
+		AccountID:    accountID,
+		Domain:       "test.example.com",
+		ProxyCluster: "cluster1",
+		Enabled:      true,
+		Targets: []*reverseproxy.Target{
+			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-1"},
+			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-2"},
+			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-3"},
+		},
+	}
+
+	err = sqlStore.CreateService(ctx, service)
+	require.NoError(t, err)
+
+	retrievedService, err := sqlStore.GetServiceByID(ctx, store.LockingStrengthNone, accountID, service.ID)
+	require.NoError(t, err)
+	require.Len(t, retrievedService.Targets, 3, "Service should have 3 targets before deletion")
+
+	mockPerms.EXPECT().
+		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
+		Return(true, nil)
+	mockAcct.EXPECT().
+		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
+	mockAcct.EXPECT().
+		UpdateAccountPeers(ctx, accountID)
+
+	err = mgr.DeleteService(ctx, accountID, userID, service.ID)
+	require.NoError(t, err)
+
+	_, err = sqlStore.GetServiceByID(ctx, store.LockingStrengthNone, accountID, service.ID)
+	require.Error(t, err)
+	s, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.NotFound, s.Type())
+
+	targets, err := sqlStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, accountID, service.ID)
+	require.NoError(t, err)
+	assert.Len(t, targets, 0, "All targets should be deleted when service is deleted")
 }

@@ -4882,6 +4882,36 @@ func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID strin
 	return nil
 }
 
+func (s *SqlStore) DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error {
+	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ? AND id = ?", accountID, serviceID, targetID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete target from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete target from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "target not found for service %s", serviceID)
+	}
+
+	return nil
+}
+
+// GetTargetsByServiceID retrieves all targets for a given service
+func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error) {
+	var targets []*reverseproxy.Target
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	result := tx.Where("account_id = ? AND service_id = ?", accountID, serviceID).Find(&targets)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get targets from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get targets from store")
+	}
+
+	return targets, nil
+}
+
 func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {

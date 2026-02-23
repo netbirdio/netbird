@@ -271,6 +271,8 @@ type Store interface {
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error)
+	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
 }
 
 const (
