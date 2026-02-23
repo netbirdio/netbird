@@ -33,6 +33,18 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func initGroupTestData(initGroups ...*types.Group) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -141,7 +153,7 @@ func TestGetGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.getGroup).Methods("GET")
+			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.getGroup)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -267,8 +279,8 @@ func TestWriteGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.createGroup).Methods("POST")
-			router.HandleFunc("/api/groups/{groupId}", p.updateGroup).Methods("PUT")
+			router.HandleFunc("/api/groups", wrapHandler(p.createGroup)).Methods("POST")
+			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.updateGroup)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -345,7 +357,7 @@ func TestGetAllGroups(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.getAllGroups).Methods("GET")
+			router.HandleFunc("/api/groups", wrapHandler(p.getAllGroups)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -426,7 +438,7 @@ func TestDeleteGroup(t *testing.T) {
 				AccountId: "test_id",
 			})
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.deleteGroup).Methods("DELETE")
+			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.deleteGroup)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

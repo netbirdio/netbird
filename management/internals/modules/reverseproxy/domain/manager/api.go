@@ -7,7 +7,10 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -17,15 +20,15 @@ type handler struct {
 	manager Manager
 }
 
-func RegisterEndpoints(router *mux.Router, manager Manager) {
+func RegisterEndpoints(router *mux.Router, manager Manager, permissionsManager permissions.Manager) {
 	h := &handler{
 		manager: manager,
 	}
 
-	router.HandleFunc("/domains", h.getAllDomains).Methods("GET", "OPTIONS")
-	router.HandleFunc("/domains", h.createCustomDomain).Methods("POST", "OPTIONS")
-	router.HandleFunc("/domains/{domainId}", h.deleteCustomDomain).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/domains/{domainId}/validate", h.triggerCustomDomainValidation).Methods("GET", "OPTIONS")
+	router.HandleFunc("/domains", permissionsManager.WithPermission(modules.Services, operations.Read, h.getAllDomains)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/domains", permissionsManager.WithPermission(modules.Services, operations.Create, h.createCustomDomain)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/domains/{domainId}", permissionsManager.WithPermission(modules.Services, operations.Delete, h.deleteCustomDomain)).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/domains/{domainId}/validate", permissionsManager.WithPermission(modules.Services, operations.Read, h.triggerCustomDomainValidation)).Methods("GET", "OPTIONS")
 }
 
 func domainTypeToApi(t domain.Type) api.ReverseProxyDomainType {
@@ -53,13 +56,7 @@ func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 	return resp
 }
 
-func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	domains, err := h.manager.GetDomains(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -74,13 +71,7 @@ func (h *handler) getAllDomains(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, ret)
 }
 
-func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	var req api.PostApiReverseProxiesDomainsJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -96,13 +87,7 @@ func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, domainToApi(domain))
 }
 
-func (h *handler) deleteCustomDomain(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) deleteCustomDomain(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	domainID := mux.Vars(r)["domainId"]
 	if domainID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "domain ID is required"), w)
@@ -117,13 +102,7 @@ func (h *handler) deleteCustomDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *handler) triggerCustomDomainValidation(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) triggerCustomDomainValidation(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	domainID := mux.Vars(r)["domainId"]
 	if domainID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "domain ID is required"), w)

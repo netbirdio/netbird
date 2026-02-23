@@ -232,7 +232,11 @@ func TestGetUsers(t *testing.T) {
 				AccountId: existingAccountID,
 			})
 
-			userHandler.getAllUsers(recorder, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.getAllUsers(recorder, req, userAuth)
 
 			res := recorder.Result()
 			defer res.Body.Close()
@@ -343,7 +347,7 @@ func TestUpdateUser(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}", userHandler.updateUser).Methods("PUT")
+			router.HandleFunc("/api/users/{userId}", wrapHandler(userHandler.updateUser)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -439,7 +443,11 @@ func TestCreateUser(t *testing.T) {
 				AccountId: existingAccountID,
 			})
 
-			userHandler.createUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.createUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -490,7 +498,11 @@ func TestInviteUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.inviteUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.inviteUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -549,7 +561,11 @@ func TestDeleteUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.deleteUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.deleteUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -682,7 +698,11 @@ func TestCurrentUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.getCurrentUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.getCurrentUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -779,7 +799,7 @@ func TestApproveUserEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/approve", handler.approveUser).Methods("POST")
+			router.HandleFunc("/users/{userId}/approve", wrapHandler(handler.approveUser)).Methods("POST")
 
 			req, err := http.NewRequest("POST", "/users/pending-user/approve", nil)
 			require.NoError(t, err)

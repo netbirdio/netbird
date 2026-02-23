@@ -65,6 +65,18 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	}
 }
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func TestGetCitiesByCountry(t *testing.T) {
 	tt := []struct {
 		name           string
@@ -121,7 +133,7 @@ func TestGetCitiesByCountry(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries/{country}/cities", geolocationHandler.getCitiesByCountry).Methods("GET")
+			router.HandleFunc("/api/locations/countries/{country}/cities", wrapHandler(geolocationHandler.getCitiesByCountry)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -214,7 +226,7 @@ func TestGetAllCountries(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries", geolocationHandler.getAllCountries).Methods("GET")
+			router.HandleFunc("/api/locations/countries", wrapHandler(geolocationHandler.getAllCountries)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

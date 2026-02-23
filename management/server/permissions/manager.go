@@ -4,20 +4,25 @@ package permissions
 
 import (
 	"context"
+	"net/http"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
+	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth)) http.HandlerFunc
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
@@ -33,6 +38,37 @@ type managerImpl struct {
 func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
+	}
+}
+
+// WithPermission wraps an HTTP handler with permission checking logic.
+func (m *managerImpl) WithPermission(
+	module modules.Module,
+	operation operations.Operation,
+	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			log.WithContext(r.Context()).Errorf("failed to get user auth from context: %v", err)
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		allowed, err := m.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, module, operation)
+		if err != nil {
+			log.WithContext(r.Context()).Errorf("failed to validate permissions for user %s on account %s: %v", userAuth.UserId, userAuth.AccountId, err)
+			util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+			return
+		}
+
+		if !allowed {
+			log.WithContext(r.Context()).Tracef("user %s on account %s is not allowed to %s in %s", userAuth.UserId, userAuth.AccountId, operation, module)
+			util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+			return
+		}
+
+		handlerFunc(w, r, &userAuth)
 	}
 }
 

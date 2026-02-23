@@ -7,7 +7,10 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -17,25 +20,19 @@ type handler struct {
 	manager zones.Manager
 }
 
-func RegisterEndpoints(router *mux.Router, manager zones.Manager) {
+func RegisterEndpoints(router *mux.Router, manager zones.Manager, permissionsManager permissions.Manager) {
 	h := &handler{
 		manager: manager,
 	}
 
-	router.HandleFunc("/dns/zones", h.getAllZones).Methods("GET", "OPTIONS")
-	router.HandleFunc("/dns/zones", h.createZone).Methods("POST", "OPTIONS")
-	router.HandleFunc("/dns/zones/{zoneId}", h.getZone).Methods("GET", "OPTIONS")
-	router.HandleFunc("/dns/zones/{zoneId}", h.updateZone).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/dns/zones/{zoneId}", h.deleteZone).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/dns/zones", permissionsManager.WithPermission(modules.Dns, operations.Read, h.getAllZones)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/dns/zones", permissionsManager.WithPermission(modules.Dns, operations.Create, h.createZone)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/dns/zones/{zoneId}", permissionsManager.WithPermission(modules.Dns, operations.Read, h.getZone)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/dns/zones/{zoneId}", permissionsManager.WithPermission(modules.Dns, operations.Update, h.updateZone)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/dns/zones/{zoneId}", permissionsManager.WithPermission(modules.Dns, operations.Delete, h.deleteZone)).Methods("DELETE", "OPTIONS")
 }
 
-func (h *handler) getAllZones(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getAllZones(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	allZones, err := h.manager.GetAllZones(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -50,13 +47,7 @@ func (h *handler) getAllZones(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, apiZones)
 }
 
-func (h *handler) createZone(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) createZone(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	var req api.PostApiDnsZonesJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -66,7 +57,7 @@ func (h *handler) createZone(w http.ResponseWriter, r *http.Request) {
 	zone := new(zones.Zone)
 	zone.FromAPIRequest(&req)
 
-	if err = zone.Validate(); err != nil {
+	if err := zone.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
@@ -80,13 +71,7 @@ func (h *handler) createZone(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, createdZone.ToAPIResponse())
 }
 
-func (h *handler) getZone(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getZone(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	zoneID := mux.Vars(r)["zoneId"]
 	if zoneID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "zone ID is required"), w)
@@ -102,13 +87,7 @@ func (h *handler) getZone(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, zone.ToAPIResponse())
 }
 
-func (h *handler) updateZone(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) updateZone(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	zoneID := mux.Vars(r)["zoneId"]
 	if zoneID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "zone ID is required"), w)
@@ -116,7 +95,7 @@ func (h *handler) updateZone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PutApiDnsZonesZoneIdJSONRequestBody
-	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -125,7 +104,7 @@ func (h *handler) updateZone(w http.ResponseWriter, r *http.Request) {
 	zone.FromAPIRequest(&req)
 	zone.ID = zoneID
 
-	if err = zone.Validate(); err != nil {
+	if err := zone.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
@@ -139,20 +118,14 @@ func (h *handler) updateZone(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, updatedZone.ToAPIResponse())
 }
 
-func (h *handler) deleteZone(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) deleteZone(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	zoneID := mux.Vars(r)["zoneId"]
 	if zoneID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "zone ID is required"), w)
 		return
 	}
 
-	if err = h.manager.DeleteZone(r.Context(), userAuth.AccountId, userAuth.UserId, zoneID); err != nil {
+	if err := h.manager.DeleteZone(r.Context(), userAuth.AccountId, userAuth.UserId, zoneID); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}

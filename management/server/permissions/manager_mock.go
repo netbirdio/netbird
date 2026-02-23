@@ -6,6 +6,7 @@ package permissions
 
 import (
 	context "context"
+	http "net/http"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -14,6 +15,7 @@ import (
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
 	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
 	types "github.com/netbirdio/netbird/management/server/types"
+	auth "github.com/netbirdio/netbird/shared/auth"
 )
 
 // MockManager is a mock of Manager interface.
@@ -107,4 +109,18 @@ func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, us
 func (mr *MockManagerMockRecorder) ValidateUserPermissions(ctx, accountID, userID, module, operation interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateUserPermissions", reflect.TypeOf((*MockManager)(nil).ValidateUserPermissions), ctx, accountID, userID, module, operation)
+}
+
+// WithPermission mocks base method.
+func (m *MockManager) WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(http.ResponseWriter, *http.Request, *auth.UserAuth)) http.HandlerFunc {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithPermission", module, operation, handlerFunc)
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// WithPermission indicates an expected call of WithPermission.
+func (mr *MockManagerMockRecorder) WithPermission(module, operation, handlerFunc interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithPermission", reflect.TypeOf((*MockManager)(nil).WithPermission), module, operation, handlerFunc)
 }

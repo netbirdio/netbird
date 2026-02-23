@@ -21,6 +21,18 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func initPoliciesTestData(policies ...*types.Policy) *handler {
 	testPolicies := make(map[string]*types.Policy, len(policies))
 	for _, policy := range policies {
@@ -111,7 +123,7 @@ func TestPoliciesGetPolicy(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies/{policyId}", p.getPolicy).Methods("GET")
+			router.HandleFunc("/api/policies/{policyId}", wrapHandler(p.getPolicy)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -275,8 +287,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies", p.createPolicy).Methods("POST")
-			router.HandleFunc("/api/policies/{policyId}", p.updatePolicy).Methods("PUT")
+			router.HandleFunc("/api/policies", wrapHandler(p.createPolicy)).Methods("POST")
+			router.HandleFunc("/api/policies/{policyId}", wrapHandler(p.updatePolicy)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

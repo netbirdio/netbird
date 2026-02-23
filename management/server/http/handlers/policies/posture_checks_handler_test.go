@@ -26,6 +26,18 @@ import (
 var berlin = "Berlin"
 var losAngeles = "Los Angeles"
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func initPostureChecksTestData(postureChecks ...*posture.Checks) *postureChecksHandler {
 	testPostureChecks := make(map[string]*posture.Checks, len(postureChecks))
 	for _, postureCheck := range postureChecks {
@@ -183,7 +195,7 @@ func TestGetPostureCheck(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", p.getPostureCheck).Methods("GET")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", wrapHandler(p.getPostureCheck)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -841,8 +853,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 			}
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks", defaultHandler.createPostureCheck).Methods("POST")
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", defaultHandler.updatePostureCheck).Methods("PUT")
+			router.HandleFunc("/api/posture-checks", wrapHandler(defaultHandler.createPostureCheck)).Methods("POST")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", wrapHandler(defaultHandler.updatePostureCheck)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

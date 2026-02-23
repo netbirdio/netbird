@@ -6,7 +6,10 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
@@ -15,21 +18,15 @@ type handler struct {
 	manager accesslogs.Manager
 }
 
-func RegisterEndpoints(router *mux.Router, manager accesslogs.Manager) {
+func RegisterEndpoints(router *mux.Router, manager accesslogs.Manager, permissionsManager permissions.Manager) {
 	h := &handler{
 		manager: manager,
 	}
 
-	router.HandleFunc("/events/proxy", h.getAccessLogs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/events/proxy", permissionsManager.WithPermission(modules.Services, operations.Read, h.getAccessLogs)).Methods("GET", "OPTIONS")
 }
 
-func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getAccessLogs(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	var filter accesslogs.AccessLogFilter
 	filter.ParseFromRequest(r)
 

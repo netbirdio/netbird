@@ -9,13 +9,15 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 // handler is a handler that returns users of the account
@@ -23,18 +25,18 @@ type handler struct {
 	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	userHandler := newHandler(accountManager)
-	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}/approve", userHandler.approveUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}/reject", userHandler.rejectUser).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/users/{userId}/password", userHandler.changePassword).Methods("PUT", "OPTIONS")
-	addUsersTokensEndpoint(accountManager, router)
+	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getAllUsers)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/current", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getCurrentUser)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.updateUser)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Delete, userHandler.deleteUser)).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Create, userHandler.createUser)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/invite", permissionsManager.WithPermission(modules.Users, operations.Create, userHandler.inviteUser)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/approve", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.approveUser)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/reject", permissionsManager.WithPermission(modules.Users, operations.Delete, userHandler.rejectUser)).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/users/{userId}/password", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.changePassword)).Methods("PUT", "OPTIONS")
+	addUsersTokensEndpoint(accountManager, router, permissionsManager)
 }
 
 // newHandler creates a new UsersHandler HTTP handler
@@ -45,19 +47,12 @@ func newHandler(accountManager account.Manager) *handler {
 }
 
 // updateUser is a PUT requests to update User data
-func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) updateUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodPut {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
@@ -89,7 +84,7 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newUser, err := h.accountManager.SaveUser(r.Context(), accountID, userID, &types.User{
+	newUser, err := h.accountManager.SaveUser(r.Context(), userAuth.AccountId, userAuth.UserId, &types.User{
 		Id:                   targetUserID,
 		Role:                 userRole,
 		AutoGroups:           req.AutoGroups,
@@ -102,23 +97,16 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
+	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userAuth.UserId))
 }
 
 // deleteUser is a DELETE request to delete a user
-func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodDelete {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
@@ -126,7 +114,7 @@ func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteUser(r.Context(), accountID, userID, targetUserID)
+	err := h.accountManager.DeleteUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -136,21 +124,14 @@ func (h *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // createUser creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) createUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
 	req := &api.PostApiUsersJSONRequestBody{}
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -171,7 +152,7 @@ func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 		name = *req.Name
 	}
 
-	newUser, err := h.accountManager.CreateUser(r.Context(), accountID, userID, &types.UserInfo{
+	newUser, err := h.accountManager.CreateUser(r.Context(), userAuth.AccountId, userAuth.UserId, &types.UserInfo{
 		Email:         email,
 		Name:          name,
 		Role:          req.Role,
@@ -183,25 +164,18 @@ func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userID))
+	util.WriteJSONObject(r.Context(), w, toUserResponse(newUser, userAuth.UserId))
 }
 
 // getAllUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
-func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodGet {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	data, err := h.accountManager.GetUsersFromAccount(r.Context(), accountID, userID)
+	data, err := h.accountManager.GetUsersFromAccount(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -215,7 +189,7 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if serviceUser == "" {
-			users = append(users, toUserResponse(d, userID))
+			users = append(users, toUserResponse(d, userAuth.UserId))
 			continue
 		}
 
@@ -226,7 +200,7 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if includeServiceUser == d.IsServiceUser {
-			users = append(users, toUserResponse(d, userID))
+			users = append(users, toUserResponse(d, userAuth.UserId))
 		}
 	}
 
@@ -235,18 +209,11 @@ func (h *handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
 
 // inviteUser resend invitations to users who haven't activated their accounts,
 // prior to the expiration period.
-func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	vars := mux.Vars(r)
 	targetUserID := vars["userId"]
@@ -255,7 +222,7 @@ func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.InviteUser(r.Context(), accountID, userID, targetUserID)
+	err := h.accountManager.InviteUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -264,19 +231,13 @@ func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodGet {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
-	ctx := r.Context()
-	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
 
-	user, err := h.accountManager.GetCurrentUserInfo(ctx, userAuth)
+	user, err := h.accountManager.GetCurrentUserInfo(r.Context(), *userAuth)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -356,7 +317,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 }
 
 // approveUser is a POST request to approve a user that is pending approval
-func (h *handler) approveUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) approveUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -369,11 +330,6 @@ func (h *handler) approveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
 	user, err := h.accountManager.ApproveUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -385,7 +341,7 @@ func (h *handler) approveUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // rejectUser is a DELETE request to reject a user that is pending approval
-func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request) {
+func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodDelete {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -398,12 +354,7 @@ func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	err = h.accountManager.RejectUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
+	err := h.accountManager.RejectUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -421,7 +372,7 @@ type passwordChangeRequest struct {
 // changePassword is a PUT request to change user's password.
 // Only available when embedded IDP is enabled.
 // Users can only change their own password.
-func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
+func (h *handler) changePassword(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if r.Method != http.MethodPut {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -434,19 +385,13 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	var req passwordChangeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
-	err = h.accountManager.UpdateUserPassword(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID, req.OldPassword, req.NewPassword)
+	err := h.accountManager.UpdateUserPassword(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
