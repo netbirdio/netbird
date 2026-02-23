@@ -655,10 +655,8 @@ func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
 		Id:        testAccountID,
 		CreatedBy: testUserID,
 		Settings: &types.Settings{
-			Extra: &types.ExtraSettings{
-				PeerExposeEnabled: true,
-				PeerExposeGroups:  []string{testGroupID},
-			},
+			PeerExposeEnabled: true,
+			PeerExposeGroups:  []string{testGroupID},
 		},
 		Peers: map[string]*nbpeer.Peer{
 			testPeerID: {
@@ -755,7 +753,7 @@ func TestValidateExposePermission(t *testing.T) {
 		// Disable peer expose
 		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
 		require.NoError(t, err)
-		s.Extra.PeerExposeEnabled = false
+		s.PeerExposeEnabled = false
 		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
 		require.NoError(t, err)
 
@@ -770,7 +768,7 @@ func TestValidateExposePermission(t *testing.T) {
 		// Enable expose with empty groups — no groups configured means no peer is allowed
 		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
 		require.NoError(t, err)
-		s.Extra.PeerExposeGroups = []string{}
+		s.PeerExposeGroups = []string{}
 		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
 		require.NoError(t, err)
 
@@ -778,11 +776,14 @@ func TestValidateExposePermission(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("error when settings manager is nil", func(t *testing.T) {
-		mgr := &managerImpl{settingsManager: nil}
+	t.Run("error when store returns error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().GetAccountSettings(gomock.Any(), gomock.Any(), testAccountID).Return(nil, errors.New("store error"))
+		mgr := &managerImpl{store: mockStore}
 		err := mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "settings manager not available")
+		assert.Contains(t, err.Error(), "get account settings")
 	})
 }
 

@@ -168,6 +168,10 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJSONRequestBody) (*types.Settings, error) {
+	if req.Settings.PeerExposeEnabled && len(req.Settings.PeerExposeGroups) == 0 {
+		return nil, status.Errorf(status.InvalidArgument, "peer expose requires at least one group")
+	}
+
 	returnSettings := &types.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
@@ -175,21 +179,18 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
+
+		PeerExposeEnabled: req.Settings.PeerExposeEnabled,
+		PeerExposeGroups:  req.Settings.PeerExposeGroups,
 	}
 
 	if req.Settings.Extra != nil {
-		if req.Settings.Extra.PeerExposeEnabled && len(req.Settings.Extra.PeerExposeGroups) == 0 {
-			return nil, status.Errorf(status.InvalidArgument, "peer expose requires at least one group")
-		}
-
 		returnSettings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
 			UserApprovalRequired:     req.Settings.Extra.UserApprovalRequired,
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
-			PeerExposeEnabled:        req.Settings.Extra.PeerExposeEnabled,
-			PeerExposeGroups:         req.Settings.Extra.PeerExposeGroups,
 		}
 	}
 
@@ -342,6 +343,8 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:               settings.PeerExposeEnabled,
+		PeerExposeGroups:                settings.PeerExposeGroups,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
@@ -366,8 +369,6 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
 			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
-			PeerExposeEnabled:                  settings.Extra.PeerExposeEnabled,
-			PeerExposeGroups:                   settings.Extra.PeerExposeGroups,
 		}
 	}
 

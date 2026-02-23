@@ -550,21 +550,17 @@ func (m *managerImpl) GetServiceIDByTargetID(ctx context.Context, accountID stri
 // ValidateExposePermission checks whether the peer is allowed to use the expose feature.
 // It verifies the account has peer expose enabled and that the peer belongs to an allowed group.
 func (m *managerImpl) ValidateExposePermission(ctx context.Context, accountID, peerID string) error {
-	if m.settingsManager == nil {
-		return fmt.Errorf("settings manager not available")
-	}
-
-	extraSettings, err := m.settingsManager.GetExtraSettings(ctx, accountID)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return fmt.Errorf("get account settings: %w", err)
 	}
 
-	if extraSettings == nil || !extraSettings.PeerExposeEnabled {
+	if !settings.PeerExposeEnabled {
 		return fmt.Errorf("peer expose is not enabled for this account")
 	}
 
-	if len(extraSettings.PeerExposeGroups) == 0 {
+	if len(settings.PeerExposeGroups) == 0 {
 		return fmt.Errorf("no group is set for peer expose")
 	}
 
@@ -575,7 +571,7 @@ func (m *managerImpl) ValidateExposePermission(ctx context.Context, accountID, p
 	}
 
 	for _, pg := range peerGroupIDs {
-		if slices.Contains(extraSettings.PeerExposeGroups, pg) {
+		if slices.Contains(settings.PeerExposeGroups, pg) {
 			return nil
 		}
 	}

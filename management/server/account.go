@@ -494,8 +494,8 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 }
 
 func (am *DefaultAccountManager) handlePeerExposeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
-	oldEnabled := oldSettings.Extra != nil && oldSettings.Extra.PeerExposeEnabled
-	newEnabled := newSettings.Extra != nil && newSettings.Extra.PeerExposeEnabled
+	oldEnabled := oldSettings.PeerExposeEnabled
+	newEnabled := newSettings.PeerExposeEnabled
 
 	if oldEnabled == newEnabled {
 		return
