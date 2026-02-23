@@ -348,6 +348,8 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 			verificationURIComplete + " " + codeMsg)
 	}
 
+	printQRCode(cmd.OutOrStdout(), verificationURIComplete)
+
 	cmd.Println("")
 
 	if !noBrowser {
