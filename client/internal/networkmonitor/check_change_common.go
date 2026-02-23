@@ -98,16 +98,21 @@ func parseRouteMessage(buf []byte) (*systemops.Route, error) {
 
 // waitReadable blocks until fd has data to read, or ctx is cancelled.
 func waitReadable(ctx context.Context, fd int) error {
+	var fdset unix.FdSet
+	if fd < 0 || fd/unix.NFDBITS >= len(fdset.Bits) {
+		return fmt.Errorf("fd %d out of range for FdSet", fd)
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		fdset := &unix.FdSet{}
+		fdset = unix.FdSet{}
 		fdset.Set(fd)
 		// Use a 1-second timeout so we can re-check ctx periodically.
 		tv := unix.Timeval{Sec: 1}
-		n, err := unix.Select(fd+1, fdset, nil, nil, &tv)
+		n, err := unix.Select(fd+1, &fdset, nil, nil, &tv)
 		if err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
