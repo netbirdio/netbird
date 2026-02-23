@@ -22,7 +22,7 @@ type MockClient struct {
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
-	CreateExposeFunc               func(ctx context.Context, req *proto.ExposeServiceRequest) (*proto.ExposeServiceResponse, error)
+	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExposeFunc                func(ctx context.Context, domain string) error
 	StopExposeFunc                 func(ctx context.Context, domain string) error
 }
@@ -106,7 +106,7 @@ func (m *MockClient) Logout() error {
 	return m.LogoutFunc()
 }
 
-func (m *MockClient) CreateExpose(ctx context.Context, req *proto.ExposeServiceRequest) (*proto.ExposeServiceResponse, error) {
+func (m *MockClient) CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error) {
 	if m.CreateExposeFunc == nil {
 		return nil, nil
 	}

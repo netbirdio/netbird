@@ -25,7 +25,7 @@ type Client interface {
 	IsHealthy() bool
 	SyncMeta(sysInfo *system.Info) error
 	Logout() error
-	CreateExpose(ctx context.Context, req *proto.ExposeServiceRequest) (*proto.ExposeServiceResponse, error)
+	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
 	StopExpose(ctx context.Context, domain string) error
 }
