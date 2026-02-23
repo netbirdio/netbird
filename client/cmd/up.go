@@ -145,7 +145,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
 
-	return runInDaemonMode(ctx, cmd, pm, activeProf)
+	return runInDaemonMode(ctx, cmd, pm, activeProf, username.Username)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -172,7 +172,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, username string) error {
 	// get our config input, so we can generate
 	// proto.SetConfig and proto.LoginRequest
 	ic, err := setupConfigInputFromUpCmd(cmd)
