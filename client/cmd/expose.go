@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -43,7 +44,7 @@ func init() {
 	exposeCmd.Flags().StringSliceVar(&exposeUserGroups, "with-user-groups", nil, "Restrict access to specific user groups with SSO (e.g. --with-user-groups devops,Backend)")
 	exposeCmd.Flags().StringVar(&exposeDomain, "with-custom-domain", "", "Custom domain for the exposed service, must be configured to your account (e.g. --with-custom-domain myapp.example.com)")
 	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name (e.g. --with-name-prefix my-app)")
-	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use, only 'http' is supported (e.g. --protocol http)")
+	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use, http/https is supported (e.g. --protocol http)")
 }
 
 func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
@@ -55,8 +56,8 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 		return 0, fmt.Errorf("invalid port number: must be between 1 and 65535")
 	}
 
-	if exposeProtocol != "http" {
-		return 0, fmt.Errorf("unsupported protocol %q: only 'http' is supported", exposeProtocol)
+	if !isProtocolValid(exposeProtocol) {
+		return 0, fmt.Errorf("unsupported protocol %q: only 'http' or 'https' are supported", exposeProtocol)
 	}
 
 	if exposePin != "" && !pinRegexp.MatchString(exposePin) {
@@ -72,6 +73,10 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 	}
 
 	return port, nil
+}
+
+func isProtocolValid(exposeProtocol string) bool {
+	return strings.ToLower(exposeProtocol) == "http" || strings.ToLower(exposeProtocol) == "https"
 }
 
 func exposeFn(cmd *cobra.Command, args []string) error {
@@ -113,9 +118,14 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	protocol, err := toExposeProtocol(exposeProtocol)
+	if err != nil {
+		return err
+	}
+
 	stream, err := client.ExposeService(ctx, &proto.ExposeServiceRequest{
 		Port:       uint32(port),
-		Protocol:   proto.ExposeProtocol_EXPOSE_HTTP,
+		Protocol:   protocol,
 		Pin:        exposePin,
 		Password:   exposePassword,
 		UserGroups: exposeUserGroups,
@@ -131,6 +141,17 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	}
 
 	return waitForExposeEvents(cmd, ctx, stream)
+}
+
+func toExposeProtocol(exposeProtocol string) (proto.ExposeProtocol, error) {
+	switch strings.ToLower(exposeProtocol) {
+	case "http":
+		return proto.ExposeProtocol_EXPOSE_HTTP, nil
+	case "https":
+		return proto.ExposeProtocol_EXPOSE_HTTPS, nil
+	default:
+		return 0, fmt.Errorf("unsupported protocol %q: only 'http' or https are supported", exposeProtocol)
+	}
 }
 
 func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServiceClient, port uint64) error {

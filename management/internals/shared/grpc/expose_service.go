@@ -58,8 +58,8 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	if exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTP {
-		return nil, status.Errorf(codes.InvalidArgument, "only HTTP protocol is supported")
+	if exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTP && exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTPS {
+		return nil, status.Errorf(codes.InvalidArgument, "only HTTP or HTTPS protocol are supported")
 	}
 
 	if exposeReq.Pin != "" && !pinRegexp.MatchString(exposeReq.Pin) {
