@@ -5656,7 +5656,7 @@ type ExposeServiceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Port          uint32                 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	Protocol      ExposeProtocol         `protobuf:"varint,2,opt,name=protocol,proto3,enum=daemon.ExposeProtocol" json:"protocol,omitempty"`
-	Pin           string                 `protobuf:"bytes,3,opt,name=pin,proto3" json:"pin,omitempty"`
+	Pin           uint32                 `protobuf:"varint,3,opt,name=pin,proto3" json:"pin,omitempty"`
 	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
 	UserGroups    []string               `protobuf:"bytes,5,rep,name=user_groups,json=userGroups,proto3" json:"user_groups,omitempty"`
 	Domain        string                 `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
@@ -5709,11 +5709,11 @@ func (x *ExposeServiceRequest) GetProtocol() ExposeProtocol {
 	return ExposeProtocol_EXPOSE_HTTP
 }
 
-func (x *ExposeServiceRequest) GetPin() string {
+func (x *ExposeServiceRequest) GetPin() uint32 {
 	if x != nil {
 		return x.Pin
 	}
-	return ""
+	return 0
 }
 
 func (x *ExposeServiceRequest) GetPassword() string {
@@ -6543,7 +6543,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x14ExposeServiceRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x122\n" +
 	"\bprotocol\x18\x02 \x01(\x0e2\x16.daemon.ExposeProtocolR\bprotocol\x12\x10\n" +
-	"\x03pin\x18\x03 \x01(\tR\x03pin\x12\x1a\n" +
+	"\x03pin\x18\x03 \x01(\rR\x03pin\x12\x1a\n" +
 	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x1f\n" +
 	"\vuser_groups\x18\x05 \x03(\tR\n" +
 	"userGroups\x12\x16\n" +
