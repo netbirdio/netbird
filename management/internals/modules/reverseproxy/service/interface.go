@@ -4,6 +4,8 @@ package service
 
 import (
 	"context"
+
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type Manager interface {
@@ -20,4 +22,13 @@ type Manager interface {
 	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
 	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
+}
+
+// ProxyController is responsible for managing proxy clusters and routing service updates.
+type ProxyController interface {
+	SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string)
+	GetOIDCValidationConfig() OIDCValidationConfig
+	RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error
+	UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error
+	GetProxiesForCluster(clusterAddr string) []string
 }

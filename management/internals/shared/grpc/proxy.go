@@ -59,9 +59,6 @@ type ProxyServiceServer struct {
 	// Map of connected proxies: proxy_id -> proxy connection
 	connectedProxies sync.Map
 
-	// Map of cluster address -> set of proxy IDs
-	clusterProxies sync.Map
-
 	// Channel for broadcasting reverse proxy updates to all proxies
 	updatesChan chan *proto.ProxyMapping
 
@@ -70,6 +67,9 @@ type ProxyServiceServer struct {
 
 	// Manager for reverse proxy operations
 	serviceManager rpservice.Manager
+
+	// ProxyController for service updates and cluster management
+	proxyController rpservice.ProxyController
 
 	// Manager for proxy connections
 	proxyManager proxy.Manager
@@ -173,6 +173,10 @@ func (s *ProxyServiceServer) SetProxyManager(manager rpservice.Manager) {
 	s.serviceManager = manager
 }
 
+func (s *ProxyServiceServer) SetProxyController(proxyController rpservice.ProxyController) {
+	s.proxyController = proxyController
+}
+
 // GetMappingUpdate handles the control stream with proxy clients
 func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest, stream proto.ProxyService_GetMappingUpdateServer) error {
 	ctx := stream.Context()
@@ -205,7 +209,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 
 	s.connectedProxies.Store(proxyID, conn)
-	s.addToCluster(conn.address, proxyID)
+	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
+	}
 
 	// Register proxy in database
 	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo); err != nil {
@@ -224,7 +230,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		}
 
 		s.connectedProxies.Delete(proxyID)
-		s.removeFromCluster(conn.address, proxyID)
+		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); err != nil {
+			log.Warnf("Failed to unregister proxy %s from cluster: %v", proxyID, err)
+		}
 
 		cancel()
 		log.Infof("Proxy %s disconnected", proxyID)
@@ -446,61 +454,43 @@ func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
 	return urls
 }
 
-// addToCluster registers a proxy in a cluster.
-func (s *ProxyServiceServer) addToCluster(clusterAddr, proxyID string) {
-	if clusterAddr == "" {
-		return
-	}
-	proxySet, _ := s.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
-	log.Debugf("Added proxy %s to cluster %s", proxyID, clusterAddr)
-}
-
-// removeFromCluster removes a proxy from a cluster.
-func (s *ProxyServiceServer) removeFromCluster(clusterAddr, proxyID string) {
-	if clusterAddr == "" {
-		return
-	}
-	if proxySet, ok := s.clusterProxies.Load(clusterAddr); ok {
-		proxySet.(*sync.Map).Delete(proxyID)
-		log.Debugf("Removed proxy %s from cluster %s", proxyID, clusterAddr)
-	}
-}
-
 // SendServiceUpdateToCluster sends a service update to all proxy servers in a specific cluster.
 // If clusterAddr is empty, broadcasts to all connected proxy servers (backward compatibility).
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
-func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.ProxyMapping, clusterAddr string) {
+func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, update *proto.ProxyMapping, clusterAddr string) {
 	if clusterAddr == "" {
 		s.SendServiceUpdate(update)
 		return
 	}
 
-	proxySet, ok := s.clusterProxies.Load(clusterAddr)
-	if !ok {
-		log.Debugf("No proxies connected for cluster %s", clusterAddr)
+	if s.proxyController == nil {
+		log.WithContext(ctx).Debugf("ProxyController not set, cannot send to cluster %s", clusterAddr)
+		return
+	}
+
+	proxyIDs := s.proxyController.GetProxiesForCluster(clusterAddr)
+	if len(proxyIDs) == 0 {
+		log.WithContext(ctx).Debugf("No proxies connected for cluster %s", clusterAddr)
 		return
 	}
 
 	log.Debugf("Sending service update to cluster %s", clusterAddr)
-	proxySet.(*sync.Map).Range(func(key, _ interface{}) bool {
-		proxyID := key.(string)
+	for _, proxyID := range proxyIDs {
 		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
 			conn := connVal.(*proxyConnection)
 			msg := s.perProxyMessage(update, proxyID)
 			if msg == nil {
-				return true
+				continue
 			}
 			select {
 			case conn.sendChan <- msg:
-				log.Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
+				log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
 			default:
-				log.Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
+				log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 			}
 		}
-		return true
-	})
+	}
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for

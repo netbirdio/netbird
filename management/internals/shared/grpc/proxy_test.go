@@ -69,7 +69,7 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 		},
 	}
 
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), update, cluster)
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
@@ -116,7 +116,7 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 		Domain:    "test.example.com",
 	}
 
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), update, cluster)
 
 	msg1 := drainChannel(ch1)
 	msg2 := drainChannel(ch2)

@@ -7,16 +7,14 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
-	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -31,22 +29,22 @@ type Manager struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
-	proxyGRPCServer    *nbgrpc.ProxyServiceServer
+	proxyController    service.ProxyController
 	clusterDeriver     ClusterDeriver
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) rpservice.Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController service.ProxyController, clusterDeriver ClusterDeriver) *Manager {
 	return &Manager{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
-		proxyGRPCServer:    proxyGRPCServer,
+		proxyController:    proxyController,
 		clusterDeriver:     clusterDeriver,
 	}
 }
 
-func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*rpservice.Service, error) {
+func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -70,34 +68,34 @@ func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) 
 	return services, nil
 }
 
-func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, service *rpservice.Service) error {
-	for _, target := range service.Targets {
+func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *service.Service) error {
+	for _, target := range s.Targets {
 		switch target.TargetType {
-		case rpservice.TargetTypePeer:
+		case service.TargetTypePeer:
 			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, service.ID, err)
+				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, s.ID, err)
 				target.Host = unknownHostPlaceholder
 				continue
 			}
 			target.Host = peer.IP.String()
-		case rpservice.TargetTypeHost:
+		case service.TargetTypeHost:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, service.ID, err)
+				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, s.ID, err)
 				target.Host = unknownHostPlaceholder
 				continue
 			}
 			target.Host = resource.Prefix.Addr().String()
-		case rpservice.TargetTypeDomain:
+		case service.TargetTypeDomain:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, service.ID, err)
+				log.WithContext(ctx).Warnf("failed to get resource by id %s for service %s: %v", target.TargetId, s.ID, err)
 				target.Host = unknownHostPlaceholder
 				continue
 			}
 			target.Host = resource.Domain
-		case rpservice.TargetTypeSubnet:
+		case service.TargetTypeSubnet:
 			// For subnets we do not do any lookups on the resource
 		default:
 			return fmt.Errorf("unknown target type: %s", target.TargetType)
@@ -106,7 +104,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, ser
 	return nil
 }
 
-func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*rpservice.Service, error) {
+func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -127,7 +125,7 @@ func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID s
 	return service, nil
 }
 
-func (m *Manager) CreateService(ctx context.Context, accountID, userID string, service *rpservice.Service) (*rpservice.Service, error) {
+func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s *service.Service) (*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -136,29 +134,29 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := m.initializeServiceForCreate(ctx, accountID, service); err != nil {
+	if err := m.initializeServiceForCreate(ctx, accountID, s); err != nil {
 		return nil, err
 	}
 
-	if err := m.persistNewService(ctx, accountID, service); err != nil {
+	if err := m.persistNewService(ctx, accountID, s); err != nil {
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceCreated, service.EventMeta())
+	m.accountManager.StoreEvent(ctx, userID, s.ID, accountID, activity.ServiceCreated, s.EventMeta())
 
-	err = m.replaceHostByLookup(ctx, accountID, service)
+	err = m.replaceHostByLookup(ctx, accountID, s)
 	if err != nil {
-		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
+		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
 
-	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
-	return service, nil
+	return s, nil
 }
 
-func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID string, service *rpservice.Service) error {
+func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID string, service *service.Service) error {
 	if m.clusterDeriver != nil {
 		proxyCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, service.Domain)
 		if err != nil {
@@ -185,7 +183,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 	return nil
 }
 
-func (m *Manager) persistNewService(ctx context.Context, accountID string, service *rpservice.Service) error {
+func (m *Manager) persistNewService(ctx context.Context, accountID string, service *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.checkDomainAvailable(ctx, transaction, accountID, service.Domain, ""); err != nil {
 			return err
@@ -219,7 +217,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 	return nil
 }
 
-func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *rpservice.Service) (*rpservice.Service, error) {
+func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -243,7 +241,7 @@ func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, s
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.sendServiceUpdateNotifications(accountID, service, updateInfo)
+	m.sendServiceUpdateNotifications(ctx, accountID, service, updateInfo)
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return service, nil
@@ -255,7 +253,7 @@ type serviceUpdateInfo struct {
 	serviceEnabledChanged bool
 }
 
-func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *rpservice.Service) (*serviceUpdateInfo, error) {
+func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
 	var updateInfo serviceUpdateInfo
 
 	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -293,7 +291,7 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 	return &updateInfo, err
 }
 
-func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, service *rpservice.Service) error {
+func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, service *service.Service) error {
 	if err := m.checkDomainAvailable(ctx, transaction, accountID, service.Domain, service.ID); err != nil {
 		return err
 	}
@@ -310,7 +308,7 @@ func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Stor
 	return nil
 }
 
-func (m *Manager) preserveExistingAuthSecrets(service, existingService *rpservice.Service) {
+func (m *Manager) preserveExistingAuthSecrets(service, existingService *service.Service) {
 	if service.Auth.PasswordAuth != nil && service.Auth.PasswordAuth.Enabled &&
 		existingService.Auth.PasswordAuth != nil && existingService.Auth.PasswordAuth.Enabled &&
 		service.Auth.PasswordAuth.Password == "" {
@@ -324,44 +322,40 @@ func (m *Manager) preserveExistingAuthSecrets(service, existingService *rpservic
 	}
 }
 
-func (m *Manager) SendServiceUpdateToCluster(accountID string, update *proto.ProxyMapping, clusterAddr string) {
-	m.proxyGRPCServer.SendServiceUpdateToCluster(update, clusterAddr)
-}
-
-func (m *Manager) preserveServiceMetadata(service, existingService *rpservice.Service) {
+func (m *Manager) preserveServiceMetadata(service, existingService *service.Service) {
 	service.Meta = existingService.Meta
 	service.SessionPrivateKey = existingService.SessionPrivateKey
 	service.SessionPublicKey = existingService.SessionPublicKey
 }
 
-func (m *Manager) sendServiceUpdateNotifications(accountID string, service *rpservice.Service, updateInfo *serviceUpdateInfo) {
-	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID string, s *service.Service, updateInfo *serviceUpdateInfo) {
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
 
 	switch {
-	case updateInfo.domainChanged && updateInfo.oldCluster != service.ProxyCluster:
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Delete, "", oidcCfg), updateInfo.oldCluster)
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Create, "", oidcCfg), service.ProxyCluster)
-	case !service.Enabled && updateInfo.serviceEnabledChanged:
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Delete, "", oidcCfg), service.ProxyCluster)
-	case service.Enabled && updateInfo.serviceEnabledChanged:
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Create, "", oidcCfg), service.ProxyCluster)
+	case updateInfo.domainChanged && updateInfo.oldCluster != s.ProxyCluster:
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", oidcCfg), updateInfo.oldCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", oidcCfg), s.ProxyCluster)
+	case !s.Enabled && updateInfo.serviceEnabledChanged:
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", oidcCfg), s.ProxyCluster)
+	case s.Enabled && updateInfo.serviceEnabledChanged:
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", oidcCfg), s.ProxyCluster)
 	default:
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Update, "", oidcCfg), service.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 }
 
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
-func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []*rpservice.Target) error {
+func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []*service.Target) error {
 	for _, target := range targets {
 		switch target.TargetType {
-		case rpservice.TargetTypePeer:
+		case service.TargetTypePeer:
 			if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
 				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 					return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
 				}
 				return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
 			}
-		case rpservice.TargetTypeHost, rpservice.TargetTypeSubnet, rpservice.TargetTypeDomain:
+		case service.TargetTypeHost, service.TargetTypeSubnet, service.TargetTypeDomain:
 			if _, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
 				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 					return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
@@ -382,10 +376,10 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 		return status.NewPermissionDeniedError()
 	}
 
-	var service *rpservice.Service
+	var s *service.Service
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
-		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		s, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
 		if err != nil {
 			return err
 		}
@@ -400,9 +394,9 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 		return err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, service.EventMeta())
+	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, s.EventMeta())
 
-	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -429,7 +423,7 @@ func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, service
 }
 
 // SetStatus updates the status of the service (e.g., "active", "tunnel_not_created", etc.)
-func (m *Manager) SetStatus(ctx context.Context, accountID, serviceID string, status rpservice.Status) error {
+func (m *Manager) SetStatus(ctx context.Context, accountID, serviceID string, status service.Status) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		service, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
 		if err != nil {
@@ -447,17 +441,17 @@ func (m *Manager) SetStatus(ctx context.Context, accountID, serviceID string, st
 }
 
 func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string) error {
-	service, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
+	s, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 	if err != nil {
 		return fmt.Errorf("failed to get service: %w", err)
 	}
 
-	err = m.replaceHostByLookup(ctx, accountID, service)
+	err = m.replaceHostByLookup(ctx, accountID, s)
 	if err != nil {
-		return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
+		return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
 
-	m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -470,18 +464,18 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
-	for _, service := range services {
-		err = m.replaceHostByLookup(ctx, accountID, service)
+	for _, s := range services {
+		err = m.replaceHostByLookup(ctx, accountID, s)
 		if err != nil {
-			return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
+			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 		}
-		m.SendServiceUpdateToCluster(accountID, service.ToProtoMapping(rpservice.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 	}
 
 	return nil
 }
 
-func (m *Manager) GetGlobalServices(ctx context.Context) ([]*rpservice.Service, error) {
+func (m *Manager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
 	services, err := m.store.GetServices(ctx, store.LockingStrengthNone)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services: %w", err)
@@ -497,7 +491,7 @@ func (m *Manager) GetGlobalServices(ctx context.Context) ([]*rpservice.Service, 
 	return services, nil
 }
 
-func (m *Manager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*rpservice.Service, error) {
+func (m *Manager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*service.Service, error) {
 	service, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service: %w", err)
@@ -511,7 +505,7 @@ func (m *Manager) GetServiceByID(ctx context.Context, accountID, serviceID strin
 	return service, nil
 }
 
-func (m *Manager) GetAccountServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
+func (m *Manager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	services, err := m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services: %w", err)

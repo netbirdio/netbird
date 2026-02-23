@@ -7,9 +7,11 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	log "github.com/sirupsen/logrus"
 
@@ -26,7 +28,7 @@ type tokenMetadata struct {
 // OneTimeTokenStore manages single-use authentication tokens for proxy-to-management RPC.
 // Supports both in-memory and Redis storage via NB_IDP_CACHE_REDIS_ADDRESS env var.
 type OneTimeTokenStore struct {
-	store store.StoreInterface
+	cache *cache.Cache[string]
 	ctx   context.Context
 }
 
@@ -38,7 +40,7 @@ func NewOneTimeTokenStore(ctx context.Context, maxTimeout, cleanupInterval time.
 	}
 
 	return &OneTimeTokenStore{
-		store: cacheStore,
+		cache: cache.New[string](cacheStore),
 		ctx:   ctx,
 	}, nil
 }
@@ -64,7 +66,12 @@ func (s *OneTimeTokenStore) GenerateToken(accountID, serviceID string, ttl time.
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.store.Set(s.ctx, hashedToken, metadata, store.WithExpiration(ttl)); err != nil {
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize token metadata: %w", err)
+	}
+
+	if err := s.cache.Set(s.ctx, hashedToken, string(metadataJSON), store.WithExpiration(ttl)); err != nil {
 		return "", fmt.Errorf("failed to store token: %w", err)
 	}
 
@@ -87,20 +94,19 @@ func (s *OneTimeTokenStore) GenerateToken(accountID, serviceID string, ttl time.
 func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, serviceID string) error {
 	hashedToken := hashToken(token)
 
-	value, err := s.store.Get(s.ctx, hashedToken)
+	metadataJSON, err := s.cache.Get(s.ctx, hashedToken)
 	if err != nil {
 		log.Warnf("Token validation failed: token not found (proxy: %s, account: %s)", serviceID, accountID)
 		return fmt.Errorf("invalid token")
 	}
 
-	metadata, ok := value.(*tokenMetadata)
-	if !ok {
-		log.Warnf("Token validation failed: invalid metadata type (proxy: %s, account: %s)", serviceID, accountID)
+	metadata := &tokenMetadata{}
+	if err := json.Unmarshal([]byte(metadataJSON), metadata); err != nil {
+		log.Warnf("Token validation failed: failed to unmarshal metadata (proxy: %s, account: %s): %v", serviceID, accountID, err)
 		return fmt.Errorf("invalid token metadata")
 	}
 
 	if time.Now().After(metadata.ExpiresAt) {
-		s.store.Delete(s.ctx, hashedToken)
 		log.Warnf("Token validation failed: token expired (proxy: %s, account: %s)", serviceID, accountID)
 		return fmt.Errorf("token expired")
 	}
@@ -115,7 +121,7 @@ func (s *OneTimeTokenStore) ValidateAndConsume(token, accountID, serviceID strin
 		return fmt.Errorf("service ID mismatch")
 	}
 
-	if err := s.store.Delete(s.ctx, hashedToken); err != nil {
+	if err := s.cache.Delete(s.ctx, hashedToken); err != nil {
 		log.Warnf("Token deletion warning (proxy: %s, account: %s): %v", serviceID, accountID, err)
 	}
 

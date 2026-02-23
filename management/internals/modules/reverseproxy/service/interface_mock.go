@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	proto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // MockManager is a mock of Manager interface.
@@ -222,4 +223,95 @@ func (m *MockManager) UpdateService(ctx context.Context, accountID, userID strin
 func (mr *MockManagerMockRecorder) UpdateService(ctx, accountID, userID, service interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateService", reflect.TypeOf((*MockManager)(nil).UpdateService), ctx, accountID, userID, service)
+}
+
+// MockProxyController is a mock of ProxyController interface.
+type MockProxyController struct {
+	ctrl     *gomock.Controller
+	recorder *MockProxyControllerMockRecorder
+}
+
+// MockProxyControllerMockRecorder is the mock recorder for MockProxyController.
+type MockProxyControllerMockRecorder struct {
+	mock *MockProxyController
+}
+
+// NewMockProxyController creates a new mock instance.
+func NewMockProxyController(ctrl *gomock.Controller) *MockProxyController {
+	mock := &MockProxyController{ctrl: ctrl}
+	mock.recorder = &MockProxyControllerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockProxyController) EXPECT() *MockProxyControllerMockRecorder {
+	return m.recorder
+}
+
+// GetOIDCValidationConfig mocks base method.
+func (m *MockProxyController) GetOIDCValidationConfig() OIDCValidationConfig {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOIDCValidationConfig")
+	ret0, _ := ret[0].(OIDCValidationConfig)
+	return ret0
+}
+
+// GetOIDCValidationConfig indicates an expected call of GetOIDCValidationConfig.
+func (mr *MockProxyControllerMockRecorder) GetOIDCValidationConfig() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOIDCValidationConfig", reflect.TypeOf((*MockProxyController)(nil).GetOIDCValidationConfig))
+}
+
+// GetProxiesForCluster mocks base method.
+func (m *MockProxyController) GetProxiesForCluster(clusterAddr string) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProxiesForCluster", clusterAddr)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetProxiesForCluster indicates an expected call of GetProxiesForCluster.
+func (mr *MockProxyControllerMockRecorder) GetProxiesForCluster(clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxiesForCluster", reflect.TypeOf((*MockProxyController)(nil).GetProxiesForCluster), clusterAddr)
+}
+
+// RegisterProxyToCluster mocks base method.
+func (m *MockProxyController) RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterProxyToCluster", ctx, clusterAddr, proxyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RegisterProxyToCluster indicates an expected call of RegisterProxyToCluster.
+func (mr *MockProxyControllerMockRecorder) RegisterProxyToCluster(ctx, clusterAddr, proxyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterProxyToCluster", reflect.TypeOf((*MockProxyController)(nil).RegisterProxyToCluster), ctx, clusterAddr, proxyID)
+}
+
+// SendServiceUpdateToCluster mocks base method.
+func (m *MockProxyController) SendServiceUpdateToCluster(accountID string, update *proto.ProxyMapping, clusterAddr string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SendServiceUpdateToCluster", accountID, update, clusterAddr)
+}
+
+// SendServiceUpdateToCluster indicates an expected call of SendServiceUpdateToCluster.
+func (mr *MockProxyControllerMockRecorder) SendServiceUpdateToCluster(accountID, update, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendServiceUpdateToCluster", reflect.TypeOf((*MockProxyController)(nil).SendServiceUpdateToCluster), accountID, update, clusterAddr)
+}
+
+// UnregisterProxyFromCluster mocks base method.
+func (m *MockProxyController) UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnregisterProxyFromCluster", ctx, clusterAddr, proxyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnregisterProxyFromCluster indicates an expected call of UnregisterProxyFromCluster.
+func (mr *MockProxyControllerMockRecorder) UnregisterProxyFromCluster(ctx, clusterAddr, proxyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnregisterProxyFromCluster", reflect.TypeOf((*MockProxyController)(nil).UnregisterProxyFromCluster), ctx, clusterAddr, proxyID)
 }
