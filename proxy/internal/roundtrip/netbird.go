@@ -86,6 +86,13 @@ func (e *clientEntry) acquireInflight(backend backendKey) (release func(), ok bo
 	}
 }
 
+// ClientConfig holds configuration for the embedded NetBird client.
+type ClientConfig struct {
+	MgmtAddr     string
+	WGPort       int
+	PreSharedKey string
+}
+
 type statusNotifier interface {
 	NotifyStatus(ctx context.Context, accountID, serviceID, domain string, connected bool) error
 }
@@ -98,10 +105,9 @@ type managementClient interface {
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple domains to share the same connection.
 type NetBird struct {
-	mgmtAddr     string
 	proxyID      string
 	proxyAddr    string
-	wgPort       int
+	clientCfg    ClientConfig
 	logger       *log.Logger
 	mgmtClient   managementClient
 	transportCfg transportConfig
@@ -229,11 +235,12 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// The peer has already been created via CreateProxyPeer RPC with the public key.
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + n.proxyID,
-		ManagementURL: n.mgmtAddr,
+		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  true,
-		WireguardPort: &n.wgPort,
+		WireguardPort: &n.clientCfg.WGPort,
+		PreSharedKey:  n.clientCfg.PreSharedKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)
@@ -536,18 +543,17 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 	return result
 }
 
-// NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
+// NewNetBird creates a new NetBird transport. Set clientCfg.WGPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
-		mgmtAddr:       mgmtAddr,
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
-		wgPort:         wgPort,
+		clientCfg:      clientCfg,
 		logger:         logger,
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,

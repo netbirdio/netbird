@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -342,6 +343,22 @@ func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID 
 	default:
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
+}
+
+func (m *managerImpl) sendServiceUpdate(service *reverseproxy.Service, operation reverseproxy.Operation, cluster, oldService string) {
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+	mapping := service.ToProtoMapping(operation, oldService, oidcCfg)
+	m.sendMappingsToCluster([]*proto.ProxyMapping{mapping}, cluster)
+}
+
+func (m *managerImpl) sendMappingsToCluster(mappings []*proto.ProxyMapping, cluster string) {
+	if len(mappings) == 0 {
+		return
+	}
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: mappings,
+	}
+	m.proxyGRPCServer.SendServiceUpdateToCluster(update, cluster)
 }
 
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.

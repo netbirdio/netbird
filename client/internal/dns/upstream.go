@@ -351,9 +351,13 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		return fmt.Errorf("upstream check call error")
 	}
 
-	err := backoff.Retry(operation, exponentialBackOff)
+	err := backoff.Retry(operation, backoff.WithContext(exponentialBackOff, u.ctx))
 	if err != nil {
-		log.Warn(err)
+		if errors.Is(err, context.Canceled) {
+			log.Debugf("upstream retry loop exited for upstreams %s", u.upstreamServersString())
+		} else {
+			log.Warnf("upstream retry loop exited for upstreams %s: %v", u.upstreamServersString(), err)
+		}
 		return
 	}
 
