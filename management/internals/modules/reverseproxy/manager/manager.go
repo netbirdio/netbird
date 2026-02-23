@@ -695,7 +695,7 @@ func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peer
 		return nil, fmt.Errorf("replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -775,7 +775,7 @@ func (m *managerImpl) deletePeerService(ctx context.Context, accountID, peerID, 
 
 	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activityCode, meta)
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
