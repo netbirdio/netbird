@@ -1835,6 +1835,8 @@ func (e *Engine) GetFirewallManager() firewallManager.Manager {
 
 // GetExposeManager returns the expose session manager.
 func (e *Engine) GetExposeManager() *expose.Manager {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
 }
 
