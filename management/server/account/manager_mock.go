@@ -1681,18 +1681,18 @@ func (mr *MockManagerMockRecorder) UpdateIntegratedValidator(ctx, accountID, use
 }
 
 // UpdatePeer mocks base method.
-func (m *MockManager) UpdatePeer(ctx context.Context, accountID, userID string, peer *peer.Peer) (*peer.Peer, error) {
+func (m *MockManager) UpdatePeer(ctx context.Context, accountID, userID string, p *peer.Peer) (*peer.Peer, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePeer", ctx, accountID, userID, peer)
+	ret := m.ctrl.Call(m, "UpdatePeer", ctx, accountID, userID, p)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdatePeer indicates an expected call of UpdatePeer.
-func (mr *MockManagerMockRecorder) UpdatePeer(ctx, accountID, userID, peer interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdatePeer(ctx, accountID, userID, p interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeer", reflect.TypeOf((*MockManager)(nil).UpdatePeer), ctx, accountID, userID, peer)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeer", reflect.TypeOf((*MockManager)(nil).UpdatePeer), ctx, accountID, userID, p)
 }
 
 // UpdatePeerIP mocks base method.
