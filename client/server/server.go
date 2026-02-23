@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -85,8 +86,7 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
-	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
-	sleepTriggeredDown atomic.Bool
+	sleepHandler *sleephandler.SleepHandler
 
 	jwtCache *jwtCache
 }
@@ -100,7 +100,7 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
-	return &Server{
+	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
@@ -110,6 +110,10 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	agent := &serverAgent{s}
+	s.sleepHandler = sleephandler.New(agent)
+
+	return s
 }
 
 func (s *Server) Start() error {
