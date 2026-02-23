@@ -825,8 +825,6 @@ message ExposeServiceRequest {
 message ExposeServiceEvent {
   oneof event {
     ExposeServiceReady ready = 1;
-    ExposeServiceStopped stopped = 2;
-    ExposeServiceError error = 3;
   }
 }
 

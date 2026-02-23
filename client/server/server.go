@@ -1348,14 +1348,6 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return err
 	}
 
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := mgr.Stop(stopCtx, result.Domain); err != nil {
-			log.Debugf("failed to stop expose: %v", err)
-		}
-	}()
-
 	if err := srv.Send(&proto.ExposeServiceEvent{
 		Event: &proto.ExposeServiceEvent_Ready{
 			Ready: &proto.ExposeServiceReady{
@@ -1368,24 +1360,11 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return err
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			if err := mgr.Renew(ctx, result.Domain); err != nil {
-				_ = srv.Send(&proto.ExposeServiceEvent{
-					Event: &proto.ExposeServiceEvent_Stopped{
-						Stopped: &proto.ExposeServiceStopped{Reason: "renewal failed: " + err.Error()},
-					},
-				})
-				return err
-			}
-		}
+	err = mgr.KeepAlive(ctx, result.Domain)
+	if err != nil {
+		return err
 	}
+	return nil
 }
 
 func isUnixRunningDesktop() bool {

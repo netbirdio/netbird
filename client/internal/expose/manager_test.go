@@ -23,7 +23,7 @@ func TestManager_Expose_Success(t *testing.T) {
 		},
 	}
 
-	m := NewManager(mock)
+	m := NewManager(context.Background(), mock)
 	result, err := m.Expose(context.Background(), Request{Port: 8080})
 	require.NoError(t, err)
 	assert.Equal(t, "my-service", result.ServiceName, "service name should match")
@@ -38,7 +38,7 @@ func TestManager_Expose_Error(t *testing.T) {
 		},
 	}
 
-	m := NewManager(mock)
+	m := NewManager(context.Background(), mock)
 	_, err := m.Expose(context.Background(), Request{Port: 8080})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission denied", "error should propagate")
@@ -52,8 +52,8 @@ func TestManager_Renew_Success(t *testing.T) {
 		},
 	}
 
-	m := NewManager(mock)
-	err := m.Renew(context.Background(), "my-service.example.com")
+	m := NewManager(context.Background(), mock)
+	err := m.renew(context.Background(), "my-service.example.com")
 	require.NoError(t, err)
 }
 
@@ -67,35 +67,9 @@ func TestManager_Renew_Timeout(t *testing.T) {
 		},
 	}
 
-	m := NewManager(mock)
-	err := m.Renew(ctx, "my-service.example.com")
+	m := NewManager(ctx, mock)
+	err := m.renew(ctx, "my-service.example.com")
 	require.Error(t, err)
-}
-
-func TestManager_Stop_Success(t *testing.T) {
-	mock := &mgm.MockClient{
-		StopExposeFunc: func(ctx context.Context, domain string) error {
-			assert.Equal(t, "my-service.example.com", domain, "domain should be passed through")
-			return nil
-		},
-	}
-
-	m := NewManager(mock)
-	err := m.Stop(context.Background(), "my-service.example.com")
-	require.NoError(t, err)
-}
-
-func TestManager_Stop_Error(t *testing.T) {
-	mock := &mgm.MockClient{
-		StopExposeFunc: func(ctx context.Context, domain string) error {
-			return errors.New("not found")
-		},
-	}
-
-	m := NewManager(mock)
-	err := m.Stop(context.Background(), "my-service.example.com")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found", "error should propagate")
 }
 
 func TestNewRequest(t *testing.T) {

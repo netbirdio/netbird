@@ -422,7 +422,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.cancel()
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
-	e.exposeManager = expose.NewManager(e.mgmClient)
+	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -805,7 +805,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 
 	disabled := autoUpdateSettings.Version == disableAutoUpdate
 
-	// Stop and cleanup if disabled
+	// stop and cleanup if disabled
 	if e.updateManager != nil && disabled {
 		log.Infof("auto-update is disabled, stopping update manager")
 		e.updateManager.Stop()

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"regexp"
@@ -148,10 +150,6 @@ func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServ
 		cmd.Println()
 		cmd.Println("Press Ctrl+C to stop exposing.")
 		return nil
-	case *proto.ExposeServiceEvent_Error:
-		return fmt.Errorf("expose failed: %s", e.Error.Message)
-	case *proto.ExposeServiceEvent_Stopped:
-		return fmt.Errorf("expose stopped: %s", e.Stopped.Reason)
 	default:
 		return fmt.Errorf("unexpected expose event: %T", event.Event)
 	}
@@ -159,24 +157,17 @@ func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServ
 
 func waitForExposeEvents(cmd *cobra.Command, ctx context.Context, stream proto.DaemonService_ExposeServiceClient) error {
 	for {
-		event, err := stream.Recv()
+		_, err := stream.Recv()
 		if err != nil {
 			if ctx.Err() != nil {
 				cmd.Println("\nService stopped.")
 				//nolint:nilerr
 				return nil
 			}
-			return err
-		}
-
-		switch e := event.Event.(type) {
-		case *proto.ExposeServiceEvent_Stopped:
-			cmd.Printf("\nService stopped: %s\n", e.Stopped.Reason)
-			return nil
-		case *proto.ExposeServiceEvent_Error:
-			return fmt.Errorf("expose error: %s", e.Error.Message)
-		default:
-			log.Debugf("unexpected expose event: %T", event.Event)
+			if errors.Is(err, io.EOF) {
+				return fmt.Errorf("connection to daemon closed unexpectedly")
+			}
+			return fmt.Errorf("stream error: %w", err)
 		}
 	}
 }
