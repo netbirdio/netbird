@@ -18,15 +18,15 @@ func NewRequest(req *daemonProto.ExposeServiceRequest) *Request {
 	}
 }
 
-func toClientExposeRequest(Request Request) mgm.ExposeRequest {
+func toClientExposeRequest(req Request) mgm.ExposeRequest {
 	return mgm.ExposeRequest{
-		NamePrefix: Request.NamePrefix,
-		Domain:     Request.Domain,
-		Port:       Request.Port,
-		Protocol:   Request.Protocol,
-		Pin:        Request.Pin,
-		Password:   Request.Password,
-		UserGroups: Request.UserGroups,
+		NamePrefix: req.NamePrefix,
+		Domain:     req.Domain,
+		Port:       req.Port,
+		Protocol:   req.Protocol,
+		Pin:        req.Pin,
+		Password:   req.Password,
+		UserGroups: req.UserGroups,
 	}
 }
 

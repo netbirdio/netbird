@@ -1342,8 +1342,8 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	exposeCtx, exposeCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer exposeCancel()
 
-	mgmReq := expose.NewManagementRequest(req)
-	result, err := mgr.Expose(exposeCtx, mgmReq)
+	mgmReq := expose.NewRequest(req)
+	result, err := mgr.Expose(exposeCtx, *mgmReq)
 	if err != nil {
 		return err
 	}

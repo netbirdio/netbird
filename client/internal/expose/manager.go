@@ -21,7 +21,7 @@ type Request struct {
 	Domain     string
 	Port       uint16
 	Protocol   int
-	Pin        uint32
+	Pin        string
 	Password   string
 	UserGroups []string
 }

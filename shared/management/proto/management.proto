@@ -657,7 +657,7 @@ enum ExposeProtocol {
 message ExposeServiceRequest {
   uint32 port = 1;
   ExposeProtocol protocol = 2;
-  uint32 pin = 3;
+  string pin = 3;
   string password = 4;
   repeated string user_groups = 5;
   string domain = 6;
