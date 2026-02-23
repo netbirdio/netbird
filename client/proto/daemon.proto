@@ -833,11 +833,3 @@ message ExposeServiceReady {
   string service_url = 2;
   string domain = 3;
 }
-
-message ExposeServiceStopped {
-  string reason = 1;
-}
-
-message ExposeServiceError {
-  string message = 1;
-}

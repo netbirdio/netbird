@@ -150,7 +150,7 @@ func toExposeProtocol(exposeProtocol string) (proto.ExposeProtocol, error) {
 	case "https":
 		return proto.ExposeProtocol_EXPOSE_HTTPS, nil
 	default:
-		return 0, fmt.Errorf("unsupported protocol %q: only 'http' or https are supported", exposeProtocol)
+		return 0, fmt.Errorf("unsupported protocol %q: only 'http' or 'https' are supported", exposeProtocol)
 	}
 }
 

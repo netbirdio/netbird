@@ -5870,94 +5870,6 @@ func (x *ExposeServiceReady) GetDomain() string {
 	return ""
 }
 
-type ExposeServiceStopped struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExposeServiceStopped) Reset() {
-	*x = ExposeServiceStopped{}
-	mi := &file_daemon_proto_msgTypes[88]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExposeServiceStopped) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExposeServiceStopped) ProtoMessage() {}
-
-func (x *ExposeServiceStopped) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[88]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExposeServiceStopped.ProtoReflect.Descriptor instead.
-func (*ExposeServiceStopped) Descriptor() ([]byte, []int) {
-	return file_daemon_proto_rawDescGZIP(), []int{88}
-}
-
-func (x *ExposeServiceStopped) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-type ExposeServiceError struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExposeServiceError) Reset() {
-	*x = ExposeServiceError{}
-	mi := &file_daemon_proto_msgTypes[89]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExposeServiceError) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExposeServiceError) ProtoMessage() {}
-
-func (x *ExposeServiceError) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[89]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExposeServiceError.ProtoReflect.Descriptor instead.
-func (*ExposeServiceError) Descriptor() ([]byte, []int) {
-	return file_daemon_proto_rawDescGZIP(), []int{89}
-}
-
-func (x *ExposeServiceError) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -5968,7 +5880,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_daemon_proto_msgTypes[91]
+	mi := &file_daemon_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5980,7 +5892,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[91]
+	mi := &file_daemon_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6525,11 +6437,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vservice_url\x18\x02 \x01(\tR\n" +
 	"serviceUrl\x12\x16\n" +
-	"\x06domain\x18\x03 \x01(\tR\x06domain\".\n" +
-	"\x14ExposeServiceStopped\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\".\n" +
-	"\x12ExposeServiceError\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage*b\n" +
+	"\x06domain\x18\x03 \x01(\tR\x06domain*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -6600,7 +6508,7 @@ func file_daemon_proto_rawDescGZIP() []byte {
 }
 
 var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 93)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 91)
 var file_daemon_proto_goTypes = []any{
 	(LogLevel)(0),                              // 0: daemon.LogLevel
 	(ExposeProtocol)(0),                        // 1: daemon.ExposeProtocol
@@ -6695,21 +6603,19 @@ var file_daemon_proto_goTypes = []any{
 	(*ExposeServiceRequest)(nil),               // 90: daemon.ExposeServiceRequest
 	(*ExposeServiceEvent)(nil),                 // 91: daemon.ExposeServiceEvent
 	(*ExposeServiceReady)(nil),                 // 92: daemon.ExposeServiceReady
-	(*ExposeServiceStopped)(nil),               // 93: daemon.ExposeServiceStopped
-	(*ExposeServiceError)(nil),                 // 94: daemon.ExposeServiceError
-	nil,                                        // 95: daemon.Network.ResolvedIPsEntry
-	(*PortInfo_Range)(nil),                     // 96: daemon.PortInfo.Range
-	nil,                                        // 97: daemon.SystemEvent.MetadataEntry
-	(*durationpb.Duration)(nil),                // 98: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),              // 99: google.protobuf.Timestamp
+	nil,                                        // 93: daemon.Network.ResolvedIPsEntry
+	(*PortInfo_Range)(nil),                     // 94: daemon.PortInfo.Range
+	nil,                                        // 95: daemon.SystemEvent.MetadataEntry
+	(*durationpb.Duration)(nil),                // 96: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),              // 97: google.protobuf.Timestamp
 }
 var file_daemon_proto_depIdxs = []int32{
 	2,  // 0: daemon.OSLifecycleRequest.type:type_name -> daemon.OSLifecycleRequest.CycleType
-	98, // 1: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	96, // 1: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	28, // 2: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	99, // 3: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	99, // 4: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	98, // 5: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	97, // 3: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	97, // 4: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	96, // 5: daemon.PeerState.latency:type_name -> google.protobuf.Duration
 	26, // 6: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
 	23, // 7: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
 	22, // 8: daemon.FullStatus.signalState:type_name -> daemon.SignalState
@@ -6720,8 +6626,8 @@ var file_daemon_proto_depIdxs = []int32{
 	58, // 13: daemon.FullStatus.events:type_name -> daemon.SystemEvent
 	27, // 14: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
 	34, // 15: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	95, // 16: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	96, // 17: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	93, // 16: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	94, // 17: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
 	35, // 18: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
 	35, // 19: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
 	36, // 20: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
@@ -6732,10 +6638,10 @@ var file_daemon_proto_depIdxs = []int32{
 	55, // 25: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
 	3,  // 26: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
 	4,  // 27: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	99, // 28: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	97, // 29: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	97, // 28: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	95, // 29: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
 	58, // 30: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	98, // 31: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	96, // 31: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	71, // 32: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
 	1,  // 33: daemon.ExposeServiceRequest.protocol:type_name -> daemon.ExposeProtocol
 	92, // 34: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
@@ -6846,7 +6752,7 @@ func file_daemon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   93,
+			NumMessages:   91,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
