@@ -226,6 +226,7 @@ require (
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
+	github.com/mdp/qrterminal/v3 v3.2.1 // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
@@ -283,6 +284,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251124214823-79d6a2a48846 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502
