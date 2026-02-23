@@ -458,8 +458,12 @@ func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
 func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, update *proto.ProxyMapping, clusterAddr string) {
+	updateResponse := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{update},
+	}
+
 	if clusterAddr == "" {
-		s.SendServiceUpdate(update)
+		s.SendServiceUpdate(updateResponse)
 		return
 	}
 
@@ -478,7 +482,7 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 	for _, proxyID := range proxyIDs {
 		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
 			conn := connVal.(*proxyConnection)
-			msg := s.perProxyMessage(update, proxyID)
+			msg := s.perProxyMessage(updateResponse, proxyID)
 			if msg == nil {
 				continue
 			}

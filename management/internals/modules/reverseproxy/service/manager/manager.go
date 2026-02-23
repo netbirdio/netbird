@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -345,22 +344,6 @@ func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID 
 	}
 }
 
-func (m *managerImpl) sendServiceUpdate(service *reverseproxy.Service, operation reverseproxy.Operation, cluster, oldService string) {
-	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
-	mapping := service.ToProtoMapping(operation, oldService, oidcCfg)
-	m.sendMappingsToCluster([]*proto.ProxyMapping{mapping}, cluster)
-}
-
-func (m *managerImpl) sendMappingsToCluster(mappings []*proto.ProxyMapping, cluster string) {
-	if len(mappings) == 0 {
-		return
-	}
-	update := &proto.GetMappingUpdateResponse{
-		Mapping: mappings,
-	}
-	m.proxyGRPCServer.SendServiceUpdateToCluster(update, cluster)
-}
-
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
 func validateTargetReferences(ctx context.Context, transaction store.Store, accountID string, targets []*service.Target) error {
 	for _, target := range targets {
@@ -414,6 +397,47 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, s.EventMeta())
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
+	var services []*service.Service
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		services, err = transaction.GetAccountServices(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		for _, svc := range services {
+			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
+				return fmt.Errorf("failed to delete service: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+
+	for _, svc := range services {
+		m.accountManager.StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, svc.EventMeta())
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
+	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
