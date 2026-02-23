@@ -67,7 +67,7 @@ type Manager interface {
 	UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
-	AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	AddPeer(ctx context.Context, accountID, setupKey, userID string, p *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error)
 	DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error
 	GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error)

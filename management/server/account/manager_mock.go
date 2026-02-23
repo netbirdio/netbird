@@ -79,9 +79,9 @@ func (mr *MockManagerMockRecorder) AccountExists(ctx, accountID interface{}) *go
 }
 
 // AddPeer mocks base method.
-func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *peer.Peer, temporary bool) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddPeer", ctx, accountID, setupKey, userID, peer, temporary)
+	ret := m.ctrl.Call(m, "AddPeer", ctx, accountID, setupKey, userID, p, temporary)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.NetworkMap)
 	ret2, _ := ret[2].([]*posture.Checks)
@@ -90,9 +90,9 @@ func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID s
 }
 
 // AddPeer indicates an expected call of AddPeer.
-func (mr *MockManagerMockRecorder) AddPeer(ctx, accountID, setupKey, userID, peer, temporary interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) AddPeer(ctx, accountID, setupKey, userID, p, temporary interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPeer", reflect.TypeOf((*MockManager)(nil).AddPeer), ctx, accountID, setupKey, userID, peer, temporary)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddPeer", reflect.TypeOf((*MockManager)(nil).AddPeer), ctx, accountID, setupKey, userID, p, temporary)
 }
 
 // ApproveUser mocks base method.
