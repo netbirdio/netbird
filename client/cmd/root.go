@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -388,7 +389,8 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 	SetFlagsFromEnvVars(rootCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 
-	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	resolved := daemonaddr.ResolveUnixDaemonAddr(daemonAddr)
+	conn, err := DialClientGRPCServer(cmd.Context(), resolved)
 	if err != nil {
 		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
