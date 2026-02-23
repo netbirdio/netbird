@@ -3,6 +3,7 @@ package accesslogs
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -11,14 +12,38 @@ const (
 	DefaultPageSize = 50
 	// MaxPageSize is the maximum number of records allowed per page
 	MaxPageSize = 100
+
+	// Default sorting
+	DefaultSortBy    = "timestamp"
+	DefaultSortOrder = "desc"
 )
 
-// AccessLogFilter holds pagination and filtering parameters for access logs
+// Valid sortable fields mapped to their database column names or expressions
+// For multi-column sorts, columns are separated by comma (e.g., "host, path")
+var validSortFields = map[string]string{
+	"timestamp":   "timestamp",
+	"url":         "host, path", // Sort by host first, then path
+	"host":        "host",
+	"path":        "path",
+	"method":      "method",
+	"status_code": "status_code",
+	"duration":    "duration",
+	"source_ip":   "location_connection_ip",
+	"user_id":     "user_id",
+	"auth_method": "auth_method_used",
+	"reason":      "reason",
+}
+
+// AccessLogFilter holds pagination, filtering, and sorting parameters for access logs
 type AccessLogFilter struct {
 	// Page is the current page number (1-indexed)
 	Page int
 	// PageSize is the number of records per page
 	PageSize int
+
+	// Sorting parameters
+	SortBy    string // Field to sort by: timestamp, url, host, path, method, status_code, duration, source_ip, user_id, auth_method, reason
+	SortOrder string // Sort order: asc or desc (default: desc)
 
 	// Filtering parameters
 	Search     *string    // General search across log ID, host, path, source IP, and user fields
@@ -35,12 +60,15 @@ type AccessLogFilter struct {
 	EndDate    *time.Time // Filter by timestamp <= end_date
 }
 
-// ParseFromRequest parses pagination and filter parameters from HTTP request query parameters
+// ParseFromRequest parses pagination, sorting, and filter parameters from HTTP request query parameters
 func (f *AccessLogFilter) ParseFromRequest(r *http.Request) {
 	queryParams := r.URL.Query()
 
 	f.Page = parsePositiveInt(queryParams.Get("page"), 1)
 	f.PageSize = min(parsePositiveInt(queryParams.Get("page_size"), DefaultPageSize), MaxPageSize)
+
+	f.SortBy = parseSortField(queryParams.Get("sort_by"))
+	f.SortOrder = parseSortOrder(queryParams.Get("sort_order"))
 
 	f.Search = parseOptionalString(queryParams.Get("search"))
 	f.SourceIP = parseOptionalString(queryParams.Get("source_ip"))
@@ -106,4 +134,45 @@ func (f *AccessLogFilter) GetOffset() int {
 // GetLimit returns the page size for database queries
 func (f *AccessLogFilter) GetLimit() int {
 	return f.PageSize
+}
+
+// GetSortColumn returns the validated database column name for sorting
+func (f *AccessLogFilter) GetSortColumn() string {
+	if column, ok := validSortFields[f.SortBy]; ok {
+		return column
+	}
+	return validSortFields[DefaultSortBy]
+}
+
+// GetSortOrder returns the validated sort order (ASC or DESC)
+func (f *AccessLogFilter) GetSortOrder() string {
+	if f.SortOrder == "asc" || f.SortOrder == "desc" {
+		return f.SortOrder
+	}
+	return DefaultSortOrder
+}
+
+// parseSortField validates and returns the sort field, defaulting if invalid
+func parseSortField(s string) string {
+	if s == "" {
+		return DefaultSortBy
+	}
+	// Check if the field is valid
+	if _, ok := validSortFields[s]; ok {
+		return s
+	}
+	return DefaultSortBy
+}
+
+// parseSortOrder validates and returns the sort order, defaulting if invalid
+func parseSortOrder(s string) string {
+	if s == "" {
+		return DefaultSortOrder
+	}
+	// Normalize to lowercase
+	s = strings.ToLower(s)
+	if s == "asc" || s == "desc" {
+		return s
+	}
+	return DefaultSortOrder
 }

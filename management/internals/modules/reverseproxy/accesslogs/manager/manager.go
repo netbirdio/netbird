@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -19,6 +20,7 @@ type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
 	geo                geolocation.Geolocation
+	cleanupCancel      context.CancelFunc
 }
 
 func NewManager(store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
@@ -76,6 +78,74 @@ func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID st
 	}
 
 	return logs, totalCount, nil
+}
+
+// CleanupOldAccessLogs deletes access logs older than the specified retention period
+func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		log.WithContext(ctx).Debug("access log cleanup skipped: retention days is 0 or negative")
+		return 0, nil
+	}
+
+	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
+	deletedCount, err := m.store.DeleteOldAccessLogs(ctx, cutoffTime)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to cleanup old access logs: %v", err)
+		return 0, err
+	}
+
+	if deletedCount > 0 {
+		log.WithContext(ctx).Infof("cleaned up %d access logs older than %d days", deletedCount, retentionDays)
+	}
+
+	return deletedCount, nil
+}
+
+// StartPeriodicCleanup starts a background goroutine that periodically cleans up old access logs
+func (m *managerImpl) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
+	if retentionDays <= 0 {
+		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is 0 or negative")
+		return
+	}
+
+	if cleanupIntervalHours <= 0 {
+		cleanupIntervalHours = 24
+	}
+
+	cleanupCtx, cancel := context.WithCancel(ctx)
+	m.cleanupCancel = cancel
+
+	cleanupInterval := time.Duration(cleanupIntervalHours) * time.Hour
+	ticker := time.NewTicker(cleanupInterval)
+
+	go func() {
+		defer ticker.Stop()
+
+		// Run cleanup immediately on startup
+		log.WithContext(cleanupCtx).Infof("starting access log cleanup routine (retention: %d days, interval: %d hours)", retentionDays, cleanupIntervalHours)
+		if _, err := m.CleanupOldAccessLogs(cleanupCtx, retentionDays); err != nil {
+			log.WithContext(cleanupCtx).Errorf("initial access log cleanup failed: %v", err)
+		}
+
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				log.WithContext(cleanupCtx).Info("stopping access log cleanup routine")
+				return
+			case <-ticker.C:
+				if _, err := m.CleanupOldAccessLogs(cleanupCtx, retentionDays); err != nil {
+					log.WithContext(cleanupCtx).Errorf("periodic access log cleanup failed: %v", err)
+				}
+			}
+		}
+	}()
+}
+
+// StopPeriodicCleanup stops the periodic cleanup routine
+func (m *managerImpl) StopPeriodicCleanup() {
+	if m.cleanupCancel != nil {
+		m.cleanupCancel()
+	}
 }
 
 // resolveUserFilters converts user email/name filters to user ID filter

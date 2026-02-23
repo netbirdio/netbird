@@ -157,6 +157,18 @@ type testSetup struct {
 // testAccessLogManager is a minimal mock for accesslogs.Manager.
 type testAccessLogManager struct{}
 
+func (m *testAccessLogManager) CleanupOldAccessLogs(ctx context.Context, retentionDays int) (int64, error) {
+	return 0, nil
+}
+
+func (m *testAccessLogManager) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
+	return
+}
+
+func (m *testAccessLogManager) StopPeriodicCleanup() {
+	return
+}
+
 func (m *testAccessLogManager) SaveAccessLog(_ context.Context, _ *accesslogs.AccessLogEntry) error {
 	return nil
 }
@@ -343,6 +355,10 @@ func createTestAccountsAndUsers(t *testing.T, ctx context.Context, testStore sto
 // testServiceManager is a minimal implementation for testing.
 type testServiceManager struct {
 	store store.Store
+}
+
+func (m *testServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
 }
 
 func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {

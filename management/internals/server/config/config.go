@@ -200,4 +200,13 @@ type ReverseProxy struct {
 	// request headers if the peer's address falls within one of these
 	// trusted IP prefixes.
 	TrustedPeers []netip.Prefix
+
+	// AccessLogRetentionDays specifies the number of days to retain access logs.
+	// Logs older than this duration will be automatically deleted during cleanup.
+	// A value of 0 or negative means logs are kept indefinitely (no cleanup).
+	AccessLogRetentionDays int
+
+	// AccessLogCleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
+	// Defaults to 24 hours if not set or set to 0.
+	AccessLogCleanupIntervalHours int
 }

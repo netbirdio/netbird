@@ -4907,6 +4907,28 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	return service, nil
 }
 
+func (s *SqlStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
+}
+
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
 	var service *reverseproxy.Service
 	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
@@ -5083,8 +5105,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 
 	query = s.applyAccessLogFilters(query, filter)
 
+	sortColumns := filter.GetSortColumn()
+	sortOrder := strings.ToUpper(filter.GetSortOrder())
+
+	var orderClauses []string
+	for _, col := range strings.Split(sortColumns, ",") {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			orderClauses = append(orderClauses, col+" "+sortOrder)
+		}
+	}
+	orderClause := strings.Join(orderClauses, ", ")
+
 	query = query.
-		Order("timestamp DESC").
+		Order(orderClause).
 		Limit(filter.GetLimit()).
 		Offset(filter.GetOffset())
 
@@ -5099,6 +5133,20 @@ func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength Lockin
 	}
 
 	return logs, totalCount, nil
+}
+
+// DeleteOldAccessLogs deletes all access logs older than the specified time
+func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("timestamp < ?", olderThan).
+		Delete(&accesslogs.AccessLogEntry{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	}
+
+	return result.RowsAffected, nil
 }
 
 // applyAccessLogFilters applies filter conditions to the query

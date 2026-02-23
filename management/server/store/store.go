@@ -256,6 +256,7 @@ type Store interface {
 	UpdateService(ctx context.Context, service *reverseproxy.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
 	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
@@ -269,6 +270,7 @@ type Store interface {
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
+	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 }
 
