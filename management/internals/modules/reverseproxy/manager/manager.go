@@ -623,21 +623,21 @@ func (m *managerImpl) ValidateExposePermission(ctx context.Context, accountID, p
 	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return fmt.Errorf("get account settings: %w", err)
+		return status.Errorf(status.Internal, "get account settings: %v", err)
 	}
 
 	if !settings.PeerExposeEnabled {
-		return fmt.Errorf("peer expose is not enabled for this account")
+		return status.Errorf(status.PermissionDenied, "peer expose is not enabled for this account")
 	}
 
 	if len(settings.PeerExposeGroups) == 0 {
-		return fmt.Errorf("no group is set for peer expose")
+		return status.Errorf(status.PermissionDenied, "no group is set for peer expose")
 	}
 
 	peerGroupIDs, err := m.store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer group IDs: %v", err)
-		return fmt.Errorf("get peer groups: %w", err)
+		return status.Errorf(status.Internal, "get peer groups: %v", err)
 	}
 
 	for _, pg := range peerGroupIDs {
@@ -646,7 +646,7 @@ func (m *managerImpl) ValidateExposePermission(ctx context.Context, accountID, p
 		}
 	}
 
-	return fmt.Errorf("peer is not in an allowed expose group")
+	return status.Errorf(status.PermissionDenied, "peer is not in an allowed expose group")
 }
 
 // CreateServiceFromPeer creates a service initiated by a peer expose request.
