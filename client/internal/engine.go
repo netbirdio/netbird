@@ -53,13 +53,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/shared/management/domain"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
-
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -75,7 +73,6 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
-	connInitLimit            = 200
 	disableAutoUpdate        = "disabled"
 )
 
@@ -208,7 +205,6 @@ type Engine struct {
 	syncRespMux         sync.RWMutex
 	persistSyncResponse bool
 	latestSyncResponse  *mgmProto.SyncResponse
-	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
 	// auto-update
@@ -266,7 +262,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
 		checks:         checks,
-		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
 	}
@@ -1539,7 +1534,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		IFaceDiscover:  e.mobileDep.IFaceDiscover,
 		RelayManager:   e.relayManager,
 		SrWatcher:      e.srWatcher,
-		Semaphore:      e.connSemaphore,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
