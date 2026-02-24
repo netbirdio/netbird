@@ -793,7 +793,7 @@ func (m *managerImpl) StopServiceFromPeer(ctx context.Context, accountID, peerID
 	}
 
 	if !m.exposeTracker.StopTrackedExpose(peerID, domain) {
-		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
+		log.WithContext(ctx).Warnf("expose tracker entry for domain %s already removed; service was deleted", domain)
 	}
 
 	return nil
