@@ -226,7 +226,6 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
-  optional bool autoUpdate = 3;
 }
 
 message UpResponse {}

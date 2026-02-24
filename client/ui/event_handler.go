@@ -82,7 +82,7 @@ func (h *eventHandler) handleConnectClick() {
 	go func() {
 		defer connectCancel()
 
-		if err := h.client.menuUpClick(connectCtx, true); err != nil {
+		if err := h.client.menuUpClick(connectCtx); err != nil {
 			st, ok := status.FromError(err)
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
