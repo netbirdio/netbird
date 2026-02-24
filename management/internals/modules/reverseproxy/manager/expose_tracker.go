@@ -139,10 +139,11 @@ func (t *exposeTracker) reapExpiredExposes() {
 		expose.mu.Unlock()
 
 		if expired {
-			t.activeExposes.Delete(key)
 			log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
 			if err := t.manager.deleteServiceFromPeer(context.Background(), expose.accountID, expose.peerID, expose.domain, true); err != nil {
 				log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", expose.domain, err)
+			} else {
+				t.activeExposes.Delete(key)
 			}
 		}
 		return true

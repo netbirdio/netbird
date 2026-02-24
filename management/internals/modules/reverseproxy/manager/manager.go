@@ -764,6 +764,9 @@ func (m *managerImpl) getGroupIDsFromNames(ctx context.Context, accountID string
 }
 
 func (m *managerImpl) buildRandomDomain(name string) (string, error) {
+	if m.clusterDeriver == nil {
+		return "", fmt.Errorf("unable to get random domain")
+	}
 	clusterDomains := m.clusterDeriver.GetClusterDomains()
 	if len(clusterDomains) == 0 {
 		return "", fmt.Errorf("no cluster domains found for service %s", name)
@@ -784,13 +787,13 @@ func (m *managerImpl) RenewServiceFromPeer(_ context.Context, _, peerID, domain 
 
 // StopServiceFromPeer stops a peer's active expose session by untracking and deleting the service.
 func (m *managerImpl) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
-	if !m.exposeTracker.StopTrackedExpose(peerID, domain) {
-		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
-	}
-
 	if err := m.deleteServiceFromPeer(ctx, accountID, peerID, domain, false); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer-exposed service for domain %s: %v", domain, err)
 		return err
+	}
+
+	if !m.exposeTracker.StopTrackedExpose(peerID, domain) {
+		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
 	}
 
 	return nil
