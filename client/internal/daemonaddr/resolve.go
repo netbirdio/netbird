@@ -31,9 +31,7 @@ func ResolveUnixDaemonAddr(addr string) string {
 		return addr
 	}
 
-	base := filepath.Dir(sockPath)
-
-	entries, err := os.ReadDir(base)
+	entries, err := os.ReadDir(scanDir)
 	if err != nil {
 		return addr
 	}
