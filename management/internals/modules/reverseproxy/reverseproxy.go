@@ -496,8 +496,12 @@ type ExposeServiceRequest struct {
 
 // Validate checks all fields of the expose request.
 func (r *ExposeServiceRequest) Validate() error {
-	if r.Port <= 0 {
-		return errors.New("port must be greater than 0")
+	if r == nil {
+		return errors.New("request cannot be nil")
+	}
+
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
 	}
 
 	if r.Protocol != "http" && r.Protocol != "https" {

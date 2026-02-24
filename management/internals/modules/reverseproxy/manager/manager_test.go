@@ -886,9 +886,19 @@ func TestExposeServiceRequestValidate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name:    "port must be positive",
+			name:    "port zero rejected",
 			req:     reverseproxy.ExposeServiceRequest{Port: 0, Protocol: "http"},
-			wantErr: "port must be greater than 0",
+			wantErr: "port must be between 1 and 65535",
+		},
+		{
+			name:    "negative port rejected",
+			req:     reverseproxy.ExposeServiceRequest{Port: -1, Protocol: "http"},
+			wantErr: "port must be between 1 and 65535",
+		},
+		{
+			name:    "port above 65535 rejected",
+			req:     reverseproxy.ExposeServiceRequest{Port: 65536, Protocol: "http"},
+			wantErr: "port must be between 1 and 65535",
 		},
 		{
 			name:    "unsupported protocol",
@@ -938,6 +948,13 @@ func TestExposeServiceRequestValidate(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("nil receiver", func(t *testing.T) {
+		var req *reverseproxy.ExposeServiceRequest
+		err := req.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request cannot be nil")
+	})
 }
 
 func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {

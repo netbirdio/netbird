@@ -20,6 +20,7 @@ type trackedExpose struct {
 	accountID   string
 	peerID      string
 	lastRenewed time.Time
+	expiring    bool
 }
 
 type exposeTracker struct {
@@ -32,9 +33,14 @@ func exposeKey(peerID, domain string) string {
 	return peerID + ":" + domain
 }
 
-// TrackExpose registers a new active expose session. Returns true if the expose
-// was already tracked (duplicate).
-func (t *exposeTracker) TrackExpose(peerID, domain, accountID string) bool {
+// TrackExposeIfAllowed atomically checks the per-peer limit and registers a new
+// active expose session under the same lock. Returns (true, false) if the expose
+// was already tracked (duplicate), (false, true) if tracking succeeded, and
+// (false, false) if the peer has reached the limit.
+func (t *exposeTracker) TrackExposeIfAllowed(peerID, domain, accountID string) (alreadyTracked, ok bool) {
+	t.exposeCreateMu.Lock()
+	defer t.exposeCreateMu.Unlock()
+
 	key := exposeKey(peerID, domain)
 	_, loaded := t.activeExposes.LoadOrStore(key, &trackedExpose{
 		domain:      domain,
@@ -42,7 +48,16 @@ func (t *exposeTracker) TrackExpose(peerID, domain, accountID string) bool {
 		peerID:      peerID,
 		lastRenewed: time.Now(),
 	})
-	return loaded
+	if loaded {
+		return true, false
+	}
+
+	if t.CountPeerExposes(peerID) > maxExposesPerPeer {
+		t.activeExposes.Delete(key)
+		return false, false
+	}
+
+	return false, true
 }
 
 // UntrackExpose removes an active expose session from tracking.
@@ -68,7 +83,7 @@ func (t *exposeTracker) MaxExposesPerPeer() int {
 }
 
 // RenewTrackedExpose updates the in-memory lastRenewed timestamp for a tracked expose.
-// Returns false if the expose is not tracked.
+// Returns false if the expose is not tracked or is being reaped.
 func (t *exposeTracker) RenewTrackedExpose(peerID, domain string) bool {
 	key := exposeKey(peerID, domain)
 	val, ok := t.activeExposes.Load(key)
@@ -78,6 +93,10 @@ func (t *exposeTracker) RenewTrackedExpose(peerID, domain string) bool {
 
 	expose := val.(*trackedExpose)
 	expose.mu.Lock()
+	if expose.expiring {
+		expose.mu.Unlock()
+		return false
+	}
 	expose.lastRenewed = time.Now()
 	expose.mu.Unlock()
 
@@ -90,14 +109,6 @@ func (t *exposeTracker) StopTrackedExpose(peerID, domain string) bool {
 	key := exposeKey(peerID, domain)
 	_, ok := t.activeExposes.LoadAndDelete(key)
 	return ok
-}
-
-// CheckPeerExposeLimitWithLock atomically checks whether the peer can create a new expose.
-// Returns true if the peer is within the limit.
-func (t *exposeTracker) CheckPeerExposeLimitWithLock(peerID string) bool {
-	t.exposeCreateMu.Lock()
-	defer t.exposeCreateMu.Unlock()
-	return t.CountPeerExposes(peerID) < maxExposesPerPeer
 }
 
 // StartExposeReaper starts a background goroutine that reaps expired expose sessions.
@@ -122,14 +133,16 @@ func (t *exposeTracker) reapExpiredExposes() {
 		expose := val.(*trackedExpose)
 		expose.mu.Lock()
 		expired := time.Since(expose.lastRenewed) > exposeTTL
+		if expired {
+			expose.expiring = true
+		}
 		expose.mu.Unlock()
 
 		if expired {
-			if _, deleted := t.activeExposes.LoadAndDelete(key); deleted {
-				log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
-				if err := t.manager.deleteServiceFromPeer(context.Background(), expose.accountID, expose.peerID, expose.domain, true); err != nil {
-					log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", expose.domain, err)
-				}
+			t.activeExposes.Delete(key)
+			log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
+			if err := t.manager.deleteServiceFromPeer(context.Background(), expose.accountID, expose.peerID, expose.domain, true); err != nil {
+				log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", expose.domain, err)
 			}
 		}
 		return true

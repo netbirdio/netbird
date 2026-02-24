@@ -676,10 +676,6 @@ func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peer
 		return nil, err
 	}
 
-	if !m.exposeTracker.CheckPeerExposeLimitWithLock(peerID) {
-		return nil, status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
-	}
-
 	serviceName, err := reverseproxy.GenerateExposeName(req.NamePrefix)
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "generate service name: %v", err)
@@ -721,11 +717,18 @@ func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peer
 		return nil, err
 	}
 
-	if alreadyTracked := m.exposeTracker.TrackExpose(peerID, service.Domain, accountID); alreadyTracked {
+	alreadyTracked, allowed := m.exposeTracker.TrackExposeIfAllowed(peerID, service.Domain, accountID)
+	if alreadyTracked {
 		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, service.Domain, false); err != nil {
 			log.WithContext(ctx).Debugf("failed to delete duplicate expose service for domain %s: %v", service.Domain, err)
 		}
 		return nil, status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
+	}
+	if !allowed {
+		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, service.Domain, false); err != nil {
+			log.WithContext(ctx).Debugf("failed to delete service after limit exceeded for domain %s: %v", service.Domain, err)
+		}
+		return nil, status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
 	}
 
 	meta := addPeerInfoToEventMeta(service.EventMeta(), peer)

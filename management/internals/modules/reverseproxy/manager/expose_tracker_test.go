@@ -12,20 +12,56 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 )
 
-func TestTrackExpose(t *testing.T) {
-	tracker := &exposeTracker{}
+func TestExposeKey(t *testing.T) {
+	assert.Equal(t, "peer1:example.com", exposeKey("peer1", "example.com"))
+	assert.Equal(t, "peer2:other.com", exposeKey("peer2", "other.com"))
+	assert.NotEqual(t, exposeKey("peer1", "a.com"), exposeKey("peer1", "b.com"))
+}
 
-	alreadyTracked := tracker.TrackExpose("peer1", "a.com", "acct1")
-	assert.False(t, alreadyTracked, "first track should not be duplicate")
+func TestTrackExposeIfAllowed(t *testing.T) {
+	t.Run("first track succeeds", func(t *testing.T) {
+		tracker := &exposeTracker{}
+		alreadyTracked, ok := tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
+		assert.False(t, alreadyTracked, "first track should not be duplicate")
+		assert.True(t, ok, "first track should be allowed")
+	})
 
-	alreadyTracked = tracker.TrackExpose("peer1", "a.com", "acct1")
-	assert.True(t, alreadyTracked, "second track should be duplicate")
+	t.Run("duplicate track detected", func(t *testing.T) {
+		tracker := &exposeTracker{}
+		tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
+
+		alreadyTracked, ok := tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
+		assert.True(t, alreadyTracked, "second track should be duplicate")
+		assert.False(t, ok)
+	})
+
+	t.Run("rejects when at limit", func(t *testing.T) {
+		tracker := &exposeTracker{}
+		for i := range maxExposesPerPeer {
+			_, ok := tracker.TrackExposeIfAllowed("peer1", "domain-"+string(rune('a'+i))+".com", "acct1")
+			assert.True(t, ok, "track %d should be allowed", i)
+		}
+
+		alreadyTracked, ok := tracker.TrackExposeIfAllowed("peer1", "over-limit.com", "acct1")
+		assert.False(t, alreadyTracked)
+		assert.False(t, ok, "should reject when at limit")
+	})
+
+	t.Run("other peer unaffected by limit", func(t *testing.T) {
+		tracker := &exposeTracker{}
+		for i := range maxExposesPerPeer {
+			tracker.TrackExposeIfAllowed("peer1", "domain-"+string(rune('a'+i))+".com", "acct1")
+		}
+
+		_, ok := tracker.TrackExposeIfAllowed("peer2", "a.com", "acct1")
+		assert.True(t, ok, "other peer should still be within limit")
+	})
 }
 
 func TestUntrackExpose(t *testing.T) {
 	tracker := &exposeTracker{}
 
-	tracker.TrackExpose("peer1", "a.com", "acct1")
+	tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
 	assert.Equal(t, 1, tracker.CountPeerExposes("peer1"))
 
 	tracker.UntrackExpose("peer1", "a.com")
@@ -37,9 +73,9 @@ func TestCountPeerExposes(t *testing.T) {
 
 	assert.Equal(t, 0, tracker.CountPeerExposes("peer1"))
 
-	tracker.TrackExpose("peer1", "a.com", "acct1")
-	tracker.TrackExpose("peer1", "b.com", "acct1")
-	tracker.TrackExpose("peer2", "a.com", "acct1")
+	tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
+	tracker.TrackExposeIfAllowed("peer1", "b.com", "acct1")
+	tracker.TrackExposeIfAllowed("peer2", "a.com", "acct1")
 
 	assert.Equal(t, 2, tracker.CountPeerExposes("peer1"), "peer1 should have 2 exposes")
 	assert.Equal(t, 1, tracker.CountPeerExposes("peer2"), "peer2 should have 1 expose")
@@ -57,30 +93,32 @@ func TestRenewTrackedExpose(t *testing.T) {
 	found := tracker.RenewTrackedExpose("peer1", "a.com")
 	assert.False(t, found, "should not find untracked expose")
 
-	tracker.TrackExpose("peer1", "a.com", "acct1")
+	tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
 
 	found = tracker.RenewTrackedExpose("peer1", "a.com")
 	assert.True(t, found, "should find tracked expose")
 }
 
-func TestCheckPeerExposeLimitWithLock(t *testing.T) {
+func TestRenewTrackedExpose_RejectsExpiring(t *testing.T) {
 	tracker := &exposeTracker{}
+	tracker.TrackExposeIfAllowed("peer1", "a.com", "acct1")
 
-	assert.True(t, tracker.CheckPeerExposeLimitWithLock("peer1"), "should be within limit initially")
+	// Simulate reaper marking the expose as expiring
+	key := exposeKey("peer1", "a.com")
+	val, _ := tracker.activeExposes.Load(key)
+	expose := val.(*trackedExpose)
+	expose.mu.Lock()
+	expose.expiring = true
+	expose.mu.Unlock()
 
-	for i := range maxExposesPerPeer {
-		tracker.TrackExpose("peer1", "domain-"+string(rune('a'+i))+".com", "acct1")
-	}
-
-	assert.False(t, tracker.CheckPeerExposeLimitWithLock("peer1"), "should be at limit")
-	assert.True(t, tracker.CheckPeerExposeLimitWithLock("peer2"), "other peer should still be within limit")
+	found := tracker.RenewTrackedExpose("peer1", "a.com")
+	assert.False(t, found, "should reject renewal when expiring")
 }
 
 func TestReapExpiredExposes(t *testing.T) {
 	mgr, _ := setupIntegrationTest(t)
 	tracker := mgr.exposeTracker
 
-	// Create a real service so the reaper can delete it
 	ctx := context.Background()
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
 		Port:     8080,
@@ -88,9 +126,7 @@ func TestReapExpiredExposes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Track it, then manually expire the tracked entry
-	tracker.TrackExpose(testPeerID, resp.Domain, testAccountID)
-
+	// Manually expire the tracked entry
 	key := exposeKey(testPeerID, resp.Domain)
 	val, _ := tracker.activeExposes.Load(key)
 	expose := val.(*trackedExpose)
@@ -115,23 +151,55 @@ func TestReapExpiredExposes(t *testing.T) {
 	assert.True(t, exists, "active expose should remain")
 }
 
+func TestReapExpiredExposes_SetsExpiringFlag(t *testing.T) {
+	mgr, _ := setupIntegrationTest(t)
+	tracker := mgr.exposeTracker
+
+	ctx := context.Background()
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+		Port:     8080,
+		Protocol: "http",
+	})
+	require.NoError(t, err)
+
+	key := exposeKey(testPeerID, resp.Domain)
+	val, _ := tracker.activeExposes.Load(key)
+	expose := val.(*trackedExpose)
+
+	// Expire it
+	expose.mu.Lock()
+	expose.lastRenewed = time.Now().Add(-2 * exposeTTL)
+	expose.mu.Unlock()
+
+	// Renew should succeed before reaping
+	assert.True(t, tracker.RenewTrackedExpose(testPeerID, resp.Domain), "renew should succeed before reaper runs")
+
+	// Re-expire and reap
+	expose.mu.Lock()
+	expose.lastRenewed = time.Now().Add(-2 * exposeTTL)
+	expose.mu.Unlock()
+
+	tracker.reapExpiredExposes()
+
+	// Entry is deleted, renew returns false
+	assert.False(t, tracker.RenewTrackedExpose(testPeerID, resp.Domain), "renew should fail after reap")
+}
+
 func TestConcurrentTrackAndCount(t *testing.T) {
 	mgr, _ := setupIntegrationTest(t)
 	tracker := mgr.exposeTracker
 	ctx := context.Background()
 
-	// Create real services so reaper can delete them
 	for i := range 5 {
-		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
 			Port:     8080 + i,
 			Protocol: "http",
 		})
 		require.NoError(t, err)
-		tracker.TrackExpose(testPeerID, resp.Domain, testAccountID)
 	}
 
 	// Manually expire all tracked entries
-	tracker.activeExposes.Range(func(key, val any) bool {
+	tracker.activeExposes.Range(func(_, val any) bool {
 		expose := val.(*trackedExpose)
 		expose.mu.Lock()
 		expose.lastRenewed = time.Now().Add(-2 * exposeTTL)
