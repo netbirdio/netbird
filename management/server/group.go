@@ -647,7 +647,7 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 	}
 
 	if slices.Contains(flowGroups, group.ID) {
-		return &GroupLinkError{"settings", "traffic event groups"}
+		return &GroupLinkError{"settings", "traffic event logging"}
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {
