@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
@@ -42,7 +43,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		KeepAlivePeriod:   30 * time.Second,
 		MaxIdleTimeout:    4 * time.Minute,
 		EnableDatagrams:   true,
-		InitialPacketSize: 1452,
+		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 
 	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})

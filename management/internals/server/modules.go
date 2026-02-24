@@ -8,6 +8,9 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
+	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -69,7 +72,14 @@ func (s *BaseServer) UsersManager() users.Manager {
 func (s *BaseServer) SettingsManager() settings.Manager {
 	return Create(s, func() settings.Manager {
 		extraSettingsManager := integrations.NewManager(s.EventStore())
-		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager())
+
+		idpConfig := settings.IdpConfig{}
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpConfig.EmbeddedIdpEnabled = true
+			idpConfig.LocalAuthDisabled = s.Config.EmbeddedIdP.LocalAuthDisabled
+		}
+
+		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager(), idpConfig)
 	})
 }
 
@@ -91,6 +101,11 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
+
+		s.AfterInit(func(s *BaseServer) {
+			accountManager.SetServiceManager(s.ReverseProxyManager())
+		})
+
 		return accountManager
 	})
 }
@@ -147,7 +162,7 @@ func (s *BaseServer) GroupsManager() groups.Manager {
 
 func (s *BaseServer) ResourcesManager() resources.Manager {
 	return Create(s, func() resources.Manager {
-		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager())
+		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ReverseProxyManager())
 	})
 }
 
@@ -172,5 +187,18 @@ func (s *BaseServer) ZonesManager() zones.Manager {
 func (s *BaseServer) RecordsManager() records.Manager {
 	return Create(s, func() records.Manager {
 		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+	})
+}
+
+func (s *BaseServer) ReverseProxyManager() reverseproxy.Manager {
+	return Create(s, func() reverseproxy.Manager {
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.SettingsManager(), s.ReverseProxyGRPCServer(), s.ReverseProxyDomainManager())
+	})
+}
+
+func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
+	return Create(s, func() *manager.Manager {
+		m := manager.NewManager(s.Store(), s.ReverseProxyGRPCServer(), s.PermissionsManager())
+		return &m
 	})
 }

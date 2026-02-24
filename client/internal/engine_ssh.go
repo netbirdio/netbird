@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
@@ -94,6 +95,10 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 // updateSSHClientConfig updates the SSH client configuration with peer information
 func (e *Engine) updateSSHClientConfig(remotePeers []*mgmProto.RemotePeerConfig) error {
+	if netstack.IsEnabled() {
+		return nil
+	}
+
 	peerInfo := e.extractPeerSSHInfo(remotePeers)
 	if len(peerInfo) == 0 {
 		log.Debug("no SSH-enabled peers found, skipping SSH config update")
@@ -216,6 +221,10 @@ func (e *Engine) GetPeerSSHKey(peerAddress string) ([]byte, bool) {
 
 // cleanupSSHConfig removes NetBird SSH client configuration on shutdown
 func (e *Engine) cleanupSSHConfig() {
+	if netstack.IsEnabled() {
+		return
+	}
+
 	configMgr := sshconfig.New()
 
 	if err := configMgr.RemoveSSHClientConfig(); err != nil {

@@ -27,7 +27,7 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 // GetAllAccounts returns a list of *server.Account for use in tests with predefined information
 func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 	localUserID := dex.EncodeDexUserID("10", "local")
-	idpUserID := dex.EncodeDexUserID("20", "zitadel")
+	idpUserID := dex.EncodeDexUserID("20", "zitadel-d5uv82dra0haedlf6kv0")
 	return []*types.Account{
 		{
 			Id:       "1",
@@ -340,5 +340,38 @@ func TestGenerateProperties(t *testing.T) {
 	}
 	if properties["idp_users_count"] != 1 {
 		t.Errorf("expected 1 idp_users_count, got %d", properties["idp_users_count"])
+	}
+	if properties["embedded_idp_users_zitadel"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_zitadel, got %v", properties["embedded_idp_users_zitadel"])
+	}
+	if properties["embedded_idp_count"] != 1 {
+		t.Errorf("expected 1 embedded_idp_count, got %v", properties["embedded_idp_count"])
+	}
+}
+
+func TestExtractIdpType(t *testing.T) {
+	tests := []struct {
+		connectorID string
+		expected    string
+	}{
+		{"okta-abc123def", "okta"},
+		{"zitadel-d5uv82dra0haedlf6kv0", "zitadel"},
+		{"entra-xyz789", "entra"},
+		{"google-abc123", "google"},
+		{"pocketid-abc123", "pocketid"},
+		{"microsoft-abc123", "microsoft"},
+		{"authentik-abc123", "authentik"},
+		{"keycloak-d5uv82dra0haedlf6kv0", "keycloak"},
+		{"local", "oidc"},
+		{"", "oidc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.connectorID, func(t *testing.T) {
+			result := extractIdpType(tt.connectorID)
+			if result != tt.expected {
+				t.Errorf("extractIdpType(%q) = %q, want %q", tt.connectorID, result, tt.expected)
+			}
+		})
 	}
 }

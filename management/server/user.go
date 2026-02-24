@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -190,6 +191,10 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 // Unlike createNewIdpUser, this method fetches user data directly from the database
 // since the embedded IdP usage ensures the username and email are stored locally in the User table.
 func (am *DefaultAccountManager) createEmbeddedIdpUser(ctx context.Context, accountID string, inviterID string, invite *types.UserInfo) (*idp.UserData, error) {
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+	}
+
 	inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, inviterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inviter user: %w", err)
@@ -732,6 +737,14 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
+	if initiatorUserId != activity.SystemInitiator {
+		freshInitiator, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, initiatorUserId)
+		if err != nil {
+			return false, nil, nil, nil, fmt.Errorf("failed to re-read initiator user in transaction: %w", err)
+		}
+		initiatorUser = freshInitiator
+	}
+
 	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
 		return false, nil, nil, nil, err
@@ -859,7 +872,10 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 		return nil
 	}
 
-	// @todo double check these
+	if !initiatorUser.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only admins and owners can update users")
+	}
+
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
@@ -1450,6 +1466,379 @@ func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, init
 	}
 
 	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserRejected, nil)
+
+	return nil
+}
+
+// CreateUserInvite creates an invite link for a new user in the embedded IdP.
+// The user is NOT created until the invite is accepted.
+func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID, initiatorUserID string, invite *types.UserInfo, expiresIn int) (*types.UserInvite, error) {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+	}
+
+	if err := validateUserInvite(invite); err != nil {
+		return nil, err
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	// Check if user already exists in NetBird DB
+	existingUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	for _, user := range existingUsers {
+		if strings.EqualFold(user.Email, invite.Email) {
+			return nil, status.Errorf(status.UserAlreadyExists, "user with this email already exists")
+		}
+	}
+
+	// Check if invite already exists for this email
+	existingInvite, err := am.Store.GetUserInviteByEmail(ctx, store.LockingStrengthNone, accountID, invite.Email)
+	if err != nil {
+		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+			return nil, fmt.Errorf("failed to check existing invites: %w", err)
+		}
+	}
+	if existingInvite != nil {
+		return nil, status.Errorf(status.AlreadyExists, "invite already exists for this email")
+	}
+
+	// Calculate expiration time
+	if expiresIn <= 0 {
+		expiresIn = types.DefaultInviteExpirationSeconds
+	}
+
+	if expiresIn < types.MinInviteExpirationSeconds {
+		return nil, status.Errorf(status.InvalidArgument, "invite expiration must be at least 1 hour")
+	}
+	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
+
+	// Generate invite token
+	inviteID := types.NewInviteID()
+	hashedToken, plainToken, err := types.GenerateInviteToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate invite token: %w", err)
+	}
+
+	// Create the invite record (no user created yet)
+	userInvite := &types.UserInviteRecord{
+		ID:          inviteID,
+		AccountID:   accountID,
+		Email:       invite.Email,
+		Name:        invite.Name,
+		Role:        invite.Role,
+		AutoGroups:  invite.AutoGroups,
+		HashedToken: hashedToken,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now().UTC(),
+		CreatedBy:   initiatorUserID,
+	}
+
+	if err := am.Store.SaveUserInvite(ctx, userInvite); err != nil {
+		return nil, err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkCreated, map[string]any{"email": invite.Email})
+
+	return &types.UserInvite{
+		UserInfo: &types.UserInfo{
+			ID:         inviteID,
+			Email:      invite.Email,
+			Name:       invite.Name,
+			Role:       invite.Role,
+			AutoGroups: invite.AutoGroups,
+			Status:     string(types.UserStatusInvited),
+			Issued:     types.UserIssuedAPI,
+		},
+		InviteToken:     plainToken,
+		InviteExpiresAt: expiresAt,
+	}, nil
+}
+
+// GetUserInviteInfo retrieves invite information from a token (public endpoint).
+func (am *DefaultAccountManager) GetUserInviteInfo(ctx context.Context, token string) (*types.UserInviteInfo, error) {
+	if err := types.ValidateInviteToken(token); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid invite token: %v", err)
+	}
+
+	hashedToken := types.HashInviteToken(token)
+	invite, err := am.Store.GetUserInviteByHashedToken(ctx, store.LockingStrengthNone, hashedToken)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the inviter's name
+	invitedBy := ""
+	if invite.CreatedBy != "" {
+		inviter, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, invite.CreatedBy)
+		if err == nil && inviter != nil {
+			invitedBy = inviter.Name
+		}
+	}
+
+	return &types.UserInviteInfo{
+		Email:     invite.Email,
+		Name:      invite.Name,
+		ExpiresAt: invite.ExpiresAt,
+		Valid:     !invite.IsExpired(),
+		InvitedBy: invitedBy,
+	}, nil
+}
+
+// ListUserInvites returns all invites for an account.
+func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error) {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	records, err := am.Store.GetAccountUserInvites(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	invites := make([]*types.UserInvite, 0, len(records))
+	for _, record := range records {
+		invites = append(invites, &types.UserInvite{
+			UserInfo: &types.UserInfo{
+				ID:         record.ID,
+				Email:      record.Email,
+				Name:       record.Name,
+				Role:       record.Role,
+				AutoGroups: record.AutoGroups,
+			},
+			InviteExpiresAt: record.ExpiresAt,
+			InviteCreatedAt: record.CreatedAt,
+		})
+	}
+
+	return invites, nil
+}
+
+// AcceptUserInvite accepts an invite and creates the user in both IdP and NetBird DB.
+func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, password string) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	if IsLocalAuthDisabled(ctx, am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "local user creation is disabled - use an external identity provider")
+	}
+
+	if password == "" {
+		return status.Errorf(status.InvalidArgument, "password is required")
+	}
+
+	if err := validatePassword(password); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid password: %v", err)
+	}
+
+	if err := types.ValidateInviteToken(token); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid invite token: %v", err)
+	}
+
+	hashedToken := types.HashInviteToken(token)
+	invite, err := am.Store.GetUserInviteByHashedToken(ctx, store.LockingStrengthUpdate, hashedToken)
+	if err != nil {
+		return err
+	}
+
+	if invite.IsExpired() {
+		return status.Errorf(status.InvalidArgument, "invite has expired")
+	}
+
+	// Create user in Dex with the provided password
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
+	}
+
+	idpUser, err := embeddedIdp.CreateUserWithPassword(ctx, invite.Email, password, invite.Name)
+	if err != nil {
+		return fmt.Errorf("failed to create user in IdP: %w", err)
+	}
+
+	// Create user in NetBird DB
+	newUser := &types.User{
+		Id:         idpUser.ID,
+		AccountID:  invite.AccountID,
+		Role:       types.StrRoleToUserRole(invite.Role),
+		AutoGroups: invite.AutoGroups,
+		Issued:     types.UserIssuedAPI,
+		CreatedAt:  time.Now().UTC(),
+		Email:      invite.Email,
+		Name:       invite.Name,
+	}
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := transaction.SaveUser(ctx, newUser); err != nil {
+			return fmt.Errorf("failed to save user: %w", err)
+		}
+		if err := transaction.DeleteUserInvite(ctx, invite.ID); err != nil {
+			return fmt.Errorf("failed to delete invite: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		// Best-effort rollback: delete the IdP user to avoid orphaned records
+		if deleteErr := embeddedIdp.DeleteUser(ctx, idpUser.ID); deleteErr != nil {
+			log.WithContext(ctx).WithError(deleteErr).Errorf("failed to rollback IdP user %s after transaction failure", idpUser.ID)
+		}
+		return err
+	}
+
+	am.StoreEvent(ctx, newUser.Id, newUser.Id, invite.AccountID, activity.UserInviteLinkAccepted, map[string]any{"email": invite.Email})
+
+	return nil
+}
+
+// RegenerateUserInvite creates a new invite token for an existing invite, invalidating the previous one.
+func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	// Get existing invite
+	existingInvite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate expiration time
+	if expiresIn <= 0 {
+		expiresIn = types.DefaultInviteExpirationSeconds
+	}
+	if expiresIn < types.MinInviteExpirationSeconds {
+		return nil, status.Errorf(status.InvalidArgument, "invite expiration must be at least 1 hour")
+	}
+	expiresAt := time.Now().UTC().Add(time.Duration(expiresIn) * time.Second)
+
+	// Generate new invite token
+	hashedToken, plainToken, err := types.GenerateInviteToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate invite token: %w", err)
+	}
+
+	// Update existing invite with new token and expiration
+	existingInvite.HashedToken = hashedToken
+	existingInvite.ExpiresAt = expiresAt
+	existingInvite.CreatedBy = initiatorUserID
+
+	err = am.Store.SaveUserInvite(ctx, existingInvite)
+	if err != nil {
+		return nil, err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, existingInvite.ID, accountID, activity.UserInviteLinkRegenerated, map[string]any{"email": existingInvite.Email})
+
+	return &types.UserInvite{
+		UserInfo: &types.UserInfo{
+			ID:         existingInvite.ID,
+			Email:      existingInvite.Email,
+			Name:       existingInvite.Name,
+			Role:       existingInvite.Role,
+			AutoGroups: existingInvite.AutoGroups,
+			Status:     string(types.UserStatusInvited),
+			Issued:     types.UserIssuedAPI,
+		},
+		InviteToken:     plainToken,
+		InviteExpiresAt: expiresAt,
+	}, nil
+}
+
+// DeleteUserInvite deletes an existing invite by ID.
+func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
+	}
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	invite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)
+	if err != nil {
+		return err
+	}
+
+	if err := am.Store.DeleteUserInvite(ctx, inviteID); err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, inviteID, accountID, activity.UserInviteLinkDeleted, map[string]any{"email": invite.Email})
+
+	return nil
+}
+
+const minPasswordLength = 8
+
+// validatePassword checks password strength requirements:
+// - Minimum 8 characters
+// - At least 1 digit
+// - At least 1 uppercase letter
+// - At least 1 special character
+func validatePassword(password string) error {
+	if len(password) < minPasswordLength {
+		return errors.New("password must be at least 8 characters long")
+	}
+
+	var hasDigit, hasUpper, hasSpecial bool
+	for _, c := range password {
+		switch {
+		case unicode.IsDigit(c):
+			hasDigit = true
+		case unicode.IsUpper(c):
+			hasUpper = true
+		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
+			hasSpecial = true
+		}
+	}
+
+	var missing []string
+	if !hasDigit {
+		missing = append(missing, "one digit")
+	}
+	if !hasUpper {
+		missing = append(missing, "one uppercase letter")
+	}
+	if !hasSpecial {
+		missing = append(missing, "one special character")
+	}
+
+	if len(missing) > 0 {
+		return errors.New("password must contain at least " + strings.Join(missing, ", "))
+	}
 
 	return nil
 }

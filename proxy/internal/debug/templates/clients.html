@@ -1,0 +1,33 @@
+{{define "clients"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Clients</title>
+  <style>{{template "style"}}</style>
+</head>
+<body>
+  <h1>All Clients</h1>
+  <p class="info">Uptime: {{.Uptime}} | <a href="/debug">&larr; Back</a></p>
+  {{if .Clients}}
+  <table>
+    <tr>
+      <th>Account ID</th>
+      <th>Domains</th>
+      <th>Age</th>
+      <th>Status</th>
+    </tr>
+    {{range .Clients}}
+    <tr>
+      <td><a href="/debug/clients/{{.AccountID}}/tools">{{.AccountID}}</a></td>
+      <td>{{.Domains}}</td>
+      <td>{{.Age}}</td>
+      <td>{{.Status}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p>No clients connected</p>
+  {{end}}
+</body>
+</html>
+{{end}}

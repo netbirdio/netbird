@@ -36,24 +36,22 @@ const (
 
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
-	accountManager     account.Manager
-	settingsManager    settings.Manager
-	embeddedIdpEnabled bool
+	accountManager  account.Manager
+	settingsManager settings.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, embeddedIdpEnabled bool, router *mux.Router) {
-	accountsHandler := newHandler(accountManager, settingsManager, embeddedIdpEnabled)
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
+	accountsHandler := newHandler(accountManager, settingsManager)
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new handler HTTP handler
-func newHandler(accountManager account.Manager, settingsManager settings.Manager, embeddedIdpEnabled bool) *handler {
+func newHandler(accountManager account.Manager, settingsManager settings.Manager) *handler {
 	return &handler{
-		accountManager:     accountManager,
-		settingsManager:    settingsManager,
-		embeddedIdpEnabled: embeddedIdpEnabled,
+		accountManager:  accountManager,
+		settingsManager: settingsManager,
 	}
 }
 
@@ -165,11 +163,15 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, settings, meta, onboarding, h.embeddedIdpEnabled)
+	resp := toAccountResponse(accountID, settings, meta, onboarding)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
 func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJSONRequestBody) (*types.Settings, error) {
+	if req.Settings.PeerExposeEnabled && len(req.Settings.PeerExposeGroups) == 0 {
+		return nil, status.Errorf(status.InvalidArgument, "peer expose requires at least one group")
+	}
+
 	returnSettings := &types.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),
@@ -177,6 +179,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 		PeerInactivityExpirationEnabled: req.Settings.PeerInactivityExpirationEnabled,
 		PeerInactivityExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerInactivityExpiration)),
+
+		PeerExposeEnabled: req.Settings.PeerExposeEnabled,
+		PeerExposeGroups:  req.Settings.PeerExposeGroups,
 	}
 
 	if req.Settings.Extra != nil {
@@ -292,7 +297,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding, h.embeddedIdpEnabled)
+	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -321,7 +326,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding, embeddedIdpEnabled bool) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -338,10 +343,13 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:               settings.PeerExposeEnabled,
+		PeerExposeGroups:                settings.PeerExposeGroups,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
-		EmbeddedIdpEnabled:              &embeddedIdpEnabled,
+		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
+		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 	}
 
 	if settings.NetworkRange.IsValid() {

@@ -34,6 +34,18 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}()
 	}
 
+	// Prepare refresh callback for health probes
+	var refreshStatus func()
+	if s.connectClient != nil {
+		engine := s.connectClient.Engine()
+		if engine != nil {
+			refreshStatus = func() {
+				log.Debug("refreshing system health status for debug bundle")
+				engine.RunHealthProbes(true)
+			}
+		}
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
 			InternalConfig: s.config,
@@ -41,6 +53,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			SyncResponse:   syncResponse,
 			LogPath:        s.logFile,
 			CPUProfile:     cpuProfileData,
+			RefreshStatus:  refreshStatus,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),

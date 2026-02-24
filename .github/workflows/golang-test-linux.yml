@@ -97,6 +97,16 @@ jobs:
         working-directory: relay
         run: CGO_ENABLED=1 GOARCH=386 go build -o relay-386 .
 
+      - name: Build combined
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: combined
+        run: CGO_ENABLED=1 go build .
+
+      - name: Build combined 386
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: combined
+        run: CGO_ENABLED=1 GOARCH=386 go build -o combined-386 .
+
   test:
     name: "Client / Unit"
     needs: [build-cache]
@@ -144,7 +154,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined)
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
@@ -204,7 +214,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui -e /upload-server)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server)
             '
 
   test_relay:
@@ -260,6 +270,53 @@ jobs:
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
             -timeout 10m -p 1 ./relay/... ./shared/relay/...
+
+  test_proxy:
+    name: "Proxy / Unit"
+    needs: [build-cache]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ '386','amd64' ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+
+      - name: Get Go environment
+        run: |
+          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
+          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.cache }}
+            ${{ env.modcache }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Test
+        run: |
+          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
+          go test -timeout 10m -p 1 ./proxy/...
 
   test_signal:
     name: "Signal / Unit"
@@ -352,11 +409,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: download mysql image
         if: matrix.store == 'mysql'
@@ -440,15 +504,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: Test
         run: |
@@ -529,15 +596,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: Test
         run: |

@@ -228,6 +228,7 @@ type BundleGenerator struct {
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
 	cpuProfile     []byte
+	refreshStatus  func() // Optional callback to refresh status before bundle generation
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -248,6 +249,7 @@ type GeneratorDependencies struct {
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
 	CPUProfile     []byte
+	RefreshStatus  func() // Optional callback to refresh status before bundle generation
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -265,6 +267,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
 		cpuProfile:     deps.CPUProfile,
+		refreshStatus:  deps.RefreshStatus,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -406,6 +409,10 @@ func (g *BundleGenerator) addStatus() error {
 		var profName string
 		if activeProf, err := pm.GetActiveProfile(); err == nil {
 			profName = activeProf.Name
+		}
+
+		if g.refreshStatus != nil {
+			g.refreshStatus()
 		}
 
 		fullStatus := g.statusRecorder.GetFullStatus()

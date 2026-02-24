@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
@@ -28,6 +29,14 @@ var (
 	ErrClientNotStarted     = errors.New("client not started")
 	ErrEngineNotStarted     = errors.New("engine not started")
 	ErrConfigNotInitialized = errors.New("config not initialized")
+)
+
+// PeerConnStatus is a peer's connection status.
+type PeerConnStatus = peer.ConnStatus
+
+const (
+	// PeerStatusConnected indicates the peer is in connected state.
+	PeerStatusConnected = peer.StatusConnected
 )
 
 // Client manages a netbird embedded client instance.
@@ -68,6 +77,10 @@ type Options struct {
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
+	// BlockInbound blocks all inbound connections from peers
+	BlockInbound bool
+	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
+	WireguardPort *int
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -136,6 +149,8 @@ func New(opts Options) (*Client, error) {
 		PreSharedKey:        &opts.PreSharedKey,
 		DisableServerRoutes: &t,
 		DisableClientRoutes: &opts.DisableClientRoutes,
+		BlockInbound:        &opts.BlockInbound,
+		WireguardPort:       opts.WireguardPort,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
@@ -155,6 +170,7 @@ func New(opts Options) (*Client, error) {
 		setupKey:   opts.SetupKey,
 		jwtToken:   opts.JWTToken,
 		config:     config,
+		recorder:   peer.NewRecorder(config.ManagementURL.String()),
 	}, nil
 }
 
@@ -176,13 +192,17 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
-	if err := internal.Login(ctx, c.config, c.setupKey, c.jwtToken); err != nil {
+
+	authClient, err := auth.NewAuth(ctx, c.config.PrivateKey, c.config.ManagementURL, c.config)
+	if err != nil {
+		return fmt.Errorf("create auth client: %w", err)
+	}
+	defer authClient.Close()
+
+	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-
-	recorder := peer.NewRecorder(c.config.ManagementURL.String())
-	c.recorder = recorder
-	client := internal.NewConnectClient(ctx, c.config, recorder, false)
+	client := internal.NewConnectClient(ctx, c.config, c.recorder, false)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
@@ -335,13 +355,8 @@ func (c *Client) NewHTTPClient() *http.Client {
 // Status returns the current status of the client.
 func (c *Client) Status() (peer.FullStatus, error) {
 	c.mu.Lock()
-	recorder := c.recorder
 	connect := c.connect
 	c.mu.Unlock()
-
-	if recorder == nil {
-		return peer.FullStatus{}, errors.New("client not started")
-	}
 
 	if connect != nil {
 		engine := connect.Engine()
@@ -350,7 +365,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 		}
 	}
 
-	return recorder.GetFullStatus(), nil
+	return c.recorder.GetFullStatus(), nil
 }
 
 // GetLatestSyncResponse returns the latest sync response from the management server.

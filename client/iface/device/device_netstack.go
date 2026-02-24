@@ -79,10 +79,12 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurerNoUAPI(t.device, t.name, t.bind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
-		_ = tunIface.Close()
+		if cErr := tunIface.Close(); cErr != nil {
+			log.Debugf("failed to close tun device: %v", cErr)
+		}
 		return nil, fmt.Errorf("error configuring interface: %s", err)
 	}
 

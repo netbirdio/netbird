@@ -33,7 +33,6 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 		AnyTimes()
 
 	return &handler{
-		embeddedIdpEnabled: false,
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
@@ -124,6 +123,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -148,6 +148,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -172,6 +173,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr("latest"),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -196,6 +198,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -220,6 +223,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -244,6 +248,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateVersion:               sr(""),
 				EmbeddedIdpEnabled:              br(false),
+				LocalAuthDisabled:               br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,

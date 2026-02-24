@@ -2031,3 +2031,87 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 		t.Logf("Duplicate email error: %v", err)
 	})
 }
+
+func TestValidateUserUpdate_RejectsNonAdminInitiator(t *testing.T) {
+	groupsMap := map[string]*types.Group{}
+
+	initiator := &types.User{
+		Id:   "initiator",
+		Role: types.UserRoleUser,
+	}
+	oldUser := &types.User{
+		Id:   "target",
+		Role: types.UserRoleUser,
+	}
+	update := &types.User{
+		Id:   "target",
+		Role: types.UserRoleOwner,
+	}
+
+	err := validateUserUpdate(groupsMap, initiator, oldUser, update)
+	require.Error(t, err, "regular user should not be able to promote to owner")
+	assert.Contains(t, err.Error(), "only admins and owners can update users")
+}
+
+func TestProcessUserUpdate_RejectsStaleInitiatorRole(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), "account1", "owner1", "", "", "", false)
+
+	adminID := "admin1"
+	account.Users[adminID] = types.NewAdminUser(adminID)
+
+	targetID := "target1"
+	account.Users[targetID] = types.NewRegularUser(targetID, "", "")
+
+	require.NoError(t, s.SaveAccount(context.Background(), account))
+
+	demotedAdmin, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, adminID)
+	require.NoError(t, err)
+	demotedAdmin.Role = types.UserRoleUser
+	require.NoError(t, s.SaveUser(context.Background(), demotedAdmin))
+
+	staleInitiator := &types.User{
+		Id:        adminID,
+		AccountID: account.Id,
+		Role:      types.UserRoleAdmin,
+	}
+
+	permissionsManager := permissions.NewManager(s)
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	settings, err := s.GetAccountSettings(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+
+	groups, err := s.GetAccountGroups(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	groupsMap := make(map[string]*types.Group, len(groups))
+	for _, g := range groups {
+		groupsMap[g.ID] = g
+	}
+
+	update := &types.User{
+		Id:   targetID,
+		Role: types.UserRoleAdmin,
+	}
+
+	err = s.ExecuteInTransaction(context.Background(), func(tx store.Store) error {
+		_, _, _, _, txErr := am.processUserUpdate(
+			context.Background(), tx, groupsMap, account.Id, adminID, staleInitiator, update, false, settings,
+		)
+		return txErr
+	})
+
+	require.Error(t, err, "processUserUpdate should reject stale initiator whose role was demoted")
+	assert.Contains(t, err.Error(), "only admins and owners can update users")
+
+	targetUser, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetID)
+	require.NoError(t, err)
+	assert.Equal(t, types.UserRoleUser, targetUser.Role)
+}

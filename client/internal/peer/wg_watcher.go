@@ -32,6 +32,8 @@ type WGWatcher struct {
 
 	enabled   bool
 	muEnabled sync.RWMutex
+
+	resetCh chan struct{}
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -40,6 +42,7 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 		wgIfaceStater: wgIfaceStater,
 		peerKey:       peerKey,
 		stateDump:     stateDump,
+		resetCh:       make(chan struct{}, 1),
 	}
 }
 
@@ -76,6 +79,15 @@ func (w *WGWatcher) IsEnabled() bool {
 	return w.enabled
 }
 
+// Reset signals the watcher that the WireGuard peer has been reset and a new
+// handshake is expected. This restarts the handshake timeout from scratch.
+func (w *WGWatcher) Reset() {
+	select {
+	case w.resetCh <- struct{}{}:
+	default:
+	}
+}
+
 // wgStateCheck help to check the state of the WireGuard handshake and relay connection
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn func(), enabledTime time.Time, initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
@@ -105,6 +117,12 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, onDisconnectedFn
 			w.stateDump.WGcheckSuccess()
 
 			w.log.Debugf("WireGuard watcher reset timer: %v", resetTime)
+		case <-w.resetCh:
+			w.log.Infof("WireGuard watcher received peer reset, restarting handshake timeout")
+			lastHandshake = time.Time{}
+			enabledTime = time.Now()
+			timer.Stop()
+			timer.Reset(wgHandshakeOvertime)
 		case <-ctx.Done():
 			w.log.Infof("WireGuard watcher stopped")
 			return

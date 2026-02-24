@@ -24,19 +24,28 @@ type Manager interface {
 	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error)
 }
 
+// IdpConfig holds IdP-related configuration that is set at runtime
+// and not stored in the database.
+type IdpConfig struct {
+	EmbeddedIdpEnabled bool
+	LocalAuthDisabled  bool
+}
+
 type managerImpl struct {
 	store                store.Store
 	extraSettingsManager extra_settings.Manager
 	userManager          users.Manager
 	permissionsManager   permissions.Manager
+	idpConfig            IdpConfig
 }
 
-func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager, permissionsManager permissions.Manager, idpConfig IdpConfig) Manager {
 	return &managerImpl{
 		store:                store,
 		extraSettingsManager: extraSettingsManager,
 		userManager:          userManager,
 		permissionsManager:   permissionsManager,
+		idpConfig:            idpConfig,
 	}
 }
 
@@ -73,6 +82,10 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
 		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
 	}
+
+	// Fill in IdP-related runtime settings
+	settings.EmbeddedIdpEnabled = m.idpConfig.EmbeddedIdpEnabled
+	settings.LocalAuthDisabled = m.idpConfig.LocalAuthDisabled
 
 	return settings, nil
 }

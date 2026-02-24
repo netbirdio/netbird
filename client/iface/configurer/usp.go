@@ -54,6 +54,14 @@ func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder
 	return wgCfg
 }
 
+func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+	return &WGUSPConfigurer{
+		device:           device,
+		deviceName:       deviceName,
+		activityRecorder: activityRecorder,
+	}
+}
+
 func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -558,7 +566,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 
-			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			host, portStr, err := net.SplitHostPort(val)
 			if err != nil {
 				log.Errorf("failed to parse endpoint: %v", err)
 				continue

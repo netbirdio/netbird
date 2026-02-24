@@ -21,7 +21,9 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -85,8 +87,7 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
-	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
-	sleepTriggeredDown atomic.Bool
+	sleepHandler *sleephandler.SleepHandler
 
 	jwtCache *jwtCache
 }
@@ -100,7 +101,7 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
-	return &Server{
+	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
@@ -110,6 +111,10 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	agent := &serverAgent{s}
+	s.sleepHandler = sleephandler.New(agent)
+
+	return s
 }
 
 func (s *Server) Start() error {
@@ -253,10 +258,17 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
-	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		log.Errorf("failed to create auth client: %v", err)
+		return internal.StatusLoginFailed, err
+	}
+	defer authClient.Close()
+
+	var status internal.StatusType
+	err, isAuthError := authClient.Login(ctx, setupKey, jwtToken)
+	if err != nil {
+		if isAuthError {
 			log.Warnf("failed login: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
@@ -581,8 +593,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
+	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	s.mutex.Lock()
@@ -1306,6 +1317,60 @@ func (s *Server) WaitJWTToken(
 	}, nil
 }
 
+// ExposeService exposes a local port via the NetBird reverse proxy.
+func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+	}
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return gstatus.Errorf(codes.Internal, "expose manager not available")
+	}
+
+	ctx := srv.Context()
+
+	exposeCtx, exposeCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer exposeCancel()
+
+	mgmReq := expose.NewRequest(req)
+	result, err := mgr.Expose(exposeCtx, *mgmReq)
+	if err != nil {
+		return err
+	}
+
+	if err := srv.Send(&proto.ExposeServiceEvent{
+		Event: &proto.ExposeServiceEvent_Ready{
+			Ready: &proto.ExposeServiceReady{
+				ServiceName: result.ServiceName,
+				ServiceUrl:  result.ServiceURL,
+				Domain:      result.Domain,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	err = mgr.KeepAlive(ctx, result.Domain)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func isUnixRunningDesktop() bool {
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
 		return false
@@ -1326,6 +1391,10 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 	if time.Since(s.lastProbe) > probeThreshold {
 		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
+		}
+	} else {
+		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
+			log.Debugf("failed to refresh WireGuard stats: %v", err)
 		}
 	}
 }

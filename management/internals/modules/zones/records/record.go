@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -63,7 +63,7 @@ func (r *Record) Validate() error {
 		return errors.New("record name is required")
 	}
 
-	if !util.IsValidDomain(r.Name) {
+	if !domain.IsValidDomain(r.Name) {
 		return errors.New("invalid record name format")
 	}
 
@@ -81,8 +81,8 @@ func (r *Record) Validate() error {
 			return err
 		}
 	case RecordTypeCNAME:
-		if !util.IsValidDomain(r.Content) {
-			return errors.New("invalid CNAME record format")
+		if !domain.IsValidDomainNoWildcard(r.Content) {
+			return errors.New("invalid CNAME target format")
 		}
 	default:
 		return errors.New("invalid record type, must be A, AAAA, or CNAME")

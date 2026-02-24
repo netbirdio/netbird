@@ -703,7 +703,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving group linked to network router", func(t *testing.T) {
 		permissionsManager := permissions.NewManager(manager.Store)
 		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
-		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager)
+		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.reverseProxyManager)
 		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
 		networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
 

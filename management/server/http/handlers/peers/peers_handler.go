@@ -17,6 +17,9 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -26,11 +29,12 @@ import (
 // Handler is a handler that returns peers of the account
 type Handler struct {
 	accountManager       account.Manager
+	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
-	peersHandler := NewHandler(accountManager, networkMapController)
+func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
+	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
@@ -42,10 +46,11 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMap
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager, networkMapController network_map.Controller) *Handler {
+func NewHandler(accountManager account.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
 	return &Handler{
 		accountManager:       accountManager,
 		networkMapController: networkMapController,
+		permissionsManager:   permissionsManager,
 	}
 }
 
@@ -146,6 +151,11 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
+		return
+	}
+
+	if peer.ProxyMeta.Embedded {
+		util.WriteError(ctx, status.Errorf(status.InvalidArgument, "not allowed to read peer"), w)
 		return
 	}
 
@@ -316,6 +326,9 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
+		if peer.ProxyMeta.Embedded {
+			continue
+		}
 		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
@@ -359,21 +372,30 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	user, err := h.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	// If the user is regular user and does not own the peer
-	// with the given peerID return an empty list
-	if !user.HasAdminPower() && !user.IsServiceUser && !userAuth.IsChild {
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		return
+	}
+
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	if !allowed && !userAuth.IsChild {
+		if account.Settings.RegularUsersViewBlocked {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
+
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)

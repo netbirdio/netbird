@@ -7,8 +7,6 @@ import (
 
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/redis/go-redis/v9"
-	"github.com/testcontainers/testcontainers-go"
-
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
 	"github.com/netbirdio/netbird/management/server/cache"
@@ -50,7 +48,7 @@ func TestRedisStoreConnectionFailure(t *testing.T) {
 
 func TestRedisStoreConnectionSuccess(t *testing.T) {
 	ctx := context.Background()
-	redisContainer, err := testcontainersredis.RunContainer(ctx, testcontainers.WithImage("redis:7"))
+	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
 	if err != nil {
 		t.Fatalf("couldn't start redis container: %s", err)
 	}

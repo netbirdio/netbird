@@ -72,8 +72,8 @@ var (
 
 func NewValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) *Validator {
 	keys, err := getPemKeys(keysLocation)
-	if err != nil {
-		log.WithField("keysLocation", keysLocation).Errorf("could not get keys from location: %s", err)
+	if err != nil && !strings.Contains(keysLocation, "localhost") {
+		log.WithField("keysLocation", keysLocation).Warnf("could not get keys from location: %s, it will try again on the next http request", err)
 	}
 
 	return &Validator{

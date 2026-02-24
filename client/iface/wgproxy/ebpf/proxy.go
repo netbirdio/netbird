@@ -8,8 +8,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
@@ -26,13 +24,10 @@ const (
 	loopbackAddr = "127.0.0.1"
 )
 
-var (
-	localHostNetIP = net.ParseIP("127.0.0.1")
-)
-
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
+	proxyPort         int
 	mtu               uint16
 
 	ebpfManager   ebpfMgr.Manager
@@ -40,7 +35,8 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	lastUsedPort uint16
-	rawConn      net.PacketConn
+	rawConnIPv4  net.PacketConn
+	rawConnIPv6  net.PacketConn
 	conn         transport.UDPConn
 
 	ctx       context.Context
@@ -62,23 +58,39 @@ func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 // Listen load ebpf program and listen the proxy
 func (p *WGEBPFProxy) Listen() error {
 	pl := portLookup{}
-	wgPorxyPort, err := pl.searchFreePort()
+	proxyPort, err := pl.searchFreePort()
+	if err != nil {
+		return err
+	}
+	p.proxyPort = proxyPort
+
+	// Prepare IPv4 raw socket (required)
+	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
 	if err != nil {
 		return err
 	}
 
-	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
+	// Prepare IPv6 raw socket (optional)
+	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
 	if err != nil {
-		return err
+		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
 	}
 
-	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
+	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
 	if err != nil {
+		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
+		}
+		if p.rawConnIPv6 != nil {
+			if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+				log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+			}
+		}
 		return err
 	}
 
 	addr := net.UDPAddr{
-		Port: wgPorxyPort,
+		Port: proxyPort,
 		IP:   net.ParseIP(loopbackAddr),
 	}
 
@@ -94,7 +106,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn = conn
 
 	go p.proxyToRemote()
-	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
+	log.Infof("local wg proxy listening on: %d", proxyPort)
 	return nil
 }
 
@@ -135,10 +147,23 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 
-	if err := p.rawConn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.rawConnIPv4 != nil {
+		if err := p.rawConnIPv4.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	if p.rawConnIPv6 != nil {
+		if err := p.rawConnIPv6.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return nberrors.FormatErrorOrNil(result)
+}
+
+// GetProxyPort returns the proxy listening port.
+func (p *WGEBPFProxy) GetProxyPort() uint16 {
+	return uint16(p.proxyPort)
 }
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
@@ -215,35 +240,4 @@ generatePort:
 		goto generatePort
 	}
 	return p.lastUsedPort, nil
-}
-
-func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
-	payload := gopacket.Payload(data)
-	ipH := &layers.IPv4{
-		DstIP:    localHostNetIP,
-		SrcIP:    endpointAddr.IP,
-		Version:  4,
-		TTL:      64,
-		Protocol: layers.IPProtocolUDP,
-	}
-	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(endpointAddr.Port),
-		DstPort: layers.UDPPort(p.localWGListenPort),
-	}
-
-	err := udpH.SetNetworkLayerForChecksum(ipH)
-	if err != nil {
-		return fmt.Errorf("set network layer for checksum: %w", err)
-	}
-
-	layerBuffer := gopacket.NewSerializeBuffer()
-
-	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
-	if err != nil {
-		return fmt.Errorf("serialize layers: %w", err)
-	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localHostNetIP}); err != nil {
-		return fmt.Errorf("write to raw conn: %w", err)
-	}
-	return nil
 }

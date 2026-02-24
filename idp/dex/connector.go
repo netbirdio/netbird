@@ -327,6 +327,60 @@ func ensureLocalConnector(ctx context.Context, stor storage.Storage) error {
 	return nil
 }
 
+// HasNonLocalConnectors checks if there are any connectors other than the local connector.
+func (p *Provider) HasNonLocalConnectors(ctx context.Context) (bool, error) {
+	connectors, err := p.storage.ListConnectors(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list connectors: %w", err)
+	}
+
+	p.logger.Info("checking for non-local connectors", "total_connectors", len(connectors))
+	for _, conn := range connectors {
+		p.logger.Info("found connector in storage", "id", conn.ID, "type", conn.Type, "name", conn.Name)
+		if conn.ID != "local" || conn.Type != "local" {
+			p.logger.Info("found non-local connector", "id", conn.ID)
+			return true, nil
+		}
+	}
+	p.logger.Info("no non-local connectors found")
+	return false, nil
+}
+
+// DisableLocalAuth removes the local (password) connector.
+// Returns an error if no other connectors are configured.
+func (p *Provider) DisableLocalAuth(ctx context.Context) error {
+	hasOthers, err := p.HasNonLocalConnectors(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasOthers {
+		return fmt.Errorf("cannot disable local authentication: no other identity providers configured")
+	}
+
+	// Check if local connector exists
+	_, err = p.storage.GetConnector(ctx, "local")
+	if errors.Is(err, storage.ErrNotFound) {
+		// Already disabled
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to check local connector: %w", err)
+	}
+
+	// Delete the local connector
+	if err := p.storage.DeleteConnector(ctx, "local"); err != nil {
+		return fmt.Errorf("failed to delete local connector: %w", err)
+	}
+
+	p.logger.Info("local authentication disabled")
+	return nil
+}
+
+// EnableLocalAuth creates the local (password) connector if it doesn't exist.
+func (p *Provider) EnableLocalAuth(ctx context.Context) error {
+	return ensureLocalConnector(ctx, p.storage)
+}
+
 // ensureStaticConnectors creates or updates static connectors in storage
 func ensureStaticConnectors(ctx context.Context, stor storage.Storage, connectors []Connector) error {
 	for _, conn := range connectors {

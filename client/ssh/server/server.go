@@ -335,7 +335,7 @@ func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
 		sessions = append(sessions, info)
 	}
 
-	// Add authenticated connections without sessions (e.g., -N/-T or port-forwarding only)
+	// Add authenticated connections without sessions (e.g., -N or port-forwarding only)
 	for key, connState := range s.connections {
 		remoteAddr := string(key)
 		if reportedAddrs[remoteAddr] {

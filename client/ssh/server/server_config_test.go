@@ -483,12 +483,11 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 	}
 }
 
-func TestServer_PortForwardingOnlySession(t *testing.T) {
-	// Test that sessions without PTY and command are allowed when port forwarding is enabled
+func TestServer_NonPtyShellSession(t *testing.T) {
+	// Test that non-PTY shell sessions (ssh -T) work regardless of port forwarding settings.
 	currentUser, err := user.Current()
 	require.NoError(t, err, "Should be able to get current user")
 
-	// Generate host key for server
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
@@ -496,36 +495,26 @@ func TestServer_PortForwardingOnlySession(t *testing.T) {
 		name                  string
 		allowLocalForwarding  bool
 		allowRemoteForwarding bool
-		expectAllowed         bool
-		description           string
 	}{
 		{
-			name:                  "session_allowed_with_local_forwarding",
+			name:                  "shell_with_local_forwarding_enabled",
 			allowLocalForwarding:  true,
 			allowRemoteForwarding: false,
-			expectAllowed:         true,
-			description:           "Port-forwarding-only session should be allowed when local forwarding is enabled",
 		},
 		{
-			name:                  "session_allowed_with_remote_forwarding",
+			name:                  "shell_with_remote_forwarding_enabled",
 			allowLocalForwarding:  false,
 			allowRemoteForwarding: true,
-			expectAllowed:         true,
-			description:           "Port-forwarding-only session should be allowed when remote forwarding is enabled",
 		},
 		{
-			name:                  "session_allowed_with_both",
+			name:                  "shell_with_both_forwarding_enabled",
 			allowLocalForwarding:  true,
 			allowRemoteForwarding: true,
-			expectAllowed:         true,
-			description:           "Port-forwarding-only session should be allowed when both forwarding types enabled",
 		},
 		{
-			name:                  "session_denied_without_forwarding",
+			name:                  "shell_with_forwarding_disabled",
 			allowLocalForwarding:  false,
 			allowRemoteForwarding: false,
-			expectAllowed:         false,
-			description:           "Port-forwarding-only session should be denied when all forwarding is disabled",
 		},
 	}
 
@@ -545,7 +534,6 @@ func TestServer_PortForwardingOnlySession(t *testing.T) {
 				_ = server.Stop()
 			}()
 
-			// Connect to the server without requesting PTY or command
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -557,20 +545,10 @@ func TestServer_PortForwardingOnlySession(t *testing.T) {
 				_ = client.Close()
 			}()
 
-			// Execute a command without PTY - this simulates ssh -T with no command
-			// The server should either allow it (port forwarding enabled) or reject it
-			output, err := client.ExecuteCommand(ctx, "")
-			if tt.expectAllowed {
-				// When allowed, the session stays open until cancelled
-				// ExecuteCommand with empty command should return without error
-				assert.NoError(t, err, "Session should be allowed when port forwarding is enabled")
-				assert.NotContains(t, output, "port forwarding is disabled",
-					"Output should not contain port forwarding disabled message")
-			} else if err != nil {
-				// When denied, we expect an error message about port forwarding being disabled
-				assert.Contains(t, err.Error(), "port forwarding is disabled",
-					"Should get port forwarding disabled message")
-			}
+			// Execute without PTY and no command - simulates ssh -T (shell without PTY)
+			// Should always succeed regardless of port forwarding settings
+			_, err = client.ExecuteCommand(ctx, "")
+			assert.NoError(t, err, "Non-PTY shell session should be allowed")
 		})
 	}
 }

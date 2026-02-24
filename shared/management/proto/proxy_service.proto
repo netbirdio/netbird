@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+package management;
+
+option go_package = "/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// ProxyService - Management is the SERVER, Proxy is the CLIENT
+// Proxy initiates connection to management
+service ProxyService {
+  rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
+
+  rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
+
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+
+  rpc SendStatusUpdate(SendStatusUpdateRequest) returns (SendStatusUpdateResponse);
+
+  rpc CreateProxyPeer(CreateProxyPeerRequest) returns (CreateProxyPeerResponse);
+
+  rpc GetOIDCURL(GetOIDCURLRequest) returns (GetOIDCURLResponse);
+
+  // ValidateSession validates a session token and checks user access permissions.
+  // Called by the proxy after receiving a session token from OIDC callback.
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+}
+
+// GetMappingUpdateRequest is sent to initialise a mapping stream.
+message GetMappingUpdateRequest {
+  string proxy_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp started_at = 3;
+  string address = 4;
+}
+
+// GetMappingUpdateResponse contains zero or more ProxyMappings.
+// No mappings may be sent to test the liveness of the Proxy.
+// Mappings that are sent should be interpreted by the Proxy appropriately.
+message GetMappingUpdateResponse {
+  repeated ProxyMapping mapping = 1;
+  // initial_sync_complete is set on the last message of the initial snapshot.
+  // The proxy uses this to signal that startup is complete.
+  bool initial_sync_complete = 2;
+}
+
+enum ProxyMappingUpdateType {
+  UPDATE_TYPE_CREATED = 0;
+  UPDATE_TYPE_MODIFIED = 1;
+  UPDATE_TYPE_REMOVED = 2;
+}
+
+message PathMapping {
+  string path = 1;
+  string target = 2;
+}
+
+message Authentication {
+  string session_key = 1;
+  int64 max_session_age_seconds = 2;
+  bool password = 3;
+  bool pin = 4;
+  bool oidc = 5;
+}
+
+message ProxyMapping {
+  ProxyMappingUpdateType type = 1;
+  string id = 2;
+  string account_id = 3;
+  string domain = 4;
+  repeated PathMapping path = 5;
+  string auth_token = 6;
+  Authentication auth = 7;
+  // When true, the original Host header from the client request is passed
+  // through to the backend instead of being rewritten to the backend's address.
+  bool pass_host_header = 8;
+  // When true, Location headers in backend responses are rewritten to replace
+  // the backend address with the public-facing domain.
+  bool rewrite_redirects = 9;
+}
+
+// SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
+message SendAccessLogRequest {
+  AccessLog log = 1;
+}
+
+// SendAccessLogResponse is intentionally empty to allow for future expansion.
+message SendAccessLogResponse {}
+
+message AccessLog {
+  google.protobuf.Timestamp timestamp = 1;
+  string log_id = 2;
+  string account_id = 3;
+  string service_id = 4;
+  string host = 5;
+  string path = 6;
+  int64 duration_ms = 7;
+  string method = 8;
+  int32 response_code = 9;
+  string source_ip = 10;
+  string auth_mechanism = 11;
+  string user_id = 12;
+  bool auth_success = 13;
+}
+
+message AuthenticateRequest {
+  string id = 1;
+  string account_id = 2;
+  oneof request {
+    PasswordRequest password = 3;
+    PinRequest pin = 4;
+  }
+}
+
+message PasswordRequest {
+  string password = 1;
+}
+
+message PinRequest {
+  string pin = 1;
+}
+
+message AuthenticateResponse {
+  bool success = 1;
+  string session_token = 2;
+}
+
+enum ProxyStatus {
+  PROXY_STATUS_PENDING = 0;
+  PROXY_STATUS_ACTIVE = 1;
+  PROXY_STATUS_TUNNEL_NOT_CREATED = 2;
+  PROXY_STATUS_CERTIFICATE_PENDING = 3;
+  PROXY_STATUS_CERTIFICATE_FAILED = 4;
+  PROXY_STATUS_ERROR = 5;
+}
+
+// SendStatusUpdateRequest is sent by the proxy to update its status
+message SendStatusUpdateRequest {
+  string service_id = 1;
+  string account_id = 2;
+  ProxyStatus status = 3;
+  bool certificate_issued = 4;
+  optional string error_message = 5;
+}
+
+// SendStatusUpdateResponse is intentionally empty to allow for future expansion
+message SendStatusUpdateResponse {}
+
+// CreateProxyPeerRequest is sent by the proxy to create a peer connection
+// The token is a one-time authentication token sent via ProxyMapping
+message CreateProxyPeerRequest {
+  string service_id = 1;
+  string account_id = 2;
+  string token = 3;
+  string wireguard_public_key = 4;
+  string cluster = 5;
+}
+
+// CreateProxyPeerResponse contains the result of peer creation
+message CreateProxyPeerResponse {
+  bool success = 1;
+  optional string error_message = 2;
+}
+
+message GetOIDCURLRequest {
+  string id = 1;
+  string account_id = 2;
+  string redirect_url = 3;
+}
+
+message GetOIDCURLResponse {
+  string url = 1;
+}
+
+message ValidateSessionRequest {
+  string domain = 1;
+  string session_token = 2;
+}
+
+message ValidateSessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string user_email = 3;
+  string denied_reason = 4;
+}

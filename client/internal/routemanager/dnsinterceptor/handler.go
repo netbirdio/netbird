@@ -351,6 +351,11 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg, logger *log.
 				logger.Errorf("failed to update domain prefixes: %v", err)
 			}
 
+			// Allow time for route changes to be applied before sending
+			// the DNS response (relevant on iOS where setTunnelNetworkSettings
+			// is asynchronous).
+			waitForRouteSettlement(logger)
+
 			d.replaceIPsInDNSResponse(r, newPrefixes, logger)
 		}
 	}

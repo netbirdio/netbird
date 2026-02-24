@@ -48,7 +48,7 @@ func NewServer(conns []*net.UDPConn, logLevel string) *Server {
 	// Use the formatter package to set up formatter, ReportCaller, and context hook
 	formatter.SetTextFormatter(stunLogger)
 
-	logger := stunLogger.WithField("component", "stun-server")
+	logger := stunLogger.WithField("component", "stun")
 	logger.Infof("STUN server log level set to: %s", level.String())
 
 	return &Server{

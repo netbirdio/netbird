@@ -54,7 +54,7 @@ func TestJWTEnforcement(t *testing.T) {
 		server.SetAllowRootLogin(true)
 
 		serverAddr := StartTestServer(t, server)
-		defer require.NoError(t, server.Stop())
+		defer func() { require.NoError(t, server.Stop()) }()
 
 		host, portStr, err := net.SplitHostPort(serverAddr)
 		require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestJWTEnforcement(t *testing.T) {
 		serverNoJWT.SetAllowRootLogin(true)
 
 		serverAddrNoJWT := StartTestServer(t, serverNoJWT)
-		defer require.NoError(t, serverNoJWT.Stop())
+		defer func() { require.NoError(t, serverNoJWT.Stop()) }()
 
 		hostNoJWT, portStrNoJWT, err := net.SplitHostPort(serverAddrNoJWT)
 		require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestJWTDetection(t *testing.T) {
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
-	defer require.NoError(t, server.Stop())
+	defer func() { require.NoError(t, server.Stop()) }()
 
 	host, portStr, err := net.SplitHostPort(serverAddr)
 	require.NoError(t, err)
@@ -341,7 +341,7 @@ func TestJWTFailClose(t *testing.T) {
 			server.SetAllowRootLogin(true)
 
 			serverAddr := StartTestServer(t, server)
-			defer require.NoError(t, server.Stop())
+			defer func() { require.NoError(t, server.Stop()) }()
 
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)
@@ -596,7 +596,7 @@ func TestJWTAuthentication(t *testing.T) {
 			server.UpdateSSHAuth(authConfig)
 
 			serverAddr := StartTestServer(t, server)
-			defer require.NoError(t, server.Stop())
+			defer func() { require.NoError(t, server.Stop()) }()
 
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)
@@ -715,7 +715,7 @@ func TestJWTMultipleAudiences(t *testing.T) {
 			server.UpdateSSHAuth(authConfig)
 
 			serverAddr := StartTestServer(t, server)
-			defer require.NoError(t, server.Stop())
+			defer func() { require.NoError(t, server.Stop()) }()
 
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)

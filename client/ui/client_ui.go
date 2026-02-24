@@ -1033,7 +1033,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
+	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
@@ -1060,7 +1060,7 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+	s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
@@ -1261,7 +1261,6 @@ func (s *serviceClient) setSettingsEnabled(enabled bool) {
 	if s.mSettings != nil {
 		if enabled {
 			s.mSettings.Enable()
-			s.mSettings.SetTooltip(settingsMenuDescr)
 		} else {
 			s.mSettings.Hide()
 			s.mSettings.SetTooltip("Settings are disabled by daemon")

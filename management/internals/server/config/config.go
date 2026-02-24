@@ -100,6 +100,8 @@ type HttpServerConfig struct {
 	CertFile string
 	// CertKey is the location of the certificate private key
 	CertKey string
+	// AuthClientID is the client id used for proxy SSO auth
+	AuthClientID string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
 	// CLIAuthAudience identifies the client app recipients that the JWT is intended for (aud in JWT)
@@ -117,6 +119,8 @@ type HttpServerConfig struct {
 	IdpSignKeyRefreshEnabled bool
 	// Extra audience
 	ExtraAuthAudience string
+	// AuthCallbackDomain contains the callback domain
+	AuthCallbackURL string
 }
 
 // Host represents a Netbird host (e.g. STUN, TURN, Signal)
@@ -196,4 +200,13 @@ type ReverseProxy struct {
 	// request headers if the peer's address falls within one of these
 	// trusted IP prefixes.
 	TrustedPeers []netip.Prefix
+
+	// AccessLogRetentionDays specifies the number of days to retain access logs.
+	// Logs older than this duration will be automatically deleted during cleanup.
+	// A value of 0 or negative means logs are kept indefinitely (no cleanup).
+	AccessLogRetentionDays int
+
+	// AccessLogCleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
+	// Defaults to 24 hours if not set or set to 0.
+	AccessLogCleanupIntervalHours int
 }

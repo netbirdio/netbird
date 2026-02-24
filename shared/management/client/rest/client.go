@@ -73,6 +73,38 @@ type Client struct {
 	// Events NetBird Events APIs
 	// see more: https://docs.netbird.io/api/resources/events
 	Events *EventsAPI
+
+	// Billing NetBird Billing APIs for subscriptions, plans, and invoices
+	// see more: https://docs.netbird.io/api/resources/billing
+	Billing *BillingAPI
+
+	// MSP NetBird MSP tenant management APIs
+	// see more: https://docs.netbird.io/api/resources/msp
+	MSP *MSPAPI
+
+	// EDR NetBird EDR integration APIs (Intune, SentinelOne, Falcon, Huntress)
+	// see more: https://docs.netbird.io/api/resources/edr
+	EDR *EDRAPI
+
+	// SCIM NetBird SCIM IDP integration APIs
+	// see more: https://docs.netbird.io/api/resources/scim
+	SCIM *SCIMAPI
+
+	// EventStreaming NetBird Event Streaming integration APIs
+	// see more: https://docs.netbird.io/api/resources/event-streaming
+	EventStreaming *EventStreamingAPI
+
+	// IdentityProviders NetBird Identity Providers APIs
+	// see more: https://docs.netbird.io/api/resources/identity-providers
+	IdentityProviders *IdentityProvidersAPI
+
+	// Ingress NetBird Ingress Peers APIs
+	// see more: https://docs.netbird.io/api/resources/ingress-ports
+	Ingress *IngressAPI
+
+	// Instance NetBird Instance API
+	// see more: https://docs.netbird.io/api/resources/instance
+	Instance *InstanceAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -120,6 +152,14 @@ func (c *Client) initialize() {
 	c.DNSZones = &DNSZonesAPI{c}
 	c.GeoLocation = &GeoLocationAPI{c}
 	c.Events = &EventsAPI{c}
+	c.Billing = &BillingAPI{c}
+	c.MSP = &MSPAPI{c}
+	c.EDR = &EDRAPI{c}
+	c.SCIM = &SCIMAPI{c}
+	c.EventStreaming = &EventStreamingAPI{c}
+	c.IdentityProviders = &IdentityProvidersAPI{c}
+	c.Ingress = &IngressAPI{c}
+	c.Instance = &InstanceAPI{c}
 }
 
 // NewRequest creates and executes new management API request

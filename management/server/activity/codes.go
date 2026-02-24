@@ -199,6 +199,27 @@ const (
 
 	UserPasswordChanged Activity = 103
 
+	UserInviteLinkCreated     Activity = 104
+	UserInviteLinkAccepted    Activity = 105
+	UserInviteLinkRegenerated Activity = 106
+	UserInviteLinkDeleted     Activity = 107
+
+	ServiceCreated Activity = 108
+	ServiceUpdated Activity = 109
+	ServiceDeleted Activity = 110
+
+	// PeerServiceExposed indicates that a peer exposed a service via the reverse proxy
+	PeerServiceExposed Activity = 111
+	// PeerServiceUnexposed indicates that a peer-exposed service was removed
+	PeerServiceUnexposed Activity = 112
+	// PeerServiceExposeExpired indicates that a peer-exposed service was removed due to TTL expiration
+	PeerServiceExposeExpired Activity = 113
+
+	// AccountPeerExposeEnabled indicates that a user enabled peer expose for the account
+	AccountPeerExposeEnabled Activity = 114
+	// AccountPeerExposeDisabled indicates that a user disabled peer expose for the account
+	AccountPeerExposeDisabled Activity = 115
+
 	AccountDeleted Activity = 99999
 )
 
@@ -327,6 +348,22 @@ var activityMap = map[Activity]Code{
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 
 	UserPasswordChanged: {"User password changed", "user.password.change"},
+
+	UserInviteLinkCreated:     {"User invite link created", "user.invite.link.create"},
+	UserInviteLinkAccepted:    {"User invite link accepted", "user.invite.link.accept"},
+	UserInviteLinkRegenerated: {"User invite link regenerated", "user.invite.link.regenerate"},
+	UserInviteLinkDeleted:     {"User invite link deleted", "user.invite.link.delete"},
+
+	ServiceCreated: {"Service created", "service.create"},
+	ServiceUpdated: {"Service updated", "service.update"},
+	ServiceDeleted: {"Service deleted", "service.delete"},
+
+	PeerServiceExposed:       {"Peer exposed service", "service.peer.expose"},
+	PeerServiceUnexposed:     {"Peer unexposed service", "service.peer.unexpose"},
+	PeerServiceExposeExpired: {"Peer exposed service expired", "service.peer.expose.expire"},
+
+	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
+	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
 }
 
 // StringCode returns a string code of the activity
