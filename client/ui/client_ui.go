@@ -38,7 +38,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
@@ -88,7 +87,7 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:              daemonaddr.ResolveUnixDaemonAddr(flags.daemonAddr),
+		addr:              flags.daemonAddr,
 		logFile:           logFile,
 		app:               a,
 		showSettings:      flags.showSettings,

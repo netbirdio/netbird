@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -86,7 +86,7 @@ var (
 
 			// Don't resolve for service commands — they create the socket, not connect to it.
 			if !isServiceCmd(cmd) {
-				daemonAddr = daemonaddr.ResolveUnixDaemonAddr(daemonAddr)
+				daemonAddr = daddr.ResolveUnixDaemonAddr(daemonAddr)
 			}
 			return nil
 		},
