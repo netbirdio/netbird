@@ -310,6 +310,7 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	isEnforcedUpdate     bool
 	settingsEnabled      bool
 	profilesEnabled      bool
 	showNetworks         bool
@@ -1124,6 +1125,12 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if newVersion, ok := event.Metadata["new_version_available"]; ok {
+			_, enforced := event.Metadata["enforced"]
+			s.onUpdateAvailable(newVersion, enforced)
+		}
+	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
@@ -1496,10 +1503,16 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	return &config
 }
 
-// todo do not forget to use this
-func (s *serviceClient) onUpdateAvailable() {
+func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
+
+	s.isEnforcedUpdate = enforced
+	if enforced {
+		s.mUpdate.SetTitle("Install version " + newVersion)
+	} else {
+		s.mUpdate.SetTitle("Download latest version")
+	}
 
 	s.mUpdate.Show()
 	s.isUpdateIconActive = true

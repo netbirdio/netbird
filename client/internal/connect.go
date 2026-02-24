@@ -184,14 +184,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
-	updateManager, err := updatemanager.NewManager(c.statusRecorder, stateManager)
-	if err == nil {
-		updateManager.CheckUpdateSuccess(c.ctx)
+	updateManager := updatemanager.NewManager(c.statusRecorder, stateManager)
+	updateManager.CheckUpdateSuccess(c.ctx)
 
-		inst := installer.New()
-		if err := inst.CleanUpInstallerFiles(); err != nil {
-			log.Errorf("failed to clean up temporary installer file: %v", err)
-		}
+	inst := installer.New()
+	if err := inst.CleanUpInstallerFiles(); err != nil {
+		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
 	defer c.statusRecorder.ClientStop()

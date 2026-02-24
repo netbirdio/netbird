@@ -267,6 +267,7 @@ func NewEngine(
 		checks:         checks,
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
+		updateManager:  updatemanager.NewManager(statusRecorder, stateManager),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -556,6 +557,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		}
 	}()
 
+	e.updateManager.Start(e.ctx)
 	return nil
 }
 
@@ -786,39 +788,31 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
+// TriggerUpdate initiates installation of the pending enforced version via the update manager.
+// Called from the server when the user clicks the install button in the UI.
+func (e *Engine) TriggerUpdate(ctx context.Context) error {
+	if e.updateManager == nil {
+		return fmt.Errorf("update manager not available")
+	}
+	return e.updateManager.Install(ctx)
+}
+
 func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	if e.updateManager == nil {
+		return
+	}
+
 	if autoUpdateSettings == nil {
 		return
 	}
 
-	disabled := autoUpdateSettings.Version == disableAutoUpdate
-
-	// stop and cleanup if disabled
-	if e.updateManager != nil && disabled {
-		log.Infof("auto-update is disabled, stopping update manager")
-		e.updateManager.Stop()
-		e.updateManager = nil
+	if autoUpdateSettings.Version == disableAutoUpdate {
+		log.Infof("auto-update is disabled")
+		e.updateManager.SetDownloadOnly()
 		return
 	}
 
-	// Skip check unless AlwaysUpdate is enabled or this is the initial check at startup
-	if !autoUpdateSettings.AlwaysUpdate {
-		log.Debugf("skipping auto-update check, AlwaysUpdate is false and this is not the initial check")
-		return
-	}
-
-	// Start manager if needed
-	if e.updateManager == nil {
-		log.Infof("starting auto-update manager")
-		updateManager, err := updatemanager.NewManager(e.statusRecorder, e.stateManager)
-		if err != nil {
-			return
-		}
-		e.updateManager = updateManager
-		e.updateManager.Start(e.ctx)
-	}
-	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
-	e.updateManager.SetVersion(autoUpdateSettings.Version)
+	e.updateManager.SetVersion(autoUpdateSettings.Version, autoUpdateSettings.AlwaysUpdate)
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {

@@ -398,7 +398,7 @@ func (e *Engine) updateSSHServerAuth(sshAuth *mgmProto.SSHAuth) {
 		machineUsers[osUser] = indexes.GetIndexes()
 	}
 
-	// Update SSH server with new authorization configuration
+	// Install SSH server with new authorization configuration
 	authConfig := &sshauth.Config{
 		UserIDClaim:     sshAuth.GetUserIDClaim(),
 		AuthorizedUsers: authorizedUsers,
