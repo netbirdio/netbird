@@ -115,7 +115,6 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 
 func (m *Manager) Start(ctx context.Context) {
 	if m.cancel != nil {
-		log.Errorf("Manager already started")
 		return
 	}
 
@@ -154,10 +153,6 @@ func (m *Manager) SetDownloadOnly() {
 
 func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
-	if m.cancel == nil {
-		log.Errorf("manager not started")
-		return
-	}
 
 	if !isAutoUpdateSupported() {
 		log.Warnf("auto-update not supported on this platform")

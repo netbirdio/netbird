@@ -247,6 +247,7 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
 	stateManager *statemanager.Manager,
+	updateManager *updatemanager.Manager,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -267,7 +268,7 @@ func NewEngine(
 		checks:         checks,
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
-		updateManager:  updatemanager.NewManager(statusRecorder, stateManager),
+		updateManager:  updateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -310,7 +311,7 @@ func (e *Engine) Stop() error {
 	}
 
 	if e.updateManager != nil {
-		e.updateManager.Stop()
+		e.updateManager.SetDownloadOnly()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -557,7 +558,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		}
 	}()
 
-	e.updateManager.Start(e.ctx)
 	return nil
 }
 

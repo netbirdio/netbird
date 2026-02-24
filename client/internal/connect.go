@@ -48,8 +48,9 @@ type ConnectClient struct {
 	config         *profilemanager.Config
 	statusRecorder *peer.Status
 
-	engine      *Engine
-	engineMutex sync.Mutex
+	engine        *Engine
+	engineMutex   sync.Mutex
+	updateManager *updatemanager.Manager
 
 	persistSyncResponse bool
 }
@@ -185,6 +186,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	updateManager := updatemanager.NewManager(c.statusRecorder, stateManager)
+	c.updateManager = updateManager
+	defer updateManager.Stop()
 	updateManager.CheckUpdateSuccess(c.ctx)
 
 	inst := installer.New()
@@ -303,7 +306,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager, updateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
 		c.engineMutex.Unlock()
@@ -374,6 +377,13 @@ func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
 	}
 
 	return relayCfg.GetUrls(), token
+}
+
+func (c *ConnectClient) UpdateManager() *updatemanager.Manager {
+	if c == nil {
+		return nil
+	}
+	return c.updateManager
 }
 
 func (c *ConnectClient) Engine() *Engine {

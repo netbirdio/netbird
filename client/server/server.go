@@ -1628,6 +1628,23 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 	return false
 }
 
+func (s *Server) startUpdateManagerForGUI() {
+	s.mutex.Lock()
+	cc := s.connectClient
+	s.mutex.Unlock()
+
+	if cc == nil {
+		return
+	}
+
+	um := cc.UpdateManager()
+	if um == nil {
+		return
+	}
+
+	um.Start(s.rootCtx)
+}
+
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
