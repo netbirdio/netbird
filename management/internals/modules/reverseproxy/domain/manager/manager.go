@@ -228,6 +228,18 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 	}
 }
 
+// GetClusterDomains returns a list of proxy cluster domains.
+func (m Manager) GetClusterDomains() []string {
+	if m.proxyManager == nil {
+		return nil
+	}
+	addresses, err := m.proxyManager.GetActiveClusterAddresses(context.Background())
+	if err != nil {
+		return nil
+	}
+	return addresses
+}
+
 // DeriveClusterFromDomain determines the proxy cluster for a given domain.
 // For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
 // For custom domains, the cluster is determined by checking the registered custom domain's target cluster.

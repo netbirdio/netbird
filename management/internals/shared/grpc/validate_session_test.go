@@ -303,6 +303,20 @@ func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Con
 	return "", nil
 }
 
+func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionServiceManager) StartExposeReaper(_ context.Context) {}
+
 type testValidateSessionProxyManager struct{}
 
 func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string) error {

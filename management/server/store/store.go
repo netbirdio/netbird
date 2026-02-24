@@ -277,6 +277,8 @@ type Store interface {
 	UpdateProxyHeartbeat(ctx context.Context, proxyID string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 }
 
 const (

@@ -8,11 +8,65 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+type testProxyController struct {
+	mu             sync.Mutex
+	clusterProxies map[string]map[string]struct{}
+}
+
+func newTestProxyController() *testProxyController {
+	return &testProxyController{
+		clusterProxies: make(map[string]map[string]struct{}),
+	}
+}
+
+func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
+}
+
+func (c *testProxyController) GetOIDCValidationConfig() rpservice.OIDCValidationConfig {
+	return rpservice.OIDCValidationConfig{}
+}
+
+func (c *testProxyController) RegisterProxyToCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.clusterProxies[clusterAddr]; !ok {
+		c.clusterProxies[clusterAddr] = make(map[string]struct{})
+	}
+	c.clusterProxies[clusterAddr][proxyID] = struct{}{}
+	return nil
+}
+
+func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if proxies, ok := c.clusterProxies[clusterAddr]; ok {
+		delete(proxies, proxyID)
+	}
+	return nil
+}
+
+func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	proxies, ok := c.clusterProxies[clusterAddr]
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(proxies))
+	for id := range proxies {
+		result = append(result, id)
+	}
+	return result
+}
 
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
@@ -46,6 +100,7 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	const numProxies = 3
@@ -102,6 +157,7 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	ch1 := registerFakeProxy(s, "proxy-a", cluster)
@@ -135,6 +191,7 @@ func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	// Register proxies in different clusters (SendServiceUpdate broadcasts to all)
 	ch1 := registerFakeProxy(s, "proxy-a", "cluster-a")

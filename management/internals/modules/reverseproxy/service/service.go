@@ -1,10 +1,13 @@
 package service
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -40,6 +43,9 @@ const (
 	TargetTypeHost   = "host"
 	TargetTypeDomain = "domain"
 	TargetTypeSubnet = "subnet"
+
+	SourcePermanent = "permanent"
+	SourceEphemeral = "ephemeral"
 )
 
 type Target struct {
@@ -114,8 +120,9 @@ type OIDCValidationConfig struct {
 
 type ServiceMeta struct {
 	CreatedAt           time.Time
-	CertificateIssuedAt time.Time
+	CertificateIssuedAt *time.Time
 	Status              string
+	LastRenewedAt       *time.Time
 }
 
 type Service struct {
@@ -132,6 +139,8 @@ type Service struct {
 	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string      `gorm:"column:session_private_key"`
 	SessionPublicKey  string      `gorm:"column:session_public_key"`
+	Source            string      `gorm:"default:'permanent'"`
+	SourcePeer        string
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
@@ -207,8 +216,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Status:    api.ServiceMetaStatus(s.Meta.Status),
 	}
 
-	if !s.Meta.CertificateIssuedAt.IsZero() {
-		meta.CertificateIssuedAt = &s.Meta.CertificateIssuedAt
+	if s.Meta.CertificateIssuedAt != nil {
+		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
 	}
 
 	resp := &api.Service{
@@ -403,7 +412,11 @@ func (s *Service) Validate() error {
 }
 
 func (s *Service) EventMeta() map[string]any {
-	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster}
+	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster, "source": s.Source, "auth": s.isAuthEnabled()}
+}
+
+func (s *Service) isAuthEnabled() bool {
+	return s.Auth.PasswordAuth != nil || s.Auth.PinAuth != nil || s.Auth.BearerAuth != nil
 }
 
 func (s *Service) Copy() *Service {
@@ -427,6 +440,8 @@ func (s *Service) Copy() *Service {
 		Meta:              s.Meta,
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
+		Source:            s.Source,
+		SourcePeer:        s.SourcePeer,
 	}
 }
 
@@ -460,4 +475,141 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
+
+const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// ExposeServiceRequest contains the parameters for creating a peer-initiated expose service.
+type ExposeServiceRequest struct {
+	NamePrefix string
+	Port       int
+	Protocol   string
+	Domain     string
+	Pin        string
+	Password   string
+	UserGroups []string
+}
+
+// Validate checks all fields of the expose request.
+func (r *ExposeServiceRequest) Validate() error {
+	if r == nil {
+		return errors.New("request cannot be nil")
+	}
+
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
+	}
+
+	if r.Protocol != "http" && r.Protocol != "https" {
+		return fmt.Errorf("unsupported protocol %q: must be http or https", r.Protocol)
+	}
+
+	if r.Pin != "" && !pinRegexp.MatchString(r.Pin) {
+		return errors.New("invalid pin: must be exactly 6 digits")
+	}
+
+	for _, g := range r.UserGroups {
+		if g == "" {
+			return errors.New("user group name cannot be empty")
+		}
+	}
+
+	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
+		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	return nil
+}
+
+// ToService builds a Service from the expose request.
+func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       r.Port,
+				Protocol:   r.Protocol,
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if r.Domain != "" {
+		service.Domain = serviceName + "." + r.Domain
+	}
+
+	if r.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     r.Pin,
+		}
+	}
+
+	if r.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: r.Password,
+		}
+	}
+
+	if len(r.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: r.UserGroups,
+		}
+	}
+
+	return service
+}
+
+// ExposeServiceResponse contains the result of a successful peer expose creation.
+type ExposeServiceResponse struct {
+	ServiceName string
+	ServiceURL  string
+	Domain      string
+}
+
+// GenerateExposeName generates a random service name for peer-exposed services.
+// The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).
+func GenerateExposeName(prefix string) (string, error) {
+	if prefix != "" && !validNamePrefix.MatchString(prefix) {
+		return "", fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", prefix)
+	}
+
+	suffixLen := 12
+	if prefix != "" {
+		suffixLen = 4
+	}
+
+	suffix, err := randomAlphanumeric(suffixLen)
+	if err != nil {
+		return "", fmt.Errorf("generate random name: %w", err)
+	}
+
+	if prefix == "" {
+		return suffix, nil
+	}
+	return prefix + "-" + suffix, nil
+}
+
+func randomAlphanumeric(n int) (string, error) {
+	result := make([]byte, n)
+	charsetLen := big.NewInt(int64(len(alphanumCharset)))
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		result[i] = alphanumCharset[idx.Int64()]
+	}
+	return string(result), nil
 }
