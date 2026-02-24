@@ -413,21 +413,19 @@ func (m *testServiceManager) GetServiceIDByTargetID(_ context.Context, _, _ stri
 	return "", nil
 }
 
-func (m *testServiceManager) ValidateExposePermission(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *testServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *testServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
 	return nil, nil
 }
 
-func (m *testServiceManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+func (m *testServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *testServiceManager) ExpireServiceFromPeer(_ context.Context, _, _, _ string) error {
+func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
+
+func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
 
 func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL string) string {
 	t.Helper()

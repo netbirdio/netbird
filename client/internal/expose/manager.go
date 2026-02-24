@@ -58,7 +58,7 @@ func (m *Manager) Expose(ctx context.Context, req Request) (*Response, error) {
 }
 
 func (m *Manager) KeepAlive(ctx context.Context, domain string) error {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	defer m.stop(domain)
 
