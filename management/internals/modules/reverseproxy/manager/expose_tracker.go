@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/shared/management/status"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -138,14 +139,25 @@ func (t *exposeTracker) reapExpiredExposes() {
 		}
 		expose.mu.Unlock()
 
-		if expired {
-			log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
-			if err := t.manager.deleteServiceFromPeer(context.Background(), expose.accountID, expose.peerID, expose.domain, true); err != nil {
-				log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", expose.domain, err)
-			} else {
-				t.activeExposes.Delete(key)
-			}
+		if !expired {
+			return true
 		}
+
+		log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
+
+		err := t.manager.deleteServiceFromPeer(context.Background(), expose.accountID, expose.peerID, expose.domain, true)
+
+		s, _ := status.FromError(err)
+
+		switch {
+		case err == nil:
+			t.activeExposes.Delete(key)
+		case s.ErrorType == status.NotFound:
+			log.Debugf("service %s was already deleted", expose.domain)
+		default:
+			log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", expose.domain, err)
+		}
+
 		return true
 	})
 }
