@@ -196,7 +196,7 @@ func TestValidateSession_ProxyNotFound(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, resp.Valid, "Unknown proxy should be denied")
-	assert.Equal(t, "proxy_not_found", resp.DeniedReason)
+	assert.Equal(t, "service_not_found", resp.DeniedReason)
 }
 
 func TestValidateSession_InvalidToken(t *testing.T) {
@@ -263,6 +263,10 @@ func (m *testValidateSessionProxyManager) DeleteService(_ context.Context, _, _,
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) DeleteAllServices(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func (m *testValidateSessionProxyManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }
@@ -294,6 +298,20 @@ func (m *testValidateSessionProxyManager) GetAccountServices(ctx context.Context
 func (m *testValidateSessionProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
+
+func (m *testValidateSessionProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) StartExposeReaper(_ context.Context) {}
 
 type testValidateSessionUsersManager struct {
 	store store.Store

@@ -21,4 +21,8 @@ type Manager interface {
 	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
 	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
+	CreateServiceFromPeer(ctx context.Context, accountID, peerID string, req *ExposeServiceRequest) (*ExposeServiceResponse, error)
+	RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
+	StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
+	StartExposeReaper(ctx context.Context)
 }

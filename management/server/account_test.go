@@ -3124,7 +3124,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	}
 
 	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil)
-	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyGrpcServer, nil))
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, settingsMockManager, proxyGrpcServer, nil))
 
 	return manager, updateManager, nil
 }
