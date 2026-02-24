@@ -35,7 +35,10 @@ func TestPrintQRCode_NonTerminalFile(t *testing.T) {
 	}
 	defer f.Close()
 
-	// /dev/null is a valid *os.File but not a terminal, so no QR should be generated
+	// /dev/null is a valid *os.File but not a terminal, so printQRCode should
+	// suppress output. We cannot capture output from a non-terminal *os.File,
+	// so this test serves as a no-panic guard. Non-terminal suppression is
+	// fully asserted in TestPrintQRCode_NonTerminalWriter.
 	printQRCode(f, "https://example.com/auth")
 }
 

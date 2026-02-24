@@ -8,7 +8,7 @@ import (
 	"golang.org/x/term"
 )
 
-// printQRCode prints a QR code to the writer if it is a terminal.
+// printQRCode prints a QR code for the given URL to the writer.
 // When output is piped or redirected, the QR code is suppressed.
 func printQRCode(w io.Writer, url string) {
 	if url == "" {
@@ -22,13 +22,13 @@ func printQRCode(w io.Writer, url string) {
 		return
 	}
 	qrterminal.GenerateWithConfig(url, qrterminal.Config{
-		Level:      qrterminal.L,
-		Writer:     w,
-		HalfBlocks: true,
-		BlackChar:  qrterminal.BLACK_BLACK,
-		WhiteChar:  qrterminal.WHITE_WHITE,
+		Level:          qrterminal.M,
+		Writer:         w,
+		HalfBlocks:     true,
+		BlackChar:      qrterminal.BLACK_BLACK,
+		WhiteChar:      qrterminal.WHITE_WHITE,
 		BlackWhiteChar: qrterminal.BLACK_WHITE,
 		WhiteBlackChar: qrterminal.WHITE_BLACK,
-		QuietZone:  1,
+		QuietZone:      qrterminal.QUIET_ZONE,
 	})
 }
