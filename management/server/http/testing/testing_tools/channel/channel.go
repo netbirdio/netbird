@@ -100,7 +100,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
 	domainManager := manager.NewManager(store, proxyMgr, permissionsManager)
 	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, proxyServiceServer, domainManager)
-	proxyServiceServer.SetProxyManager(serviceManager)
+	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
 	// @note this is required so that PAT's validate from store, but JWT's are mocked

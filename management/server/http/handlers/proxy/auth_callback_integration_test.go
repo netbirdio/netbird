@@ -211,7 +211,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 		usersManager,
 	)
 
-	proxyService.SetProxyManager(&testServiceManager{store: testStore})
+	proxyService.SetServiceManager(&testServiceManager{store: testStore})
 
 	handler := NewAuthCallbackHandler(proxyService, nil)
 

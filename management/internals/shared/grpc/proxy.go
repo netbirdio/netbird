@@ -168,7 +168,7 @@ func (s *ProxyServiceServer) Close() {
 	s.pkceCleanupCancel()
 }
 
-func (s *ProxyServiceServer) SetProxyManager(manager rpservice.Manager) {
+func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.serviceManager = manager
 }
 

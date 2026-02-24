@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -26,8 +25,7 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 	}
 	s.connectedProxies.Store(proxyID, conn)
 
-	proxySet, _ := s.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
+	_ = s.proxyController.RegisterProxyToCluster(context.Background(), clusterAddr, proxyID)
 
 	return ch
 }
@@ -68,7 +66,7 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 		},
 	}
 
-	s.SendServiceUpdateToCluster(context.Background(), update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
@@ -116,7 +114,7 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 		Domain:    "test.example.com",
 	}
 
-	s.SendServiceUpdateToCluster(context.Background(), update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
 	resp1 := drainChannel(ch1)
 	resp2 := drainChannel(ch2)
@@ -126,8 +124,8 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	require.Len(t, resp2.Mapping, 1)
 
 	// Delete operations should not generate tokens
-	assert.Empty(t, msg1.AuthToken)
-	assert.Empty(t, msg2.AuthToken)
+	assert.Empty(t, resp1.Mapping[0].AuthToken)
+	assert.Empty(t, resp2.Mapping[0].AuthToken)
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {

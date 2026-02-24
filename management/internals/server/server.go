@@ -157,7 +157,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	// Eagerly create the gRPC server so that all AfterInit hooks are registered
 	// before we iterate them. Lazy creation after the loop would miss hooks
-	// registered during GRPCServer() construction (e.g., SetProxyManager).
+	// registered during GRPCServer() construction (e.g., SetServiceManager).
 	s.GRPCServer()
 
 	for _, fn := range s.afterInit {
