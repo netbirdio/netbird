@@ -67,6 +67,7 @@ require (
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/mdlayher/socket v0.5.1
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260210160626-df4b180c7b25
@@ -226,7 +227,6 @@ require (
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
-	github.com/mdp/qrterminal/v3 v3.2.1 // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
