@@ -109,6 +109,11 @@ server:
   #   engine: "sqlite"  # sqlite or postgres
   #   dsn: ""  # Connection string for postgres
 
+  # Auth (embedded IdP) store configuration (optional, defaults to sqlite3 in dataDir/idp.db)
+  # authStore:
+  #   engine: "sqlite3"  # sqlite3 or postgres
+  #   dsn: ""  # Connection string for postgres (e.g., "host=localhost port=5432 user=postgres password=postgres dbname=netbird_idp sslmode=disable")
+
   # Reverse proxy settings (optional)
   # reverseProxy:
   #   trustedHTTPProxies: []
