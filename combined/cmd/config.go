@@ -71,6 +71,7 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	IdpStore                IdpStoreConfig     `yaml:"idpStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 }
 
@@ -172,6 +173,13 @@ type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
 	DSN           string `yaml:"dsn"` // Connection string for postgres or mysql engines
+}
+
+// IdpStoreConfig contains storage settings for the embedded identity provider (Dex)
+type IdpStoreConfig struct {
+	Type string `yaml:"type"` // sqlite3 (default) or postgres
+	File string `yaml:"file"` // Path to SQLite database file (for sqlite3 type)
+	DSN  string `yaml:"dsn"`  // Connection string for postgres
 }
 
 // ReverseProxyConfig contains reverse proxy settings
@@ -599,9 +607,18 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	httpConfig := &nbconfig.HttpServerConfig{}
 
 	// Build embedded IDP config (always enabled in combined server)
-	storageFile := mgmt.Auth.Storage.File
-	if storageFile == "" {
-		storageFile = path.Join(mgmt.DataDir, "idp.db")
+	// IdpStore overrides auth.storage when set
+	idpStorageType := mgmt.Auth.Storage.Type
+	idpStorageFile := mgmt.Auth.Storage.File
+	idpStorageDSN := c.Server.IdpStore.DSN
+	if c.Server.IdpStore.Type != "" {
+		idpStorageType = c.Server.IdpStore.Type
+	}
+	if c.Server.IdpStore.File != "" {
+		idpStorageFile = c.Server.IdpStore.File
+	}
+	if idpStorageType != "postgres" && idpStorageFile == "" {
+		idpStorageFile = path.Join(mgmt.DataDir, "idp.db")
 	}
 
 	embeddedIdP := &idp.EmbeddedIdPConfig{
@@ -610,9 +627,10 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
 		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
 		Storage: idp.EmbeddedStorageConfig{
-			Type: mgmt.Auth.Storage.Type,
+			Type: idpStorageType,
 			Config: idp.EmbeddedStorageTypeConfig{
-				File: storageFile,
+				File: idpStorageFile,
+				DSN:  idpStorageDSN,
 			},
 		},
 		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,

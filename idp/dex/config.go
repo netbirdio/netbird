@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -195,9 +197,68 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
 		return (&sql.SQLite3{File: file}).Open(logger)
+	case "postgres":
+		dsn, _ := s.Config["dsn"].(string)
+		if dsn == "" {
+			return nil, fmt.Errorf("postgres storage requires 'dsn' config")
+		}
+		pg, err := parsePostgresDSN(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("invalid postgres DSN: %w", err)
+		}
+		return pg.Open(logger)
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", s.Type)
 	}
+}
+
+// parsePostgresDSN parses a key=value DSN string into a sql.Postgres config.
+func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
+	params := make(map[string]string)
+	for _, part := range strings.Fields(dsn) {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		params[k] = v
+	}
+
+	host := params["host"]
+	if host == "" {
+		host = "localhost"
+	}
+
+	var port uint16 = 5432
+	if p, ok := params["port"]; ok {
+		v, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %q: %w", p, err)
+		}
+		port = uint16(v)
+	}
+
+	dbname := params["dbname"]
+	if dbname == "" {
+		return nil, fmt.Errorf("dbname is required in DSN")
+	}
+
+	sslMode := params["sslmode"]
+
+	pg := &sql.Postgres{
+		NetworkDB: sql.NetworkDB{
+			Host:     host,
+			Port:     port,
+			Database: dbname,
+			User:     params["user"],
+			Password: params["password"],
+		},
+	}
+
+	if sslMode == "disable" {
+		pg.SSL.Mode = "disable"
+	}
+
+	return pg, nil
 }
 
 // Validate validates the configuration
