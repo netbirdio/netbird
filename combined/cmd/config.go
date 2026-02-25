@@ -550,6 +550,52 @@ func buildRelayConfig(relays RelaysConfig) (*nbconfig.Relay, error) {
 	}, nil
 }
 
+// buildEmbeddedIdPConfig builds the embedded IdP configuration.
+// authStore overrides auth.storage when set.
+func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.EmbeddedIdPConfig, error) {
+	authStorageType := mgmt.Auth.Storage.Type
+	authStorageDSN := c.Server.AuthStore.DSN
+	if c.Server.AuthStore.Engine != "" {
+		authStorageType = c.Server.AuthStore.Engine
+	}
+	if authStorageType == "" {
+		authStorageType = "sqlite3"
+	}
+	authStorageFile := ""
+	if authStorageType == "postgres" {
+		if authStorageDSN == "" {
+			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
+		}
+	} else {
+		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
+	}
+
+	cfg := &idp.EmbeddedIdPConfig{
+		Enabled:               true,
+		Issuer:                mgmt.Auth.Issuer,
+		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
+		Storage: idp.EmbeddedStorageConfig{
+			Type: authStorageType,
+			Config: idp.EmbeddedStorageTypeConfig{
+				File: authStorageFile,
+				DSN:  authStorageDSN,
+			},
+		},
+		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
+		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+	}
+
+	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
+		cfg.Owner = &idp.OwnerConfig{
+			Email: mgmt.Auth.Owner.Email,
+			Hash:  mgmt.Auth.Owner.Password,
+		}
+	}
+
+	return cfg, nil
+}
+
 // ToManagementConfig converts CombinedConfig to management server config
 func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	mgmt := c.Management
@@ -608,45 +654,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	httpConfig := &nbconfig.HttpServerConfig{}
 
 	// Build embedded IDP config (always enabled in combined server)
-	// authStore overrides auth.storage when set
-	authStorageType := mgmt.Auth.Storage.Type
-	authStorageDSN := c.Server.AuthStore.DSN
-	if c.Server.AuthStore.Engine != "" {
-		authStorageType = c.Server.AuthStore.Engine
-	}
-	if authStorageType == "" {
-		authStorageType = "sqlite3"
-	}
-	authStorageFile := ""
-	if authStorageType == "postgres" {
-		if authStorageDSN == "" {
-			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
-		}
-	} else {
-		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
-	}
-
-	embeddedIdP := &idp.EmbeddedIdPConfig{
-		Enabled:               true,
-		Issuer:                mgmt.Auth.Issuer,
-		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
-		Storage: idp.EmbeddedStorageConfig{
-			Type: authStorageType,
-			Config: idp.EmbeddedStorageTypeConfig{
-				File: authStorageFile,
-				DSN:  authStorageDSN,
-			},
-		},
-		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
-		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
-	}
-
-	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
-		embeddedIdP.Owner = &idp.OwnerConfig{
-			Email: mgmt.Auth.Owner.Email,
-			Hash:  mgmt.Auth.Owner.Password, // Will be hashed if plain text
-		}
+	embeddedIdP, err := c.buildEmbeddedIdPConfig(mgmt)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set HTTP config fields for embedded IDP
