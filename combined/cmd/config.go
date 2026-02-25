@@ -535,9 +535,6 @@ func stripSignalProtocol(uri string) string {
 }
 
 func buildRelayConfig(relays RelaysConfig) (*nbconfig.Relay, error) {
-	if len(relays.Addresses) == 0 && relays.Secret == "" {
-		return nil, nil
-	}
 	var ttl time.Duration
 	if relays.CredentialsTTL != "" {
 		var err error
@@ -569,9 +566,13 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	}
 
 	// Build relay config
-	relayConfig, err := buildRelayConfig(mgmt.Relays)
-	if err != nil {
-		return nil, err
+	var relayConfig *nbconfig.Relay
+	if len(mgmt.Relays.Addresses) > 0 || mgmt.Relays.Secret != "" {
+		relay, err := buildRelayConfig(mgmt.Relays)
+		if err != nil {
+			return nil, err
+		}
+		relayConfig = relay
 	}
 
 	// Build signal config
