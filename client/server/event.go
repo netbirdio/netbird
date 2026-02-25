@@ -7,8 +7,6 @@ import (
 )
 
 func (s *Server) SubscribeEvents(req *proto.SubscribeRequest, stream proto.DaemonService_SubscribeEventsServer) error {
-	s.startUpdateManagerForGUI()
-
 	subscription := s.statusRecorder.SubscribeToEvents()
 	defer func() {
 		s.statusRecorder.UnsubscribeFromEvents(subscription)
@@ -16,6 +14,7 @@ func (s *Server) SubscribeEvents(req *proto.SubscribeRequest, stream proto.Daemo
 	}()
 
 	log.Debug("client subscribed to events")
+	s.startUpdateManagerForGUI()
 
 	for {
 		select {

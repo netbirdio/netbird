@@ -1644,6 +1644,7 @@ func (s *Server) startUpdateManagerForGUI() {
 		return
 	}
 	s.updateManager.Start(s.rootCtx)
+	s.updateManager.NotifyUI()
 }
 
 func (s *Server) onSessionExpire() {

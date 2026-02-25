@@ -931,13 +931,17 @@ func (s *serviceClient) updateStatus() error {
 
 		// if the daemon version changed (e.g. after a successful update), reset the update indication
 		if s.daemonVersion != status.DaemonVersion {
-			s.mUpdate.Hide()
+			if s.daemonVersion != "" {
+				s.mUpdate.Hide()
+				s.isUpdateIconActive = false
+			}
 			s.daemonVersion = status.DaemonVersion
-			s.isUpdateIconActive = false
-			if systrayIconState {
-				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
-			} else {
-				systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
+			if !s.isUpdateIconActive {
+				if systrayIconState {
+					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
+				} else {
+					systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
+				}
 			}
 
 			daemonVersionTitle := normalizedVersion(s.daemonVersion)
@@ -1128,6 +1132,7 @@ func (s *serviceClient) onTrayReady() {
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if newVersion, ok := event.Metadata["new_version_available"]; ok {
 			_, enforced := event.Metadata["enforced"]
+			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
 			s.onUpdateAvailable(newVersion, enforced)
 		}
 	})

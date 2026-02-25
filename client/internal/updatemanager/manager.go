@@ -213,6 +213,37 @@ func (m *Manager) Install(ctx context.Context) error {
 	return m.install(ctx, pending)
 }
 
+// NotifyUI re-publishes the current update state to a newly connected UI client.
+// Only needed for download-only mode where the latest version is already cached
+// and won't be re-fetched on reconnect. In enforced modes, mgm will re-send the
+// policy on the next sync which triggers the notification naturally.
+func (m *Manager) NotifyUI() {
+	m.updateMutex.Lock()
+	if !m.downloadOnly || m.update == nil {
+		log.Infof("--- update: %v, %v", m.downloadOnly, m.downloadOnly)
+		m.updateMutex.Unlock()
+		return
+	}
+	latestVersion := m.update.LatestVersion()
+	m.updateMutex.Unlock()
+
+	if latestVersion == nil {
+		return
+	}
+	currentVersion, err := v.NewVersion(m.currentVersion)
+	if err != nil || currentVersion.GreaterThanOrEqual(latestVersion) {
+		return
+	}
+
+	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_SYSTEM,
+		"New version available",
+		"",
+		map[string]string{"new_version_available": latestVersion.String()},
+	)
+}
+
 func (m *Manager) Stop() {
 	if m.cancel == nil {
 		return
