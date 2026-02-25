@@ -265,23 +265,13 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	expectedVersion := m.expectedVersion
-	useLatest := m.updateToLatestVersion
 	downloadOnly := m.downloadOnly
 	forceUpdate := m.forceUpdate
 	curLatestVersion := m.update.LatestVersion()
 
 	switch {
-	// Download-only mode: always resolve to latest from pkgs.netbird.io
-	case downloadOnly:
-		if curLatestVersion == nil {
-			log.Tracef("latest version not fetched yet")
-			m.updateMutex.Unlock()
-			return
-		}
-		updateVersion = curLatestVersion
-	// Resolve "latest" to actual version
-	case useLatest:
+	// Download-only mode or resolve "latest" to actual version
+	case downloadOnly, m.updateToLatestVersion:
 		if curLatestVersion == nil {
 			log.Tracef("latest version not fetched yet")
 			m.updateMutex.Unlock()
@@ -289,8 +279,8 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		}
 		updateVersion = curLatestVersion
 	// Install to specific version
-	case expectedVersion != nil:
-		updateVersion = expectedVersion
+	case m.expectedVersion != nil:
+		updateVersion = m.expectedVersion
 	default:
 		log.Debugf("no expected version information set")
 		m.updateMutex.Unlock()
