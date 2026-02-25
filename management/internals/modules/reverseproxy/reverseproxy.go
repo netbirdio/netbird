@@ -318,63 +318,6 @@ func isDefaultPort(scheme string, port int) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
-// FromExposeRequest builds a Service from a peer expose gRPC request.
-func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, serviceName string) *Service {
-	service := &Service{
-		AccountID: accountID,
-		Name:      serviceName,
-		Enabled:   true,
-		Targets: []*Target{
-			{
-				AccountID:  accountID,
-				Port:       int(req.Port),
-				Protocol:   exposeProtocolToString(req.Protocol),
-				TargetId:   peerID,
-				TargetType: TargetTypePeer,
-				Enabled:    true,
-			},
-		},
-	}
-
-	if req.Domain != "" {
-		service.Domain = serviceName + "." + req.Domain
-	}
-
-	if req.Pin != "" {
-		service.Auth.PinAuth = &PINAuthConfig{
-			Enabled: true,
-			Pin:     req.Pin,
-		}
-	}
-
-	if req.Password != "" {
-		service.Auth.PasswordAuth = &PasswordAuthConfig{
-			Enabled:  true,
-			Password: req.Password,
-		}
-	}
-
-	if len(req.UserGroups) > 0 {
-		service.Auth.BearerAuth = &BearerAuthConfig{
-			Enabled:            true,
-			DistributionGroups: req.UserGroups,
-		}
-	}
-
-	return service
-}
-
-func exposeProtocolToString(p proto.ExposeProtocol) string {
-	switch p {
-	case proto.ExposeProtocol_EXPOSE_HTTP:
-		return "http"
-	case proto.ExposeProtocol_EXPOSE_HTTPS:
-		return "https"
-	default:
-		return "http"
-	}
-}
-
 func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {
 	s.Name = req.Name
 	s.Domain = req.Domain
@@ -534,9 +477,106 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
+
 const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// ExposeServiceRequest contains the parameters for creating a peer-initiated expose service.
+type ExposeServiceRequest struct {
+	NamePrefix string
+	Port       int
+	Protocol   string
+	Domain     string
+	Pin        string
+	Password   string
+	UserGroups []string
+}
+
+// Validate checks all fields of the expose request.
+func (r *ExposeServiceRequest) Validate() error {
+	if r == nil {
+		return errors.New("request cannot be nil")
+	}
+
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
+	}
+
+	if r.Protocol != "http" && r.Protocol != "https" {
+		return fmt.Errorf("unsupported protocol %q: must be http or https", r.Protocol)
+	}
+
+	if r.Pin != "" && !pinRegexp.MatchString(r.Pin) {
+		return errors.New("invalid pin: must be exactly 6 digits")
+	}
+
+	for _, g := range r.UserGroups {
+		if g == "" {
+			return errors.New("user group name cannot be empty")
+		}
+	}
+
+	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
+		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	return nil
+}
+
+// ToService builds a Service from the expose request.
+func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       r.Port,
+				Protocol:   r.Protocol,
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if r.Domain != "" {
+		service.Domain = serviceName + "." + r.Domain
+	}
+
+	if r.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     r.Pin,
+		}
+	}
+
+	if r.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: r.Password,
+		}
+	}
+
+	if len(r.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: r.UserGroups,
+		}
+	}
+
+	return service
+}
+
+// ExposeServiceResponse contains the result of a successful peer expose creation.
+type ExposeServiceResponse struct {
+	ServiceName string
+	ServiceURL  string
+	Domain      string
+}
 
 // GenerateExposeName generates a random service name for peer-exposed services.
 // The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).

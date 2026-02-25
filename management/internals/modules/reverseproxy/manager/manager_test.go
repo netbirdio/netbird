@@ -658,6 +658,13 @@ func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
 			PeerExposeEnabled: true,
 			PeerExposeGroups:  []string{testGroupID},
 		},
+		Users: map[string]*types.User{
+			testUserID: {
+				Id:        testUserID,
+				AccountID: testAccountID,
+				Role:      types.UserRoleAdmin,
+			},
+		},
 		Peers: map[string]*nbpeer.Peer{
 			testPeerID: {
 				ID:        testPeerID,
@@ -712,16 +719,17 @@ func setupIntegrationTest(t *testing.T) (*managerImpl, store.Store) {
 			domains: []string{"test.netbird.io"},
 		},
 	}
+	mgr.exposeTracker = &exposeTracker{manager: mgr}
 
 	return mgr, testStore
 }
 
-func TestValidateExposePermission(t *testing.T) {
+func Test_validateExposePermission(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("allowed when peer is in expose group", func(t *testing.T) {
 		mgr, _ := setupIntegrationTest(t)
-		err := mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		err := mgr.validateExposePermission(ctx, testAccountID, testPeerID)
 		assert.NoError(t, err)
 	})
 
@@ -742,7 +750,7 @@ func TestValidateExposePermission(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		err = mgr.ValidateExposePermission(ctx, testAccountID, otherPeerID)
+		err = mgr.validateExposePermission(ctx, testAccountID, otherPeerID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not in an allowed expose group")
 	})
@@ -757,7 +765,7 @@ func TestValidateExposePermission(t *testing.T) {
 		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
 		require.NoError(t, err)
 
-		err = mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		err = mgr.validateExposePermission(ctx, testAccountID, testPeerID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not enabled")
 	})
@@ -772,7 +780,7 @@ func TestValidateExposePermission(t *testing.T) {
 		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
 		require.NoError(t, err)
 
-		err = mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		err = mgr.validateExposePermission(ctx, testAccountID, testPeerID)
 		assert.Error(t, err)
 	})
 
@@ -781,7 +789,7 @@ func TestValidateExposePermission(t *testing.T) {
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().GetAccountSettings(gomock.Any(), gomock.Any(), testAccountID).Return(nil, errors.New("store error"))
 		mgr := &managerImpl{store: mockStore}
-		err := mgr.ValidateExposePermission(ctx, testAccountID, testPeerID)
+		err := mgr.validateExposePermission(ctx, testAccountID, testPeerID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "get account settings")
 	})
@@ -793,82 +801,290 @@ func TestCreateServiceFromPeer(t *testing.T) {
 	t.Run("creates service with random domain", func(t *testing.T) {
 		mgr, testStore := setupIntegrationTest(t)
 
-		service := &reverseproxy.Service{
-			Name:    "my-expose",
-			Enabled: true,
-			Targets: []*reverseproxy.Target{
-				{
-					AccountID:  testAccountID,
-					Port:       8080,
-					Protocol:   "http",
-					TargetId:   testPeerID,
-					TargetType: reverseproxy.TargetTypePeer,
-					Enabled:    true,
-				},
-			},
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
 		}
 
-		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
-		assert.NotEmpty(t, created.ID, "service should have an ID")
-		assert.Contains(t, created.Domain, "test.netbird.io", "domain should use cluster domain")
-		assert.Equal(t, reverseproxy.SourceEphemeral, created.Source, "source should be ephemeral")
-		assert.Equal(t, testPeerID, created.SourcePeer, "source peer should be set")
-		assert.NotNil(t, created.Meta.LastRenewedAt, "last renewed should be set")
+		assert.NotEmpty(t, resp.ServiceName, "service name should be generated")
+		assert.Contains(t, resp.Domain, "test.netbird.io", "domain should use cluster domain")
+		assert.NotEmpty(t, resp.ServiceURL, "service URL should be set")
 
 		// Verify service is persisted in store
-		persisted, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, created.ID)
+		persisted, err := testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
 		require.NoError(t, err)
-		assert.Equal(t, created.ID, persisted.ID)
-		assert.Equal(t, created.Domain, persisted.Domain)
+		assert.Equal(t, resp.Domain, persisted.Domain)
+		assert.Equal(t, reverseproxy.SourceEphemeral, persisted.Source, "source should be ephemeral")
+		assert.Equal(t, testPeerID, persisted.SourcePeer, "source peer should be set")
+		assert.NotNil(t, persisted.Meta.LastRenewedAt, "last renewed should be set")
 	})
 
 	t.Run("creates service with custom domain", func(t *testing.T) {
 		mgr, _ := setupIntegrationTest(t)
 
-		service := &reverseproxy.Service{
-			Name:    "custom",
-			Domain:  "custom.example.com",
-			Enabled: true,
-			Targets: []*reverseproxy.Target{
-				{
-					AccountID:  testAccountID,
-					Port:       80,
-					Protocol:   "http",
-					TargetId:   testPeerID,
-					TargetType: reverseproxy.TargetTypePeer,
-					Enabled:    true,
-				},
-			},
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     80,
+			Protocol: "http",
+			Domain:   "example.com",
 		}
 
-		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
-		assert.Equal(t, "custom.example.com", created.Domain, "should keep the provided domain")
+		assert.Contains(t, resp.Domain, "example.com", "should use the provided domain")
 	})
 
-	t.Run("replaces host by peer IP lookup", func(t *testing.T) {
-		mgr, _ := setupIntegrationTest(t)
+	t.Run("validates expose permission internally", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
 
-		service := &reverseproxy.Service{
-			Name:    "lookup-test",
-			Enabled: true,
-			Targets: []*reverseproxy.Target{
-				{
-					AccountID:  testAccountID,
-					Port:       3000,
-					Protocol:   "http",
-					TargetId:   testPeerID,
-					TargetType: reverseproxy.TargetTypePeer,
-					Enabled:    true,
-				},
-			},
+		// Disable peer expose
+		s, err := testStore.GetAccountSettings(ctx, store.LockingStrengthNone, testAccountID)
+		require.NoError(t, err)
+		s.PeerExposeEnabled = false
+		err = testStore.SaveAccountSettings(ctx, testAccountID, s)
+		require.NoError(t, err)
+
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
 		}
 
-		created, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, service)
+		_, err = mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not enabled")
+	})
+
+	t.Run("validates request fields", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     0,
+			Protocol: "http",
+		}
+
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "port")
+	})
+}
+
+func TestExposeServiceRequestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     reverseproxy.ExposeServiceRequest
+		wantErr string
+	}{
+		{
+			name:    "valid http request",
+			req:     reverseproxy.ExposeServiceRequest{Port: 8080, Protocol: "http"},
+			wantErr: "",
+		},
+		{
+			name:    "valid https request with pin",
+			req:     reverseproxy.ExposeServiceRequest{Port: 443, Protocol: "https", Pin: "123456"},
+			wantErr: "",
+		},
+		{
+			name:    "port zero rejected",
+			req:     reverseproxy.ExposeServiceRequest{Port: 0, Protocol: "http"},
+			wantErr: "port must be between 1 and 65535",
+		},
+		{
+			name:    "negative port rejected",
+			req:     reverseproxy.ExposeServiceRequest{Port: -1, Protocol: "http"},
+			wantErr: "port must be between 1 and 65535",
+		},
+		{
+			name:    "port above 65535 rejected",
+			req:     reverseproxy.ExposeServiceRequest{Port: 65536, Protocol: "http"},
+			wantErr: "port must be between 1 and 65535",
+		},
+		{
+			name:    "unsupported protocol",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "tcp"},
+			wantErr: "unsupported protocol",
+		},
+		{
+			name:    "invalid pin format",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "abc"},
+			wantErr: "invalid pin",
+		},
+		{
+			name:    "pin too short",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "12345"},
+			wantErr: "invalid pin",
+		},
+		{
+			name:    "valid 6-digit pin",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "000000"},
+			wantErr: "",
+		},
+		{
+			name:    "empty user group name",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", UserGroups: []string{"valid", ""}},
+			wantErr: "user group name cannot be empty",
+		},
+		{
+			name:    "invalid name prefix",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", NamePrefix: "INVALID"},
+			wantErr: "invalid name prefix",
+		},
+		{
+			name:    "valid name prefix",
+			req:     reverseproxy.ExposeServiceRequest{Port: 80, Protocol: "http", NamePrefix: "my-service"},
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("nil receiver", func(t *testing.T) {
+		var req *reverseproxy.ExposeServiceRequest
+		err := req.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "request cannot be nil")
+	})
+}
+
+func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("deletes service by domain", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		// First create a service
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
+		}
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
-		require.Len(t, created.Targets, 1)
-		assert.Equal(t, "100.64.0.1", created.Targets[0].Host, "host should be resolved to peer IP")
+
+		// Delete by domain using unexported method
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain, false)
+		require.NoError(t, err)
+
+		// Verify service is deleted
+		_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+		require.Error(t, err, "service should be deleted")
+	})
+
+	t.Run("expire uses correct activity", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
+		}
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
+		require.NoError(t, err)
+
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain, true)
+		require.NoError(t, err)
+	})
+}
+
+func TestStopServiceFromPeer(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("stops service by domain", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+
+		req := &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
+		}
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
+		require.NoError(t, err)
+
+		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain)
+		require.NoError(t, err)
+
+		_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+		require.Error(t, err, "service should be deleted")
+	})
+}
+
+func TestDeleteService_UntracksEphemeralExpose(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := setupIntegrationTest(t)
+
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+		Port:     8080,
+		Protocol: "http",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, mgr.exposeTracker.CountPeerExposes(testPeerID), "expose should be tracked after create")
+
+	// Look up the service by domain to get its store ID
+	svc, err := mgr.store.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+	require.NoError(t, err)
+
+	// Delete via the API path (user-initiated)
+	err = mgr.DeleteService(ctx, testAccountID, testUserID, svc.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, mgr.exposeTracker.CountPeerExposes(testPeerID), "expose should be untracked after API delete")
+
+	// A new expose should succeed (not blocked by stale tracking)
+	_, err = mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+		Port:     9090,
+		Protocol: "http",
+	})
+	assert.NoError(t, err, "new expose should succeed after API delete cleared tracking")
+}
+
+func TestDeleteAllServices_UntracksEphemeralExposes(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := setupIntegrationTest(t)
+
+	for i := range 3 {
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+			Port:     8080 + i,
+			Protocol: "http",
+		})
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 3, mgr.exposeTracker.CountPeerExposes(testPeerID), "all exposes should be tracked")
+
+	err := mgr.DeleteAllServices(ctx, testAccountID, testUserID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, mgr.exposeTracker.CountPeerExposes(testPeerID), "all exposes should be untracked after DeleteAllServices")
+}
+
+func TestRenewServiceFromPeer(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("renews tracked expose", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+
+		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+			Port:     8080,
+			Protocol: "http",
+		})
+		require.NoError(t, err)
+
+		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain)
+		require.NoError(t, err)
+	})
+
+	t.Run("fails for untracked domain", func(t *testing.T) {
+		mgr, _ := setupIntegrationTest(t)
+		err := mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, "nonexistent.com")
+		require.Error(t, err)
 	})
 }
 

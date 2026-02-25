@@ -82,8 +82,6 @@ type Server struct {
 	syncLimEnabled bool
 	syncLim        int32
 
-	activeExposes       sync.Map
-	exposeCreateMu      sync.Mutex
 	reverseProxyManager reverseproxy.Manager
 	reverseProxyMu      sync.RWMutex
 }

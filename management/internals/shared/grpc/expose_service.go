@@ -2,9 +2,6 @@ package grpc
 
 import (
 	"context"
-	"regexp"
-	"sync"
-	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	log "github.com/sirupsen/logrus"
@@ -20,27 +17,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
-
-var pinRegexp = regexp.MustCompile(`^\d{6}$`)
-
-const (
-	exposeTTL          = 90 * time.Second
-	exposeReapInterval = 30 * time.Second
-	maxExposesPerPeer  = 10
-)
-
-type activeExpose struct {
-	mu          sync.Mutex
-	serviceID   string
-	domain      string
-	accountID   string
-	peerID      string
-	lastRenewed time.Time
-}
-
-func exposeKey(peerID, domain string) string {
-	return peerID + ":" + domain
-}
 
 // CreateExpose handles a peer request to create a new expose service.
 func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
@@ -58,72 +34,29 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	if exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTP && exposeReq.Protocol != proto.ExposeProtocol_EXPOSE_HTTPS {
-		return nil, status.Errorf(codes.InvalidArgument, "only HTTP or HTTPS protocol are supported")
-	}
-
-	if exposeReq.Pin != "" && !pinRegexp.MatchString(exposeReq.Pin) {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid pin: must be exactly 6 digits")
-	}
-
-	for _, g := range exposeReq.UserGroups {
-		if g == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "user group name cannot be empty")
-		}
-	}
-
 	reverseProxyMgr := s.getReverseProxyManager()
 	if reverseProxyMgr == nil {
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	if err := reverseProxyMgr.ValidateExposePermission(ctx, accountID, peer.ID); err != nil {
-		log.WithContext(ctx).Debugf("expose permission denied for peer %s: %v", peer.ID, err)
-		return nil, status.Errorf(codes.PermissionDenied, "permission denied")
-	}
-
-	serviceName, err := reverseproxy.GenerateExposeName(exposeReq.NamePrefix)
+	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &reverseproxy.ExposeServiceRequest{
+		NamePrefix: exposeReq.NamePrefix,
+		Port:       int(exposeReq.Port),
+		Protocol:   exposeProtocolToString(exposeReq.Protocol),
+		Domain:     exposeReq.Domain,
+		Pin:        exposeReq.Pin,
+		Password:   exposeReq.Password,
+		UserGroups: exposeReq.UserGroups,
+	})
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "generate service name: %v", err)
+		return nil, mapExposeError(ctx, err)
 	}
 
-	service := reverseproxy.FromExposeRequest(exposeReq, accountID, peer.ID, serviceName)
-
-	// Serialize the count check to prevent concurrent CreateExpose calls from
-	// exceeding maxExposesPerPeer. The lock is held only for the check; the
-	// actual service creation happens outside the lock.
-	s.exposeCreateMu.Lock()
-	if s.countPeerExposes(peer.ID) >= maxExposesPerPeer {
-		s.exposeCreateMu.Unlock()
-		return nil, status.Errorf(codes.ResourceExhausted, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
-	}
-	s.exposeCreateMu.Unlock()
-
-	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, service)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to create service from peer: %v", err)
-		return nil, status.Errorf(codes.Internal, "create service: %v", err)
-	}
-
-	key := exposeKey(peer.ID, created.Domain)
-	if _, loaded := s.activeExposes.LoadOrStore(key, &activeExpose{
-		serviceID:   created.ID,
-		domain:      created.Domain,
-		accountID:   accountID,
-		peerID:      peer.ID,
-		lastRenewed: time.Now(),
-	}); loaded {
-		s.deleteExposeService(ctx, accountID, peer.ID, created)
-		return nil, status.Errorf(codes.AlreadyExists, "peer already has an active expose session for this domain")
-	}
-
-	resp := &proto.ExposeServiceResponse{
-		ServiceName: created.Name,
-		ServiceUrl:  "https://" + created.Domain,
+	return s.encryptResponse(peerKey, &proto.ExposeServiceResponse{
+		ServiceName: created.ServiceName,
+		ServiceUrl:  created.ServiceURL,
 		Domain:      created.Domain,
-	}
-
-	return s.encryptResponse(peerKey, resp)
+	})
 }
 
 // RenewExpose extends the TTL of an active expose session.
@@ -134,21 +67,19 @@ func (s *Server) RenewExpose(ctx context.Context, req *proto.EncryptedMessage) (
 		return nil, err
 	}
 
-	_, peer, err := s.authenticateExposePeer(ctx, peerKey)
+	accountID, peer, err := s.authenticateExposePeer(ctx, peerKey)
 	if err != nil {
 		return nil, err
 	}
 
-	key := exposeKey(peer.ID, renewReq.Domain)
-	val, ok := s.activeExposes.Load(key)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no active expose session for domain %s", renewReq.Domain)
+	reverseProxyMgr := s.getReverseProxyManager()
+	if reverseProxyMgr == nil {
+		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	expose := val.(*activeExpose)
-	expose.mu.Lock()
-	expose.lastRenewed = time.Now()
-	expose.mu.Unlock()
+	if err := reverseProxyMgr.RenewServiceFromPeer(ctx, accountID, peer.ID, renewReq.Domain); err != nil {
+		return nil, mapExposeError(ctx, err)
+	}
 
 	return s.encryptResponse(peerKey, &proto.RenewExposeResponse{})
 }
@@ -161,55 +92,45 @@ func (s *Server) StopExpose(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, err
 	}
 
-	_, peer, err := s.authenticateExposePeer(ctx, peerKey)
+	accountID, peer, err := s.authenticateExposePeer(ctx, peerKey)
 	if err != nil {
 		return nil, err
 	}
 
-	key := exposeKey(peer.ID, stopReq.Domain)
-	val, ok := s.activeExposes.LoadAndDelete(key)
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no active expose session for domain %s", stopReq.Domain)
+	reverseProxyMgr := s.getReverseProxyManager()
+	if reverseProxyMgr == nil {
+		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	expose := val.(*activeExpose)
-	s.cleanupExpose(expose, false)
+	if err := reverseProxyMgr.StopServiceFromPeer(ctx, accountID, peer.ID, stopReq.Domain); err != nil {
+		return nil, mapExposeError(ctx, err)
+	}
 
 	return s.encryptResponse(peerKey, &proto.StopExposeResponse{})
 }
 
-// StartExposeReaper starts a background goroutine that reaps expired expose sessions.
-func (s *Server) StartExposeReaper(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(exposeReapInterval)
-		defer ticker.Stop()
+func mapExposeError(ctx context.Context, err error) error {
+	s, ok := internalStatus.FromError(err)
+	if !ok {
+		log.WithContext(ctx).Errorf("expose service error: %v", err)
+		return status.Errorf(codes.Internal, "internal error")
+	}
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.reapExpiredExposes()
-			}
-		}
-	}()
-}
-
-func (s *Server) reapExpiredExposes() {
-	s.activeExposes.Range(func(key, val any) bool {
-		expose := val.(*activeExpose)
-		expose.mu.Lock()
-		expired := time.Since(expose.lastRenewed) > exposeTTL
-		expose.mu.Unlock()
-
-		if expired {
-			if _, deleted := s.activeExposes.LoadAndDelete(key); deleted {
-				log.Infof("reaping expired expose session for peer %s, domain %s", expose.peerID, expose.domain)
-				s.cleanupExpose(expose, true)
-			}
-		}
-		return true
-	})
+	switch s.Type() {
+	case internalStatus.InvalidArgument:
+		return status.Errorf(codes.InvalidArgument, "%s", s.Message)
+	case internalStatus.PermissionDenied:
+		return status.Errorf(codes.PermissionDenied, "%s", s.Message)
+	case internalStatus.NotFound:
+		return status.Errorf(codes.NotFound, "%s", s.Message)
+	case internalStatus.AlreadyExists:
+		return status.Errorf(codes.AlreadyExists, "%s", s.Message)
+	case internalStatus.PreconditionFailed:
+		return status.Errorf(codes.ResourceExhausted, "%s", s.Message)
+	default:
+		log.WithContext(ctx).Errorf("expose service error: %v", err)
+		return status.Errorf(codes.Internal, "internal error")
+	}
 }
 
 func (s *Server) encryptResponse(peerKey wgtypes.Key, msg pb.Message) (*proto.EncryptedMessage, error) {
@@ -246,47 +167,6 @@ func (s *Server) authenticateExposePeer(ctx context.Context, peerKey wgtypes.Key
 	return accountID, peer, nil
 }
 
-func (s *Server) deleteExposeService(ctx context.Context, accountID, peerID string, service *reverseproxy.Service) {
-	reverseProxyMgr := s.getReverseProxyManager()
-	if reverseProxyMgr == nil {
-		return
-	}
-	if err := reverseProxyMgr.DeleteServiceFromPeer(ctx, accountID, peerID, service.ID); err != nil {
-		log.WithContext(ctx).Debugf("failed to delete expose service %s: %v", service.ID, err)
-	}
-}
-
-func (s *Server) cleanupExpose(expose *activeExpose, expired bool) {
-	bgCtx := context.Background()
-
-	reverseProxyMgr := s.getReverseProxyManager()
-	if reverseProxyMgr == nil {
-		log.Errorf("cannot cleanup exposed service %s: reverse proxy manager not available", expose.serviceID)
-		return
-	}
-
-	var err error
-	if expired {
-		err = reverseProxyMgr.ExpireServiceFromPeer(bgCtx, expose.accountID, expose.peerID, expose.serviceID)
-	} else {
-		err = reverseProxyMgr.DeleteServiceFromPeer(bgCtx, expose.accountID, expose.peerID, expose.serviceID)
-	}
-	if err != nil {
-		log.Errorf("failed to delete peer-exposed service %s: %v", expose.serviceID, err)
-	}
-}
-
-func (s *Server) countPeerExposes(peerID string) int {
-	count := 0
-	s.activeExposes.Range(func(_, val any) bool {
-		if expose := val.(*activeExpose); expose.peerID == peerID {
-			count++
-		}
-		return true
-	})
-	return count
-}
-
 func (s *Server) getReverseProxyManager() reverseproxy.Manager {
 	s.reverseProxyMu.RLock()
 	defer s.reverseProxyMu.RUnlock()
@@ -298,4 +178,15 @@ func (s *Server) SetReverseProxyManager(mgr reverseproxy.Manager) {
 	s.reverseProxyMu.Lock()
 	defer s.reverseProxyMu.Unlock()
 	s.reverseProxyManager = mgr
+}
+
+func exposeProtocolToString(p proto.ExposeProtocol) string {
+	switch p {
+	case proto.ExposeProtocol_EXPOSE_HTTP:
+		return "http"
+	case proto.ExposeProtocol_EXPOSE_HTTPS:
+		return "https"
+	default:
+		return "http"
+	}
 }
