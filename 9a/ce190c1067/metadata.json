@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "9ace190c1067",
+  "strategy": "manual-commit",
+  "branch": "feature/embedded-idp-postgres",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/config.go",
+    "combined/config.yaml.example",
+    "idp/dex/config.go",
+    "management/server/idp/embedded.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9a/ce190c1067/0/metadata.json",
+      "transcript": "/9a/ce190c1067/0/full.jsonl",
+      "context": "/9a/ce190c1067/0/context.md",
+      "content_hash": "/9a/ce190c1067/0/content_hash.txt",
+      "prompt": "/9a/ce190c1067/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 139729,
+    "cache_read_tokens": 6064609,
+    "output_tokens": 3693,
+    "api_call_count": 44
+  }
+}

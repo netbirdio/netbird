@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "9ace190c1067",
+  "session_id": "a9af436e-62ce-41be-bc30-3e14ad5caf90",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-25T07:51:03.612186Z",
+  "branch": "feature/embedded-idp-postgres",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/config.go",
+    "combined/config.yaml.example",
+    "idp/dex/config.go",
+    "management/server/idp/embedded.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "11075203-4bd5-4ebb-adef-123e163a9093",
+  "checkpoint_transcript_start": 598,
+  "transcript_lines_at_start": 598,
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 139729,
+    "cache_read_tokens": 6064609,
+    "output_tokens": 3693,
+    "api_call_count": 44
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-25T07:51:03.286878Z",
+    "agent_lines": 94,
+    "human_added": 99861,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 99966,
+    "agent_percentage": 0.09403197087009582
+  }
+}
