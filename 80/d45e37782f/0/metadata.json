@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "80d45e37782f",
+  "session_id": "a9af436e-62ce-41be-bc30-3e14ad5caf90",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-25T09:14:19.476114Z",
+  "branch": "feature/embedded-idp-postgres",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "idp/dex/config.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "5a107d5a-5792-43fb-bdca-4d737cce7531",
+  "checkpoint_transcript_start": 1012,
+  "transcript_lines_at_start": 1012,
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 5420,
+    "cache_read_tokens": 669172,
+    "output_tokens": 3094,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-25T09:14:19.028598Z",
+    "agent_lines": 3,
+    "human_added": 99859,
+    "human_modified": 37,
+    "human_removed": 0,
+    "total_committed": 99899,
+    "agent_percentage": 0.003003033063394028
+  }
+}
