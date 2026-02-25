@@ -20,7 +20,11 @@ func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, er
 	}
 
 	stateFile := filepath.Join(configDir, profileName+".state.json")
-	if !fileExists(stateFile) {
+	fileExists, err := fileExists(stateFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if profile state file exists: %w", err)
+	}
+	if !fileExists {
 		return nil, errors.New("profile state file does not exist")
 	}
 
