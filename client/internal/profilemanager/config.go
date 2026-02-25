@@ -198,7 +198,7 @@ func getConfigDirForUser(username string) (string, error) {
 
 	configDir := filepath.Join(DefaultConfigPathDir, username)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0600); err != nil {
+		if err := os.MkdirAll(configDir, 0700); err != nil {
 			return "", err
 		}
 	}
