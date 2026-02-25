@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -59,7 +60,10 @@ type Manager struct {
 // NewManager creates a new ACME certificate manager. The certDir is used
 // for caching certificates. The lockMethod controls cross-replica
 // coordination strategy (see CertLockMethod constants).
-func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod) *Manager {
+// eabKID and eabHMACKey are optional External Account Binding credentials
+// required for some CAs like ZeroSSL. The eabHMACKey should be the base64
+// URL-encoded string provided by the CA.
+func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod) *Manager {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -70,10 +74,26 @@ func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *l
 		certNotifier: notifier,
 		logger:       logger,
 	}
+
+	var eab *acme.ExternalAccountBinding
+	if eabKID != "" && eabHMACKey != "" {
+		decodedKey, err := base64.RawURLEncoding.DecodeString(eabHMACKey)
+		if err != nil {
+			logger.Errorf("failed to decode EAB HMAC key: %v", err)
+		} else {
+			eab = &acme.ExternalAccountBinding{
+				KID: eabKID,
+				Key: decodedKey,
+			}
+			logger.Infof("configured External Account Binding with KID: %s", eabKID)
+		}
+	}
+
 	mgr.Manager = &autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: mgr.hostPolicy,
-		Cache:      autocert.DirCache(certDir),
+		Prompt:                 autocert.AcceptTOS,
+		HostPolicy:             mgr.hostPolicy,
+		Cache:                  autocert.DirCache(certDir),
+		ExternalAccountBinding: eab,
 		Client: &acme.Client{
 			DirectoryURL: acmeURL,
 		},
