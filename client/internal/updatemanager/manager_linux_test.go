@@ -28,12 +28,12 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		shouldUpdateLater    bool
 	}{
 		{
-			name:                 "Should only notify once due to time between triggers being < 5 Minutes",
+			name:                 "Should notify again when a newer version arrives even within 5 minutes",
 			daemonVersion:        "1.0.0",
 			initialLatestVersion: v.Must(v.NewSemver("1.0.1")),
 			latestVersion:        v.Must(v.NewSemver("1.0.2")),
 			shouldUpdateInit:     true,
-			shouldUpdateLater:    false,
+			shouldUpdateLater:    true,
 		},
 		{
 			name:                 "Shouldn't notify initially, but should notify as soon as latest version is fetched",
