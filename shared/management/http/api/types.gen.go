@@ -1019,8 +1019,8 @@ type EDRSentinelOneResponse struct {
 
 // EmailTarget Target configuration for email notification channels.
 type EmailTarget struct {
-	// Email List of email addresses to send notifications to.
-	Email []openapi_types.Email `json:"email"`
+	// Emails List of email addresses to send notifications to.
+	Emails []openapi_types.Email `json:"emails"`
 }
 
 // ErrorResponse Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.

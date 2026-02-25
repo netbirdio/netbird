@@ -4218,7 +4218,7 @@ components:
       type: object
       description: Target configuration for email notification channels.
       properties:
-        email:
+        emails:
           type: array
           description: List of email addresses to send notifications to.
           items:
@@ -4226,7 +4226,7 @@ components:
             format: email
           example: [ "admin@example.com", "ops@example.com" ]
       required:
-        - email
+        - emails
     WebhookTarget:
       type: object
       description: Target configuration for webhook notification channels.
