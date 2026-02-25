@@ -114,6 +114,7 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 }
 
 func (m *Manager) Start(ctx context.Context) {
+	log.Infof("starting update manager")
 	if m.cancel != nil {
 		return
 	}
@@ -417,7 +418,7 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 		return false
 	}
 
-	if time.Since(m.lastTrigger) < 5*time.Minute {
+	if time.Since(m.lastTrigger) < 3*time.Minute {
 		log.Debugf("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
 		return false
 	}

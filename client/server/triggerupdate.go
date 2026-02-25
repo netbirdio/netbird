@@ -11,20 +11,11 @@ import (
 // TriggerUpdate initiates installation of the pending enforced version.
 // It is called when the user clicks the install button in the UI (Mode 2 / enforced update).
 func (s *Server) TriggerUpdate(ctx context.Context, _ *proto.TriggerUpdateRequest) (*proto.TriggerUpdateResponse, error) {
-	s.mutex.Lock()
-	cc := s.connectClient
-	s.mutex.Unlock()
-
-	if cc == nil {
-		return &proto.TriggerUpdateResponse{Success: false, ErrorMsg: "service is not connected"}, nil
+	if s.updateManager == nil {
+		return &proto.TriggerUpdateResponse{Success: false, ErrorMsg: "update manager not available"}, nil
 	}
 
-	engine := cc.Engine()
-	if engine == nil {
-		return &proto.TriggerUpdateResponse{Success: false, ErrorMsg: "engine is not initialized"}, nil
-	}
-
-	if err := engine.TriggerUpdate(ctx); err != nil {
+	if err := s.updateManager.Install(ctx); err != nil {
 		log.Warnf("TriggerUpdate failed: %v", err)
 		return &proto.TriggerUpdateResponse{Success: false, ErrorMsg: err.Error()}, nil
 	}

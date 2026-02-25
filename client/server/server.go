@@ -30,6 +30,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -89,6 +91,8 @@ type Server struct {
 
 	sleepHandler *sleephandler.SleepHandler
 
+	updateManager *updatemanager.Manager
+
 	jwtCache *jwtCache
 }
 
@@ -133,6 +137,12 @@ func (s *Server) Start() error {
 
 	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if s.updateManager == nil {
+		stateMgr := statemanager.New(s.profileManager.GetStatePath())
+		s.updateManager = updatemanager.NewManager(s.statusRecorder, stateMgr)
+		s.updateManager.CheckUpdateSuccess(s.rootCtx)
 	}
 
 	// if current state contains any error, return it
@@ -1603,6 +1613,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+	s.connectClient.SetUpdateManager(s.updateManager)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
@@ -1629,20 +1640,10 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 }
 
 func (s *Server) startUpdateManagerForGUI() {
-	s.mutex.Lock()
-	cc := s.connectClient
-	s.mutex.Unlock()
-
-	if cc == nil {
+	if s.updateManager == nil {
 		return
 	}
-
-	um := cc.UpdateManager()
-	if um == nil {
-		return
-	}
-
-	um.Start(s.rootCtx)
+	s.updateManager.Start(s.rootCtx)
 }
 
 func (s *Server) onSessionExpire() {

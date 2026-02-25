@@ -68,6 +68,10 @@ func NewConnectClient(
 	}
 }
 
+func (c *ConnectClient) SetUpdateManager(um *updatemanager.Manager) {
+	c.updateManager = um
+}
+
 // Run with main logic.
 func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
 	return c.run(MobileDependency{}, runningChan, logPath)
@@ -185,9 +189,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
-	c.updateManager = updatemanager.NewManager(c.statusRecorder, stateManager)
-	defer c.updateManager.Stop()
-	c.updateManager.CheckUpdateSuccess(c.ctx)
+	if c.updateManager == nil {
+		c.updateManager = updatemanager.NewManager(c.statusRecorder, stateManager)
+		defer c.updateManager.Stop()
+		c.updateManager.CheckUpdateSuccess(c.ctx)
+	}
 
 	inst := installer.New()
 	if err := inst.CleanUpInstallerFiles(); err != nil {
