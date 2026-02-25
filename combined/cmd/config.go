@@ -534,6 +534,25 @@ func stripSignalProtocol(uri string) string {
 	return uri
 }
 
+func buildRelayConfig(relays RelaysConfig) (*nbconfig.Relay, error) {
+	if len(relays.Addresses) == 0 && relays.Secret == "" {
+		return nil, nil
+	}
+	var ttl time.Duration
+	if relays.CredentialsTTL != "" {
+		var err error
+		ttl, err = time.ParseDuration(relays.CredentialsTTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", relays.CredentialsTTL, err)
+		}
+	}
+	return &nbconfig.Relay{
+		Addresses:      relays.Addresses,
+		CredentialsTTL: util.Duration{Duration: ttl},
+		Secret:         relays.Secret,
+	}, nil
+}
+
 // ToManagementConfig converts CombinedConfig to management server config
 func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	mgmt := c.Management
@@ -550,21 +569,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	}
 
 	// Build relay config
-	var relayConfig *nbconfig.Relay
-	if len(mgmt.Relays.Addresses) > 0 || mgmt.Relays.Secret != "" {
-		var ttl time.Duration
-		if mgmt.Relays.CredentialsTTL != "" {
-			var err error
-			ttl, err = time.ParseDuration(mgmt.Relays.CredentialsTTL)
-			if err != nil {
-				return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", mgmt.Relays.CredentialsTTL, err)
-			}
-		}
-		relayConfig = &nbconfig.Relay{
-			Addresses:      mgmt.Relays.Addresses,
-			CredentialsTTL: util.Duration{Duration: ttl},
-			Secret:         mgmt.Relays.Secret,
-		}
+	relayConfig, err := buildRelayConfig(mgmt.Relays)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build signal config

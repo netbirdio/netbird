@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -212,15 +213,20 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 	}
 }
 
-// parsePostgresDSN parses a key=value DSN string into a sql.Postgres config.
+// parsePostgresDSN parses a DSN into a sql.Postgres config.
+// It accepts both URI format (postgres://user:pass@host:port/dbname?sslmode=disable)
+// and libpq key=value format (host=localhost port=5432 dbname=mydb), including quoted values.
 func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
-	params := make(map[string]string)
-	for _, part := range strings.Fields(dsn) {
-		k, v, ok := strings.Cut(part, "=")
-		if !ok {
-			continue
-		}
-		params[k] = v
+	var params map[string]string
+	var err error
+
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		params, err = parsePostgresURI(dsn)
+	} else {
+		params, err = parsePostgresKeyValue(dsn)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	host := params["host"]
@@ -229,7 +235,7 @@ func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
 	}
 
 	var port uint16 = 5432
-	if p, ok := params["port"]; ok {
+	if p, ok := params["port"]; ok && p != "" {
 		v, err := strconv.ParseUint(p, 10, 16)
 		if err != nil {
 			return nil, fmt.Errorf("invalid port %q: %w", p, err)
@@ -242,8 +248,6 @@ func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
 		return nil, fmt.Errorf("dbname is required in DSN")
 	}
 
-	sslMode := params["sslmode"]
-
 	pg := &sql.Postgres{
 		NetworkDB: sql.NetworkDB{
 			Host:     host,
@@ -254,11 +258,109 @@ func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
 		},
 	}
 
-	if sslMode == "disable" {
-		pg.SSL.Mode = "disable"
+	if sslMode := params["sslmode"]; sslMode != "" {
+		switch sslMode {
+		case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+			pg.SSL.Mode = sslMode
+		default:
+			return nil, fmt.Errorf("unsupported sslmode %q: valid values are disable, allow, prefer, require, verify-ca, verify-full", sslMode)
+		}
 	}
 
 	return pg, nil
+}
+
+// parsePostgresURI parses a postgres:// or postgresql:// URI into parameter key-value pairs.
+func parsePostgresURI(dsn string) (map[string]string, error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid postgres URI: %w", err)
+	}
+
+	params := make(map[string]string)
+
+	if u.User != nil {
+		params["user"] = u.User.Username()
+		if p, ok := u.User.Password(); ok {
+			params["password"] = p
+		}
+	}
+	if u.Hostname() != "" {
+		params["host"] = u.Hostname()
+	}
+	if u.Port() != "" {
+		params["port"] = u.Port()
+	}
+
+	dbname := strings.TrimPrefix(u.Path, "/")
+	if dbname != "" {
+		params["dbname"] = dbname
+	}
+
+	for k, v := range u.Query() {
+		if len(v) > 0 {
+			params[k] = v[0]
+		}
+	}
+
+	return params, nil
+}
+
+// parsePostgresKeyValue parses a libpq key=value DSN string, handling single-quoted values
+// (e.g., password='my pass' host=localhost).
+func parsePostgresKeyValue(dsn string) (map[string]string, error) {
+	params := make(map[string]string)
+	s := strings.TrimSpace(dsn)
+
+	for s != "" {
+		eqIdx := strings.IndexByte(s, '=')
+		if eqIdx < 0 {
+			break
+		}
+		key := strings.TrimSpace(s[:eqIdx])
+		s = s[eqIdx+1:]
+
+		var value string
+		if len(s) > 0 && s[0] == '\'' {
+			// Quoted value: scan until closing quote. Libpq uses '' for literal '.
+			s = s[1:]
+			var buf strings.Builder
+			closed := false
+			for len(s) > 0 {
+				if s[0] == '\'' {
+					if len(s) > 1 && s[1] == '\'' {
+						buf.WriteByte('\'')
+						s = s[2:]
+						continue
+					}
+					s = s[1:]
+					closed = true
+					break
+				}
+				buf.WriteByte(s[0])
+				s = s[1:]
+			}
+			if !closed {
+				return nil, fmt.Errorf("unterminated quoted value for key %q", key)
+			}
+			value = buf.String()
+		} else {
+			// Unquoted value: read until whitespace.
+			idx := strings.IndexAny(s, " \t\n")
+			if idx < 0 {
+				value = s
+				s = ""
+			} else {
+				value = s[:idx]
+				s = s[idx:]
+			}
+		}
+
+		params[key] = value
+		s = strings.TrimSpace(s)
+	}
+
+	return params, nil
 }
 
 // Validate validates the configuration
