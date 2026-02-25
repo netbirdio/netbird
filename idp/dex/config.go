@@ -321,49 +321,50 @@ func parsePostgresKeyValue(dsn string) (map[string]string, error) {
 			break
 		}
 		key := strings.TrimSpace(s[:eqIdx])
-		s = s[eqIdx+1:]
 
-		var value string
-		if len(s) > 0 && s[0] == '\'' {
-			// Quoted value: scan until closing quote. Libpq uses '' for literal '.
-			s = s[1:]
-			var buf strings.Builder
-			closed := false
-			for len(s) > 0 {
-				if s[0] == '\'' {
-					if len(s) > 1 && s[1] == '\'' {
-						buf.WriteByte('\'')
-						s = s[2:]
-						continue
-					}
-					s = s[1:]
-					closed = true
-					break
-				}
-				buf.WriteByte(s[0])
-				s = s[1:]
-			}
-			if !closed {
-				return nil, fmt.Errorf("unterminated quoted value for key %q", key)
-			}
-			value = buf.String()
-		} else {
-			// Unquoted value: read until whitespace.
-			idx := strings.IndexAny(s, " \t\n")
-			if idx < 0 {
-				value = s
-				s = ""
-			} else {
-				value = s[:idx]
-				s = s[idx:]
-			}
+		value, rest, err := parseDSNValue(s[eqIdx+1:])
+		if err != nil {
+			return nil, fmt.Errorf("%w for key %q", err, key)
 		}
 
 		params[key] = value
-		s = strings.TrimSpace(s)
+		s = strings.TrimSpace(rest)
 	}
 
 	return params, nil
+}
+
+// parseDSNValue parses the next value from a libpq key=value string positioned after the '='.
+// It returns the parsed value and the remaining unparsed string.
+func parseDSNValue(s string) (value, rest string, err error) {
+	if len(s) > 0 && s[0] == '\'' {
+		return parseQuotedDSNValue(s[1:])
+	}
+	// Unquoted value: read until whitespace.
+	idx := strings.IndexAny(s, " \t\n")
+	if idx < 0 {
+		return s, "", nil
+	}
+	return s[:idx], s[idx:], nil
+}
+
+// parseQuotedDSNValue parses a single-quoted value starting after the opening quote.
+// Libpq uses ” to represent a literal single quote inside quoted values.
+func parseQuotedDSNValue(s string) (value, rest string, err error) {
+	var buf strings.Builder
+	for len(s) > 0 {
+		if s[0] == '\'' {
+			if len(s) > 1 && s[1] == '\'' {
+				buf.WriteByte('\'')
+				s = s[2:]
+				continue
+			}
+			return buf.String(), s[1:], nil
+		}
+		buf.WriteByte(s[0])
+		s = s[1:]
+	}
+	return "", "", fmt.Errorf("unterminated quoted value")
 }
 
 // Validate validates the configuration
