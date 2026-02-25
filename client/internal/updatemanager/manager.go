@@ -320,7 +320,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 
 	log.Debugf("checking update option, current version: %s, target version: %s", m.currentVersion, updateVersion)
-	if !m.shouldUpdate(updateVersion) {
+	if !m.shouldUpdate(updateVersion, forceUpdate) {
 		m.updateMutex.Unlock()
 		return
 	}
@@ -434,7 +434,7 @@ func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, e
 	return updateState, nil
 }
 
-func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
+func (m *Manager) shouldUpdate(updateVersion *v.Version, forceUpdate bool) bool {
 	if m.currentVersion == developmentVersion {
 		log.Debugf("skipping auto-update, running development version")
 		return false
@@ -449,7 +449,7 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 		return false
 	}
 
-	if time.Since(m.lastTrigger) < 3*time.Minute {
+	if forceUpdate && time.Since(m.lastTrigger) < 3*time.Minute {
 		log.Debugf("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
 		return false
 	}
