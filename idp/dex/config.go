@@ -240,6 +240,9 @@ func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid port %q: %w", p, err)
 		}
+		if v == 0 {
+			return nil, fmt.Errorf("invalid port %q: must be non-zero", p)
+		}
 		port = uint16(v)
 	}
 
