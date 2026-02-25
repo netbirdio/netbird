@@ -58,6 +58,10 @@ type Manager struct {
 	// updateMutex protects update, expectedVersion, updateToLatestVersion,
 	// downloadOnly, forceUpdate, pendingVersion, and lastTrigger fields
 	updateMutex sync.Mutex
+
+	// installMutex and installing guard against concurrent installation attempts
+	installMutex sync.Mutex
+	installing   bool
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
@@ -210,7 +214,27 @@ func (m *Manager) Install(ctx context.Context) error {
 		return fmt.Errorf("no pending version to install")
 	}
 
-	return m.install(ctx, pending)
+	return m.tryInstall(ctx, pending)
+}
+
+// tryInstall ensures only one installation runs at a time. Concurrent callers
+// receive an error immediately rather than queuing behind a running install.
+func (m *Manager) tryInstall(ctx context.Context, targetVersion *v.Version) error {
+	m.installMutex.Lock()
+	if m.installing {
+		m.installMutex.Unlock()
+		return fmt.Errorf("installation already in progress")
+	}
+	m.installing = true
+	m.installMutex.Unlock()
+
+	defer func() {
+		m.installMutex.Lock()
+		m.installing = false
+		m.installMutex.Unlock()
+	}()
+
+	return m.install(ctx, targetVersion)
 }
 
 // NotifyUI re-publishes the current update state to a newly connected UI client.
@@ -220,7 +244,6 @@ func (m *Manager) Install(ctx context.Context) error {
 func (m *Manager) NotifyUI() {
 	m.updateMutex.Lock()
 	if !m.downloadOnly || m.update == nil {
-		log.Infof("--- update: %v, %v", m.downloadOnly, m.downloadOnly)
 		m.updateMutex.Unlock()
 		return
 	}
@@ -345,7 +368,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 
 	if forceUpdate {
-		if err := m.install(ctx, updateVersion); err != nil {
+		if err := m.tryInstall(ctx, updateVersion); err != nil {
 			log.Errorf("force update failed: %v", err)
 		}
 		return
