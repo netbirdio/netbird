@@ -185,10 +185,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager := statemanager.New(path)
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
-	updateManager := updatemanager.NewManager(c.statusRecorder, stateManager)
-	c.updateManager = updateManager
-	defer updateManager.Stop()
-	updateManager.CheckUpdateSuccess(c.ctx)
+	c.updateManager = updatemanager.NewManager(c.statusRecorder, stateManager)
+	defer c.updateManager.Stop()
+	c.updateManager.CheckUpdateSuccess(c.ctx)
 
 	inst := installer.New()
 	if err := inst.CleanUpInstallerFiles(); err != nil {
@@ -306,7 +305,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager, updateManager)
+		engine := NewEngine(engineCtx, cancel, engineConfig, EngineServices{
+			SignalClient:   signalClient,
+			MgmClient:      mgmClient,
+			RelayManager:   relayManager,
+			StatusRecorder: c.statusRecorder,
+			Checks:         checks,
+			StateManager:   stateManager,
+			UpdateManager:  c.updateManager,
+		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
 		c.engineMutex.Unlock()

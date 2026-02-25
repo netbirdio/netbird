@@ -79,7 +79,6 @@ const (
 
 var ErrResetConnection = fmt.Errorf("reset connection")
 
-// EngineConfig is a config for the Engine
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
@@ -139,6 +138,17 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+}
+
+// EngineServices holds the external service dependencies required by the Engine.
+type EngineServices struct {
+	SignalClient   signal.Client
+	MgmClient      mgm.Client
+	RelayManager   *relayClient.Manager
+	StatusRecorder *peer.Status
+	Checks         []*mgmProto.Checks
+	StateManager   *statemanager.Manager
+	UpdateManager  *updatemanager.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -239,23 +249,17 @@ type localIpUpdater interface {
 func NewEngine(
 	clientCtx context.Context,
 	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
 	config *EngineConfig,
+	services EngineServices,
 	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-	stateManager *statemanager.Manager,
-	updateManager *updatemanager.Manager,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
-		signal:         signalClient,
-		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
-		mgmClient:      mgmClient,
-		relayManager:   relayManager,
+		signal:         services.SignalClient,
+		signaler:       peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
+		mgmClient:      services.MgmClient,
+		relayManager:   services.RelayManager,
 		peerStore:      peerstore.NewConnStore(),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
@@ -263,12 +267,12 @@ func NewEngine(
 		STUNs:          []*stun.URI{},
 		TURNs:          []*stun.URI{},
 		networkSerial:  0,
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		checks:         checks,
+		statusRecorder: services.StatusRecorder,
+		stateManager:   services.StateManager,
+		checks:         services.Checks,
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
-		updateManager:  updateManager,
+		updateManager:  services.UpdateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
