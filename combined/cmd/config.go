@@ -614,11 +614,15 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	if c.Server.AuthStore.Engine != "" {
 		authStorageType = c.Server.AuthStore.Engine
 	}
+	if authStorageType == "" {
+		authStorageType = "sqlite3"
+	}
 	authStorageFile := ""
-	if authStorageType != "postgres" {
-		if authStorageType == "" {
-			authStorageType = "sqlite3"
+	if authStorageType == "postgres" {
+		if authStorageDSN == "" {
+			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
 		}
+	} else {
 		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
 	}
 
