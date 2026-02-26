@@ -169,10 +169,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
 	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{
-		MgmtAddr:     s.ManagementAddress,
-		WGPort:       s.WireguardPort,
-		PreSharedKey: s.PreSharedKey,
-    ProxySkipTLSVerify: s.ProxySkipTLSVerify,
+		MgmtAddr:           s.ManagementAddress,
+		WGPort:             s.WireguardPort,
+		PreSharedKey:       s.PreSharedKey,
+		ProxySkipTLSVerify: s.ProxySkipTLSVerify,
 	}, s.Logger, s, s.mgmtClient)
 
 	tlsConfig, err := s.configureTLS(ctx)

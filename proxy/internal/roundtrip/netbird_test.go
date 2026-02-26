@@ -50,10 +50,10 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
 	return NewNetBird("test-proxy", "invalid.test", ClientConfig{
-		MgmtAddr:     "http://invalid.test:9999",
-		WGPort:       0,
-		PreSharedKey: "",
-    ProxySkipTLSVerify: false,
+		MgmtAddr:           "http://invalid.test:9999",
+		WGPort:             0,
+		PreSharedKey:       "",
+		ProxySkipTLSVerify: false,
 	}, nil, nil, &mockMgmtClient{})
 }
 
@@ -288,10 +288,10 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	notifier := &mockStatusNotifier{}
 	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
-		MgmtAddr:     "http://invalid.test:9999",
-		WGPort:       0,
-		PreSharedKey: "",
-    ProxySkipTLSVerify: false,
+		MgmtAddr:           "http://invalid.test:9999",
+		WGPort:             0,
+		PreSharedKey:       "",
+		ProxySkipTLSVerify: false,
 	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
@@ -319,10 +319,10 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	notifier := &mockStatusNotifier{}
 	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
-		MgmtAddr:     "http://invalid.test:9999",
-		WGPort:       0,
-		PreSharedKey: "",
-    ProxySkipTLSVerify: false,
+		MgmtAddr:           "http://invalid.test:9999",
+		WGPort:             0,
+		PreSharedKey:       "",
+		ProxySkipTLSVerify: false,
 	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
@@ -344,7 +344,7 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 
 func TestNetBird_SkipTLSVerify_ConfiguresTransport(t *testing.T) {
 	// Test with TLS verification enabled (default)
-	nbSecure := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, false, nil, nil, &mockMgmtClient{})
+	nbSecure := NewNetBird("http://invalid.test:9999", "test-proxy", ClientConfig{MgmtAddr: "invalid.test", WGPort: 0, ProxySkipTLSVerify: false}, nil, nil, &mockMgmtClient{})
 	assert.False(t, nbSecure.transportCfg.proxySkipTLSVerify, "TLS verification should be enabled by default")
 
 	accountID := types.AccountID("account-1")
@@ -352,7 +352,7 @@ func TestNetBird_SkipTLSVerify_ConfiguresTransport(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test with TLS verification disabled
-	nbInsecure := NewNetBird("http://invalid.test:9999", "test-proxy", "invalid.test", 0, true, nil, nil, &mockMgmtClient{})
+	nbInsecure := NewNetBird("http://invalid.test:9999", "test-proxy", ClientConfig{MgmtAddr: "invalid.test", WGPort: 0, ProxySkipTLSVerify: true}, nil, nil, &mockMgmtClient{})
 	assert.True(t, nbInsecure.transportCfg.proxySkipTLSVerify, "TLS verification should be disabled when skipTLSVerify=true")
 
 	accountID2 := types.AccountID("account-2")

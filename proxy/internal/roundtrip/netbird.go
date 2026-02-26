@@ -89,10 +89,10 @@ func (e *clientEntry) acquireInflight(backend backendKey) (release func(), ok bo
 
 // ClientConfig holds configuration for the embedded NetBird client.
 type ClientConfig struct {
-	MgmtAddr     string
-	WGPort       int
-	PreSharedKey string
-  ProxySkipTLSVerify bool
+	MgmtAddr           string
+	WGPort             int
+	PreSharedKey       string
+	ProxySkipTLSVerify bool
 }
 
 type statusNotifier interface {
