@@ -261,7 +261,7 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 		return fmt.Errorf("failed to check if profile exists: %w", err)
 	}
 	if fileExists {
-		return fmt.Errorf("profile already exists: %s", profileName)
+		return ErrProfileAlreadyExists
 	}
 
 	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
