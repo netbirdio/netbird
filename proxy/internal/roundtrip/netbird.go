@@ -555,9 +555,7 @@ func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, skipTLSVerify b
 		logger = log.StandardLogger()
 	}
 	cfg := loadTransportConfig(logger)
-	if skipTLSVerify {
-		cfg.proxySkipTLSVerify = true
-	}
+	cfg.proxySkipTLSVerify = skipTLSVerify
 	return &NetBird{
 		mgmtAddr:       mgmtAddr,
 		proxyID:        proxyID,
