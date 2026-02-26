@@ -40,8 +40,14 @@ func waitForUpdateEvent(sub *peer.EventSubscription, timeout time.Duration) (ver
 				return "", false
 			}
 			if val, ok := event.Metadata["new_version_available"]; ok {
-				_, enforced := event.Metadata["enforced"]
+				enforced := false
+				if raw, ok := event.Metadata["enforced"]; ok {
+					if parsed, err := strconv.ParseBool(raw); err == nil {
+						enforced = parsed
+					}
+				}
 				return val, enforced
+			}
 			}
 		case <-timer.C:
 			return "", false
