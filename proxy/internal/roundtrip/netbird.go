@@ -260,7 +260,8 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 
 	if n.transportCfg.proxySkipTLSVerify {
 		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec // User-configured option for internal services
+			InsecureSkipVerify: true, //nolint:gosec
+			MinVersion:         tls.VersionTLS12,
 		}
 		n.logger.Warn("TLS certificate verification disabled for backend connections - use only with trusted internal services")
 	}

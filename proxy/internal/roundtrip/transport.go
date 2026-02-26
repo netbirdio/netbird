@@ -104,7 +104,7 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 		"read_buffer_size":        cfg.readBufferSize,
 		"disable_compression":     cfg.disableCompression,
 		"max_inflight":            cfg.maxInflight,
-		"proxy_skip_tls_verify":   cfg.proxySkipTLSVerify, // Add this
+		"proxy_skip_tls_verify":   cfg.proxySkipTLSVerify,
 	}).Debug("backend transport configuration")
 
 	return cfg

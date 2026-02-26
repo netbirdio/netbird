@@ -158,7 +158,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WireguardPort:            wgPort,
 		ProxyProtocol:            proxyProtocol,
-		ProxySkipTLSVerify:       proxySkipTLSVerify, // Add this
+		ProxySkipTLSVerify:       proxySkipTLSVerify,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
