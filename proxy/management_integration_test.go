@@ -191,6 +191,10 @@ type storeBackedServiceManager struct {
 	tokenStore *nbgrpc.OneTimeTokenStore
 }
 
+func (m *storeBackedServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
 func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
@@ -242,6 +246,20 @@ func (m *storeBackedServiceManager) GetAccountServices(ctx context.Context, acco
 func (m *storeBackedServiceManager) GetServiceIDByTargetID(ctx context.Context, accountID string, targetID string) (string, error) {
 	return "", nil
 }
+
+func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+	return &reverseproxy.ExposeServiceResponse{}, nil
+}
+
+func (m *storeBackedServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
 
 func strPtr(s string) *string {
 	return &s

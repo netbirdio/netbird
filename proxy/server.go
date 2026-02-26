@@ -117,6 +117,8 @@ type Server struct {
 	// ProxySkipTLSVerify disables TLS certificate verification for backend connections.
 	// Use only for internal services with self-signed certificates.
 	ProxySkipTLSVerify bool
+	// PreSharedKey used for tunnel between proxy and peers (set globally not per account)
+	PreSharedKey string
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -166,7 +168,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.ProxySkipTLSVerify, s.Logger, s, s.mgmtClient)
+	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{
+		MgmtAddr:     s.ManagementAddress,
+		WGPort:       s.WireguardPort,
+		PreSharedKey: s.PreSharedKey,
+    ProxySkipTLSVerify: s.ProxySkipTLSVerify,
+	}, s.Logger, s, s.mgmtClient)
 
 	tlsConfig, err := s.configureTLS(ctx)
 	if err != nil {

@@ -49,6 +49,35 @@ func (mr *MockManagerMockRecorder) CreateService(ctx, accountID, userID, service
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateService", reflect.TypeOf((*MockManager)(nil).CreateService), ctx, accountID, userID, service)
 }
 
+// CreateServiceFromPeer mocks base method.
+func (m *MockManager) CreateServiceFromPeer(ctx context.Context, accountID, peerID string, req *ExposeServiceRequest) (*ExposeServiceResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateServiceFromPeer", ctx, accountID, peerID, req)
+	ret0, _ := ret[0].(*ExposeServiceResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateServiceFromPeer indicates an expected call of CreateServiceFromPeer.
+func (mr *MockManagerMockRecorder) CreateServiceFromPeer(ctx, accountID, peerID, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateServiceFromPeer", reflect.TypeOf((*MockManager)(nil).CreateServiceFromPeer), ctx, accountID, peerID, req)
+}
+
+// DeleteAllServices mocks base method.
+func (m *MockManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllServices", ctx, accountID, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAllServices indicates an expected call of DeleteAllServices.
+func (mr *MockManagerMockRecorder) DeleteAllServices(ctx, accountID, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllServices", reflect.TypeOf((*MockManager)(nil).DeleteAllServices), ctx, accountID, userID)
+}
+
 // DeleteService mocks base method.
 func (m *MockManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
 	m.ctrl.T.Helper()
@@ -181,6 +210,20 @@ func (mr *MockManagerMockRecorder) ReloadService(ctx, accountID, serviceID inter
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadService", reflect.TypeOf((*MockManager)(nil).ReloadService), ctx, accountID, serviceID)
 }
 
+// RenewServiceFromPeer mocks base method.
+func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, domain)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RenewServiceFromPeer indicates an expected call of RenewServiceFromPeer.
+func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, domain)
+}
+
 // SetCertificateIssuedAt mocks base method.
 func (m *MockManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
 	m.ctrl.T.Helper()
@@ -207,6 +250,32 @@ func (m *MockManager) SetStatus(ctx context.Context, accountID, serviceID string
 func (mr *MockManagerMockRecorder) SetStatus(ctx, accountID, serviceID, status interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetStatus", reflect.TypeOf((*MockManager)(nil).SetStatus), ctx, accountID, serviceID, status)
+}
+
+// StartExposeReaper mocks base method.
+func (m *MockManager) StartExposeReaper(ctx context.Context) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "StartExposeReaper", ctx)
+}
+
+// StartExposeReaper indicates an expected call of StartExposeReaper.
+func (mr *MockManagerMockRecorder) StartExposeReaper(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartExposeReaper", reflect.TypeOf((*MockManager)(nil).StartExposeReaper), ctx)
+}
+
+// StopServiceFromPeer mocks base method.
+func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, domain)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StopServiceFromPeer indicates an expected call of StopServiceFromPeer.
+func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, domain)
 }
 
 // UpdateService mocks base method.

@@ -16,8 +16,8 @@ import (
 
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
-func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.ProxyMapping {
-	ch := make(chan *proto.ProxyMapping, 10)
+func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.GetMappingUpdateResponse {
+	ch := make(chan *proto.GetMappingUpdateResponse, 10)
 	conn := &proxyConnection{
 		proxyID:  proxyID,
 		address:  clusterAddr,
@@ -31,7 +31,7 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 	return ch
 }
 
-func drainChannel(ch chan *proto.ProxyMapping) *proto.ProxyMapping {
+func drainChannel(ch chan *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
 	select {
 	case msg := <-ch:
 		return msg
@@ -45,20 +45,19 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	defer tokenStore.Close()
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore: tokenStore,
 	}
 
 	const cluster = "proxy.example.com"
 	const numProxies = 3
 
-	channels := make([]chan *proto.ProxyMapping, numProxies)
+	channels := make([]chan *proto.GetMappingUpdateResponse, numProxies)
 	for i := range numProxies {
 		id := "proxy-" + string(rune('a'+i))
 		channels[i] = registerFakeProxy(s, id, cluster)
 	}
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-1",
 		AccountId: "account-1",
@@ -68,14 +67,20 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 		},
 	}
 
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{mapping},
+	}
+
 	s.SendServiceUpdateToCluster(update, cluster)
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
-		msg := drainChannel(ch)
-		require.NotNil(t, msg, "proxy %d should receive a message", i)
-		assert.Equal(t, update.Domain, msg.Domain)
-		assert.Equal(t, update.Id, msg.Id)
+		resp := drainChannel(ch)
+		require.NotNil(t, resp, "proxy %d should receive a message", i)
+		require.Len(t, resp.Mapping, 1, "proxy %d should receive exactly one mapping", i)
+		msg := resp.Mapping[0]
+		assert.Equal(t, mapping.Domain, msg.Domain)
+		assert.Equal(t, mapping.Id, msg.Id)
 		assert.NotEmpty(t, msg.AuthToken, "proxy %d should have a non-empty token", i)
 		tokens[i] = msg.AuthToken
 	}
@@ -100,31 +105,36 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	defer tokenStore.Close()
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore: tokenStore,
 	}
 
 	const cluster = "proxy.example.com"
 	ch1 := registerFakeProxy(s, "proxy-a", cluster)
 	ch2 := registerFakeProxy(s, "proxy-b", cluster)
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED,
 		Id:        "service-1",
 		AccountId: "account-1",
 		Domain:    "test.example.com",
 	}
 
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{mapping},
+	}
+
 	s.SendServiceUpdateToCluster(update, cluster)
 
-	msg1 := drainChannel(ch1)
-	msg2 := drainChannel(ch2)
-	require.NotNil(t, msg1)
-	require.NotNil(t, msg2)
+	resp1 := drainChannel(ch1)
+	resp2 := drainChannel(ch2)
+	require.NotNil(t, resp1)
+	require.NotNil(t, resp2)
+	require.Len(t, resp1.Mapping, 1)
+	require.Len(t, resp2.Mapping, 1)
 
 	// Delete operations should not generate tokens
-	assert.Empty(t, msg1.AuthToken)
-	assert.Empty(t, msg2.AuthToken)
+	assert.Empty(t, resp1.Mapping[0].AuthToken)
+	assert.Empty(t, resp2.Mapping[0].AuthToken)
 
 	// No tokens should have been created
 	assert.Equal(t, 0, tokenStore.GetTokenCount())
@@ -135,27 +145,35 @@ func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	defer tokenStore.Close()
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore: tokenStore,
 	}
 
 	// Register proxies in different clusters (SendServiceUpdate broadcasts to all)
 	ch1 := registerFakeProxy(s, "proxy-a", "cluster-a")
 	ch2 := registerFakeProxy(s, "proxy-b", "cluster-b")
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-1",
 		AccountId: "account-1",
 		Domain:    "test.example.com",
 	}
 
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{mapping},
+	}
+
 	s.SendServiceUpdate(update)
 
-	msg1 := drainChannel(ch1)
-	msg2 := drainChannel(ch2)
-	require.NotNil(t, msg1)
-	require.NotNil(t, msg2)
+	resp1 := drainChannel(ch1)
+	resp2 := drainChannel(ch2)
+	require.NotNil(t, resp1)
+	require.NotNil(t, resp2)
+	require.Len(t, resp1.Mapping, 1)
+	require.Len(t, resp2.Mapping, 1)
+
+	msg1 := resp1.Mapping[0]
+	msg2 := resp2.Mapping[0]
 
 	assert.NotEmpty(t, msg1.AuthToken)
 	assert.NotEmpty(t, msg2.AuthToken)

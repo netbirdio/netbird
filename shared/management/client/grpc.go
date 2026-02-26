@@ -48,6 +48,22 @@ type GrpcClient struct {
 	connStateCallbackLock sync.RWMutex
 }
 
+type ExposeRequest struct {
+	NamePrefix string
+	Domain     string
+	Port       uint16
+	Protocol   int
+	Pin        string
+	Password   string
+	UserGroups []string
+}
+
+type ExposeResponse struct {
+	ServiceName string
+	Domain      string
+	ServiceURL  string
+}
+
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
@@ -688,6 +704,123 @@ func (c *GrpcClient) Logout() error {
 	}
 
 	return nil
+}
+
+// CreateExpose calls the management server to create a new expose service.
+func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error) {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	protoReq, err := toProtoExposeServiceRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, protoReq)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt create expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	exposeResp := &proto.ExposeServiceResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, exposeResp); err != nil {
+		return nil, fmt.Errorf("decrypt create expose response: %w", err)
+	}
+
+	return fromProtoExposeResponse(exposeResp), nil
+}
+
+// RenewExpose extends the TTL of an active expose session on the management server.
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.RenewExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt renew expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+// StopExpose terminates an active expose session on the management server.
+func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.StopExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt stop expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
+	return &ExposeResponse{
+		ServiceName: resp.ServiceName,
+		Domain:      resp.Domain,
+		ServiceURL:  resp.ServiceUrl,
+	}
+}
+
+func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest, error) {
+	var protocol proto.ExposeProtocol
+
+	switch req.Protocol {
+	case int(proto.ExposeProtocol_EXPOSE_HTTP):
+		protocol = proto.ExposeProtocol_EXPOSE_HTTP
+	case int(proto.ExposeProtocol_EXPOSE_HTTPS):
+		protocol = proto.ExposeProtocol_EXPOSE_HTTPS
+	case int(proto.ExposeProtocol_EXPOSE_TCP):
+		protocol = proto.ExposeProtocol_EXPOSE_TCP
+	case int(proto.ExposeProtocol_EXPOSE_UDP):
+		protocol = proto.ExposeProtocol_EXPOSE_UDP
+	default:
+		return nil, fmt.Errorf("invalid expose protocol: %d", req.Protocol)
+	}
+
+	return &proto.ExposeServiceRequest{
+		NamePrefix: req.NamePrefix,
+		Domain:     req.Domain,
+		Port:       uint32(req.Port),
+		Protocol:   protocol,
+		Pin:        req.Pin,
+		Password:   req.Password,
+		UserGroups: req.UserGroups,
+	}, nil
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

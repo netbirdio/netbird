@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
@@ -25,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 type ServiceDependencies struct {
@@ -34,7 +32,6 @@ type ServiceDependencies struct {
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
-	Semaphore          *semaphoregroup.SemaphoreGroup
 	PeerConnDispatcher *dispatcher.ConnectionDispatcher
 }
 
@@ -111,9 +108,8 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
-	semaphore *semaphoregroup.SemaphoreGroup
-	wg        sync.WaitGroup
+	guard *guard.Guard
+	wg    sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -139,7 +135,6 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		iFaceDiscover:   services.IFaceDiscover,
 		relayManager:    services.RelayManager,
 		srWatcher:       services.SrWatcher,
-		semaphore:       services.Semaphore,
 		statusRelay:     worker.NewAtomicStatus(),
 		statusICE:       worker.NewAtomicStatus(),
 		dumpState:       dumpState,
@@ -154,15 +149,10 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
-	if err := conn.semaphore.Add(engineCtx); err != nil {
-		return err
-	}
-
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	if conn.opened {
-		conn.semaphore.Done()
 		return nil
 	}
 
@@ -173,7 +163,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 	if err != nil {
-		conn.semaphore.Done()
 		return err
 	}
 	conn.workerICE = workerICE
@@ -207,10 +196,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
-
-		conn.waitInitialRandomSleepTime(conn.ctx)
-		conn.semaphore.Done()
-
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 	conn.opened = true
@@ -667,19 +652,6 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 
 	if conn.onConnected != nil {
 		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.config.WgConfig.AllowedIps[0].Addr().String(), remoteRosenpassAddr)
-	}
-}
-
-func (conn *Conn) waitInitialRandomSleepTime(ctx context.Context) {
-	maxWait := 300
-	duration := time.Duration(rand.Intn(maxWait)) * time.Millisecond
-
-	timeout := time.NewTimer(duration)
-	defer timeout.Stop()
-
-	select {
-	case <-ctx.Done():
-	case <-timeout.C:
 	}
 }
 

@@ -512,6 +512,12 @@ type AccountSettings struct {
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
+	// PeerExposeEnabled Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
+	PeerExposeEnabled bool `json:"peer_expose_enabled"`
+
+	// PeerExposeGroups Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
+	PeerExposeGroups []string `json:"peer_expose_groups"`
+
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
 
