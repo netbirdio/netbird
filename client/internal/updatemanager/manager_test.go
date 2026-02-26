@@ -189,7 +189,10 @@ func Test_EnforcedMetadata(t *testing.T) {
 	m.Start(context.Background())
 	m.SetDownloadOnly()
 
-	_, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	if ver == "" {
+		t.Fatal("Mode 1: expected new_version_available event")
+	}
 	if enforced {
 		t.Error("Mode 1: expected no enforced metadata")
 	}
