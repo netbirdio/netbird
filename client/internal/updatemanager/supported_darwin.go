@@ -11,7 +11,7 @@ import (
 func isAutoUpdateSupported() bool {
 	isBrew := !installer.TypeOfInstaller(context.Background()).Downloadable()
 	if isBrew {
-		log.Warnf("auto-update disabled on Home Brew installation")
+		log.Warnf("auto-update disabled on Homebrew installation")
 		return false
 	}
 	return true
