@@ -4,8 +4,6 @@ package service
 
 import (
 	"context"
-
-	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type Manager interface {
@@ -27,13 +25,4 @@ type Manager interface {
 	RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
 	StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
 	StartExposeReaper(ctx context.Context)
-}
-
-// ProxyController is responsible for managing proxy clusters and routing service updates.
-type ProxyController interface {
-	SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string)
-	GetOIDCValidationConfig() OIDCValidationConfig
-	RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error
-	UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error
-	GetProxiesForCluster(clusterAddr string) []string
 }

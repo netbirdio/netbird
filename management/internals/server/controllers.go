@@ -6,8 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -108,9 +108,9 @@ func (s *BaseServer) NetworkMapController() network_map.Controller {
 	})
 }
 
-func (s *BaseServer) ServiceProxyController() service.ProxyController {
-	return Create(s, func() service.ProxyController {
-		return nbreverseproxy.NewGRPCProxyController(s.ReverseProxyGRPCServer())
+func (s *BaseServer) ServiceProxyController() proxy.Controller {
+	return Create(s, func() proxy.Controller {
+		return proxymanager.NewGRPCController(s.ReverseProxyGRPCServer())
 	})
 }
 

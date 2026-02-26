@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -31,8 +31,8 @@ func newTestProxyController() *testProxyController {
 func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
 }
 
-func (c *testProxyController) GetOIDCValidationConfig() rpservice.OIDCValidationConfig {
-	return rpservice.OIDCValidationConfig{}
+func (c *testProxyController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{}
 }
 
 func (c *testProxyController) RegisterProxyToCluster(_ context.Context, clusterAddr, proxyID string) error {

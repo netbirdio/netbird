@@ -6,37 +6,37 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-// GRPCProxyController is a concrete implementation that manages proxy clusters and sends updates directly via gRPC.
-type GRPCProxyController struct {
+// GRPCController is a concrete implementation that manages proxy clusters and sends updates directly via gRPC.
+type GRPCController struct {
 	proxyGRPCServer *nbgrpc.ProxyServiceServer
 	// Map of cluster address -> set of proxy IDs
 	clusterProxies sync.Map
 }
 
-// NewGRPCProxyController creates a new GRPCProxyController.
-func NewGRPCProxyController(proxyGRPCServer *nbgrpc.ProxyServiceServer) *GRPCProxyController {
-	return &GRPCProxyController{
+// NewGRPCController creates a new GRPCController.
+func NewGRPCController(proxyGRPCServer *nbgrpc.ProxyServiceServer) *GRPCController {
+	return &GRPCController{
 		proxyGRPCServer: proxyGRPCServer,
 	}
 }
 
 // SendServiceUpdateToCluster sends a service update to a specific proxy cluster.
-func (c *GRPCProxyController) SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string) {
+func (c *GRPCController) SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string) {
 	c.proxyGRPCServer.SendServiceUpdateToCluster(ctx, update, clusterAddr)
 }
 
 // GetOIDCValidationConfig returns the OIDC validation configuration from the gRPC server.
-func (c *GRPCProxyController) GetOIDCValidationConfig() rpservice.OIDCValidationConfig {
+func (c *GRPCController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
 	return c.proxyGRPCServer.GetOIDCValidationConfig()
 }
 
 // RegisterProxyToCluster registers a proxy to a specific cluster for routing.
-func (c *GRPCProxyController) RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error {
+func (c *GRPCController) RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error {
 	if clusterAddr == "" {
 		return nil
 	}
@@ -47,7 +47,7 @@ func (c *GRPCProxyController) RegisterProxyToCluster(ctx context.Context, cluste
 }
 
 // UnregisterProxyFromCluster removes a proxy from a cluster.
-func (c *GRPCProxyController) UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error {
+func (c *GRPCController) UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error {
 	if clusterAddr == "" {
 		return nil
 	}
@@ -59,7 +59,7 @@ func (c *GRPCProxyController) UnregisterProxyFromCluster(ctx context.Context, cl
 }
 
 // GetProxiesForCluster returns all proxy IDs registered for a specific cluster.
-func (c *GRPCProxyController) GetProxiesForCluster(clusterAddr string) []string {
+func (c *GRPCController) GetProxiesForCluster(clusterAddr string) []string {
 	proxySet, ok := c.clusterProxies.Load(clusterAddr)
 	if !ok {
 		return nil

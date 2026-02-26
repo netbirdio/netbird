@@ -14,6 +14,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -109,13 +110,6 @@ func (a *AuthConfig) ClearSecrets() {
 	if a.PinAuth != nil {
 		a.PinAuth.Pin = ""
 	}
-}
-
-type OIDCValidationConfig struct {
-	Issuer             string
-	Audiences          []string
-	KeysLocation       string
-	MaxTokenAgeSeconds int64
 }
 
 type ServiceMeta struct {
@@ -239,7 +233,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
-func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
 	for _, target := range s.Targets {
 		if !target.Enabled {

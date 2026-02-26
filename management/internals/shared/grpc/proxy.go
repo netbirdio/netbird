@@ -69,7 +69,7 @@ type ProxyServiceServer struct {
 	serviceManager rpservice.Manager
 
 	// ProxyController for service updates and cluster management
-	proxyController rpservice.ProxyController
+	proxyController proxy.Controller
 
 	// Manager for proxy connections
 	proxyManager proxy.Manager
@@ -172,7 +172,7 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.serviceManager = manager
 }
 
-func (s *ProxyServiceServer) SetProxyController(proxyController rpservice.ProxyController) {
+func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller) {
 	s.proxyController = proxyController
 }
 
@@ -817,8 +817,8 @@ func (s *ProxyServiceServer) GetOIDCConfig() ProxyOIDCConfig {
 
 // GetOIDCValidationConfig returns the OIDC configuration for token validation
 // in the format needed by ToProtoMapping.
-func (s *ProxyServiceServer) GetOIDCValidationConfig() rpservice.OIDCValidationConfig {
-	return rpservice.OIDCValidationConfig{
+func (s *ProxyServiceServer) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{
 		Issuer:             s.oidcConfig.Issuer,
 		Audiences:          []string{s.oidcConfig.Audience},
 		KeysLocation:       s.oidcConfig.KeysLocation,

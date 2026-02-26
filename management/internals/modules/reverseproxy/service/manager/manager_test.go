@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -456,7 +457,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		mgr := &Manager{
 			store:           mockStore,
 			accountManager:  mockAccountMgr,
-			proxyController: NewGRPCProxyController(newProxyServer(t)),
+			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceUnexposed)
@@ -554,7 +555,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		mgr := &Manager{
 			store:           mockStore,
 			accountManager:  mockAccountMgr,
-			proxyController: NewGRPCProxyController(newProxyServer(t)),
+			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceExposeExpired)
@@ -594,7 +595,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		mgr := &Manager{
 			store:           mockStore,
 			accountManager:  mockAccountMgr,
-			proxyController: NewGRPCProxyController(newProxyServer(t)),
+			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceUnexposed)
@@ -694,7 +695,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 		store:              testStore,
 		accountManager:     accountMgr,
 		permissionsManager: permsMgr,
-		proxyController:    NewGRPCProxyController(proxySrv),
+		proxyController:    proxymanager.NewGRPCController(proxySrv),
 		clusterDeriver: &testClusterDeriver{
 			domains: []string{"test.netbird.io"},
 		},

@@ -11,6 +11,7 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -34,13 +35,13 @@ type Manager struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
-	proxyController    service.ProxyController
+	proxyController    proxy.Controller
 	clusterDeriver     ClusterDeriver
 	exposeTracker      *exposeTracker
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController service.ProxyController, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
 		store:              store,
 		accountManager:     accountManager,
