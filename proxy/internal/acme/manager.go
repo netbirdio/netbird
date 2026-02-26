@@ -156,7 +156,7 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	cert, err := mgr.GetCertificate(hello)
 	elapsed := time.Since(start)
 	if err != nil {
-		mgr.logger.Warnf("prefetch certificate for domain %q: %v", name, err)
+		mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed.String(), err)
 		mgr.setDomainState(d, domainFailed, err.Error())
 		return
 	}
