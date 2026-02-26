@@ -1,6 +1,7 @@
 package updatemanager
 
 import (
+	"strconv"
 	"time"
 
 	v "github.com/hashicorp/go-version"
@@ -47,7 +48,6 @@ func waitForUpdateEvent(sub *peer.EventSubscription, timeout time.Duration) (ver
 					}
 				}
 				return val, enforced
-			}
 			}
 		case <-timer.C:
 			return "", false
