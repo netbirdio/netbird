@@ -65,17 +65,20 @@ type Manager struct {
 
 	// protect to start the service multiple times
 	mu sync.Mutex
+
+	autoUpdateSupported func() bool
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		mgmUpdateChan:  make(chan struct{}, 1),
-		updateChannel:  make(chan struct{}, 1),
-		currentVersion: version.NetbirdVersion(),
-		update:         version.NewUpdate("nb/client"),
-		downloadOnly:   true,
+		statusRecorder:      statusRecorder,
+		stateManager:        stateManager,
+		mgmUpdateChan:       make(chan struct{}, 1),
+		updateChannel:       make(chan struct{}, 1),
+		currentVersion:      version.NetbirdVersion(),
+		update:              version.NewUpdate("nb/client"),
+		downloadOnly:        true,
+		autoUpdateSupported: isAutoUpdateSupported,
 	}
 
 	stateManager.RegisterState(&UpdateState{})
@@ -164,7 +167,7 @@ func (m *Manager) SetDownloadOnly() {
 func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
 
-	if !isAutoUpdateSupported() {
+	if !m.autoUpdateSupported() {
 		log.Warnf("auto-update not supported on this platform")
 		return
 	}

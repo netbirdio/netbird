@@ -53,6 +53,7 @@ func Test_LatestVersion(t *testing.T) {
 		m := NewManager(recorder, statemanager.New(tmpFile))
 		m.update = mockUpdate
 		m.currentVersion = c.daemonVersion
+		m.autoUpdateSupported = func() bool { return true }
 		m.Start(context.Background())
 		m.SetVersion("latest", false)
 
@@ -155,6 +156,7 @@ func Test_HandleUpdate(t *testing.T) {
 		m := NewManager(recorder, statemanager.New(tmpFile))
 		m.update = &versionUpdateMock{latestVersion: c.latestVersion}
 		m.currentVersion = c.daemonVersion
+		m.autoUpdateSupported = func() bool { return true }
 		m.Start(context.Background())
 		m.SetVersion(c.expectedVersion, false)
 
@@ -207,6 +209,7 @@ func Test_EnforcedMetadata(t *testing.T) {
 	m2 := NewManager(recorder2, statemanager.New(tmpFile2))
 	m2.update = &versionUpdateMock{latestVersion: nil}
 	m2.currentVersion = "1.0.0"
+	m2.autoUpdateSupported = func() bool { return true }
 	m2.Start(context.Background())
 	m2.SetVersion("1.0.1", false)
 
