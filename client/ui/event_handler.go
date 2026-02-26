@@ -223,26 +223,29 @@ func (h *eventHandler) handleUpdateClick() {
 		return
 	}
 
-	conn, err := h.client.getSrvClient(defaultFailTimeout)
-	if err != nil {
-		log.Errorf("failed to get service client for update: %v", err)
-		_ = openURL(version.DownloadUrl())
-		return
-	}
+	// prevent against of busy server
+	go func() {
+		conn, err := h.client.getSrvClient(defaultFailTimeout)
+		if err != nil {
+			log.Errorf("failed to get service client for update: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
 
-	resp, err := conn.TriggerUpdate(h.client.ctx, &proto.TriggerUpdateRequest{})
-	if err != nil {
-		log.Errorf("TriggerUpdate failed: %v", err)
-		_ = openURL(version.DownloadUrl())
-		return
-	}
-	if !resp.Success {
-		log.Errorf("TriggerUpdate failed: %s", resp.ErrorMsg)
-		_ = openURL(version.DownloadUrl())
-		return
-	}
+		resp, err := conn.TriggerUpdate(h.client.ctx, &proto.TriggerUpdateRequest{})
+		if err != nil {
+			log.Errorf("TriggerUpdate failed: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+		if !resp.Success {
+			log.Errorf("TriggerUpdate failed: %s", resp.ErrorMsg)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
 
-	log.Infof("update triggered via daemon")
+		log.Infof("update triggered via daemon")
+	}()
 }
 
 func (h *eventHandler) handleNetworksClick() {
