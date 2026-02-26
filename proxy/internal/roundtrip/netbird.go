@@ -2,6 +2,7 @@ package roundtrip
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -242,23 +243,32 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// Create a transport using the client dialer. We do this instead of using
 	// the client's HTTPClient to avoid issues with request validation that do
 	// not work with reverse proxied requests.
+	transport := &http.Transport{
+		DialContext:           client.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          n.transportCfg.maxIdleConns,
+		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
+		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
+		IdleConnTimeout:       n.transportCfg.idleConnTimeout,
+		TLSHandshakeTimeout:   n.transportCfg.tlsHandshakeTimeout,
+		ExpectContinueTimeout: n.transportCfg.expectContinueTimeout,
+		ResponseHeaderTimeout: n.transportCfg.responseHeaderTimeout,
+		WriteBufferSize:       n.transportCfg.writeBufferSize,
+		ReadBufferSize:        n.transportCfg.readBufferSize,
+		DisableCompression:    n.transportCfg.disableCompression,
+	}
+
+	if n.transportCfg.proxySkipTLSVerify {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // User-configured option for internal services
+		}
+		n.logger.Warn("TLS certificate verification disabled for backend connections - use only with trusted internal services")
+	}
+
 	return &clientEntry{
-		client:  client,
-		domains: map[domain.Domain]domainInfo{d: {serviceID: serviceID}},
-		transport: &http.Transport{
-			DialContext:           client.DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          n.transportCfg.maxIdleConns,
-			MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
-			MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
-			IdleConnTimeout:       n.transportCfg.idleConnTimeout,
-			TLSHandshakeTimeout:   n.transportCfg.tlsHandshakeTimeout,
-			ExpectContinueTimeout: n.transportCfg.expectContinueTimeout,
-			ResponseHeaderTimeout: n.transportCfg.responseHeaderTimeout,
-			WriteBufferSize:       n.transportCfg.writeBufferSize,
-			ReadBufferSize:        n.transportCfg.readBufferSize,
-			DisableCompression:    n.transportCfg.disableCompression,
-		},
+		client:      client,
+		domains:     map[domain.Domain]domainInfo{d: {serviceID: serviceID}},
+		transport:   transport,
 		createdAt:   time.Now(),
 		started:     false,
 		inflightMap: make(map[backendKey]chan struct{}),
@@ -539,9 +549,13 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 // NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, skipTLSVerify bool, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
+	}
+	cfg := loadTransportConfig(logger)
+	if skipTLSVerify {
+		cfg.proxySkipTLSVerify = true
 	}
 	return &NetBird{
 		mgmtAddr:       mgmtAddr,
@@ -552,7 +566,7 @@ func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Log
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,
 		mgmtClient:     mgmtClient,
-		transportCfg:   loadTransportConfig(logger),
+		transportCfg:   cfg,
 	}
 }
 

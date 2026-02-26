@@ -34,25 +34,26 @@ var (
 )
 
 var (
-	debugLogs         bool
-	mgmtAddr          string
-	addr              string
-	proxyDomain       string
-	certDir           string
-	acmeCerts         bool
-	acmeAddr          string
-	acmeDir           string
-	acmeChallengeType string
-	debugEndpoint     bool
-	debugEndpointAddr string
-	healthAddr        string
-	forwardedProto    string
-	trustedProxies    string
-	certFile          string
-	certKeyFile       string
-	certLockMethod    string
-	wgPort            int
-	proxyProtocol     bool
+	debugLogs          bool
+	mgmtAddr           string
+	addr               string
+	proxyDomain        string
+	certDir            string
+	acmeCerts          bool
+	acmeAddr           string
+	acmeDir            string
+	acmeChallengeType  string
+	debugEndpoint      bool
+	debugEndpointAddr  string
+	healthAddr         string
+	forwardedProto     string
+	trustedProxies     string
+	certFile           string
+	certKeyFile        string
+	certLockMethod     string
+	wgPort             int
+	proxyProtocol      bool
+	proxySkipTLSVerify bool
 )
 
 var rootCmd = &cobra.Command{
@@ -84,6 +85,7 @@ func init() {
 	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
 	rootCmd.Flags().IntVar(&wgPort, "wg-port", envIntOrDefault("NB_PROXY_WG_PORT", 0), "WireGuard listen port (0 = random). Fixed port only works with single-account deployments")
 	rootCmd.Flags().BoolVar(&proxyProtocol, "proxy-protocol", envBoolOrDefault("NB_PROXY_PROXY_PROTOCOL", false), "Enable PROXY protocol on TCP listeners to preserve client IPs behind L4 proxies")
+	rootCmd.Flags().BoolVar(&proxySkipTLSVerify, "proxy-skip-tls-verify", envBoolOrDefault("NB_PROXY_SKIP_TLS_VERIFY", false), "Skip TLS certificate verification for backend services (insecure, use only for internal services with self-signed certificates)")
 }
 
 // Execute runs the root command.
@@ -156,6 +158,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WireguardPort:            wgPort,
 		ProxyProtocol:            proxyProtocol,
+		ProxySkipTLSVerify:       proxySkipTLSVerify, // Add this
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

@@ -40,6 +40,12 @@ Certificate generation can either be via ACME (by default, using Let's Encrypt, 
 When not using ACME, the proxy server attempts to load a certificate and key from the files `tls.crt` and `tls.key` in a specified certificate directory.
 When using ACME, the proxy server will store generated certificates in the specified certificate directory.
 
+### Backend TLS Verification
+
+By default, the proxy verifies TLS certificates when connecting to backend services over HTTPS. For internal services using self-signed certificates, you can disable this verification using the `--proxy-skip-tls-verify` flag or `NB_PROXY_SKIP_TLS_VERIFY` environment variable.
+
+**Security Warning**: Disabling TLS verification should only be used for trusted internal services, as it makes connections vulnerable to man-in-the-middle attacks.
+
 
 ## Auth UI
 
@@ -64,17 +70,18 @@ The built assets in `web/dist/` are embedded via `//go:embed` and served by the 
 NetBird Proxy deployment configuration is via flags or environment variables, with flags taking precedence over the environment.
 The following deployment configuration is available:
 
-| Flag             | Env                              | Purpose                                                                                                                            | Default                                            |
-|------------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------|
-| `-debug`         | `NB_PROXY_DEBUG_LOGS`            | Enable debug logging                                                                                                               | `false`                                            |
-| `-mgmt`          | `NB_PROXY_MANAGEMENT_ADDRESS`    | The address of the management server for the proxy to get configuration from.                                                      | `"https://api.netbird.io:443"`                     |
-| `-addr`          | `NB_PROXY_ADDRESS`               | The address that the reverse proxy will listen on.                                                                                 | `":443`                                            |
-| `-url`           | `NB_PROXY_URL`                   | The URL that the proxy will be reached at (where endpoints will be CNAMEd to). If unset, this will fall back to the proxy address. | `"proxy.netbird.io"`                               |
-| `-cert-dir`      | `NB_PROXY_CERTIFICATE_DIRECTORY` | The location that certificates are stored in.                                                                                      | `"./certs"`                                        |
-| `-acme-certs`    | `NB_PROXY_ACME_CERTIFICATES`     | Whether to use ACME to generate certificates.                                                                                      | `false`                                            |
-| `-acme-addr`     | `NB_PROXY_ACME_ADDRESS`          | The HTTP address the proxy will listen on to respond to HTTP-01 ACME challenges                                                    | `":80"`                                            |
-| `-acme-dir`      | `NB_PROXY_ACME_DIRECTORY`        | The directory URL of the ACME server to be used                                                                                    | `"https://acme-v02.api.letsencrypt.org/directory"` |
-| `-oidc-id`       | `NB_PROXY_OIDC_CLIENT_ID`        | The OAuth2 Client ID for OIDC User Authentication                                                                                  | `"netbird-proxy"`                                  |
-| `-oidc-secret`   | `NB_PROXY_OIDC_CLIENT_SECRET`    | The OAuth2 Client Secret for OIDC User Authentication                                                                              | `""`                                               |
-| `-oidc-endpoint` | `NB_PROXY_OIDC_ENDPOINT`         | The OAuth2 provider endpoint for OIDC User Authentication                                                                          | `"https://api.netbird.io/oauth2"`                  |
-| `-oidc-scopes`   | `NB_PROXY_OIDC_SCOPES`           | The OAuth2 scopes for OIDC User Authentication, comma separated                                                                    | `"openid,profile,email"`                           |
+| Flag                     | Env                              | Purpose                                                                                                                            | Default                                            |
+|--------------------------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------|
+| `-debug`                 | `NB_PROXY_DEBUG_LOGS`            | Enable debug logging                                                                                                               | `false`                                            |
+| `-mgmt`                  | `NB_PROXY_MANAGEMENT_ADDRESS`    | The address of the management server for the proxy to get configuration from.                                                      | `"https://api.netbird.io:443"`                     |
+| `-addr`                  | `NB_PROXY_ADDRESS`               | The address that the reverse proxy will listen on.                                                                                 | `":443`                                            |
+| `-url`                   | `NB_PROXY_URL`                   | The URL that the proxy will be reached at (where endpoints will be CNAMEd to). If unset, this will fall back to the proxy address. | `"proxy.netbird.io"`                               |
+| `-cert-dir`              | `NB_PROXY_CERTIFICATE_DIRECTORY` | The location that certificates are stored in.                                                                                      | `"./certs"`                                        |
+| `-acme-certs`            | `NB_PROXY_ACME_CERTIFICATES`     | Whether to use ACME to generate certificates.                                                                                      | `false`                                            |
+| `-acme-addr`             | `NB_PROXY_ACME_ADDRESS`          | The HTTP address the proxy will listen on to respond to HTTP-01 ACME challenges                                                    | `":80"`                                            |
+| `-acme-dir`              | `NB_PROXY_ACME_DIRECTORY`        | The directory URL of the ACME server to be used                                                                                    | `"https://acme-v02.api.letsencrypt.org/directory"` |
+| `-proxy-skip-tls-verify` | `NB_PROXY_SKIP_TLS_VERIFY`       | Skip TLS certificate verification for backend services (insecure, use only for internal services with self-signed certificates)    | `false`                                            |
+| `-oidc-id`               | `NB_PROXY_OIDC_CLIENT_ID`        | The OAuth2 Client ID for OIDC User Authentication                                                                                  | `"netbird-proxy"`                                  |
+| `-oidc-secret`           | `NB_PROXY_OIDC_CLIENT_SECRET`    | The OAuth2 Client Secret for OIDC User Authentication                                                                              | `""`                                               |
+| `-oidc-endpoint`         | `NB_PROXY_OIDC_ENDPOINT`         | The OAuth2 provider endpoint for OIDC User Authentication                                                                          | `"https://api.netbird.io/oauth2"`                  |
+| `-oidc-scopes`           | `NB_PROXY_OIDC_SCOPES`           | The OAuth2 scopes for OIDC User Authentication, comma separated                                                                    | `"openid,profile,email"`                           |

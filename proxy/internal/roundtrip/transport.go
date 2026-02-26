@@ -21,6 +21,7 @@ const (
 	EnvReadBufferSize        = "NB_PROXY_READ_BUFFER_SIZE"
 	EnvDisableCompression    = "NB_PROXY_DISABLE_COMPRESSION"
 	EnvMaxInflight           = "NB_PROXY_MAX_INFLIGHT"
+	EnvProxySkipTLSVerify    = "NB_PROXY_SKIP_TLS_VERIFY"
 )
 
 // transportConfig holds tunable parameters for the per-account HTTP transport.
@@ -36,7 +37,8 @@ type transportConfig struct {
 	readBufferSize        int
 	disableCompression    bool
 	// maxInflight limits per-backend concurrent requests. 0 means unlimited.
-	maxInflight int
+	maxInflight        int
+	proxySkipTLSVerify bool
 }
 
 func defaultTransportConfig() transportConfig {
@@ -86,6 +88,9 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	if v, ok := envInt(EnvMaxInflight, logger); ok {
 		cfg.maxInflight = v
 	}
+	if v, ok := envBool(EnvProxySkipTLSVerify, logger); ok {
+		cfg.proxySkipTLSVerify = v
+	}
 
 	logger.WithFields(log.Fields{
 		"max_idle_conns":          cfg.maxIdleConns,
@@ -99,6 +104,7 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 		"read_buffer_size":        cfg.readBufferSize,
 		"disable_compression":     cfg.disableCompression,
 		"max_inflight":            cfg.maxInflight,
+		"proxy_skip_tls_verify":   cfg.proxySkipTLSVerify, // Add this
 	}).Debug("backend transport configuration")
 
 	return cfg
