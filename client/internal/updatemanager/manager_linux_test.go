@@ -58,7 +58,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		m.Start(context.Background())
 		m.SetDownloadOnly()
 
-		ver, enforced := waitForUpdateEvent(sub, 10*time.Millisecond)
+		ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
 		triggeredInit := ver != ""
 		if enforced {
 			t.Errorf("%s: Linux Mode 1 must never have enforced metadata", c.name)
@@ -73,7 +73,7 @@ func Test_LatestVersion_Linux(t *testing.T) {
 		mockUpdate.latestVersion = c.latestVersion
 		mockUpdate.onUpdate()
 
-		ver, enforced = waitForUpdateEvent(sub, 10*time.Millisecond)
+		ver, enforced = waitForUpdateEvent(sub, 500*time.Millisecond)
 		triggeredLater := ver != ""
 		if enforced {
 			t.Errorf("%s: Linux Mode 1 must never have enforced metadata", c.name)
@@ -102,7 +102,7 @@ func Test_SetVersion_NoOp_Linux(t *testing.T) {
 	m.Start(context.Background())
 	m.SetVersion("1.0.1", false)
 
-	ver, _ := waitForUpdateEvent(sub, 10*time.Millisecond)
+	ver, _ := waitForUpdateEvent(sub, 500*time.Millisecond)
 	if ver != "" {
 		t.Errorf("SetVersion should be a no-op on Linux, but got event with version %s", ver)
 	}
