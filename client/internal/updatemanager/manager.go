@@ -210,7 +210,7 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 
 // Install triggers the installation of the pending version. It is called when the user clicks the install button in the UI.
 func (m *Manager) Install(ctx context.Context) error {
-	if !isAutoUpdateSupported() {
+	if !m.autoUpdateSupported() {
 		return fmt.Errorf("auto-update not supported on this platform")
 	}
 
