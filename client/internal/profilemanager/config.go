@@ -641,11 +641,11 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
-	fileExists, err := fileExists(input.ConfigPath)
+	configExists, err := fileExists(input.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
 	}
-	if !fileExists {
+	if !configExists {
 		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
 	}
 
@@ -654,11 +654,11 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 // UpdateOrCreateConfig reads existing config or generates a new one
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	fileExists, err := fileExists(input.ConfigPath)
+	configExists, err := fileExists(input.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
 	}
-	if !fileExists {
+	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
@@ -798,12 +798,12 @@ func ReadConfig(configPath string) (*Config, error) {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func readConfig(configPath string, createIfMissing bool) (*Config, error) {
-	fileExists, err := fileExists(configPath)
+	configExists, err := fileExists(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
 	}
 
-	if fileExists {
+	if configExists {
 		err := util.EnforcePermission(configPath)
 		if err != nil {
 			log.Errorf("failed to enforce permission on config dir: %v", err)
@@ -850,11 +850,11 @@ func DirectWriteOutConfig(path string, config *Config) error {
 // DirectUpdateOrCreateConfig is like UpdateOrCreateConfig but uses direct (non-atomic) writes.
 // Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
 func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	fileExists, err := fileExists(input.ConfigPath)
+	configExists, err := fileExists(input.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
 	}
-	if !fileExists {
+	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
