@@ -54,26 +54,7 @@ var (
 	wgPort             int
 	proxyProtocol      bool
 	proxySkipTLSVerify bool
-	debugLogs         bool
-	mgmtAddr          string
-	addr              string
-	proxyDomain       string
-	certDir           string
-	acmeCerts         bool
-	acmeAddr          string
-	acmeDir           string
-	acmeChallengeType string
-	debugEndpoint     bool
-	debugEndpointAddr string
-	healthAddr        string
-	forwardedProto    string
-	trustedProxies    string
-	certFile          string
-	certKeyFile       string
-	certLockMethod    string
-	wgPort            int
-	proxyProtocol     bool
-	preSharedKey      string
+	preSharedKey       string
 )
 
 var rootCmd = &cobra.Command{
