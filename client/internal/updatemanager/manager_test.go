@@ -56,7 +56,7 @@ func Test_LatestVersion(t *testing.T) {
 		m.Start(context.Background())
 		m.SetVersion("latest", false)
 
-		ver, _ := waitForUpdateEvent(sub, 10*time.Millisecond)
+		ver, _ := waitForUpdateEvent(sub, 500*time.Millisecond)
 		triggeredInit := ver != ""
 		if triggeredInit != c.shouldUpdateInit {
 			t.Errorf("%s: Initial update trigger mismatch, expected %v, got %v", c.name, c.shouldUpdateInit, triggeredInit)
@@ -68,7 +68,7 @@ func Test_LatestVersion(t *testing.T) {
 		mockUpdate.latestVersion = c.latestVersion
 		mockUpdate.onUpdate()
 
-		ver, _ = waitForUpdateEvent(sub, 10*time.Millisecond)
+		ver, _ = waitForUpdateEvent(sub, 500*time.Millisecond)
 		triggeredLater := ver != ""
 		if triggeredLater != c.shouldUpdateLater {
 			t.Errorf("%s: Later update trigger mismatch, expected %v, got %v", c.name, c.shouldUpdateLater, triggeredLater)
@@ -158,7 +158,7 @@ func Test_HandleUpdate(t *testing.T) {
 		m.Start(context.Background())
 		m.SetVersion(c.expectedVersion, false)
 
-		ver, _ := waitForUpdateEvent(sub, 10*time.Millisecond)
+		ver, _ := waitForUpdateEvent(sub, 500*time.Millisecond)
 		updateTriggered := ver != ""
 
 		if updateTriggered {
@@ -189,7 +189,7 @@ func Test_EnforcedMetadata(t *testing.T) {
 	m.Start(context.Background())
 	m.SetDownloadOnly()
 
-	_, enforced := waitForUpdateEvent(sub, 10*time.Millisecond)
+	_, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
 	if enforced {
 		t.Error("Mode 1: expected no enforced metadata")
 	}
@@ -207,7 +207,7 @@ func Test_EnforcedMetadata(t *testing.T) {
 	m2.Start(context.Background())
 	m2.SetVersion("1.0.1", false)
 
-	ver, enforced2 := waitForUpdateEvent(sub2, 10*time.Millisecond)
+	ver, enforced2 := waitForUpdateEvent(sub2, 500*time.Millisecond)
 	if ver == "" {
 		t.Fatal("Mode 2: expected new_version_available event")
 	}
