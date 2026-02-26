@@ -10,7 +10,9 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -455,9 +457,13 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			Return(testPeer, nil)
 
 		mgr := &Manager{
-			store:           mockStore,
-			accountManager:  mockAccountMgr,
-			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
+			store:          mockStore,
+			accountManager: mockAccountMgr,
+			proxyController: func() proxy.Controller {
+				c, err := proxymanager.NewGRPCController(newProxyServer(t), noop.NewMeterProvider().Meter(""))
+				require.NoError(t, err)
+				return c
+			}(),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceUnexposed)
@@ -553,9 +559,13 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			Return(testPeer, nil)
 
 		mgr := &Manager{
-			store:           mockStore,
-			accountManager:  mockAccountMgr,
-			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
+			store:          mockStore,
+			accountManager: mockAccountMgr,
+			proxyController: func() proxy.Controller {
+				c, err := proxymanager.NewGRPCController(newProxyServer(t), noop.NewMeterProvider().Meter(""))
+				require.NoError(t, err)
+				return c
+			}(),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceExposeExpired)
@@ -593,9 +603,13 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			Return(testPeer, nil)
 
 		mgr := &Manager{
-			store:           mockStore,
-			accountManager:  mockAccountMgr,
-			proxyController: proxymanager.NewGRPCController(newProxyServer(t)),
+			store:          mockStore,
+			accountManager: mockAccountMgr,
+			proxyController: func() proxy.Controller {
+				c, err := proxymanager.NewGRPCController(newProxyServer(t), noop.NewMeterProvider().Meter(""))
+				require.NoError(t, err)
+				return c
+			}(),
 		}
 
 		err := mgr.deletePeerService(ctx, accountID, ownerPeerID, serviceID, activity.PeerServiceUnexposed)
@@ -691,11 +705,14 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 	t.Cleanup(proxySrv.Close)
 
+	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
+
 	mgr := &Manager{
 		store:              testStore,
 		accountManager:     accountMgr,
 		permissionsManager: permsMgr,
-		proxyController:    proxymanager.NewGRPCController(proxySrv),
+		proxyController:    proxyController,
 		clusterDeriver: &testClusterDeriver{
 			domains: []string{"test.netbird.io"},
 		},

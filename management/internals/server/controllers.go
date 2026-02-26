@@ -110,7 +110,11 @@ func (s *BaseServer) NetworkMapController() network_map.Controller {
 
 func (s *BaseServer) ServiceProxyController() proxy.Controller {
 	return Create(s, func() proxy.Controller {
-		return proxymanager.NewGRPCController(s.ReverseProxyGRPCServer())
+		controller, err := proxymanager.NewGRPCController(s.ReverseProxyGRPCServer(), s.Metrics().GetMeter())
+		if err != nil {
+			log.Fatalf("failed to create service proxy controller: %v", err)
+		}
+		return controller
 	})
 }
 

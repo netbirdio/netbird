@@ -200,7 +200,11 @@ func (s *BaseServer) ServiceManager() service.Manager {
 
 func (s *BaseServer) ProxyManager() proxy.Manager {
 	return Create(s, func() proxy.Manager {
-		return proxymanager.NewManager(s.Store())
+		manager, err := proxymanager.NewManager(s.Store(), s.Metrics().GetMeter())
+		if err != nil {
+			log.Fatalf("failed to create proxy manager: %v", err)
+		}
+		return manager
 	})
 }
 

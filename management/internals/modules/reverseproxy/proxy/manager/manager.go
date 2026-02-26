@@ -5,6 +5,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
@@ -19,14 +20,21 @@ type store interface {
 
 // Manager handles all proxy operations
 type Manager struct {
-	store store
+	store   store
+	metrics *metrics
 }
 
 // NewManager creates a new proxy Manager
-func NewManager(store store) Manager {
-	return Manager{
-		store: store,
+func NewManager(store store, meter metric.Meter) (*Manager, error) {
+	m, err := newMetrics(meter)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Manager{
+		store:   store,
+		metrics: m,
+	}, nil
 }
 
 // Connect registers a new proxy connection in the database
@@ -83,6 +91,7 @@ func (m Manager) Heartbeat(ctx context.Context, proxyID string) error {
 		log.WithContext(ctx).Debugf("failed to update proxy %s heartbeat: %v", proxyID, err)
 		return err
 	}
+	m.metrics.IncrementProxyHeartbeatCount()
 	return nil
 }
 
