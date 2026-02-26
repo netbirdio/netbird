@@ -62,6 +62,9 @@ type Manager struct {
 	// installMutex and installing guard against concurrent installation attempts
 	installMutex sync.Mutex
 	installing   bool
+
+	// protect to start the service multiple times
+	mu sync.Mutex
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
@@ -119,6 +122,8 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 
 func (m *Manager) Start(ctx context.Context) {
 	log.Infof("starting update manager")
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.cancel != nil {
 		return
 	}
