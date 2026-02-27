@@ -112,7 +112,7 @@ func (a *AuthConfig) ClearSecrets() {
 	}
 }
 
-type ServiceMeta struct {
+type Meta struct {
 	CreatedAt           time.Time
 	CertificateIssuedAt *time.Time
 	Status              string
@@ -129,11 +129,11 @@ type Service struct {
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig  `gorm:"serializer:json"`
-	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	SessionPrivateKey string      `gorm:"column:session_private_key"`
-	SessionPublicKey  string      `gorm:"column:session_public_key"`
-	Source            string      `gorm:"default:'permanent'"`
+	Auth              AuthConfig `gorm:"serializer:json"`
+	Meta              Meta       `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string     `gorm:"column:session_private_key"`
+	SessionPublicKey  string     `gorm:"column:session_public_key"`
+	Source            string     `gorm:"default:'permanent'"`
 	SourcePeer        string
 }
 
@@ -159,7 +159,7 @@ func NewService(accountID, name, domain, proxyCluster string, targets []*Target,
 // only be called during initial creation, not for updates.
 func (s *Service) InitNewRecord() {
 	s.ID = xid.New().String()
-	s.Meta = ServiceMeta{
+	s.Meta = Meta{
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}

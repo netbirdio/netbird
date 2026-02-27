@@ -127,7 +127,7 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					Auth: rpservice.AuthConfig{
 						PasswordAuth: &rpservice.PasswordAuthConfig{Enabled: true},
 					},
-					Meta: rpservice.ServiceMeta{Status: string(rpservice.StatusActive)},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusActive)},
 				},
 				{
 					ID:      "svc2",
@@ -138,7 +138,7 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					Auth: rpservice.AuthConfig{
 						BearerAuth: &rpservice.BearerAuthConfig{Enabled: true},
 					},
-					Meta: rpservice.ServiceMeta{Status: string(rpservice.StatusPending)},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusPending)},
 				},
 			},
 		},

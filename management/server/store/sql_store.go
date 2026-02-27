@@ -2122,7 +2122,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			}
 		}
 
-		s.Meta = rpservice.ServiceMeta{}
+		s.Meta = rpservice.Meta{}
 		if createdAt.Valid {
 			s.Meta.CreatedAt = createdAt.Time
 		}

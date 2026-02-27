@@ -365,7 +365,7 @@ func TestPreserveServiceMetadata(t *testing.T) {
 	mgr := &Manager{}
 
 	existing := &rpservice.Service{
-		Meta: rpservice.ServiceMeta{
+		Meta: rpservice.Meta{
 			CertificateIssuedAt: func() *time.Time { t := time.Now(); return &t }(),
 			Status:              "active",
 		},

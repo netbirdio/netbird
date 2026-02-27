@@ -59,9 +59,6 @@ type ProxyServiceServer struct {
 	// Map of connected proxies: proxy_id -> proxy connection
 	connectedProxies sync.Map
 
-	// Channel for broadcasting reverse proxy updates to all proxies
-	updatesChan chan *proto.ProxyMapping
-
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
