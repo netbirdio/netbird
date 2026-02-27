@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -222,8 +223,8 @@ func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ st
 	// noop
 }
 
-func (c *testProxyController) GetOIDCValidationConfig() service.OIDCValidationConfig {
-	return service.OIDCValidationConfig{}
+func (c *testProxyController) GetOIDCValidationConfig() nbproxy.OIDCValidationConfig {
+	return nbproxy.OIDCValidationConfig{}
 }
 
 func (c *testProxyController) RegisterProxyToCluster(_ context.Context, _, _ string) error {
@@ -300,8 +301,8 @@ func (m *storeBackedServiceManager) GetServiceIDByTargetID(ctx context.Context, 
 	return "", nil
 }
 
-func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
-	return &reverseproxy.ExposeServiceResponse{}, nil
+func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
+	return &service.ExposeServiceResponse{}, nil
 }
 
 func (m *storeBackedServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
