@@ -65,8 +65,8 @@ func (b *earlyMsgBuffer) put(peerID messages.PeerID, msg Msg) bool {
 	}
 
 	entry := earlyMsg{
-		peerID: peerID,
-		msg: msg,
+		peerID:    peerID,
+		msg:       msg,
 		createdAt: time.Now(),
 	}
 	elem := b.order.PushBack(entry)
