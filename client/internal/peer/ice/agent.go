@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
 const (
@@ -125,6 +126,10 @@ func GenerateICECredentials() (string, string, error) {
 }
 
 func CandidateTypes() []ice.CandidateType {
+	if relayClient.IsDisableRelay() {
+		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
+	}
+
 	if hasICEForceRelayConn() {
 		return []ice.CandidateType{ice.CandidateTypeRelay}
 	}

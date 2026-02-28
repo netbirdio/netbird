@@ -290,6 +290,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 
+		if relayClient.IsDisableRelay() {
+			relayURLs = []string{}
+		}
+
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
@@ -310,6 +314,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engineMutex.Lock()
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		engine.SetReadyChan(runningChan)
+		runningChan = nil
 		c.engine = engine
 		c.engineMutex.Unlock()
 
@@ -329,11 +335,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
-
-		if runningChan != nil {
-			close(runningChan)
-			runningChan = nil
-		}
 
 		<-engineCtx.Done()
 

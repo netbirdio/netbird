@@ -589,6 +589,101 @@ func Test_ConnectPeers(t *testing.T) {
 
 }
 
+func Test_UserSpaceAddAllowedIPs(t *testing.T) {
+	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+5)
+	wgIP := "10.99.99.21/30"
+	wgPort := 33105
+
+	newNet, err := stdnet.NewNet(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := WGIFaceOpts{
+		IFaceName:    ifaceName,
+		Address:      wgIP,
+		WGPort:       wgPort,
+		WGPrivKey:    key,
+		MTU:          DefaultMTU,
+		TransportNet: newNet,
+	}
+
+	iface, err := NewWGIFace(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = iface.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := iface.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	_, err = iface.Up()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keepAlive := 15 * time.Second
+	initialAllowedIP := netip.MustParsePrefix("10.99.99.22/32")
+	endpoint, err := net.ResolveUDPAddr("udp", "127.0.0.1:9905")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add peer with initial endpoint and first allowed IP
+	err = iface.UpdatePeer(peerPubKey, []netip.Prefix{initialAllowedIP}, keepAlive, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Phase 1: generate 500 allowed IPs into a list
+	const extraIPs = 500
+	addedPrefixes := make([]netip.Prefix, 0, extraIPs)
+	for i := 0; i < extraIPs; i++ {
+		// Use 172.16.x.y/32 range: i encoded as two octets
+		prefix := netip.MustParsePrefix(fmt.Sprintf("172.16.%d.%d/32", i/256, i%256))
+		addedPrefixes = append(addedPrefixes, prefix)
+	}
+
+	// Phase 2: iterate over the list and add each allowed IP to the peer
+	phase2Start := time.Now()
+	for _, prefix := range addedPrefixes {
+		if addErr := iface.AddAllowedIP(peerPubKey, prefix); addErr != nil {
+			t.Fatalf("failed to add allowed IP %s: %v", prefix, addErr)
+		}
+	}
+	t.Logf("Phase 2 (add %d IPs to peer): %s", extraIPs, time.Since(phase2Start))
+
+	// Verify the peer has all 101 allowed IPs (1 initial + 100 added)
+	peer, err := getPeer(ifaceName, peerPubKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if peer.Endpoint.String() != endpoint.String() {
+		t.Fatalf("expected endpoint %s, got %s", endpoint, peer.Endpoint)
+	}
+
+	allExpected := append([]netip.Prefix{initialAllowedIP}, addedPrefixes...)
+	if len(peer.AllowedIPs) != len(allExpected) {
+		t.Fatalf("expected %d allowed IPs, got %d", len(allExpected), len(peer.AllowedIPs))
+	}
+
+	allowedIPSet := make(map[string]struct{}, len(peer.AllowedIPs))
+	for _, aip := range peer.AllowedIPs {
+		allowedIPSet[aip.String()] = struct{}{}
+	}
+	for _, expected := range allExpected {
+		if _, found := allowedIPSet[expected.String()]; !found {
+			t.Errorf("expected allowed IP %s not found in peer config", expected)
+		}
+	}
+}
+
 func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
