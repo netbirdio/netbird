@@ -271,6 +271,15 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},
+		{
+			name:           "PutAccount with mismatched accountId returns forbidden",
+			expectedBody:   false,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/different_account_id",
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusForbidden,
+			expectedArray:  false,
+		},
 	}
 
 	for _, tc := range tt {
@@ -329,4 +338,33 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedSettings, actual.Settings)
 		})
 	}
+}
+
+func TestDeleteAccount_CrossAccountForbidden(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{},
+	})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/accounts/different_account_id", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/accounts/{accountId}", handler.deleteAccount).Methods("DELETE")
+	router.ServeHTTP(recorder, req)
+
+	assert.Equal(t, http.StatusForbidden, recorder.Code, "cross-account delete should be forbidden")
 }

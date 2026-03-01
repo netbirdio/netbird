@@ -237,12 +237,17 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, userID := userAuth.AccountId, userAuth.UserId
+	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	vars := mux.Vars(r)
-	accountID := vars["accountId"]
-	if len(accountID) == 0 {
+	reqAccountID := vars["accountId"]
+	if len(reqAccountID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
+		return
+	}
+
+	if reqAccountID != accountID {
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "requested account ID does not match authenticated account"), w)
 		return
 	}
 
@@ -310,6 +315,8 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountID := userAuth.AccountId
+
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]
 	if len(targetAccountID) == 0 {
@@ -317,7 +324,12 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteAccount(r.Context(), targetAccountID, userAuth.UserId)
+	if targetAccountID != accountID {
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "requested account ID does not match authenticated account"), w)
+		return
+	}
+
+	err = h.accountManager.DeleteAccount(r.Context(), accountID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
