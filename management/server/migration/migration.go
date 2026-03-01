@@ -187,8 +187,7 @@ func MigrateNetIPFieldFromBlobToJSON[T any](ctx context.Context, db *gorm.DB, fi
 
 			columnIpValue := net.IP(blobValue)
 			if net.ParseIP(columnIpValue.String()) == nil {
-				log.WithContext(ctx).Debugf("failed to parse %s as ip, fallback to ipv6 loopback", oldColumnName)
-				columnIpValue = net.IPv6loopback
+				return fmt.Errorf("failed to parse blob value as valid IP for column %s, row ID %v", oldColumnName, row["id"])
 			}
 
 			jsonValue, err := json.Marshal(columnIpValue)
