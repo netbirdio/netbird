@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/internal/cert"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -53,6 +54,7 @@ type ConnectClient struct {
 	engineMutex sync.Mutex
 
 	persistSyncResponse bool
+	certManager         *cert.Manager
 }
 
 func NewConnectClient(
@@ -310,6 +312,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engineMutex.Lock()
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		engine.SetCertManager(c.certManager)
 		c.engine = engine
 		c.engineMutex.Unlock()
 
@@ -472,6 +475,13 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 	if engine != nil {
 		engine.SetSyncResponsePersistence(enabled)
 	}
+}
+
+// SetCertManager sets the certificate manager for TLS certificate lifecycle.
+func (c *ConnectClient) SetCertManager(m *cert.Manager) {
+	c.engineMutex.Lock()
+	c.certManager = m
+	c.engineMutex.Unlock()
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig

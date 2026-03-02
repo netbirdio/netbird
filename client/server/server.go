@@ -1626,6 +1626,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
+	s.connectClient.SetCertManager(s.certManager)
 	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}

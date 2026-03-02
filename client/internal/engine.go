@@ -2,6 +2,9 @@ package internal
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -32,6 +35,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/cert"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -223,6 +227,7 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+	certManager   *cert.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -418,6 +423,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
+	e.startCertRenewalLoop()
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -1027,8 +1033,21 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
+	// Store CA certificates from sync
+	if caCerts := conf.GetCaCertificatesPem(); len(caCerts) > 0 && e.certManager != nil {
+		if err := e.certManager.StoreCA(caCerts); err != nil {
+			log.Warnf("failed to store CA certificates: %v", err)
+		}
+	}
+
+	// Detect FQDN change — re-issue cert if one exists and FQDN differs
+	if e.certManager != nil && e.certManager.HasCert() && e.certManager.FQDNChanged(conf.GetFqdn()) {
+		go e.renewCertificate("fqdn_change")
+	}
+
 	return nil
 }
+
 func (e *Engine) receiveJobEvents() {
 	e.jobExecutorWG.Add(1)
 	go func() {
@@ -2030,6 +2049,95 @@ func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	}
 
 	return sr, nil
+}
+
+// SetCertManager sets the certificate manager for TLS certificate lifecycle.
+func (e *Engine) SetCertManager(m *cert.Manager) {
+	e.certManager = m
+}
+
+// startCertRenewalLoop runs a background goroutine that periodically checks
+// whether the peer's TLS certificate needs renewal.
+func (e *Engine) startCertRenewalLoop() {
+	if e.certManager == nil {
+		return
+	}
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-e.ctx.Done():
+				return
+			case <-ticker.C:
+				if e.certManager.NeedsRenewal(30 * 24 * time.Hour) {
+					log.Infof("certificate approaching expiry, starting renewal")
+					e.renewCertificate("auto_renewal")
+				}
+			}
+		}
+	}()
+}
+
+// renewCertificate generates a new key and CSR, sends it to management for
+// signing, and stores the resulting certificate locally.
+func (e *Engine) renewCertificate(trigger string) {
+	if e.certManager == nil {
+		return
+	}
+
+	fqdn := e.statusRecorder.GetLocalPeerState().FQDN
+	if fqdn == "" {
+		log.Warnf("cert renewal (%s): FQDN not available", trigger)
+		return
+	}
+
+	key, err := e.certManager.GenerateKey()
+	if err != nil {
+		log.Warnf("cert renewal (%s): generate key: %v", trigger, err)
+		return
+	}
+
+	csrDER, err := e.certManager.CreateCSR(key, fqdn, false)
+	if err != nil {
+		log.Warnf("cert renewal (%s): create CSR: %v", trigger, err)
+		return
+	}
+
+	signCtx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	defer cancel()
+
+	signResp, err := e.mgmClient.SignCertificate(signCtx, csrDER, mgmProto.CertSigningType_CERT_SIGNING_INTERNAL, false)
+	if err != nil {
+		log.Warnf("cert renewal (%s): sign certificate: %v", trigger, err)
+		e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM, "Certificate renewal failed", err.Error(), nil)
+		return
+	}
+
+	ecKey, ok := key.(*ecdsa.PrivateKey)
+	if !ok {
+		log.Warnf("cert renewal (%s): unexpected key type", trigger)
+		return
+	}
+	keyDER, err := x509.MarshalECPrivateKey(ecKey)
+	if err != nil {
+		log.Warnf("cert renewal (%s): marshal private key: %v", trigger, err)
+		return
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	certPEM := signResp.InternalCertPem
+	chainPEM := signResp.InternalChainPem
+
+	if err := e.certManager.StoreCert(certPEM, chainPEM, keyPEM); err != nil {
+		log.Warnf("cert renewal (%s): store certificate: %v", trigger, err)
+		return
+	}
+
+	log.Infof("certificate renewed (%s) for %s", trigger, fqdn)
+	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Certificate renewed", "", nil)
 }
 
 // GetWgAddr returns the wireguard address
