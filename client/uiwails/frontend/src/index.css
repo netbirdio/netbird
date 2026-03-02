@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@theme {
+  --color-netbird-50: #fff6ed;
+  --color-netbird-100: #feecd6;
+  --color-netbird-150: #ffdfb8;
+  --color-netbird-200: #ffd4a6;
+  --color-netbird-300: #fab677;
+  --color-netbird-400: #f68330;
+  --color-netbird-DEFAULT: #f68330;
+  --color-netbird-500: #f46d1b;
+  --color-netbird-600: #e55311;
+  --color-netbird-700: #be3e10;
+  --color-netbird-800: #973215;
+  --color-netbird-900: #7a2b14;
+  --color-netbird-950: #421308;
+
+  --color-nb-gray-DEFAULT: #181a1d;
+  --color-nb-gray-50: #f4f6f7;
+  --color-nb-gray-100: #e4e7e9;
+  --color-nb-gray-200: #cbd2d6;
+  --color-nb-gray-300: #a3adb5;
+  --color-nb-gray-400: #7c8994;
+  --color-nb-gray-500: #616e79;
+  --color-nb-gray-600: #535d67;
+  --color-nb-gray-700: #474e57;
+  --color-nb-gray-800: #3f444b;
+  --color-nb-gray-900: #2e3238;
+  --color-nb-gray-910: #292c31;
+  --color-nb-gray-920: #25282d;
+  --color-nb-gray-930: #212428;
+  --color-nb-gray-940: #1c1e21;
+  --color-nb-gray-950: #181a1d;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: #181a1d;
+  color: #e4e7e9;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Toggle switch — matches dashboard ToggleSwitch.tsx */
+.toggle-track {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 44px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  background-color: var(--color-nb-gray-700);
+}
+.toggle-track[aria-checked="true"] {
+  background-color: var(--color-netbird-400);
+}
+.toggle-thumb {
+  pointer-events: none;
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background-color: white;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  transition: transform 0.2s;
+  transform: translateX(0);
+}
+.toggle-track[aria-checked="true"] .toggle-thumb {
+  transform: translateX(20px);
+}
+
+/* Small toggle (matches dashboard ToggleSwitch size=small) */
+.toggle-track-sm {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 36px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  background-color: var(--color-nb-gray-700);
+}
+.toggle-track-sm[aria-checked="true"] {
+  background-color: var(--color-netbird-400);
+}
+.toggle-thumb-sm {
+  pointer-events: none;
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background-color: white;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  transition: transform 0.2s;
+  transform: translateX(0);
+}
+.toggle-track-sm[aria-checked="true"] .toggle-thumb-sm {
+  transform: translateX(17px);
+}
