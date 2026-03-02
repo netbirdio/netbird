@@ -60,6 +60,12 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // SignCertificate signs a CSR and returns the issued TLS certificate
+  rpc SignCertificate(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // GetCACertificates returns the active CA certificates for the account
+  rpc GetCACertificates(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -335,6 +341,9 @@ message PeerConfig {
 
   // Auto-update config
   AutoUpdateSettings autoUpdate = 8;
+
+  // CA certificates for the account's internal certificate authority
+  repeated bytes ca_certificates_pem = 9;
 }
 
 message AutoUpdateSettings {
@@ -647,6 +656,11 @@ message ForwardingRule {
   PortInfo translatedPort = 4;
 }
 
+enum CertSigningType {
+  CERT_SIGNING_INTERNAL = 0;
+  CERT_SIGNING_ACME = 1;
+}
+
 enum ExposeProtocol {
   EXPOSE_HTTP = 0;
   EXPOSE_HTTPS = 1;
@@ -681,3 +695,30 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+message SignCertificateRequest {
+  bytes csr_der = 1;
+  CertSigningType signing_type = 2;
+  bool wildcard = 3;
+}
+
+message SignCertificateResponse {
+  bytes internal_cert_pem = 1;
+  bytes internal_chain_pem = 2;
+  bytes acme_cert_pem = 3;
+  bytes acme_chain_pem = 4;
+  int64 expires_at = 5;
+}
+
+message GetCACertificatesRequest {}
+
+message GetCACertificatesResponse {
+  repeated CACertificateInfo certificates = 1;
+}
+
+message CACertificateInfo {
+  bytes certificate_pem = 1;
+  string fingerprint = 2;
+  bool is_active = 3;
+  int64 not_after = 4;
+}
