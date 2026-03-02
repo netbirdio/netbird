@@ -154,7 +154,7 @@ func setupTestManager(t *testing.T) (*Manager, *mockCAStore) {
 func TestManager_InitForAccount(t *testing.T) {
 	mgr, store := setupTestManager(t)
 
-	caCert, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	caCert, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, caCert)
 
@@ -169,14 +169,14 @@ func TestManager_InitForAccount(t *testing.T) {
 func TestManager_SignCertificate(t *testing.T) {
 	mgr, store := setupTestManager(t)
 
-	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	result, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, nil,
+		SigningTypeInternal, false, TriggerManual,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -198,14 +198,14 @@ func TestManager_SignCertificate(t *testing.T) {
 func TestManager_SignCertificate_Wildcard(t *testing.T) {
 	mgr, _ := setupTestManager(t)
 
-	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
 	csr := createTestCSR(t, "peer1.netbird.example", true)
 
 	result, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, true, TriggerManual, nil,
+		SigningTypeInternal, true, TriggerManual,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -221,7 +221,7 @@ func TestManager_SignCertificate_NoActiveCA(t *testing.T) {
 
 	_, _, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, nil,
+		SigningTypeInternal, false, TriggerManual,
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no active CA")
@@ -234,7 +234,7 @@ func TestManager_SignCertificate_ACMEStub(t *testing.T) {
 
 	_, _, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeACME, false, TriggerManual, nil,
+		SigningTypeACME, false, TriggerManual,
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet available")
@@ -320,10 +320,10 @@ func TestManager_CheckRateLimit(t *testing.T) {
 func TestManager_RotateCA(t *testing.T) {
 	mgr, store := setupTestManager(t)
 
-	ca1, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	ca1, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
-	ca2, err := mgr.RotateCA(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	ca2, err := mgr.RotateCA(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
 	assert.NotEqual(t, ca1.ID, ca2.ID)
@@ -339,7 +339,7 @@ func TestManager_RotateCA(t *testing.T) {
 func TestManager_DeactivateCA(t *testing.T) {
 	mgr, _ := setupTestManager(t)
 
-	caCert, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	caCert, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
 	err = mgr.DeactivateCA(context.Background(), "account1", caCert.ID)
@@ -353,14 +353,14 @@ func TestManager_DeactivateCA(t *testing.T) {
 func TestManager_RevokeCertificate(t *testing.T) {
 	mgr, store := setupTestManager(t)
 
-	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{}, nil)
+	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
 	require.NoError(t, err)
 
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	_, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, nil,
+		SigningTypeInternal, false, TriggerManual,
 	)
 	require.NoError(t, err)
 

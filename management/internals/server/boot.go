@@ -25,6 +25,7 @@ import (
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/ca"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -157,6 +158,11 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		if serviceMgr != nil {
 			serviceMgr.StartExposeReaper(context.Background())
 		}
+
+		caMgr := ca.NewManager(s.AccountManager().GetStore())
+		caMgr.RegisterSigner(ca.NewACMEPersistSigner())
+		srv.SetCAManager(caMgr)
+
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())

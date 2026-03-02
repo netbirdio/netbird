@@ -59,7 +59,8 @@ func (m *Manager) RegisterSigner(signer CertSigner) {
 
 // InitForAccount generates a new internal root CA for the given account and stores it.
 // The CA is constrained to the account's DNS domain via x509 NameConstraints.
-func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain string, opts CAOptions, encrypt func(*CACertificate) error) (*CACertificate, error) {
+// Encryption of sensitive fields is handled transparently by the store layer.
+func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain string, opts CAOptions) (*CACertificate, error) {
 	certPEM, keyPEM, fingerprint, err := GenerateCA(dnsDomain, opts)
 	if err != nil {
 		return nil, fmt.Errorf("generate CA: %w", err)
@@ -72,12 +73,6 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 
 	caCert := NewCACertificate(accountID, string(certPEM), string(keyPEM), fingerprint, cert.NotBefore, cert.NotAfter)
 
-	if encrypt != nil {
-		if err := encrypt(caCert); err != nil {
-			return nil, fmt.Errorf("encrypt CA certificate: %w", err)
-		}
-	}
-
 	if err := m.store.CreateCACertificate(ctx, caCert); err != nil {
 		return nil, fmt.Errorf("store CA certificate: %w", err)
 	}
@@ -88,7 +83,8 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 }
 
 // SignCertificate signs a CSR using the specified backend and records the issuance.
-func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string, decrypt func(*CACertificate) error) (*SigningResult, *IssuedCertificate, error) {
+// Decryption of CA private keys is handled transparently by the store layer.
+func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string) (*SigningResult, *IssuedCertificate, error) {
 	if signingType == SigningTypeACME {
 		signer, ok := m.signers[SigningTypeACME]
 		if !ok {
@@ -115,12 +111,6 @@ func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string,
 
 	// Use the most recently created active CA
 	ca := activeCAs[0]
-
-	if decrypt != nil {
-		if err := decrypt(ca); err != nil {
-			return nil, nil, fmt.Errorf("decrypt CA certificate: %w", err)
-		}
-	}
 
 	signer, err := NewInternalCASigner([]byte(ca.CertificatePEM), []byte(ca.PrivateKeyPEM), ca.ID, defaultCertValidity)
 	if err != nil {
@@ -170,8 +160,8 @@ func (m *Manager) GetActiveCACertificates(ctx context.Context, accountID string)
 }
 
 // RotateCA creates a new CA while keeping existing CAs active for trust continuity.
-func (m *Manager) RotateCA(ctx context.Context, accountID, dnsDomain string, opts CAOptions, encrypt func(*CACertificate) error) (*CACertificate, error) {
-	return m.InitForAccount(ctx, accountID, dnsDomain, opts, encrypt)
+func (m *Manager) RotateCA(ctx context.Context, accountID, dnsDomain string, opts CAOptions) (*CACertificate, error) {
+	return m.InitForAccount(ctx, accountID, dnsDomain, opts)
 }
 
 // DeactivateCA deactivates a specific CA certificate.
