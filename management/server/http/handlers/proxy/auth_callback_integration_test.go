@@ -357,6 +357,10 @@ type testServiceManager struct {
 	store store.Store
 }
 
+func (m *testServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
 func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
 	return nil, nil
 }
@@ -408,6 +412,20 @@ func (m *testServiceManager) GetAccountServices(ctx context.Context, accountID s
 func (m *testServiceManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
+
+func (m *testServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+	return nil, nil
+}
+
+func (m *testServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
 
 func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL string) string {
 	t.Helper()

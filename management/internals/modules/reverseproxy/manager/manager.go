@@ -3,9 +3,13 @@ package manager
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
+
+	"slices"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -15,7 +19,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -24,25 +30,36 @@ const unknownHostPlaceholder = "unknown"
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
+	GetClusterDomains() []string
 }
 
 type managerImpl struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
+	settingsManager    settings.Manager
 	proxyGRPCServer    *nbgrpc.ProxyServiceServer
 	clusterDeriver     ClusterDeriver
+	exposeTracker      *exposeTracker
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) reverseproxy.Manager {
-	return &managerImpl{
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, settingsManager settings.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, clusterDeriver ClusterDeriver) reverseproxy.Manager {
+	mgr := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
+		settingsManager:    settingsManager,
 		proxyGRPCServer:    proxyGRPCServer,
 		clusterDeriver:     clusterDeriver,
 	}
+	mgr.exposeTracker = &exposeTracker{manager: mgr}
+	return mgr
+}
+
+// StartExposeReaper delegates to the expose tracker.
+func (m *managerImpl) StartExposeReaper(ctx context.Context) {
+	m.exposeTracker.StartExposeReaper(ctx)
 }
 
 func (m *managerImpl) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
@@ -150,7 +167,7 @@ func (m *managerImpl) CreateService(ctx context.Context, accountID, userID strin
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -330,19 +347,33 @@ func (m *managerImpl) preserveServiceMetadata(service, existingService *reversep
 }
 
 func (m *managerImpl) sendServiceUpdateNotifications(service *reverseproxy.Service, updateInfo *serviceUpdateInfo) {
-	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
-
 	switch {
 	case updateInfo.domainChanged && updateInfo.oldCluster != service.ProxyCluster:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), updateInfo.oldCluster)
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Delete, updateInfo.oldCluster, "")
+		m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 	case !service.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
 	case service.Enabled && updateInfo.serviceEnabledChanged:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Create, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
 	default:
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", oidcCfg), service.ProxyCluster)
+		m.sendServiceUpdate(service, reverseproxy.Update, service.ProxyCluster, "")
 	}
+}
+
+func (m *managerImpl) sendServiceUpdate(service *reverseproxy.Service, operation reverseproxy.Operation, cluster, oldService string) {
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+	mapping := service.ToProtoMapping(operation, oldService, oidcCfg)
+	m.sendMappingsToCluster([]*proto.ProxyMapping{mapping}, cluster)
+}
+
+func (m *managerImpl) sendMappingsToCluster(mappings []*proto.ProxyMapping, cluster string) {
+	if len(mappings) == 0 {
+		return
+	}
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: mappings,
+	}
+	m.proxyGRPCServer.SendServiceUpdateToCluster(update, cluster)
 }
 
 // validateTargetReferences checks that all target IDs reference existing peers or resources in the account.
@@ -393,9 +424,63 @@ func (m *managerImpl) DeleteService(ctx context.Context, accountID, userID, serv
 		return err
 	}
 
+	if service.Source == reverseproxy.SourceEphemeral {
+		m.exposeTracker.UntrackExpose(service.SourcePeer, service.Domain)
+	}
+
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, service.EventMeta())
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Delete, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func (m *managerImpl) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
+	var services []*reverseproxy.Service
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		services, err = transaction.GetServicesByAccountID(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		for _, service := range services {
+			if err = transaction.DeleteService(ctx, accountID, service.ID); err != nil {
+				return fmt.Errorf("failed to delete service: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	clusterMappings := make(map[string][]*proto.ProxyMapping)
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+
+	for _, service := range services {
+		if service.Source == reverseproxy.SourceEphemeral {
+			m.exposeTracker.UntrackExpose(service.SourcePeer, service.Domain)
+		}
+		m.accountManager.StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, service.EventMeta())
+		mapping := service.ToProtoMapping(reverseproxy.Delete, "", oidcCfg)
+		clusterMappings[service.ProxyCluster] = append(clusterMappings[service.ProxyCluster], mapping)
+	}
+
+	for cluster, mappings := range clusterMappings {
+		m.sendMappingsToCluster(mappings, cluster)
+	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -411,7 +496,8 @@ func (m *managerImpl) SetCertificateIssuedAt(ctx context.Context, accountID, ser
 			return fmt.Errorf("failed to get service: %w", err)
 		}
 
-		service.Meta.CertificateIssuedAt = time.Now()
+		now := time.Now()
+		service.Meta.CertificateIssuedAt = &now
 
 		if err = transaction.UpdateService(ctx, service); err != nil {
 			return fmt.Errorf("failed to update service certificate timestamp: %w", err)
@@ -450,7 +536,7 @@ func (m *managerImpl) ReloadService(ctx context.Context, accountID, serviceID st
 		return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 	}
 
-	m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+	m.sendServiceUpdate(service, reverseproxy.Update, service.ProxyCluster, "")
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -463,12 +549,20 @@ func (m *managerImpl) ReloadAllServicesForAccount(ctx context.Context, accountID
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	clusterMappings := make(map[string][]*proto.ProxyMapping)
+	oidcCfg := m.proxyGRPCServer.GetOIDCValidationConfig()
+
 	for _, service := range services {
 		err = m.replaceHostByLookup(ctx, accountID, service)
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", service.ID, err)
 		}
-		m.proxyGRPCServer.SendServiceUpdateToCluster(service.ToProtoMapping(reverseproxy.Update, "", m.proxyGRPCServer.GetOIDCValidationConfig()), service.ProxyCluster)
+		mapping := service.ToProtoMapping(reverseproxy.Update, "", oidcCfg)
+		clusterMappings[service.ProxyCluster] = append(clusterMappings[service.ProxyCluster], mapping)
+	}
+
+	for cluster, mappings := range clusterMappings {
+		m.sendMappingsToCluster(mappings, cluster)
 	}
 
 	return nil
@@ -534,4 +628,259 @@ func (m *managerImpl) GetServiceIDByTargetID(ctx context.Context, accountID stri
 	}
 
 	return target.ServiceID, nil
+}
+
+// validateExposePermission checks whether the peer is allowed to use the expose feature.
+// It verifies the account has peer expose enabled and that the peer belongs to an allowed group.
+func (m *managerImpl) validateExposePermission(ctx context.Context, accountID, peerID string) error {
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return status.Errorf(status.Internal, "get account settings: %v", err)
+	}
+
+	if !settings.PeerExposeEnabled {
+		return status.Errorf(status.PermissionDenied, "peer expose is not enabled for this account")
+	}
+
+	if len(settings.PeerExposeGroups) == 0 {
+		return status.Errorf(status.PermissionDenied, "no group is set for peer expose")
+	}
+
+	peerGroupIDs, err := m.store.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer group IDs: %v", err)
+		return status.Errorf(status.Internal, "get peer groups: %v", err)
+	}
+
+	for _, pg := range peerGroupIDs {
+		if slices.Contains(settings.PeerExposeGroups, pg) {
+			return nil
+		}
+	}
+
+	return status.Errorf(status.PermissionDenied, "peer is not in an allowed expose group")
+}
+
+// CreateServiceFromPeer creates a service initiated by a peer expose request.
+// It validates the request, checks expose permissions, enforces the per-peer limit,
+// creates the service, and tracks it for TTL-based reaping.
+func (m *managerImpl) CreateServiceFromPeer(ctx context.Context, accountID, peerID string, req *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "validate expose request: %v", err)
+	}
+
+	if err := m.validateExposePermission(ctx, accountID, peerID); err != nil {
+		return nil, err
+	}
+
+	serviceName, err := reverseproxy.GenerateExposeName(req.NamePrefix)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "generate service name: %v", err)
+	}
+
+	service := req.ToService(accountID, peerID, serviceName)
+	service.Source = reverseproxy.SourceEphemeral
+
+	if service.Domain == "" {
+		domain, err := m.buildRandomDomain(service.Name)
+		if err != nil {
+			return nil, fmt.Errorf("build random domain for service %s: %w", service.Name, err)
+		}
+		service.Domain = domain
+	}
+
+	if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled {
+		groupIDs, err := m.getGroupIDsFromNames(ctx, accountID, service.Auth.BearerAuth.DistributionGroups)
+		if err != nil {
+			return nil, fmt.Errorf("get group ids for service %s: %w", service.Name, err)
+		}
+		service.Auth.BearerAuth.DistributionGroups = groupIDs
+	}
+
+	if err := m.initializeServiceForCreate(ctx, accountID, service); err != nil {
+		return nil, err
+	}
+
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	service.Meta.LastRenewedAt = &now
+	service.SourcePeer = peerID
+
+	if err := m.persistNewService(ctx, accountID, service); err != nil {
+		return nil, err
+	}
+
+	alreadyTracked, allowed := m.exposeTracker.TrackExposeIfAllowed(peerID, service.Domain, accountID)
+	if alreadyTracked {
+		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, service.Domain, false); err != nil {
+			log.WithContext(ctx).Debugf("failed to delete duplicate expose service for domain %s: %v", service.Domain, err)
+		}
+		return nil, status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
+	}
+	if !allowed {
+		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, service.Domain, false); err != nil {
+			log.WithContext(ctx).Debugf("failed to delete service after limit exceeded for domain %s: %v", service.Domain, err)
+		}
+		return nil, status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
+	}
+
+	meta := addPeerInfoToEventMeta(service.EventMeta(), peer)
+	m.accountManager.StoreEvent(ctx, peerID, service.ID, accountID, activity.PeerServiceExposed, meta)
+
+	if err := m.replaceHostByLookup(ctx, accountID, service); err != nil {
+		return nil, fmt.Errorf("replace host by lookup for service %s: %w", service.ID, err)
+	}
+
+	m.sendServiceUpdate(service, reverseproxy.Create, service.ProxyCluster, "")
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return &reverseproxy.ExposeServiceResponse{
+		ServiceName: service.Name,
+		ServiceURL:  "https://" + service.Domain,
+		Domain:      service.Domain,
+	}, nil
+}
+
+func (m *managerImpl) getGroupIDsFromNames(ctx context.Context, accountID string, groupNames []string) ([]string, error) {
+	if len(groupNames) == 0 {
+		return []string{}, fmt.Errorf("no group names provided")
+	}
+	groupIDs := make([]string, 0, len(groupNames))
+	for _, groupName := range groupNames {
+		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get group by name %s: %w", groupName, err)
+		}
+		groupIDs = append(groupIDs, g.ID)
+	}
+	return groupIDs, nil
+}
+
+func (m *managerImpl) buildRandomDomain(name string) (string, error) {
+	if m.clusterDeriver == nil {
+		return "", fmt.Errorf("unable to get random domain")
+	}
+	clusterDomains := m.clusterDeriver.GetClusterDomains()
+	if len(clusterDomains) == 0 {
+		return "", fmt.Errorf("no cluster domains found for service %s", name)
+	}
+	index := rand.IntN(len(clusterDomains))
+	domain := name + "." + clusterDomains[index]
+	return domain, nil
+}
+
+// RenewServiceFromPeer renews the in-memory TTL tracker for the peer's expose session.
+// Returns an error if the expose is not actively tracked.
+func (m *managerImpl) RenewServiceFromPeer(_ context.Context, _, peerID, domain string) error {
+	if !m.exposeTracker.RenewTrackedExpose(peerID, domain) {
+		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
+	}
+	return nil
+}
+
+// StopServiceFromPeer stops a peer's active expose session by untracking and deleting the service.
+func (m *managerImpl) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+	if err := m.deleteServiceFromPeer(ctx, accountID, peerID, domain, false); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peer-exposed service for domain %s: %v", domain, err)
+		return err
+	}
+
+	if !m.exposeTracker.StopTrackedExpose(peerID, domain) {
+		log.WithContext(ctx).Warnf("expose tracker entry for domain %s already removed; service was deleted", domain)
+	}
+
+	return nil
+}
+
+// deleteServiceFromPeer deletes a peer-initiated service identified by domain.
+// When expired is true, the activity is recorded as PeerServiceExposeExpired instead of PeerServiceUnexposed.
+func (m *managerImpl) deleteServiceFromPeer(ctx context.Context, accountID, peerID, domain string, expired bool) error {
+	service, err := m.lookupPeerService(ctx, accountID, peerID, domain)
+	if err != nil {
+		return err
+	}
+
+	activityCode := activity.PeerServiceUnexposed
+	if expired {
+		activityCode = activity.PeerServiceExposeExpired
+	}
+	return m.deletePeerService(ctx, accountID, peerID, service.ID, activityCode)
+}
+
+// lookupPeerService finds a peer-initiated service by domain and validates ownership.
+func (m *managerImpl) lookupPeerService(ctx context.Context, accountID, peerID, domain string) (*reverseproxy.Service, error) {
+	service, err := m.store.GetServiceByDomain(ctx, accountID, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	if service.Source != reverseproxy.SourceEphemeral {
+		return nil, status.Errorf(status.PermissionDenied, "cannot operate on API-created service via peer expose")
+	}
+
+	if service.SourcePeer != peerID {
+		return nil, status.Errorf(status.PermissionDenied, "cannot operate on service exposed by another peer")
+	}
+
+	return service, nil
+}
+
+func (m *managerImpl) deletePeerService(ctx context.Context, accountID, peerID, serviceID string, activityCode activity.Activity) error {
+	var service *reverseproxy.Service
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		if service.Source != reverseproxy.SourceEphemeral {
+			return status.Errorf(status.PermissionDenied, "cannot delete API-created service via peer expose")
+		}
+
+		if service.SourcePeer != peerID {
+			return status.Errorf(status.PermissionDenied, "cannot delete service exposed by another peer")
+		}
+
+		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peer %s for event metadata: %v", peerID, err)
+		peer = nil
+	}
+
+	meta := addPeerInfoToEventMeta(service.EventMeta(), peer)
+
+	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activityCode, meta)
+
+	m.sendServiceUpdate(service, reverseproxy.Delete, service.ProxyCluster, "")
+
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+func addPeerInfoToEventMeta(meta map[string]any, peer *nbpeer.Peer) map[string]any {
+	if peer == nil {
+		return meta
+	}
+	meta["peer_name"] = peer.Name
+	if peer.IP != nil {
+		meta["peer_ip"] = peer.IP.String()
+	}
+	return meta
 }

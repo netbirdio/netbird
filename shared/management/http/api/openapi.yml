@@ -326,6 +326,16 @@ components:
           type: string
           format: cidr
           example: 100.64.0.0/16
+        peer_expose_enabled:
+          description: Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
+          type: boolean
+          example: false
+        peer_expose_groups:
+          description: Limits which peer groups are allowed to expose services. If empty, all peers are allowed when peer expose is enabled.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
         lazy_connection_enabled:
@@ -353,6 +363,8 @@ components:
         - peer_inactivity_expiration_enabled
         - peer_inactivity_expiration
         - regular_users_view_blocked
+        - peer_expose_enabled
+        - peer_expose_groups
     AccountExtraSettings:
       type: object
       properties:

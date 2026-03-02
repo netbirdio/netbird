@@ -1007,6 +1007,18 @@ func (s *SqlStore) GetAccountsCounter(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// GetCustomDomainsCounts returns the total and validated custom domain counts.
+func (s *SqlStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, error) {
+	var total, validated int64
+	if err := s.db.WithContext(ctx).Model(&domain.Domain{}).Count(&total).Error; err != nil {
+		return 0, 0, err
+	}
+	if err := s.db.WithContext(ctx).Model(&domain.Domain{}).Where("validated = ?", true).Count(&validated).Error; err != nil {
+		return 0, 0, err
+	}
+	return total, validated, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
@@ -2114,7 +2126,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*revers
 			s.Meta.CreatedAt = createdAt.Time
 		}
 		if certIssuedAt.Valid {
-			s.Meta.CertificateIssuedAt = certIssuedAt.Time
+			t := certIssuedAt.Time
+			s.Meta.CertificateIssuedAt = &t
 		}
 		if status.Valid {
 			s.Meta.Status = status.String
@@ -4948,6 +4961,28 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	}
 
 	return service, nil
+}
+
+func (s *SqlStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
 }
 
 func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {

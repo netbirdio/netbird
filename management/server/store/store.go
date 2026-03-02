@@ -256,6 +256,7 @@ type Store interface {
 	UpdateService(ctx context.Context, service *reverseproxy.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
 	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
@@ -274,6 +275,9 @@ type Store interface {
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
 	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
+
+	// GetCustomDomainsCounts returns the total and validated custom domain counts.
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 }
 
 const (

@@ -17,6 +17,10 @@ type mockReverseProxyManager struct {
 	err              error
 }
 
+func (m *mockReverseProxyManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
 func (m *mockReverseProxyManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -71,6 +75,20 @@ func (m *mockReverseProxyManager) GetServiceByID(ctx context.Context, accountID,
 func (m *mockReverseProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
+
+func (m *mockReverseProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+	return &reverseproxy.ExposeServiceResponse{}, nil
+}
+
+func (m *mockReverseProxyManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *mockReverseProxyManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *mockReverseProxyManager) StartExposeReaper(_ context.Context) {}
 
 type mockUsersManager struct {
 	users map[string]*types.User

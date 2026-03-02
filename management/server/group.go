@@ -425,6 +425,11 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
 
+	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
 			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
@@ -433,7 +438,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 				continue
 			}
 
-			if err := validateDeleteGroup(ctx, transaction, group, userID); err != nil {
+			if err = validateDeleteGroup(ctx, transaction, group, userID, extraSettings.FlowGroups); err != nil {
 				allErrors = errors.Join(allErrors, err)
 				continue
 			}
@@ -621,7 +626,7 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 	return nil
 }
 
-func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string) error {
+func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string, flowGroups []string) error {
 	// disable a deleting integration group if the initiator is not an admin service user
 	if group.Issued == types.GroupIssuedIntegration {
 		executingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
@@ -639,6 +644,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 
 	if len(group.Resources) > 0 {
 		return &GroupLinkError{"network resource", group.Resources[0].ID}
+	}
+
+	if slices.Contains(flowGroups, group.ID) {
+		return &GroupLinkError{"settings", "traffic event logging"}
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {

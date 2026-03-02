@@ -742,6 +742,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		if err != nil {
 			return false, nil, nil, nil, fmt.Errorf("failed to re-read initiator user in transaction: %w", err)
 		}
+
+		// Ensure the initiator still has admin privileges
+		if initiatorUser.HasAdminPower() && !freshInitiator.HasAdminPower() {
+			return false, nil, nil, nil, status.Errorf(status.PermissionDenied, "initiator role was changed during request processing")
+		}
 		initiatorUser = freshInitiator
 	}
 
@@ -870,10 +875,6 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
 	if initiatorUser == nil {
 		return nil
-	}
-
-	if !initiatorUser.HasAdminPower() {
-		return status.Errorf(status.PermissionDenied, "only admins and owners can update users")
 	}
 
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {

@@ -391,7 +391,8 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	}
 	assert.Len(t, resolver.GetCachedDomains(), 3)
 
-	// Update with partial ServerDomains (only flow domain - new type, should preserve all existing)
+	// Update with partial ServerDomains (only flow domain - flow is intentionally excluded from
+	// caching to prevent TLS failures from stale records, so all existing domains are preserved)
 	partialDomains := dnsconfig.ServerDomains{
 		Flow: "github.com",
 	}
@@ -400,10 +401,10 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
 
-	assert.Len(t, removedDomains, 0, "Should not remove any domains when adding new type")
+	assert.Len(t, removedDomains, 0, "Should not remove any domains when only flow domain is provided")
 
 	finalDomains := resolver.GetCachedDomains()
-	assert.Len(t, finalDomains, 4, "Should have all original domains plus new flow domain")
+	assert.Len(t, finalDomains, 3, "Flow domain is not cached; all original domains should be preserved")
 
 	domainStrings := make([]string, len(finalDomains))
 	for i, d := range finalDomains {
@@ -412,5 +413,5 @@ func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
 	assert.Contains(t, domainStrings, "example.org")
 	assert.Contains(t, domainStrings, "google.com")
 	assert.Contains(t, domainStrings, "cloudflare.com")
-	assert.Contains(t, domainStrings, "github.com")
+	assert.NotContains(t, domainStrings, "github.com")
 }

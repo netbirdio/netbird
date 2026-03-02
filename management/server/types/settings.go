@@ -47,6 +47,11 @@ type Settings struct {
 	// NetworkRange is the custom network range for that account
 	NetworkRange netip.Prefix `gorm:"serializer:json"`
 
+	// PeerExposeEnabled enables or disables peer-initiated service expose
+	PeerExposeEnabled bool
+	// PeerExposeGroups list of peer group IDs allowed to expose services
+	PeerExposeGroups []string `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
@@ -80,6 +85,8 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:               s.PeerExposeEnabled,
+		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
