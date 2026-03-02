@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
-	storetypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -1122,7 +1121,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	accountID := "test-account"
 	userID := "test-user"
 
-	sqlStore, err := store.NewStore(ctx, storetypes.SqliteStoreEngine, t.TempDir(), nil, false)
+	sqlStore, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, false)
 	require.NoError(t, err)
 
 	ctrl := gomock.NewController(t)

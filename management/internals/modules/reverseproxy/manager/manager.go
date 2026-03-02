@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"time"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	log "github.com/sirupsen/logrus"
 
-	"slices"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -410,7 +410,12 @@ func (m *managerImpl) DeleteService(ctx context.Context, accountID, userID, serv
 
 	var service *reverseproxy.Service
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("failed to delete targets: %w", err)
 		}
 
