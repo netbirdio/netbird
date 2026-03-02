@@ -172,7 +172,8 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"` // Connection string for postgres or mysql engines
+	DSN           string `yaml:"dsn"`  // Connection string for postgres or mysql engines
+	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
 }
 
 // ReverseProxyConfig contains reverse proxy settings
@@ -568,6 +569,9 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 		}
 	} else {
 		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
+		if c.Server.AuthStore.File != "" {
+			authStorageFile = c.Server.AuthStore.File
+		}
 	}
 
 	cfg := &idp.EmbeddedIdPConfig{

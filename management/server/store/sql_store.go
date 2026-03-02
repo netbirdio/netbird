@@ -2728,14 +2728,28 @@ func (s *SqlStore) GetStoreEngine() types.Engine {
 
 // NewSqliteStore creates a new SQLite store.
 func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = storeSqliteFileName
+	storeFile := storeSqliteFileName
+	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
+		storeFile = envFile
 	}
 
-	file := filepath.Join(dataDir, storeStr)
-	db, err := gorm.Open(sqlite.Open(file), getGormConfig())
+	// Separate file path from any SQLite URI query parameters (e.g., "store.db?mode=rwc")
+	filePath, query, hasQuery := strings.Cut(storeFile, "?")
+
+	connStr := filePath
+	if !filepath.IsAbs(filePath) {
+		connStr = filepath.Join(dataDir, filePath)
+	}
+
+	// Append query parameters: user-provided take precedence, otherwise default to cache=shared on non-Windows
+	if hasQuery {
+		connStr += "?" + query
+	} else if runtime.GOOS != "windows" {
+		// To avoid `The process cannot access the file because it is being used by another process` on Windows
+		connStr += "?cache=shared"
+	}
+
+	db, err := gorm.Open(sqlite.Open(connStr), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
