@@ -4916,10 +4916,6 @@ func (s *SqlStore) DeleteServiceTargets(ctx context.Context, accountID string, s
 		return status.Errorf(status.Internal, "failed to delete targets from store")
 	}
 
-	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "not targets found for service %s", serviceID)
-	}
-
 	return nil
 }
 
