@@ -25,6 +25,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/ca"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -287,6 +288,20 @@ type Store interface {
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	CreateCACertificate(ctx context.Context, ca *ca.CACertificate) error
+	GetCACertificateByID(ctx context.Context, accountID, caID string) (*ca.CACertificate, error)
+	GetActiveCACertificates(ctx context.Context, accountID string) ([]*ca.CACertificate, error)
+	DeactivateCACertificate(ctx context.Context, accountID, caID string) error
+
+	CreateIssuedCertificate(ctx context.Context, cert *ca.IssuedCertificate) error
+	GetIssuedCertificatesByPeer(ctx context.Context, accountID, peerID string) ([]*ca.IssuedCertificate, error)
+	GetIssuedCertificateBySerial(ctx context.Context, accountID, serialNumber string) (*ca.IssuedCertificate, error)
+	RevokeCertificate(ctx context.Context, accountID, serialNumber string) error
+	GetExpiringCertificates(ctx context.Context, accountID string, expiringBefore time.Time) ([]*ca.IssuedCertificate, error)
+
+	CreateCertIssuanceLog(ctx context.Context, entry *ca.CertIssuanceLog) error
+	CountCertIssuancesInWindow(ctx context.Context, accountID, peerID string, since time.Time) (int64, error)
 }
 
 const (

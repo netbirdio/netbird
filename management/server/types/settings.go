@@ -52,6 +52,33 @@ type Settings struct {
 	// PeerExposeGroups list of peer group IDs allowed to expose services
 	PeerExposeGroups []string `gorm:"serializer:json"`
 
+	// CertificateAuthorityEnabled globally enables or disables the internal certificate authority
+	CertificateAuthorityEnabled bool
+
+	// CertWildcardAllowed allows peers to request wildcard certificates
+	CertWildcardAllowed bool
+
+	// CertCAValidity is the validity duration for CA certificates (default: 10 years)
+	CertCAValidity time.Duration
+
+	// CertCADisplayName is used in the CA certificate CommonName (e.g. "Zakhar" → "Zakhar Internal CA")
+	CertCADisplayName string
+
+	// CertCAOrganization is the x509 Organization field in the CA certificate
+	CertCAOrganization string
+
+	// CertDefaultValidity is the default validity duration for issued peer certificates
+	CertDefaultValidity time.Duration
+
+	// CertRateLimitPerPeer is the maximum number of certificate issuances per peer per day
+	CertRateLimitPerPeer int
+
+	// CertACMEEnabled indicates if the ACME DNS-PERSIST-01 backend is enabled (stub for now)
+	CertACMEEnabled bool
+
+	// CertACMECAURL is the ACME CA directory URL (stub for now)
+	CertACMECAURL string
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
@@ -87,6 +114,15 @@ func (s *Settings) Copy() *Settings {
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
 		PeerExposeEnabled:               s.PeerExposeEnabled,
 		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
+		CertificateAuthorityEnabled:     s.CertificateAuthorityEnabled,
+		CertWildcardAllowed:             s.CertWildcardAllowed,
+		CertCAValidity:                  s.CertCAValidity,
+		CertCADisplayName:               s.CertCADisplayName,
+		CertCAOrganization:              s.CertCAOrganization,
+		CertDefaultValidity:             s.CertDefaultValidity,
+		CertRateLimitPerPeer:            s.CertRateLimitPerPeer,
+		CertACMEEnabled:                 s.CertACMEEnabled,
+		CertACMECAURL:                   s.CertACMECAURL,
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,

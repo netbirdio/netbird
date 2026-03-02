@@ -220,6 +220,27 @@ const (
 	// AccountPeerExposeDisabled indicates that a user disabled peer expose for the account
 	AccountPeerExposeDisabled Activity = 115
 
+	// CertificateAuthorityCreated indicates that a CA was created for the account
+	CertificateAuthorityCreated Activity = 116
+	// CertificateAuthorityRotated indicates that the CA was rotated
+	CertificateAuthorityRotated Activity = 117
+	// CertificateAuthorityDeactivated indicates that a CA was deactivated
+	CertificateAuthorityDeactivated Activity = 118
+	// CertificateIssued indicates that a certificate was issued to a peer
+	CertificateIssued Activity = 119
+	// CertificateRenewed indicates that a certificate was renewed for a peer
+	CertificateRenewed Activity = 120
+	// CertificateRevoked indicates that a certificate was revoked
+	CertificateRevoked Activity = 121
+	// CertificateExpiring indicates that a certificate is expiring soon
+	CertificateExpiring Activity = 122
+	// CertificateExpired indicates that a certificate has expired
+	CertificateExpired Activity = 123
+	// CertificateRateLimited indicates that a peer was rate-limited for certificate issuance
+	CertificateRateLimited Activity = 124
+	// CertificateWildcardIssued indicates that a wildcard certificate was issued
+	CertificateWildcardIssued Activity = 125
+
 	AccountDeleted Activity = 99999
 )
 
@@ -364,6 +385,17 @@ var activityMap = map[Activity]Code{
 
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	CertificateAuthorityCreated:     {"Certificate authority created", "certificate.authority.create"},
+	CertificateAuthorityRotated:     {"Certificate authority rotated", "certificate.authority.rotate"},
+	CertificateAuthorityDeactivated: {"Certificate authority deactivated", "certificate.authority.deactivate"},
+	CertificateIssued:               {"Certificate issued", "certificate.issue"},
+	CertificateRenewed:              {"Certificate renewed", "certificate.renew"},
+	CertificateRevoked:              {"Certificate revoked", "certificate.revoke"},
+	CertificateExpiring:             {"Certificate expiring", "certificate.expiring"},
+	CertificateExpired:              {"Certificate expired", "certificate.expired"},
+	CertificateRateLimited:          {"Certificate rate limited", "certificate.rate.limit"},
+	CertificateWildcardIssued:       {"Wildcard certificate issued", "certificate.wildcard.issue"},
 }
 
 // StringCode returns a string code of the activity
