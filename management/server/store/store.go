@@ -89,6 +89,8 @@ type Store interface {
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
 	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
+	ListUsers(ctx context.Context) ([]*types.User, error)
+	UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error
 	SaveUsers(ctx context.Context, users []*types.User) error
 	SaveUser(ctx context.Context, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
