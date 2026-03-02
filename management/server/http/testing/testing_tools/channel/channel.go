@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbca "github.com/netbirdio/netbird/management/server/ca"
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -128,8 +129,10 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	groupsManagerMock := groups.NewManagerMock()
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+	caManager := nbca.NewManager(store)
+	caManager.RegisterSigner(nbca.NewACMEPersistSigner())
 
-	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, caManager)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
