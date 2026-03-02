@@ -1,0 +1,95 @@
+Implement the following plan:
+
+# Plan: Support custom SQLite file paths for all three stores
+
+## Context
+
+All three stores (main, activity, auth) hardcode their SQLite filenames relative to `dataDir`:
+- Main store: `dataDir/store.db` (constant `storeSqliteFileName`)
+- Activity store: `dataDir/events.db` (constant `eventSinkDB`)
+- Auth store: `dataDir/idp.db` (hardcoded in `buildEmbeddedIdPConfig`)
+
+The user wants the combined server config to support custom file paths for each.
+
+## Changes
+
+### 1. Add `File` field to `StoreConfig`
+
+**File:** `combined/cmd/config.go:172`
+
+```go
+type StoreConfig struct {
+    Engine        string `yaml:"engine"`
+    EncryptionKey string `yaml:"encryptionKey"`
+    DSN           string `yaml:"dsn"`
+    File          string `yaml:"file"`  // NEW: custom SQLite file path
+}
+```
+
+### 2. Bridge file paths to env vars in `initializeConfig()`
+
+**File:** `combined/cmd/root.go` (~line 135-153)
+
+- `Store.File` → `os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)`
+- `ActivityStore.File` → `os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)`
+- Auth store doesn't need env var bridging (handled directly in config.go)
+
+### 3. Auth store: use `AuthStore.File` in `buildEmbeddedIdPConfig()`
+
+**File:** `combined/cmd/config.go` — `buildEmbeddedIdPConfig()` (~line 553)
+
+When `authStorageType != "postgres"`, use `c.Server.AuthStore.File` if set, otherwise default to `path.Join(mgmt.DataDir, "idp.db")`.
+
+### 4. Read new env vars in management store code
+
+**File:** `management/server/store/sql_store.go` — `NewSqliteStore()` (~line 2730)
+
+Check `NB_STORE_ENGINE_SQLITE_FILE` env var. If set, use it as the full file path instead of `filepath.Join(dataDir, storeSqliteFileName)`.
+
+**File:** `management/server/activity/store/sql_store.go` — `initDatabase()` (~line 250)
+
+Add constant `sqliteFileEnv = "NB_ACTIVITY_EVENT_SQLITE_FILE"`. Check it in the sqlite case. If set, use it instead of `filepath.Join(dataDir, eventSinkDB)`.
+
+### 5. Update `config.yaml.example`
+
+**File:** `combined/config.yaml.example`
+
+Add `file` field (commented out) to `store`, `activityStore`, and `authStore` sections.
+
+## Verification
+
+- `go build ./combined/... ./management/...`
+- `go test ./management/server/store/... ./management/server/activity/store/... ./combined/...`
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/misha/.REDACTED.jsonl
+
+---
+
+<task-notification>
+<task-id>bf78cdc</task-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Test combined package" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>b595a51</task-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Test activity store package" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output
+
+---
+
+<task-notification>
+<task-id>b21cab6</task-id>
+<output-file>REDACTED.output</output-file>
+<status>completed</status>
+<summary>Background command "Test management store package" completed (exit code 0)</summary>
+</task-notification>
+Read the output file to retrieve the result: REDACTED.output

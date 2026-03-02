@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "6025365f10d4",
+  "session_id": "c85775b8-6f2b-4357-9af4-6388d941cc34",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T19:43:43.790068Z",
+  "branch": "feature/add-sql-stores-file-paths",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/config.go",
+    "combined/cmd/root.go",
+    "combined/config.yaml.example",
+    "management/server/activity/store/sql_store.go",
+    "management/server/store/sql_store.go"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 39547,
+    "cache_read_tokens": 1293771,
+    "output_tokens": 2542,
+    "api_call_count": 30
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T19:43:43.72209Z",
+    "agent_lines": 6,
+    "human_added": 1955,
+    "human_modified": 21,
+    "human_removed": 0,
+    "total_committed": 1982,
+    "agent_percentage": 0.30272452068617556
+  }
+}

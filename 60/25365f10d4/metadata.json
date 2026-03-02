@@ -3,7 +3,7 @@
   "checkpoint_id": "6025365f10d4",
   "strategy": "manual-commit",
   "branch": "feature/add-sql-stores-file-paths",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "combined/cmd/config.go",
     "combined/cmd/root.go",
@@ -13,7 +13,8 @@
     "management/server/activity/store/sql_store.go",
     "management/server/idp/embedded.go",
     "management/server/metrics/selfhosted.go",
-    "management/server/metrics/selfhosted_test.go"
+    "management/server/metrics/selfhosted_test.go",
+    "management/server/store/sql_store.go"
   ],
   "sessions": [
     {
@@ -29,13 +30,20 @@
       "context": "/60/25365f10d4/1/context.md",
       "content_hash": "/60/25365f10d4/1/content_hash.txt",
       "prompt": "/60/25365f10d4/1/prompt.txt"
+    },
+    {
+      "metadata": "/60/25365f10d4/2/metadata.json",
+      "transcript": "/60/25365f10d4/2/full.jsonl",
+      "context": "/60/25365f10d4/2/context.md",
+      "content_hash": "/60/25365f10d4/2/content_hash.txt",
+      "prompt": "/60/25365f10d4/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 119,
-    "cache_creation_tokens": 231803,
-    "cache_read_tokens": 3818620,
-    "output_tokens": 18750,
-    "api_call_count": 54
+    "input_tokens": 157,
+    "cache_creation_tokens": 271350,
+    "cache_read_tokens": 5112391,
+    "output_tokens": 21292,
+    "api_call_count": 84
   }
 }
