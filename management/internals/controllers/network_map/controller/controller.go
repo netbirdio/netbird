@@ -187,7 +187,11 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	wildcardPeers, err := c.repo.GetPeersWithActiveWildcardCerts(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wildcard peers: %v", err)
+	}
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain, wildcardPeers)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
@@ -343,7 +347,11 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	account.InjectProxyPolicies(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	wildcardPeers, err := c.repo.GetPeersWithActiveWildcardCerts(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wildcard peers: %v", err)
+	}
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain, wildcardPeers)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 	groupIDToUserIDs := account.GetActiveGroupUsers()
@@ -480,7 +488,11 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	}
 
 	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	wildcardPeers, err := c.repo.GetPeersWithActiveWildcardCerts(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wildcard peers: %v", err)
+	}
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain, wildcardPeers)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
 	if err != nil {
@@ -859,7 +871,11 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	}
 
 	dnsDomain := c.GetDNSDomain(account.Settings)
-	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	wildcardPeers, err := c.repo.GetPeersWithActiveWildcardCerts(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wildcard peers: %v", err)
+	}
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain, wildcardPeers)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
 	if err != nil {

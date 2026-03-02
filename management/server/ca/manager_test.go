@@ -128,6 +128,16 @@ func (m *mockCAStore) CountCertIssuancesInWindow(_ context.Context, accountID, p
 	return count, nil
 }
 
+func (m *mockCAStore) GetPeersWithActiveWildcardCerts(_ context.Context, accountID string) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	for _, c := range m.issuedCerts {
+		if c.AccountID == accountID && c.HasWildcard && !c.Revoked && c.NotAfter.After(time.Now()) {
+			result[c.PeerID] = struct{}{}
+		}
+	}
+	return result, nil
+}
+
 func createTestCSR(t *testing.T, fqdn string, wildcard bool) *x509.CertificateRequest {
 	t.Helper()
 

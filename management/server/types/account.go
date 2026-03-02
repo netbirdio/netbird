@@ -497,7 +497,7 @@ func getUniqueHostLabel(name string, peerLabels LookupMap) string {
 	return ""
 }
 
-func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
+func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string, wildcardPeers map[string]struct{}) nbdns.CustomZone {
 	var merr *multierror.Error
 
 	if dnsDomain == "" {
@@ -531,6 +531,22 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 			RData: peer.IP.String(),
 		})
 		sb.Reset()
+
+		if _, ok := wildcardPeers[peer.ID]; ok {
+			sb.Grow(2 + len(peer.DNSLabel) + len(domainSuffix))
+			sb.WriteString("*.")
+			sb.WriteString(peer.DNSLabel)
+			sb.WriteString(domainSuffix)
+
+			customZone.Records = append(customZone.Records, nbdns.SimpleRecord{
+				Name:  sb.String(),
+				Type:  int(dns.TypeA),
+				Class: nbdns.DefaultClass,
+				TTL:   defaultTTL,
+				RData: peer.IP.String(),
+			})
+			sb.Reset()
+		}
 
 		for _, extraLabel := range peer.ExtraDNSLabels {
 			sb.Grow(len(extraLabel) + len(domainSuffix))

@@ -405,7 +405,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 			validatedPeers[p] = struct{}{}
 		}
 
-		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
+		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io", nil)
 		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, nil, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))

@@ -35,6 +35,8 @@ type CAStore interface {
 	RevokeCertificate(ctx context.Context, accountID, serialNumber string) error
 	GetExpiringCertificates(ctx context.Context, accountID string, expiringBefore time.Time) ([]*IssuedCertificate, error)
 
+	GetPeersWithActiveWildcardCerts(ctx context.Context, accountID string) (map[string]struct{}, error)
+
 	CreateCertIssuanceLog(ctx context.Context, entry *CertIssuanceLog) error
 	CountCertIssuancesInWindow(ctx context.Context, accountID, peerID string, since time.Time) (int64, error)
 }

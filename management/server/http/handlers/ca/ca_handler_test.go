@@ -134,6 +134,10 @@ func (m *mockCAStore) CountCertIssuancesInWindow(_ context.Context, _, _ string,
 	return 0, nil
 }
 
+func (m *mockCAStore) GetPeersWithActiveWildcardCerts(_ context.Context, _ string) (map[string]struct{}, error) {
+	return nil, nil
+}
+
 // mockStoreForSettings implements only GetAccountSettings from store.Store.
 type mockStoreForSettings struct {
 	store.Store

@@ -5563,6 +5563,24 @@ func (s *SqlStore) GetExpiringCertificates(ctx context.Context, accountID string
 	return certs, nil
 }
 
+// GetPeersWithActiveWildcardCerts returns the set of peer IDs that have at least one
+// active (non-revoked, non-expired) issued certificate with HasWildcard=true.
+func (s *SqlStore) GetPeersWithActiveWildcardCerts(ctx context.Context, accountID string) (map[string]struct{}, error) {
+	var peerIDs []string
+	result := s.db.Model(&ca.IssuedCertificate{}).
+		Where("account_id = ? AND has_wildcard = ? AND revoked = ? AND not_after > ?", accountID, true, false, time.Now()).
+		Distinct().Pluck("peer_id", &peerIDs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peers with wildcard certs from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers with wildcard certs from store")
+	}
+	m := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		m[id] = struct{}{}
+	}
+	return m, nil
+}
+
 // CreateCertIssuanceLog records a certificate issuance event.
 func (s *SqlStore) CreateCertIssuanceLog(ctx context.Context, entry *ca.CertIssuanceLog) error {
 	result := s.db.Create(entry)

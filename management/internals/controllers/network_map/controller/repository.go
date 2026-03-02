@@ -16,6 +16,7 @@ type Repository interface {
 	GetPeersByIDs(ctx context.Context, accountID string, peerIDs []string) (map[string]*peer.Peer, error)
 	GetPeerByID(ctx context.Context, accountID string, peerID string) (*peer.Peer, error)
 	GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error)
+	GetPeersWithActiveWildcardCerts(ctx context.Context, accountID string) (map[string]struct{}, error)
 }
 
 type repository struct {
@@ -52,4 +53,8 @@ func (r *repository) GetPeerByID(ctx context.Context, accountID string, peerID s
 
 func (r *repository) GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error) {
 	return r.store.GetAccountZones(ctx, store.LockingStrengthNone, accountID)
+}
+
+func (r *repository) GetPeersWithActiveWildcardCerts(ctx context.Context, accountID string) (map[string]struct{}, error) {
+	return r.store.GetPeersWithActiveWildcardCerts(ctx, accountID)
 }
