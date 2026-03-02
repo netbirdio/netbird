@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "6025365f10d4",
+  "strategy": "manual-commit",
+  "branch": "feature/add-sql-stores-file-paths",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "combined/cmd/root.go",
+    "combined/cmd/token.go",
+    "combined/config.yaml.example",
+    "management/server/activity/store/sql_store.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/60/25365f10d4/0/metadata.json",
+      "transcript": "/60/25365f10d4/0/full.jsonl",
+      "context": "/60/25365f10d4/0/context.md",
+      "content_hash": "/60/25365f10d4/0/content_hash.txt",
+      "prompt": "/60/25365f10d4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 100,
+    "cache_creation_tokens": 75141,
+    "cache_read_tokens": 2504640,
+    "output_tokens": 14559,
+    "api_call_count": 37
+  }
+}

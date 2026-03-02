@@ -1,0 +1,21 @@
+how datadir is used in the combined/
+
+---
+
+add support of providing a file of the sqlite storage if sqlite engine is specified in combined/ for store, authStore and activityStore
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+we need to chevck if teh user provided query params to the file after ?
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+question, do we need to do the query separation for activity store?
