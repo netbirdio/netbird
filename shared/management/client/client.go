@@ -28,4 +28,6 @@ type Client interface {
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
 	StopExpose(ctx context.Context, domain string) error
+	SignCertificate(ctx context.Context, csrDER []byte, signingType proto.CertSigningType, wildcard bool) (*proto.SignCertificateResponse, error)
+	GetCACertificates(ctx context.Context) (*proto.GetCACertificatesResponse, error)
 }

@@ -1827,6 +1827,11 @@ func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
 }
 
+// GetMgmClient returns the management service client.
+func (e *Engine) GetMgmClient() mgm.Client {
+	return e.mgmClient
+}
+
 // GetExposeManager returns the expose session manager.
 func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()

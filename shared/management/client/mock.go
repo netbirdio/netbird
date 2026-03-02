@@ -25,6 +25,8 @@ type MockClient struct {
 	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExposeFunc                func(ctx context.Context, domain string) error
 	StopExposeFunc                 func(ctx context.Context, domain string) error
+	SignCertificateFunc            func(ctx context.Context, csrDER []byte, signingType proto.CertSigningType, wildcard bool) (*proto.SignCertificateResponse, error)
+	GetCACertificatesFunc          func(ctx context.Context) (*proto.GetCACertificatesResponse, error)
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -125,4 +127,18 @@ func (m *MockClient) StopExpose(ctx context.Context, domain string) error {
 		return nil
 	}
 	return m.StopExposeFunc(ctx, domain)
+}
+
+func (m *MockClient) SignCertificate(ctx context.Context, csrDER []byte, signingType proto.CertSigningType, wildcard bool) (*proto.SignCertificateResponse, error) {
+	if m.SignCertificateFunc == nil {
+		return nil, nil
+	}
+	return m.SignCertificateFunc(ctx, csrDER, signingType, wildcard)
+}
+
+func (m *MockClient) GetCACertificates(ctx context.Context) (*proto.GetCACertificatesResponse, error) {
+	if m.GetCACertificatesFunc == nil {
+		return nil, nil
+	}
+	return m.GetCACertificatesFunc(ctx)
 }

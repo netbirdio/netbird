@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -29,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/cert"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
@@ -89,7 +91,8 @@ type Server struct {
 
 	sleepHandler *sleephandler.SleepHandler
 
-	jwtCache *jwtCache
+	jwtCache    *jwtCache
+	certManager *cert.Manager
 }
 
 type oauthAuthFlow struct {
@@ -113,6 +116,14 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
+
+	certDir := filepath.Join(profilemanager.DefaultConfigPathDir, "certs")
+	certMgr, err := cert.NewManager(certDir)
+	if err != nil {
+		log.Warnf("failed to initialize certificate manager: %v", err)
+	} else {
+		s.certManager = certMgr
+	}
 
 	return s
 }
