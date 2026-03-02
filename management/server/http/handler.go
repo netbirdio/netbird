@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 
+	"github.com/netbirdio/netbird/management/server/ca"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
@@ -43,6 +44,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
+	cahandler "github.com/netbirdio/netbird/management/server/http/handlers/ca"
+
 	"github.com/netbirdio/netbird/management/server/http/handlers/accounts"
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
@@ -73,7 +76,11 @@ const (
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
+<<<<<<< HEAD
 func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix) (http.Handler, error) {
+=======
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, reverseProxyManager reverseproxy.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, caManager *ca.Manager) (http.Handler, error) {
+>>>>>>> 9c88681a ([management] Add CA REST API and permission module)
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -175,6 +182,9 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	instance.AddVersionEndpoint(instanceManager, router)
 	if serviceManager != nil && reverseProxyDomainManager != nil {
 		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, router)
+	}
+	if caManager != nil {
+		cahandler.AddEndpoints(caManager, accountManager, permissionsManager, router)
 	}
 
 	// Register OAuth callback handler for proxy authentication

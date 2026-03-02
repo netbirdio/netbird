@@ -29,6 +29,7 @@ type CAStore interface {
 	DeactivateCACertificate(ctx context.Context, accountID, caID string) error
 
 	CreateIssuedCertificate(ctx context.Context, cert *IssuedCertificate) error
+	GetIssuedCertificates(ctx context.Context, accountID string) ([]*IssuedCertificate, error)
 	GetIssuedCertificatesByPeer(ctx context.Context, accountID, peerID string) ([]*IssuedCertificate, error)
 	GetIssuedCertificateBySerial(ctx context.Context, accountID, serialNumber string) (*IssuedCertificate, error)
 	RevokeCertificate(ctx context.Context, accountID, serialNumber string) error
@@ -157,6 +158,16 @@ func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string,
 // GetActiveCACertificates returns all active CA certificates for the given account.
 func (m *Manager) GetActiveCACertificates(ctx context.Context, accountID string) ([]*CACertificate, error) {
 	return m.store.GetActiveCACertificates(ctx, accountID)
+}
+
+// GetCACertificate returns a specific CA certificate by ID.
+func (m *Manager) GetCACertificate(ctx context.Context, accountID, caID string) (*CACertificate, error) {
+	return m.store.GetCACertificateByID(ctx, accountID, caID)
+}
+
+// GetIssuedCertificates returns all issued certificates for the given account.
+func (m *Manager) GetIssuedCertificates(ctx context.Context, accountID string) ([]*IssuedCertificate, error) {
+	return m.store.GetIssuedCertificates(ctx, accountID)
 }
 
 // RotateCA creates a new CA while keeping existing CAs active for trust continuity.

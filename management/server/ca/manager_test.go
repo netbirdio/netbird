@@ -64,6 +64,16 @@ func (m *mockCAStore) CreateIssuedCertificate(_ context.Context, cert *IssuedCer
 	return nil
 }
 
+func (m *mockCAStore) GetIssuedCertificates(_ context.Context, accountID string) ([]*IssuedCertificate, error) {
+	var certs []*IssuedCertificate
+	for _, c := range m.issuedCerts {
+		if c.AccountID == accountID {
+			certs = append(certs, c)
+		}
+	}
+	return certs, nil
+}
+
 func (m *mockCAStore) GetIssuedCertificatesByPeer(_ context.Context, accountID, peerID string) ([]*IssuedCertificate, error) {
 	var certs []*IssuedCertificate
 	for _, c := range m.issuedCerts {

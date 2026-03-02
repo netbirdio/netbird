@@ -5498,6 +5498,17 @@ func (s *SqlStore) CreateIssuedCertificate(ctx context.Context, cert *ca.IssuedC
 	return nil
 }
 
+// GetIssuedCertificates returns all issued certificates for an account, ordered by creation time descending.
+func (s *SqlStore) GetIssuedCertificates(ctx context.Context, accountID string) ([]*ca.IssuedCertificate, error) {
+	var certs []*ca.IssuedCertificate
+	result := s.db.Where("account_id = ?", accountID).Order("created_at DESC").Find(&certs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get issued certificates from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get issued certificates from store")
+	}
+	return certs, nil
+}
+
 // GetIssuedCertificatesByPeer returns all issued certificates for a peer, ordered by creation time descending.
 func (s *SqlStore) GetIssuedCertificatesByPeer(ctx context.Context, accountID, peerID string) ([]*ca.IssuedCertificate, error) {
 	var certs []*ca.IssuedCertificate

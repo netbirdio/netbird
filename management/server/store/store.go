@@ -295,6 +295,7 @@ type Store interface {
 	DeactivateCACertificate(ctx context.Context, accountID, caID string) error
 
 	CreateIssuedCertificate(ctx context.Context, cert *ca.IssuedCertificate) error
+	GetIssuedCertificates(ctx context.Context, accountID string) ([]*ca.IssuedCertificate, error)
 	GetIssuedCertificatesByPeer(ctx context.Context, accountID, peerID string) ([]*ca.IssuedCertificate, error)
 	GetIssuedCertificateBySerial(ctx context.Context, accountID, serialNumber string) (*ca.IssuedCertificate, error)
 	RevokeCertificate(ctx context.Context, accountID, serialNumber string) error

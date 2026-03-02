@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 
+	"github.com/netbirdio/netbird/management/server/ca"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -205,6 +206,14 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 			log.Fatalf("failed to create proxy manager: %v", err)
 		}
 		return manager
+	})
+}
+
+func (s *BaseServer) CAManager() *ca.Manager {
+	return Create(s, func() *ca.Manager {
+		mgr := ca.NewManager(s.AccountManager().GetStore())
+		mgr.RegisterSigner(ca.NewACMEPersistSigner())
+		return mgr
 	})
 }
 
