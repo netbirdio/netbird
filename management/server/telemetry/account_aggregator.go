@@ -91,37 +91,54 @@ func (a *AccountDurationAggregator) FlushAndGetP95s() []int64 {
 
 	for _, scopeMetrics := range rm.ScopeMetrics {
 		for _, metric := range scopeMetrics.Metrics {
-			if histogramData, ok := metric.Data.(metricdata.Histogram[int64]); ok {
-				for _, dataPoint := range histogramData.DataPoints {
-					var accountID string
-					for _, attr := range dataPoint.Attributes.ToSlice() {
-						if attr.Key == "account_id" {
-							accountID = attr.Value.AsString()
-							break
-						}
-					}
+			histogramData, ok := metric.Data.(metricdata.Histogram[int64])
+			if !ok {
+				continue
+			}
 
-					if accountID == "" {
-						continue
-					}
-
-					if accHist, exists := a.accounts[accountID]; exists {
-						if now.Sub(accHist.lastUpdate) > a.MaxAge {
-							delete(a.accounts, accountID)
-							continue
-						}
-					}
-
-					p95 := calculateP95FromHistogram(dataPoint)
-					if p95 > 0 {
-						p95s = append(p95s, p95)
-					}
-				}
+			for _, dataPoint := range histogramData.DataPoints {
+				a.processDataPoint(dataPoint, now, &p95s)
 			}
 		}
 	}
 
 	return p95s
+}
+
+// processDataPoint extracts P95 from a single histogram data point
+func (a *AccountDurationAggregator) processDataPoint(dataPoint metricdata.HistogramDataPoint[int64], now time.Time, p95s *[]int64) {
+	accountID := extractAccountID(dataPoint)
+	if accountID == "" {
+		return
+	}
+
+	if a.isStaleAccount(accountID, now) {
+		delete(a.accounts, accountID)
+		return
+	}
+
+	if p95 := calculateP95FromHistogram(dataPoint); p95 > 0 {
+		*p95s = append(*p95s, p95)
+	}
+}
+
+// extractAccountID retrieves the account_id from histogram data point attributes
+func extractAccountID(dp metricdata.HistogramDataPoint[int64]) string {
+	for _, attr := range dp.Attributes.ToSlice() {
+		if attr.Key == "account_id" {
+			return attr.Value.AsString()
+		}
+	}
+	return ""
+}
+
+// isStaleAccount checks if an account hasn't been updated recently
+func (a *AccountDurationAggregator) isStaleAccount(accountID string, now time.Time) bool {
+	accHist, exists := a.accounts[accountID]
+	if !exists {
+		return false
+	}
+	return now.Sub(accHist.lastUpdate) > a.MaxAge
 }
 
 // calculateP95FromHistogram computes P95 from OTel histogram data
