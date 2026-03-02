@@ -275,6 +275,11 @@ type Store interface {
 
 	// GetCustomDomainsCounts returns the total and validated custom domain counts.
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	// ListUsers returns all users across all accounts.
+	ListUsers(ctx context.Context) ([]*types.User, error)
+	// UpdateUserID re-keys a user's ID from oldUserID to newUserID, updating all foreign key references.
+	UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error
 }
 
 const (

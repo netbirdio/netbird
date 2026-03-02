@@ -3445,6 +3445,80 @@ func (s *SqlStore) GetDB() *gorm.DB {
 	return s.db
 }
 
+// ListUsers returns all users across all accounts with decrypted sensitive fields.
+func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
+	var users []*types.User
+	if err := s.db.Find(&users).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to list users")
+	}
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			log.WithContext(ctx).Errorf("failed to decrypt user data for user %s: %v", user.Id, err)
+			return nil, status.Errorf(status.Internal, "failed to decrypt user data")
+		}
+	}
+	return users, nil
+}
+
+// txDeferFKConstraints defers foreign key constraint checks for the duration of the transaction.
+// MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
+func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
+	switch s.storeEngine {
+	case types.PostgresStoreEngine:
+		return tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error
+	case types.SqliteStoreEngine:
+		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
+	default:
+		return nil
+	}
+}
+
+// UpdateUserID re-keys a user's ID from oldUserID to newUserID, updating all FK references first,
+// then the users.id primary key last. All updates happen in a single transaction.
+func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	type fkUpdate struct {
+		model  any
+		column string
+		where  string
+	}
+
+	updates := []fkUpdate{
+		{&types.PersonalAccessToken{}, "user_id", "user_id = ?"},
+		{&types.PersonalAccessToken{}, "created_by", "created_by = ?"},
+		{&nbpeer.Peer{}, "user_id", "user_id = ?"},
+		{&types.UserInviteRecord{}, "created_by", "created_by = ?"},
+		{&types.Account{}, "created_by", "created_by = ?"},
+		{&types.ProxyAccessToken{}, "created_by", "created_by = ?"},
+		{&types.Job{}, "triggered_by", "triggered_by = ?"},
+		{&types.PolicyRule{}, "authorized_user", "authorized_user = ?"},
+		{&accesslogs.AccessLogEntry{}, "user_id", "user_id = ?"},
+	}
+
+	err := s.transaction(func(tx *gorm.DB) error {
+		if err := s.txDeferFKConstraints(tx); err != nil {
+			return err
+		}
+
+		for _, u := range updates {
+			if err := tx.Model(u.model).Where(u.where, oldUserID).Update(u.column, newUserID).Error; err != nil {
+				return fmt.Errorf("update %s: %w", u.column, err)
+			}
+		}
+
+		if err := tx.Model(&types.User{}).Where(accountAndIDQueryCondition, accountID, oldUserID).Update("id", newUserID).Error; err != nil {
+			return fmt.Errorf("update users: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to update user ID in the store: %s", err)
+		return status.Errorf(status.Internal, "failed to update user ID in store")
+	}
+
+	return nil
+}
+
 // SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
 func (s *SqlStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
 	s.fieldEncrypt = enc
