@@ -5,10 +5,15 @@
   "branch": "feature/add-sql-stores-file-paths",
   "checkpoints_count": 1,
   "files_touched": [
+    "combined/cmd/config.go",
     "combined/cmd/root.go",
     "combined/cmd/token.go",
     "combined/config.yaml.example",
-    "management/server/activity/store/sql_store.go"
+    "idp/dex/config.go",
+    "management/server/activity/store/sql_store.go",
+    "management/server/idp/embedded.go",
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go"
   ],
   "sessions": [
     {
@@ -17,13 +22,20 @@
       "context": "/60/25365f10d4/0/context.md",
       "content_hash": "/60/25365f10d4/0/content_hash.txt",
       "prompt": "/60/25365f10d4/0/prompt.txt"
+    },
+    {
+      "metadata": "/60/25365f10d4/1/metadata.json",
+      "transcript": "/60/25365f10d4/1/full.jsonl",
+      "context": "/60/25365f10d4/1/context.md",
+      "content_hash": "/60/25365f10d4/1/content_hash.txt",
+      "prompt": "/60/25365f10d4/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 100,
-    "cache_creation_tokens": 75141,
-    "cache_read_tokens": 2504640,
-    "output_tokens": 14559,
-    "api_call_count": 37
+    "input_tokens": 119,
+    "cache_creation_tokens": 231803,
+    "cache_read_tokens": 3818620,
+    "output_tokens": 18750,
+    "api_call_count": 54
   }
 }
