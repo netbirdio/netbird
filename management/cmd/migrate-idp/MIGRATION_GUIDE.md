@@ -15,10 +15,11 @@ After this migration, NetBird manages authentication directly — no external Id
 5. [Step 3: Run a Dry-Run](#step-3-run-a-dry-run)
 6. [Step 4: Run the Migration](#step-4-run-the-migration)
 7. [Step 5: Update management.json](#step-5-update-managementjson)
-8. [Step 6: Start the Management Server](#step-6-start-the-management-server)
-9. [Step 7: Verify Everything Works](#step-7-verify-everything-works)
-10. [Rollback](#rollback)
-11. [FAQ](#faq)
+8. [Step 5f: Configure Your Old IdP (If Keeping It as a DEX Connector)](#step-5f-configure-your-old-idp-if-keeping-it-as-a-dex-connector)
+9. [Step 6: Start the Management Server](#step-6-start-the-management-server)
+10. [Step 7: Verify Everything Works](#step-7-verify-everything-works)
+11. [Rollback](#rollback)
+12. [FAQ](#faq)
 
 ---
 
@@ -385,6 +386,130 @@ Then configure:
 
 ---
 
+## Step 5f: Configure Your Old IdP (If Keeping It as a DEX Connector)
+
+After migration, you have two authentication options:
+
+- **Option A: Local passwords only** — users log in with email/password through DEX's built-in password database. No changes needed on any external IdP. The owner account you configured in Step 5 is the first user. You can create more users through the dashboard or API. **Skip this section entirely.**
+
+- **Option B: Keep your old IdP as a login option through DEX** — existing users continue to log in via your old provider (Zitadel, Keycloak, Okta, etc.), but DEX sits in the middle as an OIDC broker. **You must complete this section.**
+
+### Why is this needed?
+
+Before migration, your NetBird clients and dashboard talked directly to your old IdP for authentication. After migration, they talk to DEX instead. DEX then talks to your old IdP on their behalf. This means:
+
+1. **DEX needs to be registered as an OAuth2 client in your old IdP** (it may already be if you reuse the existing client credentials).
+2. **Your old IdP needs to allow DEX's callback URL as a redirect URI** — this is different from the redirect URIs your dashboard and CLI used before.
+
+### The DEX callback URL
+
+DEX uses a single callback URL for all external connectors:
+
+```
+https://<your-management-server>/oauth2/callback
+```
+
+For example, if your management server is at `https://netbird.example.com`, the callback URL is:
+
+```
+https://netbird.example.com/oauth2/callback
+```
+
+### What to configure in your old IdP
+
+Go to your old IdP's admin panel and either update the existing OAuth2/OIDC application or create a new one:
+
+| Setting | Value |
+|---------|-------|
+| **Redirect URI / Callback URL** | `https://netbird.example.com/oauth2/callback` |
+| **Grant type** | Authorization Code |
+| **Scopes** | `openid`, `profile`, `email` (and `groups` if you use group-based policies) |
+| **Client ID** | Note this down — you need it for the connector config |
+| **Client Secret** | Note this down — you need it for the connector config |
+
+Provider-specific instructions:
+
+**Zitadel:**
+1. Go to your Zitadel project > Applications.
+2. Either edit the existing NetBird application or create a new Web application.
+3. In Redirect URIs, add `https://netbird.example.com/oauth2/callback`.
+4. Copy the Client ID and Client Secret.
+
+**Keycloak:**
+1. Go to your realm > Clients.
+2. Either edit the existing NetBird client or create a new OpenID Connect client.
+3. In Valid Redirect URIs, add `https://netbird.example.com/oauth2/callback`.
+4. Copy the Client ID and Client Secret from the Credentials tab.
+
+**Auth0:**
+1. Go to Applications > your NetBird application (or create a new Regular Web Application).
+2. In Allowed Callback URLs, add `https://netbird.example.com/oauth2/callback`.
+3. Copy the Client ID and Client Secret.
+
+**Okta:**
+1. Go to Applications > your NetBird application (or create a new OIDC Web Application).
+2. In Sign-in redirect URIs, add `https://netbird.example.com/oauth2/callback`.
+3. Copy the Client ID and Client Secret.
+
+**Google Workspace:**
+1. Go to Google Cloud Console > APIs & Services > Credentials.
+2. Edit your OAuth 2.0 Client ID (or create a new one).
+3. In Authorized redirect URIs, add `https://netbird.example.com/oauth2/callback`.
+4. Copy the Client ID and Client Secret.
+
+**Microsoft Entra (Azure AD):**
+1. Go to Azure Portal > App registrations > your NetBird app (or create a new one).
+2. In Authentication > Web > Redirect URIs, add `https://netbird.example.com/oauth2/callback`.
+3. Copy the Application (client) ID and generate a Client Secret under Certificates & secrets.
+
+### Add the connector to management.json
+
+Once you have the Client ID, Client Secret, and have configured the callback URL, add a `StaticConnectors` entry inside your `EmbeddedIdP` config. This is done by adding the connector directly to the DEX YAML config that the embedded IdP generates. However, the standalone management server doesn't expose static connectors in `management.json` directly — connectors are managed through the management API after startup.
+
+**The simpler approach:** After starting the management server (Step 6), use the management API to create the connector:
+
+```bash
+# Replace with your actual values
+curl -X POST https://netbird.example.com/api/idp/connectors \
+  -H "Authorization: Bearer <your-admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "oidc",
+    "name": "Previous IdP",
+    "type": "oidc",
+    "issuer": "https://your-old-idp.example.com",
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret"
+  }'
+```
+
+The `id` field **must** match the `--connector-id` you used during migration (e.g., `oidc`). This is what links the migrated user IDs to this connector.
+
+### What about existing redirect URIs in the old IdP?
+
+Your old IdP probably has redirect URIs configured for the NetBird dashboard and CLI (e.g., `https://app.example.com/nb-auth`, `http://localhost:53000/`). These were used when clients talked to the old IdP directly.
+
+After migration, clients talk to DEX instead — not to the old IdP. So:
+
+- The old dashboard/CLI redirect URIs in the old IdP are **no longer used** and can be removed (but leaving them is harmless).
+- The only redirect URI the old IdP needs now is **DEX's callback URL** (`https://netbird.example.com/oauth2/callback`).
+
+### Authentication flow after migration (Option B)
+
+```
+User clicks "Login"
+    → Browser goes to DEX (https://netbird.example.com/oauth2/auth)
+    → DEX shows login page with your connector listed (e.g., "Previous IdP")
+    → User clicks the connector
+    → DEX redirects to your old IdP (https://your-old-idp.example.com/authorize)
+    → User authenticates with their existing credentials
+    → Old IdP redirects back to DEX (https://netbird.example.com/oauth2/callback)
+    → DEX issues a new JWT with the DEX-encoded user ID
+    → Browser returns to NetBird dashboard/CLI with the DEX JWT
+```
+
+---
+
 ## Step 6: Start the Management Server
 
 ```bash
@@ -496,12 +621,7 @@ Service users (`IsServiceUser=true`) are migrated like all other users. Their ID
 
 ### Can I keep my old IdP as a connector in DEX?
 
-Yes. After migration, you can add your old IdP as an OIDC connector in DEX. This lets existing users log in via their old provider, but through DEX. The connector ID in DEX must match the `--connector-id` you used during migration (e.g., `oidc`).
-
-To add a connector, create a connector via the DEX API or configure it as a static connector in the DEX config. The connector must have:
-- `ID`: the same value you used for `--connector-id` (e.g., `oidc`)
-- `Type`: `oidc` (or the specific provider type)
-- `Issuer`, `ClientID`, `ClientSecret`: your old IdP's OAuth2 credentials
+Yes. See [Step 5f](#step-5f-configure-your-old-idp-if-keeping-it-as-a-dex-connector) for full instructions. In short: register DEX's callback URL (`https://<management-server>/oauth2/callback`) as a redirect URI in your old IdP, then add the connector via the management API after startup. The connector ID must match the `--connector-id` you used during migration.
 
 ### What if I used the wrong connector ID?
 
