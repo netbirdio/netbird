@@ -40,6 +40,8 @@ tags:
     description: Interact with and view information about reverse proxy services.
   - name: Instance
     description: Instance setup and status endpoints for initial configuration.
+  - name: Certificate Authority
+    description: Manage internal certificate authority and issued certificates.
   - name: Jobs
     description: Interact with and view information about remote jobs.
     x-experimental: true
@@ -4231,6 +4233,107 @@ components:
           type: string
           description: The ID of the bypassed peer.
           example: "chacbco6lnnbn6cg5s91"
+    CACertificateResponse:
+      type: object
+      description: A certificate authority certificate
+      properties:
+        id:
+          description: CA certificate ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7m0
+        fingerprint:
+          description: SHA-256 fingerprint of the CA certificate
+          type: string
+          example: "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
+        certificate_pem:
+          description: PEM-encoded CA certificate (only included in single CA detail responses)
+          type: string
+        not_before:
+          description: Certificate validity start time (UTC)
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+        not_after:
+          description: Certificate validity end time (UTC)
+          type: string
+          format: date-time
+          example: "2025-01-01T00:00:00Z"
+        is_active:
+          description: Whether this CA certificate is currently active
+          type: boolean
+          example: true
+        created_at:
+          description: CA certificate creation time (UTC)
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+      required:
+        - id
+        - fingerprint
+        - not_before
+        - not_after
+        - is_active
+        - created_at
+    IssuedCertificateResponse:
+      type: object
+      description: An issued certificate
+      properties:
+        id:
+          description: Issued certificate ID
+          type: string
+          example: ch8i4ug6lnn4g9hqv7m0
+        peer_id:
+          description: ID of the peer this certificate was issued for
+          type: string
+          example: chacbco6lnnbn6cg5s90
+        serial_number:
+          description: Certificate serial number
+          type: string
+          example: "1234567890"
+        dns_names:
+          description: DNS names included in the certificate
+          type: array
+          items:
+            type: string
+          example: ["peer1.example.com"]
+        has_wildcard:
+          description: Whether the certificate includes a wildcard DNS name
+          type: boolean
+          example: false
+        not_before:
+          description: Certificate validity start time (UTC)
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+        not_after:
+          description: Certificate validity end time (UTC)
+          type: string
+          format: date-time
+          example: "2025-01-01T00:00:00Z"
+        signing_type:
+          description: How the certificate was signed
+          type: string
+          example: "acme"
+        revoked:
+          description: Whether the certificate has been revoked
+          type: boolean
+          example: false
+        created_at:
+          description: Certificate issuance time (UTC)
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+      required:
+        - id
+        - peer_id
+        - serial_number
+        - dns_names
+        - has_wildcard
+        - not_before
+        - not_after
+        - signing_type
+        - revoked
+        - created_at
     ErrorResponse:
       type: object
       description: "Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided."
@@ -9878,6 +9981,195 @@ paths:
       responses:
         '202':
           description: Reverse proxy custom domain validation triggered
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/ca:
+    get:
+      summary: List Active CAs
+      description: Returns a list of all active certificate authority certificates
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of CA Certificates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CACertificateResponse'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Initialize CA
+      description: Initialize a new certificate authority for the account
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Object of the created CA Certificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CACertificateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/ca/{caId}:
+    get:
+      summary: Retrieve a CA Certificate
+      description: Returns detailed information about a specific CA certificate, including PEM
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: caId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a CA certificate
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Object of the CA Certificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CACertificateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Deactivate a CA Certificate
+      description: Deactivates a certificate authority certificate
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: caId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a CA certificate
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: CA Certificate deactivated
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/ca/rotate:
+    post:
+      summary: Rotate CA
+      description: Rotate the certificate authority, deactivating the current one and creating a new one
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Object of the new CA Certificate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CACertificateResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/ca/certificates:
+    get:
+      summary: List Issued Certificates
+      description: Returns a list of all issued certificates, optionally filtered by peer ID
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: peer_id
+          required: false
+          schema:
+            type: string
+          description: Filter certificates by peer ID
+          example: chacbco6lnnbn6cg5s90
+      responses:
+        '200':
+          description: A JSON Array of Issued Certificates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IssuedCertificateResponse'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/ca/certificates/{serialNumber}/revoke:
+    post:
+      summary: Revoke a Certificate
+      description: Revokes an issued certificate by serial number
+      tags: [ Certificate Authority ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: serialNumber
+          required: true
+          schema:
+            type: string
+          description: The serial number of the certificate to revoke
+          example: "1234567890"
+      responses:
+        '200':
+          description: Certificate revoked
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

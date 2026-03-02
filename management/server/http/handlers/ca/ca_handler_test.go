@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 const (
@@ -214,16 +215,16 @@ func TestListCAs(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp []CACertificateResponse
+	var resp []api.CACertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 	require.Len(t, resp, 1)
 
-	assert.Equal(t, "ca-1", resp[0].ID)
+	assert.Equal(t, "ca-1", resp[0].Id)
 	assert.Equal(t, "abc123", resp[0].Fingerprint)
 	assert.True(t, resp[0].IsActive)
 	// Should NOT include PEM in list response
-	assert.Empty(t, resp[0].CertificatePEM)
+	assert.Nil(t, resp[0].CertificatePem)
 }
 
 func TestGetCA(t *testing.T) {
@@ -249,13 +250,14 @@ func TestGetCA(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp CACertificateResponse
+	var resp api.CACertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 
-	assert.Equal(t, "ca-1", resp.ID)
+	assert.Equal(t, "ca-1", resp.Id)
 	// Should include PEM in detail response
-	assert.NotEmpty(t, resp.CertificatePEM)
+	assert.NotNil(t, resp.CertificatePem)
+	assert.NotEmpty(t, *resp.CertificatePem)
 }
 
 func TestInitCA(t *testing.T) {
@@ -270,11 +272,11 @@ func TestInitCA(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp CACertificateResponse
+	var resp api.CACertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 
-	assert.NotEmpty(t, resp.ID)
+	assert.NotEmpty(t, resp.Id)
 	assert.NotEmpty(t, resp.Fingerprint)
 	assert.True(t, resp.IsActive)
 	assert.Len(t, caStore.caCerts, 1)
@@ -319,11 +321,11 @@ func TestRotateCA(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp CACertificateResponse
+	var resp api.CACertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 
-	assert.NotEmpty(t, resp.ID)
+	assert.NotEmpty(t, resp.Id)
 	// Should have 2 CAs now (original + rotated)
 	assert.Len(t, caStore.caCerts, 2)
 }
@@ -361,7 +363,7 @@ func TestListIssuedCerts(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp []IssuedCertificateResponse
+	var resp []api.IssuedCertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Len(t, resp, 2)
@@ -400,11 +402,11 @@ func TestListIssuedCerts_FilterByPeer(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var resp []IssuedCertificateResponse
+	var resp []api.IssuedCertificateResponse
 	err := json.NewDecoder(recorder.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Len(t, resp, 1)
-	assert.Equal(t, "peer-1", resp[0].PeerID)
+	assert.Equal(t, "peer-1", resp[0].PeerId)
 }
 
 func TestRevokeCert(t *testing.T) {

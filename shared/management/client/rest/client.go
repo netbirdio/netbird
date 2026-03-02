@@ -134,6 +134,9 @@ type Client struct {
 
 	// ReverseProxyDomains NetBird reverse proxy domains APIs
 	ReverseProxyDomains *ReverseProxyDomainsAPI
+
+	// CertificateAuthority NetBird certificate authority APIs
+	CertificateAuthority *CertificateAuthorityAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -192,6 +195,7 @@ func (c *Client) initialize() {
 	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
 	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
 	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
+	c.CertificateAuthority = &CertificateAuthorityAPI{c}
 }
 
 // NewRequest creates and executes new management API request

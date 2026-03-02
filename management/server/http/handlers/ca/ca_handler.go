@@ -13,34 +13,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-// CACertificateResponse is the API response for a CA certificate.
-type CACertificateResponse struct {
-	ID             string `json:"id"`
-	Fingerprint    string `json:"fingerprint"`
-	CertificatePEM string `json:"certificate_pem,omitempty"`
-	NotBefore      string `json:"not_before"`
-	NotAfter       string `json:"not_after"`
-	IsActive       bool   `json:"is_active"`
-	CreatedAt      string `json:"created_at"`
-}
-
-// IssuedCertificateResponse is the API response for an issued certificate.
-type IssuedCertificateResponse struct {
-	ID           string   `json:"id"`
-	PeerID       string   `json:"peer_id"`
-	SerialNumber string   `json:"serial_number"`
-	DNSNames     []string `json:"dns_names"`
-	HasWildcard  bool     `json:"has_wildcard"`
-	NotBefore    string   `json:"not_before"`
-	NotAfter     string   `json:"not_after"`
-	SigningType  string   `json:"signing_type"`
-	Revoked      bool     `json:"revoked"`
-	CreatedAt    string   `json:"created_at"`
-}
 
 type handler struct {
 	caManager          *nbca.Manager
@@ -81,7 +57,7 @@ func (h *handler) listCAs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := make([]CACertificateResponse, 0, len(cas))
+	resp := make([]api.CACertificateResponse, 0, len(cas))
 	for _, c := range cas {
 		resp = append(resp, toCACertificateResponse(c, false))
 	}
@@ -204,7 +180,7 @@ func (h *handler) listIssuedCerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := make([]IssuedCertificateResponse, 0, len(certs))
+	resp := make([]api.IssuedCertificateResponse, 0, len(certs))
 	for _, c := range certs {
 		resp = append(resp, toIssuedCertificateResponse(c))
 	}
@@ -272,36 +248,36 @@ func (h *handler) getAccountDNSDomain(r *http.Request, accountID string) (string
 	return settings.DNSDomain, nil
 }
 
-func toCACertificateResponse(c *nbca.CACertificate, includePEM bool) CACertificateResponse {
-	resp := CACertificateResponse{
-		ID:          c.ID,
+func toCACertificateResponse(c *nbca.CACertificate, includePEM bool) api.CACertificateResponse {
+	resp := api.CACertificateResponse{
+		Id:          c.ID,
 		Fingerprint: c.Fingerprint,
-		NotBefore:   c.NotBefore.UTC().Format("2006-01-02T15:04:05Z"),
-		NotAfter:    c.NotAfter.UTC().Format("2006-01-02T15:04:05Z"),
+		NotBefore:   c.NotBefore.UTC(),
+		NotAfter:    c.NotAfter.UTC(),
 		IsActive:    c.IsActive,
-		CreatedAt:   c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:   c.CreatedAt.UTC(),
 	}
 	if includePEM {
-		resp.CertificatePEM = c.CertificatePEM
+		resp.CertificatePem = &c.CertificatePEM
 	}
 	return resp
 }
 
-func toIssuedCertificateResponse(c *nbca.IssuedCertificate) IssuedCertificateResponse {
+func toIssuedCertificateResponse(c *nbca.IssuedCertificate) api.IssuedCertificateResponse {
 	dnsNames := c.DNSNames
 	if dnsNames == nil {
 		dnsNames = []string{}
 	}
-	return IssuedCertificateResponse{
-		ID:           c.ID,
-		PeerID:       c.PeerID,
+	return api.IssuedCertificateResponse{
+		Id:           c.ID,
+		PeerId:       c.PeerID,
 		SerialNumber: c.SerialNumber,
-		DNSNames:     dnsNames,
+		DnsNames:     dnsNames,
 		HasWildcard:  c.HasWildcard,
-		NotBefore:    c.NotBefore.UTC().Format("2006-01-02T15:04:05Z"),
-		NotAfter:     c.NotAfter.UTC().Format("2006-01-02T15:04:05Z"),
+		NotBefore:    c.NotBefore.UTC(),
+		NotAfter:     c.NotAfter.UTC(),
 		SigningType:  c.SigningType,
 		Revoked:      c.Revoked,
-		CreatedAt:    c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		CreatedAt:    c.CreatedAt.UTC(),
 	}
 }
