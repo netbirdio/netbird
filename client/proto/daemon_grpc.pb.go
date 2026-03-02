@@ -78,6 +78,14 @@ type DaemonServiceClient interface {
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error)
+	// RequestCertificate requests a TLS certificate for this peer
+	RequestCertificate(ctx context.Context, in *CertificateRequest, opts ...grpc.CallOption) (*CertificateResponse, error)
+	// GetCertificateStatus returns the current certificate status for this peer
+	GetCertificateStatus(ctx context.Context, in *CertificateStatusRequest, opts ...grpc.CallOption) (*CertificateStatusResponse, error)
+	// TrustCA installs the account CA into the OS trust store
+	TrustCA(ctx context.Context, in *TrustCARequest, opts ...grpc.CallOption) (*TrustCAResponse, error)
+	// UntrustCA removes the account CA from the OS trust store
+	UntrustCA(ctx context.Context, in *UntrustCARequest, opts ...grpc.CallOption) (*UntrustCAResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -458,6 +466,42 @@ func (x *daemonServiceExposeServiceClient) Recv() (*ExposeServiceEvent, error) {
 	return m, nil
 }
 
+func (c *daemonServiceClient) RequestCertificate(ctx context.Context, in *CertificateRequest, opts ...grpc.CallOption) (*CertificateResponse, error) {
+	out := new(CertificateResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/RequestCertificate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GetCertificateStatus(ctx context.Context, in *CertificateStatusRequest, opts ...grpc.CallOption) (*CertificateStatusResponse, error) {
+	out := new(CertificateStatusResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetCertificateStatus", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) TrustCA(ctx context.Context, in *TrustCARequest, opts ...grpc.CallOption) (*TrustCAResponse, error) {
+	out := new(TrustCAResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/TrustCA", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) UntrustCA(ctx context.Context, in *UntrustCARequest, opts ...grpc.CallOption) (*UntrustCAResponse, error) {
+	out := new(UntrustCAResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/UntrustCA", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -522,6 +566,14 @@ type DaemonServiceServer interface {
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error
+	// RequestCertificate requests a TLS certificate for this peer
+	RequestCertificate(context.Context, *CertificateRequest) (*CertificateResponse, error)
+	// GetCertificateStatus returns the current certificate status for this peer
+	GetCertificateStatus(context.Context, *CertificateStatusRequest) (*CertificateStatusResponse, error)
+	// TrustCA installs the account CA into the OS trust store
+	TrustCA(context.Context, *TrustCARequest) (*TrustCAResponse, error)
+	// UntrustCA removes the account CA from the OS trust store
+	UntrustCA(context.Context, *UntrustCARequest) (*UntrustCAResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -636,6 +688,18 @@ func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *Ins
 }
 func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error {
 	return status.Errorf(codes.Unimplemented, "method ExposeService not implemented")
+}
+func (UnimplementedDaemonServiceServer) RequestCertificate(context.Context, *CertificateRequest) (*CertificateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestCertificate not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetCertificateStatus(context.Context, *CertificateStatusRequest) (*CertificateStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCertificateStatus not implemented")
+}
+func (UnimplementedDaemonServiceServer) TrustCA(context.Context, *TrustCARequest) (*TrustCAResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TrustCA not implemented")
+}
+func (UnimplementedDaemonServiceServer) UntrustCA(context.Context, *UntrustCARequest) (*UntrustCAResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UntrustCA not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1304,6 +1368,78 @@ func (x *daemonServiceExposeServiceServer) Send(m *ExposeServiceEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _DaemonService_RequestCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RequestCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/RequestCertificate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RequestCertificate(ctx, req.(*CertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GetCertificateStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CertificateStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetCertificateStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/GetCertificateStatus",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetCertificateStatus(ctx, req.(*CertificateStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_TrustCA_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TrustCARequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).TrustCA(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/TrustCA",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).TrustCA(ctx, req.(*TrustCARequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_UntrustCA_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UntrustCARequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).UntrustCA(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/UntrustCA",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).UntrustCA(ctx, req.(*UntrustCARequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1446,6 +1582,22 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstallerResult",
 			Handler:    _DaemonService_GetInstallerResult_Handler,
+		},
+		{
+			MethodName: "RequestCertificate",
+			Handler:    _DaemonService_RequestCertificate_Handler,
+		},
+		{
+			MethodName: "GetCertificateStatus",
+			Handler:    _DaemonService_GetCertificateStatus_Handler,
+		},
+		{
+			MethodName: "TrustCA",
+			Handler:    _DaemonService_TrustCA_Handler,
+		},
+		{
+			MethodName: "UntrustCA",
+			Handler:    _DaemonService_UntrustCA_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
