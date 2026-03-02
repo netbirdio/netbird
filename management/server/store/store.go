@@ -273,6 +273,7 @@ type Store interface {
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
+	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
 }
 
 const (

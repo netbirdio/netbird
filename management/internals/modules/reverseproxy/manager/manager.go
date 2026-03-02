@@ -379,16 +379,8 @@ func (m *managerImpl) DeleteService(ctx context.Context, accountID, userID, serv
 
 	var service *reverseproxy.Service
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		var err error
-		service, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
-		if err != nil {
-			return err
-		}
-
-		for _, target := range service.Targets {
-			if err := transaction.DeleteTarget(ctx, accountID, serviceID, target.ID); err != nil {
-				return fmt.Errorf("failed to delete target: %w", err)
-			}
+		if err := transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("failed to delete targets: %w", err)
 		}
 
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {

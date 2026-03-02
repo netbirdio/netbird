@@ -4896,6 +4896,20 @@ func (s *SqlStore) DeleteTarget(ctx context.Context, accountID string, serviceID
 	return nil
 }
 
+func (s *SqlStore) DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error {
+	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ?", accountID, serviceID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete targets from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete targets from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "not targets found for service %s", serviceID)
+	}
+
+	return nil
+}
+
 // GetTargetsByServiceID retrieves all targets for a given service
 func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error) {
 	var targets []*reverseproxy.Target
