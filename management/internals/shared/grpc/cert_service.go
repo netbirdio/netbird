@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"crypto/x509"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -73,12 +74,19 @@ func (s *Server) SignCertificate(ctx context.Context, req *proto.EncryptedMessag
 	signingType := certSigningTypeToString(signReq.SigningType)
 	trigger := ca.TriggerManual
 
+	// For peers with login expiration enabled, tie certificate validity to the session duration.
+	// Non-expiring peers get the default 90-day validity (certValidity=0).
+	var certValidity time.Duration
+	if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled && settings.PeerLoginExpiration > 0 {
+		certValidity = settings.PeerLoginExpiration
+	}
+
 	if err := s.caManager.CheckRateLimit(ctx, accountID, peer.ID, trigger, settings.CertRateLimitPerPeer); err != nil {
 		s.accountManager.StoreEvent(ctx, peer.ID, peer.ID, accountID, activity.CertificateRateLimited, peer.EventMeta(s.networkMapController.GetDNSDomain(settings)))
 		return nil, status.Errorf(codes.ResourceExhausted, "certificate rate limit exceeded")
 	}
 
-	result, _, err := s.caManager.SignCertificate(ctx, accountID, peer.ID, csr, signingType, wildcard, trigger)
+	result, _, err := s.caManager.SignCertificate(ctx, accountID, peer.ID, csr, signingType, wildcard, trigger, certValidity)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to sign certificate for peer %s: %v", peer.ID, err)
 		return nil, status.Errorf(codes.Internal, "failed to sign certificate")

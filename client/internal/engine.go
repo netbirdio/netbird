@@ -1045,6 +1045,11 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		go e.renewCertificate("fqdn_change")
 	}
 
+	// Renew certificate if it has expired (e.g. after peer re-authentication)
+	if e.certManager != nil && e.certManager.HasCert() && e.certManager.IsExpired() {
+		go e.renewCertificate("session_renewal")
+	}
+
 	return nil
 }
 
@@ -2072,13 +2077,38 @@ func (e *Engine) startCertRenewalLoop() {
 			case <-e.ctx.Done():
 				return
 			case <-ticker.C:
-				if e.certManager.NeedsRenewal(30 * 24 * time.Hour) {
-					log.Infof("certificate approaching expiry, starting renewal")
-					e.renewCertificate("auto_renewal")
+				if e.certManager.IsExpired() {
+					log.Infof("certificate expired, starting renewal")
+					e.renewCertificate("session_renewal")
+				} else if c, err := e.certManager.LoadCert(); err == nil {
+					threshold := certRenewalThreshold(c.NotBefore, c.NotAfter)
+					if e.certManager.NeedsRenewal(threshold) {
+						log.Infof("certificate approaching expiry (threshold: %s), starting renewal", threshold)
+						e.renewCertificate("auto_renewal")
+					}
 				}
 			}
 		}
 	}()
+}
+
+// certRenewalThreshold computes a renewal threshold proportional to the certificate's
+// total validity. For short-lived certs (e.g. 24h), a fixed 30-day threshold would
+// cause immediate renewal; instead we use 1/3 of the total lifetime, clamped between
+// 1 hour and 30 days.
+func certRenewalThreshold(notBefore, notAfter time.Time) time.Duration {
+	total := notAfter.Sub(notBefore)
+	threshold := total / 3
+
+	const minThreshold = 1 * time.Hour
+	const maxThreshold = 30 * 24 * time.Hour
+	if threshold < minThreshold {
+		threshold = minThreshold
+	}
+	if threshold > maxThreshold {
+		threshold = maxThreshold
+	}
+	return threshold
 }
 
 // renewCertificate generates a new key and CSR, sends it to management for

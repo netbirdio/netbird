@@ -19,6 +19,8 @@ const (
 	TriggerRenewal = "renewal"
 	// TriggerDomainChange indicates re-issuance due to a peer FQDN change.
 	TriggerDomainChange = "domain_change"
+	// TriggerSessionRenewal indicates re-issuance after peer re-authentication.
+	TriggerSessionRenewal = "session_renewal"
 )
 
 // CAStore defines the storage operations needed by the CA Manager.
@@ -87,7 +89,7 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 
 // SignCertificate signs a CSR using the specified backend and records the issuance.
 // Decryption of CA private keys is handled transparently by the store layer.
-func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string) (*SigningResult, *IssuedCertificate, error) {
+func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string, validity time.Duration) (*SigningResult, *IssuedCertificate, error) {
 	if signingType == SigningTypeACME {
 		signer, ok := m.signers[SigningTypeACME]
 		if !ok {
@@ -115,7 +117,12 @@ func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string,
 	// Use the most recently created active CA
 	ca := activeCAs[0]
 
-	signer, err := NewInternalCASigner([]byte(ca.CertificatePEM), []byte(ca.PrivateKeyPEM), ca.ID, defaultCertValidity)
+	certValidity := defaultCertValidity
+	if validity > 0 {
+		certValidity = validity
+	}
+
+	signer, err := NewInternalCASigner([]byte(ca.CertificatePEM), []byte(ca.PrivateKeyPEM), ca.ID, certValidity)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create internal signer: %w", err)
 	}
@@ -185,7 +192,7 @@ func (m *Manager) DeactivateCA(ctx context.Context, accountID, caID string) erro
 // CheckRateLimit checks if the peer has exceeded the rate limit for certificate issuance.
 // domain_change triggers are exempt from rate limiting.
 func (m *Manager) CheckRateLimit(ctx context.Context, accountID, peerID, trigger string, limit int) error {
-	if trigger == TriggerDomainChange {
+	if trigger == TriggerDomainChange || trigger == TriggerSessionRenewal {
 		return nil
 	}
 

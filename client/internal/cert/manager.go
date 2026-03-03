@@ -130,6 +130,18 @@ func (m *Manager) NeedsRenewal(threshold time.Duration) bool {
 	return time.Until(cert.NotAfter) < threshold
 }
 
+// IsExpired returns true if the stored certificate has expired.
+func (m *Manager) IsExpired() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cert, err := m.loadCert()
+	if err != nil {
+		return false
+	}
+	return time.Now().After(cert.NotAfter)
+}
+
 // FQDNChanged returns true if the stored certificate's primary DNS name
 // differs from the given FQDN, indicating the peer was renamed.
 func (m *Manager) FQDNChanged(currentFQDN string) bool {

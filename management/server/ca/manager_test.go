@@ -196,7 +196,7 @@ func TestManager_SignCertificate(t *testing.T) {
 
 	result, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual,
+		SigningTypeInternal, false, TriggerManual, 0,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -225,7 +225,7 @@ func TestManager_SignCertificate_Wildcard(t *testing.T) {
 
 	result, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, true, TriggerManual,
+		SigningTypeInternal, true, TriggerManual, 0,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -241,7 +241,7 @@ func TestManager_SignCertificate_NoActiveCA(t *testing.T) {
 
 	_, _, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual,
+		SigningTypeInternal, false, TriggerManual, 0,
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no active CA")
@@ -254,7 +254,7 @@ func TestManager_SignCertificate_ACMEStub(t *testing.T) {
 
 	_, _, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeACME, false, TriggerManual,
+		SigningTypeACME, false, TriggerManual, 0,
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet available")
@@ -380,7 +380,7 @@ func TestManager_RevokeCertificate(t *testing.T) {
 
 	_, issued, err := mgr.SignCertificate(
 		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual,
+		SigningTypeInternal, false, TriggerManual, 0,
 	)
 	require.NoError(t, err)
 
@@ -388,6 +388,50 @@ func TestManager_RevokeCertificate(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, store.issuedCerts[0].Revoked)
+}
+
+func TestManager_SignCertificate_CustomValidity(t *testing.T) {
+	mgr, _ := setupTestManager(t)
+
+	_, err := mgr.InitForAccount(context.Background(), "account1", "netbird.example", CAOptions{})
+	require.NoError(t, err)
+
+	csr := createTestCSR(t, "peer1.netbird.example", false)
+
+	customValidity := 24 * time.Hour
+	result, issued, err := mgr.SignCertificate(
+		context.Background(), "account1", "peer1", csr,
+		SigningTypeInternal, false, TriggerManual, customValidity,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, issued)
+
+	// Verify the cert has approximately the custom validity (within 1 minute tolerance)
+	notAfter, err := NotAfterFromResult(result.CertPEM)
+	require.NoError(t, err)
+
+	expectedExpiry := time.Now().Add(customValidity)
+	assert.WithinDuration(t, expectedExpiry, notAfter, 1*time.Minute)
+}
+
+func TestManager_CheckRateLimit_SessionRenewalExempt(t *testing.T) {
+	store := newMockCAStore()
+	mgr := NewManager(store)
+
+	// Fill up rate limit logs well beyond the limit
+	for i := 0; i < 100; i++ {
+		store.issuanceLogs = append(store.issuanceLogs, &CertIssuanceLog{
+			AccountID: "account1",
+			PeerID:    "peer1",
+			IssuedAt:  time.Now().UTC(),
+			Trigger:   TriggerManual,
+		})
+	}
+
+	// Session renewal should be exempt from rate limiting
+	err := mgr.CheckRateLimit(context.Background(), "account1", "peer1", TriggerSessionRenewal, 10)
+	assert.NoError(t, err)
 }
 
 func TestACMEPersistSigner_ReturnsError(t *testing.T) {
