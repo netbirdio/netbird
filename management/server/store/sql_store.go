@@ -4914,7 +4914,7 @@ func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID strin
 }
 
 func (s *SqlStore) DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error {
-	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ? AND id = ?", accountID, serviceID, targetID)
+	result := s.db.Delete(&rpservice.Target{}, "account_id = ? AND service_id = ? AND id = ?", accountID, serviceID, targetID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete target from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete target from store")
@@ -4928,7 +4928,7 @@ func (s *SqlStore) DeleteTarget(ctx context.Context, accountID string, serviceID
 }
 
 func (s *SqlStore) DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error {
-	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ?", accountID, serviceID)
+	result := s.db.Delete(&rpservice.Target{}, "account_id = ? AND service_id = ?", accountID, serviceID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete targets from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete targets from store")
@@ -4938,8 +4938,8 @@ func (s *SqlStore) DeleteServiceTargets(ctx context.Context, accountID string, s
 }
 
 // GetTargetsByServiceID retrieves all targets for a given service
-func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error) {
-	var targets []*reverseproxy.Target
+func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error) {
+	var targets []*rpservice.Target
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -4953,7 +4953,7 @@ func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength Locki
 	return targets, nil
 }
 
-func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error) {
+func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
