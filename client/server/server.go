@@ -641,8 +641,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
-	defer s.mutex.Unlock()
-
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
@@ -654,10 +652,12 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
+		s.mutex.Unlock()
 		return nil, err
 	}
 
 	if status != internal.StatusIdle {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
@@ -674,17 +674,20 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.actCancel = cancel
 
 	if s.config == nil {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	if msg != nil && msg.ProfileName != nil {
 		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			s.mutex.Unlock()
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
@@ -692,6 +695,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
@@ -700,6 +704,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	config, _, err := s.getConfig(activeProf)
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
@@ -718,6 +723,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, doAutoUpdate, s.clientRunningChan, s.clientGiveUpChan)
 
+	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 

@@ -49,7 +49,7 @@ func ResolveUnixDaemonAddr(addr string) string {
 	switch len(found) {
 	case 1:
 		resolved := "unix://" + found[0]
-		log.Infof("Default daemon socket not found, using discovered socket: %s", resolved)
+		log.Debugf("Default daemon socket not found, using discovered socket: %s", resolved)
 		return resolved
 	case 0:
 		return addr
