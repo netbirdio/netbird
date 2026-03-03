@@ -184,9 +184,6 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 		return
 	}
 
-	m.downloadOnly = false
-	m.forceUpdate = forceUpdate
-
 	if expectedVersion == latestVersion {
 		m.updateToLatestVersion = true
 		m.expectedVersion = nil
@@ -202,6 +199,9 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 		m.expectedVersion = expectedSemVer
 		m.updateToLatestVersion = false
 	}
+
+	m.downloadOnly = false
+	m.forceUpdate = forceUpdate
 
 	select {
 	case m.mgmUpdateChan <- struct{}{}:
