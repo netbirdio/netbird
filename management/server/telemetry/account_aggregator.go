@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -147,7 +148,10 @@ func calculateP95FromHistogram(dp metricdata.HistogramDataPoint[int64]) int64 {
 		return 0
 	}
 
-	targetCount := uint64(float64(dp.Count) * 0.95)
+	targetCount := uint64(math.Ceil(float64(dp.Count) * 0.95))
+	if targetCount == 0 {
+		targetCount = 1
+	}
 	var cumulativeCount uint64
 
 	for i, bucketCount := range dp.BucketCounts {
