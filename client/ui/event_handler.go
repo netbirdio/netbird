@@ -223,7 +223,7 @@ func (h *eventHandler) handleUpdateClick() {
 		return
 	}
 
-	// prevent against of busy server
+	// prevent blocking against a busy server
 	go func() {
 		conn, err := h.client.getSrvClient(defaultFailTimeout)
 		if err != nil {
