@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -195,9 +198,173 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
 		return (&sql.SQLite3{File: file}).Open(logger)
+	case "postgres":
+		dsn, _ := s.Config["dsn"].(string)
+		if dsn == "" {
+			return nil, fmt.Errorf("postgres storage requires 'dsn' config")
+		}
+		pg, err := parsePostgresDSN(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("invalid postgres DSN: %w", err)
+		}
+		return pg.Open(logger)
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", s.Type)
 	}
+}
+
+// parsePostgresDSN parses a DSN into a sql.Postgres config.
+// It accepts both URI format (postgres://user:pass@host:port/dbname?sslmode=disable)
+// and libpq key=value format (host=localhost port=5432 dbname=mydb), including quoted values.
+func parsePostgresDSN(dsn string) (*sql.Postgres, error) {
+	var params map[string]string
+	var err error
+
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		params, err = parsePostgresURI(dsn)
+	} else {
+		params, err = parsePostgresKeyValue(dsn)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	host := params["host"]
+	if host == "" {
+		host = "localhost"
+	}
+
+	var port uint16 = 5432
+	if p, ok := params["port"]; ok && p != "" {
+		v, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %q: %w", p, err)
+		}
+		if v == 0 {
+			return nil, fmt.Errorf("invalid port %q: must be non-zero", p)
+		}
+		port = uint16(v)
+	}
+
+	dbname := params["dbname"]
+	if dbname == "" {
+		return nil, fmt.Errorf("dbname is required in DSN")
+	}
+
+	pg := &sql.Postgres{
+		NetworkDB: sql.NetworkDB{
+			Host:     host,
+			Port:     port,
+			Database: dbname,
+			User:     params["user"],
+			Password: params["password"],
+		},
+	}
+
+	if sslMode := params["sslmode"]; sslMode != "" {
+		switch sslMode {
+		case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+			pg.SSL.Mode = sslMode
+		default:
+			return nil, fmt.Errorf("unsupported sslmode %q: valid values are disable, allow, prefer, require, verify-ca, verify-full", sslMode)
+		}
+	}
+
+	return pg, nil
+}
+
+// parsePostgresURI parses a postgres:// or postgresql:// URI into parameter key-value pairs.
+func parsePostgresURI(dsn string) (map[string]string, error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid postgres URI: %w", err)
+	}
+
+	params := make(map[string]string)
+
+	if u.User != nil {
+		params["user"] = u.User.Username()
+		if p, ok := u.User.Password(); ok {
+			params["password"] = p
+		}
+	}
+	if u.Hostname() != "" {
+		params["host"] = u.Hostname()
+	}
+	if u.Port() != "" {
+		params["port"] = u.Port()
+	}
+
+	dbname := strings.TrimPrefix(u.Path, "/")
+	if dbname != "" {
+		params["dbname"] = dbname
+	}
+
+	for k, v := range u.Query() {
+		if len(v) > 0 {
+			params[k] = v[0]
+		}
+	}
+
+	return params, nil
+}
+
+// parsePostgresKeyValue parses a libpq key=value DSN string, handling single-quoted values
+// (e.g., password='my pass' host=localhost).
+func parsePostgresKeyValue(dsn string) (map[string]string, error) {
+	params := make(map[string]string)
+	s := strings.TrimSpace(dsn)
+
+	for s != "" {
+		eqIdx := strings.IndexByte(s, '=')
+		if eqIdx < 0 {
+			break
+		}
+		key := strings.TrimSpace(s[:eqIdx])
+
+		value, rest, err := parseDSNValue(s[eqIdx+1:])
+		if err != nil {
+			return nil, fmt.Errorf("%w for key %q", err, key)
+		}
+
+		params[key] = value
+		s = strings.TrimSpace(rest)
+	}
+
+	return params, nil
+}
+
+// parseDSNValue parses the next value from a libpq key=value string positioned after the '='.
+// It returns the parsed value and the remaining unparsed string.
+func parseDSNValue(s string) (value, rest string, err error) {
+	if len(s) > 0 && s[0] == '\'' {
+		return parseQuotedDSNValue(s[1:])
+	}
+	// Unquoted value: read until whitespace.
+	idx := strings.IndexAny(s, " \t\n")
+	if idx < 0 {
+		return s, "", nil
+	}
+	return s[:idx], s[idx:], nil
+}
+
+// parseQuotedDSNValue parses a single-quoted value starting after the opening quote.
+// Libpq uses ” to represent a literal single quote inside quoted values.
+func parseQuotedDSNValue(s string) (value, rest string, err error) {
+	var buf strings.Builder
+	for len(s) > 0 {
+		if s[0] == '\'' {
+			if len(s) > 1 && s[1] == '\'' {
+				buf.WriteByte('\'')
+				s = s[2:]
+				continue
+			}
+			return buf.String(), s[1:], nil
+		}
+		buf.WriteByte(s[0])
+		s = s[1:]
+	}
+	return "", "", fmt.Errorf("unterminated quoted value")
 }
 
 // Validate validates the configuration

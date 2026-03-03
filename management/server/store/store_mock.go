@@ -574,6 +574,20 @@ func (mr *MockStoreMockRecorder) DeleteService(ctx, accountID, serviceID interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteService", reflect.TypeOf((*MockStore)(nil).DeleteService), ctx, accountID, serviceID)
 }
 
+// DeleteServiceTargets mocks base method.
+func (m *MockStore) DeleteServiceTargets(ctx context.Context, accountID, serviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteServiceTargets", ctx, accountID, serviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteServiceTargets indicates an expected call of DeleteServiceTargets.
+func (mr *MockStoreMockRecorder) DeleteServiceTargets(ctx, accountID, serviceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteServiceTargets", reflect.TypeOf((*MockStore)(nil).DeleteServiceTargets), ctx, accountID, serviceID)
+}
+
 // DeleteSetupKey mocks base method.
 func (m *MockStore) DeleteSetupKey(ctx context.Context, accountID, keyID string) error {
 	m.ctrl.T.Helper()
@@ -586,6 +600,20 @@ func (m *MockStore) DeleteSetupKey(ctx context.Context, accountID, keyID string)
 func (mr *MockStoreMockRecorder) DeleteSetupKey(ctx, accountID, keyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSetupKey", reflect.TypeOf((*MockStore)(nil).DeleteSetupKey), ctx, accountID, keyID)
+}
+
+// DeleteTarget mocks base method.
+func (m *MockStore) DeleteTarget(ctx context.Context, accountID, serviceID string, targetID uint) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTarget", ctx, accountID, serviceID, targetID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTarget indicates an expected call of DeleteTarget.
+func (mr *MockStoreMockRecorder) DeleteTarget(ctx, accountID, serviceID, targetID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTarget", reflect.TypeOf((*MockStore)(nil).DeleteTarget), ctx, accountID, serviceID, targetID)
 }
 
 // DeleteTokenID2UserIDIndex mocks base method.
@@ -1303,6 +1331,22 @@ func (mr *MockStoreMockRecorder) GetCustomDomain(ctx, accountID, domainID interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomDomain", reflect.TypeOf((*MockStore)(nil).GetCustomDomain), ctx, accountID, domainID)
 }
 
+// GetCustomDomainsCounts mocks base method.
+func (m *MockStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCustomDomainsCounts", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetCustomDomainsCounts indicates an expected call of GetCustomDomainsCounts.
+func (mr *MockStoreMockRecorder) GetCustomDomainsCounts(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomDomainsCounts", reflect.TypeOf((*MockStore)(nil).GetCustomDomainsCounts), ctx)
+}
+
 // GetDNSRecordByID mocks base method.
 func (m *MockStore) GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error) {
 	m.ctrl.T.Helper()
@@ -1887,22 +1931,6 @@ func (mr *MockStoreMockRecorder) GetServiceTargetByTargetID(ctx, lockStrength, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceTargetByTargetID", reflect.TypeOf((*MockStore)(nil).GetServiceTargetByTargetID), ctx, lockStrength, accountID, targetID)
 }
 
-// GetCustomDomainsCounts mocks base method.
-func (m *MockStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCustomDomainsCounts", ctx)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(int64)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// GetCustomDomainsCounts indicates an expected call of GetCustomDomainsCounts.
-func (mr *MockStoreMockRecorder) GetCustomDomainsCounts(ctx interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCustomDomainsCounts", reflect.TypeOf((*MockStore)(nil).GetCustomDomainsCounts), ctx)
-}
-
 // GetServices mocks base method.
 func (m *MockStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*service.Service, error) {
 	m.ctrl.T.Helper()
@@ -1916,6 +1944,21 @@ func (m *MockStore) GetServices(ctx context.Context, lockStrength LockingStrengt
 func (mr *MockStoreMockRecorder) GetServices(ctx, lockStrength interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServices", reflect.TypeOf((*MockStore)(nil).GetServices), ctx, lockStrength)
+}
+
+// GetServicesByAccountID mocks base method.
+func (m *MockStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServicesByAccountID", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*reverseproxy.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServicesByAccountID indicates an expected call of GetServicesByAccountID.
+func (mr *MockStoreMockRecorder) GetServicesByAccountID(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServicesByAccountID", reflect.TypeOf((*MockStore)(nil).GetServicesByAccountID), ctx, lockStrength, accountID)
 }
 
 // GetSetupKeyByID mocks base method.
@@ -1975,6 +2018,21 @@ func (m *MockStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrengt
 func (mr *MockStoreMockRecorder) GetTakenIPs(ctx, lockStrength, accountId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTakenIPs", reflect.TypeOf((*MockStore)(nil).GetTakenIPs), ctx, lockStrength, accountId)
+}
+
+// GetTargetsByServiceID mocks base method.
+func (m *MockStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) ([]*reverseproxy.Target, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTargetsByServiceID", ctx, lockStrength, accountID, serviceID)
+	ret0, _ := ret[0].([]*reverseproxy.Target)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTargetsByServiceID indicates an expected call of GetTargetsByServiceID.
+func (mr *MockStoreMockRecorder) GetTargetsByServiceID(ctx, lockStrength, accountID, serviceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTargetsByServiceID", reflect.TypeOf((*MockStore)(nil).GetTargetsByServiceID), ctx, lockStrength, accountID, serviceID)
 }
 
 // GetTokenIDByHashedToken mocks base method.

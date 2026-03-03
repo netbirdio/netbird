@@ -103,11 +103,19 @@ server:
     engine: "sqlite"  # sqlite, postgres, or mysql
     dsn: ""  # Connection string for postgres or mysql
     encryptionKey: ""
+    # file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/store.db)
 
   # Activity events store configuration (optional, defaults to sqlite in dataDir)
   # activityStore:
   #   engine: "sqlite"  # sqlite or postgres
   #   dsn: ""  # Connection string for postgres
+  #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/events.db)
+
+  # Auth (embedded IdP) store configuration (optional, defaults to sqlite3 in dataDir/idp.db)
+  # authStore:
+  #   engine: "sqlite3"  # sqlite3 or postgres
+  #   dsn: ""  # Connection string for postgres (e.g., "host=localhost port=5432 user=postgres password=postgres dbname=netbird_idp sslmode=disable")
+  #   file: ""  # Custom SQLite file path (optional, defaults to {dataDir}/idp.db)
 
   # Reverse proxy settings (optional)
   # reverseProxy:

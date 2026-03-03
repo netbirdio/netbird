@@ -398,6 +398,10 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 			return err
 		}
 
+		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("failed to delete targets: %w", err)
+		}
+
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("failed to delete service: %w", err)
 		}
