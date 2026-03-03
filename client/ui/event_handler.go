@@ -224,7 +224,9 @@ func (h *eventHandler) handleUpdateClick() {
 	}
 
 	// prevent blocking against a busy server
+	h.client.mUpdate.Disable()
 	go func() {
+		defer h.client.mUpdate.Enable()
 		conn, err := h.client.getSrvClient(defaultFailTimeout)
 		if err != nil {
 			log.Errorf("failed to get service client for update: %v", err)
