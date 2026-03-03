@@ -4211,7 +4211,7 @@ components:
     NotificationEventType:
       type: string
       description: |
-        An activity event type code. See `GET /api/notifications/types` for the full list
+        An activity event type code. See `GET /api/integrations/notifications/types` for the full list
         of supported event types and their human-readable descriptions.
       example: "user.join"
     EmailTarget:
@@ -9986,7 +9986,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/notifications/types:
+  /api/integrations/notifications/types:
     get:
       tags:
         - Notifications
@@ -10013,7 +10013,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/notifications/channels:
+  /api/integrations/notifications/channels:
     get:
       tags:
         - Notifications
@@ -10070,7 +10070,7 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/notifications/channels/{channelId}:
+  /api/integrations/notifications/channels/{channelId}:
     parameters:
       - name: channelId
         in: path
