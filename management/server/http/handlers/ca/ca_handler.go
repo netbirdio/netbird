@@ -84,6 +84,13 @@ func (h *handler) initCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enable certificate authority in account settings
+	settings, err := h.accountManager.GetStore().GetAccountSettings(r.Context(), store.LockingStrengthNone, accountID)
+	if err == nil && !settings.CertificateAuthorityEnabled {
+		settings.CertificateAuthorityEnabled = true
+		_ = h.accountManager.GetStore().SaveAccountSettings(r.Context(), accountID, settings)
+	}
+
 	h.accountManager.StoreEvent(r.Context(), userID, caCert.ID, accountID, activity.CertificateAuthorityCreated, nil)
 
 	util.WriteJSONObject(r.Context(), w, toCACertificateResponse(caCert, false))
