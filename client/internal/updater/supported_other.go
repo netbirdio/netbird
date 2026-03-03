@@ -1,6 +1,6 @@
 //go:build !windows && !darwin
 
-package updatemanager
+package updater
 
 func isAutoUpdateSupported() bool {
 	return false

@@ -51,7 +51,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
@@ -148,7 +148,7 @@ type EngineServices struct {
 	StatusRecorder *peer.Status
 	Checks         []*mgmProto.Checks
 	StateManager   *statemanager.Manager
-	UpdateManager  *updatemanager.Manager
+	UpdateManager  *updater.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -219,7 +219,7 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// auto-update
-	updateManager *updatemanager.Manager
+	updateManager *updater.Manager
 
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor

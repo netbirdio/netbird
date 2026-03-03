@@ -1,11 +1,11 @@
-package updatemanager
+package updater
 
 import (
 	"context"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
 )
 
 func isAutoUpdateSupported() bool {

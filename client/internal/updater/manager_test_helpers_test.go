@@ -1,4 +1,4 @@
-package updatemanager
+package updater
 
 import (
 	"strconv"

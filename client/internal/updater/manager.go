@@ -1,4 +1,4 @@
-package updatemanager
+package updater
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )

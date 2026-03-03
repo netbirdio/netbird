@@ -27,8 +27,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/internal/updatemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -50,7 +50,7 @@ type ConnectClient struct {
 
 	engine        *Engine
 	engineMutex   sync.Mutex
-	updateManager *updatemanager.Manager
+	updateManager *updater.Manager
 
 	persistSyncResponse bool
 }
@@ -68,7 +68,7 @@ func NewConnectClient(
 	}
 }
 
-func (c *ConnectClient) SetUpdateManager(um *updatemanager.Manager) {
+func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 	c.updateManager = um
 }
 
@@ -190,7 +190,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	if c.updateManager == nil {
-		c.updateManager = updatemanager.NewManager(c.statusRecorder, stateManager)
+		c.updateManager = updater.NewManager(c.statusRecorder, stateManager)
 		defer c.updateManager.Stop()
 		c.updateManager.CheckUpdateSuccess(c.ctx)
 	}

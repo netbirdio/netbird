@@ -1,4 +1,4 @@
-package updatemanager
+package updater
 
 func isAutoUpdateSupported() bool {
 	return true

@@ -31,7 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -91,7 +91,7 @@ type Server struct {
 
 	sleepHandler *sleephandler.SleepHandler
 
-	updateManager *updatemanager.Manager
+	updateManager *updater.Manager
 
 	jwtCache *jwtCache
 }
@@ -141,7 +141,7 @@ func (s *Server) Start() error {
 
 	if s.updateManager == nil {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
-		s.updateManager = updatemanager.NewManager(s.statusRecorder, stateMgr)
+		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
 	}
 
