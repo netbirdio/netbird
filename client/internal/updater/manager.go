@@ -69,6 +69,7 @@ type Manager struct {
 	autoUpdateSupported func() bool
 }
 
+// NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
 		statusRecorder:      statusRecorder,
