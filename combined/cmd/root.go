@@ -140,6 +140,9 @@ func initializeConfig() error {
 			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
 		}
 	}
+	if file := config.Server.Store.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
 
 	if engine := config.Server.ActivityStore.Engine; engine != "" {
 		engineLower := strings.ToLower(engine)
@@ -150,6 +153,9 @@ func initializeConfig() error {
 		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
 			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
 		}
+	}
+	if file := config.Server.ActivityStore.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
 	}
 
 	log.Infof("Starting combined NetBird server")
