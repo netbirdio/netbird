@@ -154,7 +154,8 @@ func (s *Server) GetCertificateStatus(_ context.Context, _ *proto.CertificateSta
 }
 
 // TrustCA installs the account CA certificates into the OS trust store.
-func (s *Server) TrustCA(_ context.Context, _ *proto.TrustCARequest) (*proto.TrustCAResponse, error) {
+// If CA certificates are not yet synced locally, it fetches them from management.
+func (s *Server) TrustCA(ctx context.Context, _ *proto.TrustCARequest) (*proto.TrustCAResponse, error) {
 	if s.certManager == nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "certificate manager not available")
 	}
@@ -162,7 +163,11 @@ func (s *Server) TrustCA(_ context.Context, _ *proto.TrustCARequest) (*proto.Tru
 	caPath := s.certManager.CAPath()
 	caPEMData, err := os.ReadFile(caPath)
 	if err != nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "no CA certificates available, ensure peer is synced")
+		// CA not synced yet — fetch from management
+		caPEMData, err = s.fetchAndStoreCA(ctx)
+		if err != nil {
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "fetch CA certificates: %v", err)
+		}
 	}
 
 	var fingerprints []string
@@ -229,6 +234,67 @@ func (s *Server) UntrustCA(_ context.Context, _ *proto.UntrustCARequest) (*proto
 	return &proto.UntrustCAResponse{
 		Success: true,
 	}, nil
+}
+
+// fetchAndStoreCA fetches CA certificates from the management server and stores them locally.
+func (s *Server) fetchAndStoreCA(ctx context.Context) ([]byte, error) {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return nil, fmt.Errorf("client is not running")
+	}
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil, fmt.Errorf("client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("engine not initialized")
+	}
+
+	mgmClient := engine.GetMgmClient()
+	if mgmClient == nil {
+		return nil, fmt.Errorf("management client not available")
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := mgmClient.GetCACertificates(fetchCtx)
+	if err != nil {
+		return nil, fmt.Errorf("get CA certificates: %w", err)
+	}
+
+	if len(resp.Certificates) == 0 {
+		return nil, fmt.Errorf("no CA certificates configured on server")
+	}
+
+	var caPEMs [][]byte
+	for _, c := range resp.Certificates {
+		if len(c.CertificatePem) > 0 {
+			caPEMs = append(caPEMs, c.CertificatePem)
+		}
+	}
+
+	if len(caPEMs) == 0 {
+		return nil, fmt.Errorf("no valid CA certificates returned")
+	}
+
+	if err := s.certManager.StoreCA(caPEMs); err != nil {
+		return nil, fmt.Errorf("store CA certificates: %w", err)
+	}
+
+	// Read back the stored file
+	data, err := os.ReadFile(s.certManager.CAPath())
+	if err != nil {
+		return nil, fmt.Errorf("read stored CA: %w", err)
+	}
+
+	log.Infof("fetched and stored %d CA certificate(s) from management", len(caPEMs))
+	return data, nil
 }
 
 func daemonSigningTypeToMgmt(t proto.DaemonCertSigningType) mgmProto.CertSigningType {
