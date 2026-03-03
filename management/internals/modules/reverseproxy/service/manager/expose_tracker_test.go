@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 )
 
 func TestExposeKey(t *testing.T) {
@@ -120,7 +120,7 @@ func TestReapExpiredExposes(t *testing.T) {
 	tracker := mgr.exposeTracker
 
 	ctx := context.Background()
-	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 		Port:     8080,
 		Protocol: "http",
 	})
@@ -156,7 +156,7 @@ func TestReapExpiredExposes_SetsExpiringFlag(t *testing.T) {
 	tracker := mgr.exposeTracker
 
 	ctx := context.Background()
-	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 		Port:     8080,
 		Protocol: "http",
 	})
@@ -191,7 +191,7 @@ func TestConcurrentTrackAndCount(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &reverseproxy.ExposeServiceRequest{
+		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 			Port:     8080 + i,
 			Protocol: "http",
 		})

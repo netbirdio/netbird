@@ -1,4 +1,4 @@
-package reverseproxy
+package service
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -109,7 +110,7 @@ func TestIsDefaultPort(t *testing.T) {
 }
 
 func TestToProtoMapping_PortInTargetURL(t *testing.T) {
-	oidcConfig := OIDCValidationConfig{}
+	oidcConfig := proxy.OIDCValidationConfig{}
 
 	tests := []struct {
 		name       string
@@ -202,7 +203,7 @@ func TestToProtoMapping_DisabledTargetSkipped(t *testing.T) {
 			{TargetId: "peer-2", TargetType: TargetTypePeer, Host: "10.0.0.2", Port: 9090, Protocol: "http", Enabled: true},
 		},
 	}
-	pm := rp.ToProtoMapping(Create, "token", OIDCValidationConfig{})
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
 	require.Len(t, pm.Path, 1)
 	assert.Equal(t, "http://10.0.0.2:9090/", pm.Path[0].Target)
 }
@@ -219,7 +220,7 @@ func TestToProtoMapping_OperationTypes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.op), func(t *testing.T) {
-			pm := rp.ToProtoMapping(tt.op, "", OIDCValidationConfig{})
+			pm := rp.ToProtoMapping(tt.op, "", proxy.OIDCValidationConfig{})
 			assert.Equal(t, tt.want, pm.Type)
 		})
 	}

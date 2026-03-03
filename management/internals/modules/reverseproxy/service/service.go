@@ -1,4 +1,4 @@
-package reverseproxy
+package service
 
 import (
 	"crypto/rand"
@@ -14,6 +14,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -29,15 +30,15 @@ const (
 	Delete Operation = "delete"
 )
 
-type ProxyStatus string
+type Status string
 
 const (
-	StatusPending            ProxyStatus = "pending"
-	StatusActive             ProxyStatus = "active"
-	StatusTunnelNotCreated   ProxyStatus = "tunnel_not_created"
-	StatusCertificatePending ProxyStatus = "certificate_pending"
-	StatusCertificateFailed  ProxyStatus = "certificate_failed"
-	StatusError              ProxyStatus = "error"
+	StatusPending            Status = "pending"
+	StatusActive             Status = "active"
+	StatusTunnelNotCreated   Status = "tunnel_not_created"
+	StatusCertificatePending Status = "certificate_pending"
+	StatusCertificateFailed  Status = "certificate_failed"
+	StatusError              Status = "error"
 
 	TargetTypePeer   = "peer"
 	TargetTypeHost   = "host"
@@ -111,14 +112,7 @@ func (a *AuthConfig) ClearSecrets() {
 	}
 }
 
-type OIDCValidationConfig struct {
-	Issuer             string
-	Audiences          []string
-	KeysLocation       string
-	MaxTokenAgeSeconds int64
-}
-
-type ServiceMeta struct {
+type Meta struct {
 	CreatedAt           time.Time
 	CertificateIssuedAt *time.Time
 	Status              string
@@ -135,11 +129,11 @@ type Service struct {
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig  `gorm:"serializer:json"`
-	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	SessionPrivateKey string      `gorm:"column:session_private_key"`
-	SessionPublicKey  string      `gorm:"column:session_public_key"`
-	Source            string      `gorm:"default:'permanent'"`
+	Auth              AuthConfig `gorm:"serializer:json"`
+	Meta              Meta       `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string     `gorm:"column:session_private_key"`
+	SessionPublicKey  string     `gorm:"column:session_public_key"`
+	Source            string     `gorm:"default:'permanent'"`
 	SourcePeer        string
 }
 
@@ -165,7 +159,7 @@ func NewService(accountID, name, domain, proxyCluster string, targets []*Target,
 // only be called during initial creation, not for updates.
 func (s *Service) InitNewRecord() {
 	s.ID = xid.New().String()
-	s.Meta = ServiceMeta{
+	s.Meta = Meta{
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
@@ -239,7 +233,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
-func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
 	for _, target := range s.Targets {
 		if !target.Enabled {

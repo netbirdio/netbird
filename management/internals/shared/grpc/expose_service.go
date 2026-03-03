@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -39,7 +39,7 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &reverseproxy.ExposeServiceRequest{
+	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &rpservice.ExposeServiceRequest{
 		NamePrefix: exposeReq.NamePrefix,
 		Port:       int(exposeReq.Port),
 		Protocol:   exposeProtocolToString(exposeReq.Protocol),
@@ -167,14 +167,14 @@ func (s *Server) authenticateExposePeer(ctx context.Context, peerKey wgtypes.Key
 	return accountID, peer, nil
 }
 
-func (s *Server) getReverseProxyManager() reverseproxy.Manager {
+func (s *Server) getReverseProxyManager() rpservice.Manager {
 	s.reverseProxyMu.RLock()
 	defer s.reverseProxyMu.RUnlock()
 	return s.reverseProxyManager
 }
 
 // SetReverseProxyManager sets the reverse proxy manager on the server.
-func (s *Server) SetReverseProxyManager(mgr reverseproxy.Manager) {
+func (s *Server) SetReverseProxyManager(mgr rpservice.Manager) {
 	s.reverseProxyMu.Lock()
 	defer s.reverseProxyMu.Unlock()
 	s.reverseProxyManager = mgr

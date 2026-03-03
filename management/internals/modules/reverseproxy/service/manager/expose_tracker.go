@@ -27,7 +27,7 @@ type trackedExpose struct {
 type exposeTracker struct {
 	activeExposes  sync.Map
 	exposeCreateMu sync.Mutex
-	manager        *managerImpl
+	manager        *Manager
 }
 
 func exposeKey(peerID, domain string) string {

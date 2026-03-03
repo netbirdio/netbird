@@ -1,18 +1,72 @@
 package grpc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	"sync"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+type testProxyController struct {
+	mu             sync.Mutex
+	clusterProxies map[string]map[string]struct{}
+}
+
+func newTestProxyController() *testProxyController {
+	return &testProxyController{
+		clusterProxies: make(map[string]map[string]struct{}),
+	}
+}
+
+func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
+}
+
+func (c *testProxyController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{}
+}
+
+func (c *testProxyController) RegisterProxyToCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.clusterProxies[clusterAddr]; !ok {
+		c.clusterProxies[clusterAddr] = make(map[string]struct{})
+	}
+	c.clusterProxies[clusterAddr][proxyID] = struct{}{}
+	return nil
+}
+
+func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if proxies, ok := c.clusterProxies[clusterAddr]; ok {
+		delete(proxies, proxyID)
+	}
+	return nil
+}
+
+func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	proxies, ok := c.clusterProxies[clusterAddr]
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(proxies))
+	for id := range proxies {
+		result = append(result, id)
+	}
+	return result
+}
 
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
@@ -25,8 +79,7 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 	}
 	s.connectedProxies.Store(proxyID, conn)
 
-	proxySet, _ := s.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
+	_ = s.proxyController.RegisterProxyToCluster(context.Background(), clusterAddr, proxyID)
 
 	return ch
 }
@@ -41,12 +94,13 @@ func drainChannel(ch chan *proto.GetMappingUpdateResponse) *proto.GetMappingUpda
 }
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	const numProxies = 3
@@ -67,11 +121,7 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 		},
 	}
 
-	update := &proto.GetMappingUpdateResponse{
-		Mapping: []*proto.ProxyMapping{mapping},
-	}
-
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
@@ -101,12 +151,13 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	ch1 := registerFakeProxy(s, "proxy-a", cluster)
@@ -119,11 +170,7 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 		Domain:    "test.example.com",
 	}
 
-	update := &proto.GetMappingUpdateResponse{
-		Mapping: []*proto.ProxyMapping{mapping},
-	}
-
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
 	resp1 := drainChannel(ch1)
 	resp2 := drainChannel(ch2)
@@ -135,18 +182,16 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	// Delete operations should not generate tokens
 	assert.Empty(t, resp1.Mapping[0].AuthToken)
 	assert.Empty(t, resp2.Mapping[0].AuthToken)
-
-	// No tokens should have been created
-	assert.Equal(t, 0, tokenStore.GetTokenCount())
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	// Register proxies in different clusters (SendServiceUpdate broadcasts to all)
 	ch1 := registerFakeProxy(s, "proxy-a", "cluster-a")

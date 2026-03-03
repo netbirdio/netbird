@@ -14,7 +14,7 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/netbirdio/netbird/idp/dex"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -358,12 +358,12 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 			}
 			servicesTargets += len(service.Targets)
 
-			switch reverseproxy.ProxyStatus(service.Meta.Status) {
-			case reverseproxy.StatusActive:
+			switch rpservice.Status(service.Meta.Status) {
+			case rpservice.StatusActive:
 				servicesStatusActive++
-			case reverseproxy.StatusPending:
+			case rpservice.StatusPending:
 				servicesStatusPending++
-			case reverseproxy.StatusError, reverseproxy.StatusCertificateFailed, reverseproxy.StatusTunnelNotCreated:
+			case rpservice.StatusError, rpservice.StatusCertificateFailed, rpservice.StatusTunnelNotCreated:
 				servicesStatusError++
 			}
 
