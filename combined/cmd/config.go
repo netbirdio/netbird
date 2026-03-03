@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -571,6 +572,9 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
 		if c.Server.AuthStore.File != "" {
 			authStorageFile = c.Server.AuthStore.File
+			if !filepath.IsAbs(authStorageFile) {
+				authStorageFile = filepath.Join(mgmt.DataDir, authStorageFile)
+			}
 		}
 	}
 
