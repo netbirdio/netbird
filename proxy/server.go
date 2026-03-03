@@ -720,7 +720,7 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 }
 
 func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
-	paths := make(map[string]*url.URL)
+	paths := make(map[string]*proxy.PathTarget)
 	for _, pathMapping := range mapping.GetPath() {
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
@@ -734,7 +734,17 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 			}).WithError(err).Error("failed to parse target URL for path, skipping")
 			continue
 		}
-		paths[pathMapping.GetPath()] = targetURL
+
+		pt := &proxy.PathTarget{URL: targetURL}
+		if opts := pathMapping.GetOptions(); opts != nil {
+			pt.SkipTLSVerify = opts.GetSkipTlsVerify()
+			pt.PathRewrite = protoToPathRewrite(opts.GetPathRewrite())
+			pt.CustomHeaders = opts.GetCustomHeaders()
+			if d := opts.GetRequestTimeout(); d != nil {
+				pt.RequestTimeout = d.AsDuration()
+			}
+		}
+		paths[pathMapping.GetPath()] = pt
 	}
 	return proxy.Mapping{
 		ID:               mapping.GetId(),
@@ -743,6 +753,15 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		Paths:            paths,
 		PassHostHeader:   mapping.GetPassHostHeader(),
 		RewriteRedirects: mapping.GetRewriteRedirects(),
+	}
+}
+
+func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {
+	switch mode {
+	case proto.PathRewriteMode_PATH_REWRITE_PRESERVE:
+		return proxy.PathRewritePreserve
+	default:
+		return proxy.PathRewriteDefault
 	}
 }
 
