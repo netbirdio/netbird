@@ -1,4 +1,4 @@
-package reverseproxy
+package service
 
 import (
 	"crypto/rand"
@@ -14,6 +14,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -29,15 +30,15 @@ const (
 	Delete Operation = "delete"
 )
 
-type ProxyStatus string
+type Status string
 
 const (
-	StatusPending            ProxyStatus = "pending"
-	StatusActive             ProxyStatus = "active"
-	StatusTunnelNotCreated   ProxyStatus = "tunnel_not_created"
-	StatusCertificatePending ProxyStatus = "certificate_pending"
-	StatusCertificateFailed  ProxyStatus = "certificate_failed"
-	StatusError              ProxyStatus = "error"
+	StatusPending            Status = "pending"
+	StatusActive             Status = "active"
+	StatusTunnelNotCreated   Status = "tunnel_not_created"
+	StatusCertificatePending Status = "certificate_pending"
+	StatusCertificateFailed  Status = "certificate_failed"
+	StatusError              Status = "error"
 
 	TargetTypePeer   = "peer"
 	TargetTypeHost   = "host"
@@ -111,14 +112,7 @@ func (a *AuthConfig) ClearSecrets() {
 	}
 }
 
-type OIDCValidationConfig struct {
-	Issuer             string
-	Audiences          []string
-	KeysLocation       string
-	MaxTokenAgeSeconds int64
-}
-
-type ServiceMeta struct {
+type Meta struct {
 	CreatedAt           time.Time
 	CertificateIssuedAt *time.Time
 	Status              string
@@ -135,11 +129,11 @@ type Service struct {
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig  `gorm:"serializer:json"`
-	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	SessionPrivateKey string      `gorm:"column:session_private_key"`
-	SessionPublicKey  string      `gorm:"column:session_public_key"`
-	Source            string      `gorm:"default:'permanent'"`
+	Auth              AuthConfig `gorm:"serializer:json"`
+	Meta              Meta       `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string     `gorm:"column:session_private_key"`
+	SessionPublicKey  string     `gorm:"column:session_public_key"`
+	Source            string     `gorm:"default:'permanent'"`
 	SourcePeer        string
 }
 
@@ -165,7 +159,7 @@ func NewService(accountID, name, domain, proxyCluster string, targets []*Target,
 // only be called during initial creation, not for updates.
 func (s *Service) InitNewRecord() {
 	s.ID = xid.New().String()
-	s.Meta = ServiceMeta{
+	s.Meta = Meta{
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
@@ -239,7 +233,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
-func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
 	for _, target := range s.Targets {
 		if !target.Enabled {
@@ -316,63 +310,6 @@ func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
 // (443 for https, 80 for http).
 func isDefaultPort(scheme string, port int) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
-}
-
-// FromExposeRequest builds a Service from a peer expose gRPC request.
-func FromExposeRequest(req *proto.ExposeServiceRequest, accountID, peerID, serviceName string) *Service {
-	service := &Service{
-		AccountID: accountID,
-		Name:      serviceName,
-		Enabled:   true,
-		Targets: []*Target{
-			{
-				AccountID:  accountID,
-				Port:       int(req.Port),
-				Protocol:   exposeProtocolToString(req.Protocol),
-				TargetId:   peerID,
-				TargetType: TargetTypePeer,
-				Enabled:    true,
-			},
-		},
-	}
-
-	if req.Domain != "" {
-		service.Domain = serviceName + "." + req.Domain
-	}
-
-	if req.Pin != "" {
-		service.Auth.PinAuth = &PINAuthConfig{
-			Enabled: true,
-			Pin:     req.Pin,
-		}
-	}
-
-	if req.Password != "" {
-		service.Auth.PasswordAuth = &PasswordAuthConfig{
-			Enabled:  true,
-			Password: req.Password,
-		}
-	}
-
-	if len(req.UserGroups) > 0 {
-		service.Auth.BearerAuth = &BearerAuthConfig{
-			Enabled:            true,
-			DistributionGroups: req.UserGroups,
-		}
-	}
-
-	return service
-}
-
-func exposeProtocolToString(p proto.ExposeProtocol) string {
-	switch p {
-	case proto.ExposeProtocol_EXPOSE_HTTP:
-		return "http"
-	case proto.ExposeProtocol_EXPOSE_HTTPS:
-		return "https"
-	default:
-		return "http"
-	}
 }
 
 func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) {
@@ -534,9 +471,106 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
+
 const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// ExposeServiceRequest contains the parameters for creating a peer-initiated expose service.
+type ExposeServiceRequest struct {
+	NamePrefix string
+	Port       int
+	Protocol   string
+	Domain     string
+	Pin        string
+	Password   string
+	UserGroups []string
+}
+
+// Validate checks all fields of the expose request.
+func (r *ExposeServiceRequest) Validate() error {
+	if r == nil {
+		return errors.New("request cannot be nil")
+	}
+
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
+	}
+
+	if r.Protocol != "http" && r.Protocol != "https" {
+		return fmt.Errorf("unsupported protocol %q: must be http or https", r.Protocol)
+	}
+
+	if r.Pin != "" && !pinRegexp.MatchString(r.Pin) {
+		return errors.New("invalid pin: must be exactly 6 digits")
+	}
+
+	for _, g := range r.UserGroups {
+		if g == "" {
+			return errors.New("user group name cannot be empty")
+		}
+	}
+
+	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
+		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	return nil
+}
+
+// ToService builds a Service from the expose request.
+func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       r.Port,
+				Protocol:   r.Protocol,
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if r.Domain != "" {
+		service.Domain = serviceName + "." + r.Domain
+	}
+
+	if r.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     r.Pin,
+		}
+	}
+
+	if r.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: r.Password,
+		}
+	}
+
+	if len(r.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: r.UserGroups,
+		}
+	}
+
+	return service
+}
+
+// ExposeServiceResponse contains the result of a successful peer expose creation.
+type ExposeServiceResponse struct {
+	ServiceName string
+	ServiceURL  string
+	Domain      string
+}
 
 // GenerateExposeName generates a random service name for peer-exposed services.
 // The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).

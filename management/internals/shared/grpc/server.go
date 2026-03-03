@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/client/common"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
@@ -82,9 +82,7 @@ type Server struct {
 	syncLimEnabled bool
 	syncLim        int32
 
-	activeExposes       sync.Map
-	exposeCreateMu      sync.Mutex
-	reverseProxyManager reverseproxy.Manager
+	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
 }
 

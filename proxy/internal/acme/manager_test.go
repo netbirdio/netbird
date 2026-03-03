@@ -10,7 +10,7 @@ import (
 )
 
 func TestHostPolicy(t *testing.T) {
-	mgr := NewManager(t.TempDir(), "https://acme.example.com/directory", nil, nil, "")
+	mgr := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "")
 	mgr.AddDomain("example.com", "acc1", "rp1")
 
 	// Wait for the background prefetch goroutine to finish so the temp dir
@@ -70,7 +70,7 @@ func TestHostPolicy(t *testing.T) {
 }
 
 func TestDomainStates(t *testing.T) {
-	mgr := NewManager(t.TempDir(), "https://acme.example.com/directory", nil, nil, "")
+	mgr := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "")
 
 	assert.Equal(t, 0, mgr.PendingCerts(), "initially zero")
 	assert.Equal(t, 0, mgr.TotalDomains(), "initially zero domains")
