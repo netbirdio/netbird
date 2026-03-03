@@ -88,7 +88,7 @@ func (c *Conn) Close() error {
 	c.closedMu.Lock()
 	c.closed = true
 	c.closedMu.Unlock()
-	return c.Conn.CloseNow()
+	return c.CloseNow()
 }
 
 func (c *Conn) isClosed() bool {

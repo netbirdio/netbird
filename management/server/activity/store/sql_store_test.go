@@ -9,11 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 func TestNewSqlStore(t *testing.T) {
 	dataDir := t.TempDir()
-	key, _ := GenerateKey()
+	key, _ := crypt.GenerateKey()
 	store, err := NewSqlStore(context.Background(), dataDir, key)
 	if err != nil {
 		t.Fatal(err)

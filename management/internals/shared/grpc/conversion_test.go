@@ -6,9 +6,12 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -147,4 +150,53 @@ func generateTestData(size int) nbdns.Config {
 	}
 
 	return config
+}
+
+func TestBuildJWTConfig_Audiences(t *testing.T) {
+	tests := []struct {
+		name              string
+		authAudience      string
+		cliAuthAudience   string
+		expectedAudiences []string
+		expectedAudience  string
+	}{
+		{
+			name:              "only_auth_audience",
+			authAudience:      "dashboard-aud",
+			cliAuthAudience:   "",
+			expectedAudiences: []string{"dashboard-aud"},
+			expectedAudience:  "dashboard-aud",
+		},
+		{
+			name:              "both_audiences_different",
+			authAudience:      "dashboard-aud",
+			cliAuthAudience:   "cli-aud",
+			expectedAudiences: []string{"dashboard-aud", "cli-aud"},
+			expectedAudience:  "cli-aud",
+		},
+		{
+			name:              "both_audiences_same",
+			authAudience:      "same-aud",
+			cliAuthAudience:   "same-aud",
+			expectedAudiences: []string{"same-aud"},
+			expectedAudience:  "same-aud",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &nbconfig.HttpServerConfig{
+				AuthIssuer:      "https://issuer.example.com",
+				AuthAudience:    tc.authAudience,
+				CLIAuthAudience: tc.cliAuthAudience,
+			}
+
+			result := buildJWTConfig(config, nil)
+
+			assert.NotNil(t, result)
+			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
+			//nolint:staticcheck // SA1019: Testing backwards compatibility - Audience field must still be populated
+			assert.Equal(t, tc.expectedAudience, result.Audience, "audience should match expected")
+		})
+	}
 }

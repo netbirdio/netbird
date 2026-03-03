@@ -3,34 +3,30 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"testing"
 	"time"
 )
 
+// StartTestServer starts the SSH server and returns the address it's listening on.
 func StartTestServer(t *testing.T, server *Server) string {
 	started := make(chan string, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			errChan <- err
-			return
-		}
-		actualAddr := ln.Addr().String()
-		if err := ln.Close(); err != nil {
-			errChan <- fmt.Errorf("close temp listener: %w", err)
-			return
-		}
-
-		addrPort := netip.MustParseAddrPort(actualAddr)
+		addrPort := netip.MustParseAddrPort("127.0.0.1:0")
 		if err := server.Start(context.Background(), addrPort); err != nil {
 			errChan <- err
 			return
 		}
-		started <- actualAddr
+
+		actualAddr := server.Addr()
+		if actualAddr == nil {
+			errChan <- fmt.Errorf("server started but no listener address available")
+			return
+		}
+
+		started <- actualAddr.String()
 	}()
 
 	select {

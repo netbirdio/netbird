@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// MockClient is a mock implementation of the Client interface for testing.
 type MockClient struct {
 	CloseFunc                      func() error
 	SyncFunc                       func(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
@@ -20,6 +21,10 @@ type MockClient struct {
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
+	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
+	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
+	RenewExposeFunc                func(ctx context.Context, domain string) error
+	StopExposeFunc                 func(ctx context.Context, domain string) error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -38,6 +43,13 @@ func (m *MockClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 		return nil
 	}
 	return m.SyncFunc(ctx, sysInfo, msgHandler)
+}
+
+func (m *MockClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
+	if m.JobFunc == nil {
+		return nil
+	}
+	return m.JobFunc(ctx, msgHandler)
 }
 
 func (m *MockClient) GetServerPublicKey() (*wgtypes.Key, error) {
@@ -72,10 +84,10 @@ func (m *MockClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	if m.GetPKCEAuthorizationFlowFunc == nil {
 		return nil, nil
 	}
-	return m.GetPKCEAuthorizationFlow(serverKey)
+	return m.GetPKCEAuthorizationFlowFunc(serverKey)
 }
 
-// GetNetworkMap mock implementation of GetNetworkMap from mgm.Client interface
+// GetNetworkMap mock implementation of GetNetworkMap from Client interface.
 func (m *MockClient) GetNetworkMap(_ *system.Info) (*proto.NetworkMap, error) {
 	return nil, nil
 }
@@ -92,4 +104,25 @@ func (m *MockClient) Logout() error {
 		return nil
 	}
 	return m.LogoutFunc()
+}
+
+func (m *MockClient) CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error) {
+	if m.CreateExposeFunc == nil {
+		return nil, nil
+	}
+	return m.CreateExposeFunc(ctx, req)
+}
+
+func (m *MockClient) RenewExpose(ctx context.Context, domain string) error {
+	if m.RenewExposeFunc == nil {
+		return nil
+	}
+	return m.RenewExposeFunc(ctx, domain)
+}
+
+func (m *MockClient) StopExpose(ctx context.Context, domain string) error {
+	if m.StopExposeFunc == nil {
+		return nil
+	}
+	return m.StopExposeFunc(ctx, domain)
 }

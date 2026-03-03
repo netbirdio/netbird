@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,7 +49,6 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("timeout")
 	}
-	watcher.DisableWgWatcher()
 }
 
 func TestWGWatcher_ReEnable(t *testing.T) {
@@ -60,14 +60,21 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	watcher := NewWGWatcher(mlog, mocWgIface, "", newStateDump("peer", mlog, &Status{}))
 
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.EnableWgWatcher(ctx, func() {})
+	}()
+	cancel()
+
+	wg.Wait()
+
+	// Re-enable with a new context
+	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
 	onDisconnected := make(chan struct{}, 1)
-
-	go watcher.EnableWgWatcher(ctx, func() {})
-	time.Sleep(1 * time.Second)
-	watcher.DisableWgWatcher()
-
 	go watcher.EnableWgWatcher(ctx, func() {
 		onDisconnected <- struct{}{}
 	})
@@ -80,5 +87,4 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("timeout")
 	}
-	watcher.DisableWgWatcher()
 }

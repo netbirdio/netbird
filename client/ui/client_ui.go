@@ -312,6 +312,8 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	settingsEnabled      bool
+	profilesEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -508,7 +510,7 @@ func (s *serviceClient) saveSettings() {
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableUpdateSettings {
 		log.Warn("Configuration updates are disabled by daemon")
-		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		dialog.ShowError(fmt.Errorf("configuration updates are disabled by daemon"), s.wSettings)
 		return
 	}
 
@@ -538,7 +540,7 @@ func (s *serviceClient) saveSettings() {
 func (s *serviceClient) validateSettings() error {
 	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-			return fmt.Errorf("Invalid Pre-shared Key Value")
+			return fmt.Errorf("invalid pre-shared key value")
 		}
 	}
 	return nil
@@ -547,10 +549,10 @@ func (s *serviceClient) validateSettings() error {
 func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
 	if err != nil {
-		return 0, 0, errors.New("Invalid interface port")
+		return 0, 0, errors.New("invalid interface port")
 	}
 	if port < 1 || port > 65535 {
-		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+		return 0, 0, errors.New("invalid interface port: out of range 1-65535")
 	}
 
 	var mtu int64
@@ -558,7 +560,7 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	if mtuText != "" {
 		mtu, err = strconv.ParseInt(mtuText, 10, 64)
 		if err != nil {
-			return 0, 0, errors.New("Invalid MTU value")
+			return 0, 0, errors.New("invalid MTU value")
 		}
 		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
 			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
@@ -643,7 +645,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	if sshJWTCacheTTLText != "" {
 		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
 		if err != nil {
-			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+			return nil, errors.New("invalid SSH JWT Cache TTL value")
 		}
 		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
 			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
@@ -907,7 +909,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected):
+		case status.Status == string(internal.StatusConnected) && !s.connected:
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -921,6 +923,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
+			s.mExitNode.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -1030,7 +1033,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
+	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
@@ -1057,7 +1060,7 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+	s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
@@ -1258,7 +1261,6 @@ func (s *serviceClient) setSettingsEnabled(enabled bool) {
 	if s.mSettings != nil {
 		if enabled {
 			s.mSettings.Enable()
-			s.mSettings.SetTooltip(settingsMenuDescr)
 		} else {
 			s.mSettings.Hide()
 			s.mSettings.SetTooltip("Settings are disabled by daemon")
@@ -1274,19 +1276,22 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		return
 	}
 
+	s.updateIndicationLock.Lock()
+	defer s.updateIndicationLock.Unlock()
+
 	// Update settings menu based on current features
-	if features != nil && features.DisableUpdateSettings {
-		s.setSettingsEnabled(false)
-	} else {
-		s.setSettingsEnabled(true)
+	settingsEnabled := features == nil || !features.DisableUpdateSettings
+	if s.settingsEnabled != settingsEnabled {
+		s.settingsEnabled = settingsEnabled
+		s.setSettingsEnabled(settingsEnabled)
 	}
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		} else {
-			s.mProfile.setEnabled(true)
+		profilesEnabled := features == nil || !features.DisableProfiles
+		if s.profilesEnabled != profilesEnabled {
+			s.profilesEnabled = profilesEnabled
+			s.mProfile.setEnabled(profilesEnabled)
 		}
 	}
 }

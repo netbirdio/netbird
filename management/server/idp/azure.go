@@ -58,9 +58,10 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

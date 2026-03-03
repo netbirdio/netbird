@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -27,6 +28,11 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -37,17 +43,19 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
-	storeSqliteFileName         = "store.db"
-	idQueryCondition            = "id = ?"
-	keyQueryCondition           = "key = ?"
-	mysqlKeyQueryCondition      = "`key` = ?"
-	accountAndIDQueryCondition  = "account_id = ? and id = ?"
-	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
-	accountIDCondition          = "account_id = ?"
-	peerNotFoundFMT             = "peer %s not found"
+	storeSqliteFileName            = "store.db"
+	idQueryCondition               = "id = ?"
+	keyQueryCondition              = "key = ?"
+	mysqlKeyQueryCondition         = "`key` = ?"
+	accountAndIDQueryCondition     = "account_id = ? and id = ?"
+	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
+	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
+	accountIDCondition             = "account_id = ?"
+	peerNotFoundFMT                = "peer %s not found"
 
 	pgMaxConnections    = 30
 	pgMinConnections    = 1
@@ -57,12 +65,14 @@ const (
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
-	db                *gorm.DB
-	globalAccountLock sync.Mutex
-	metrics           telemetry.AppMetrics
-	installationPK    int
-	storeEngine       types.Engine
-	pool              *pgxpool.Pool
+	db                 *gorm.DB
+	globalAccountLock  sync.Mutex
+	metrics            telemetry.AppMetrics
+	installationPK     int
+	storeEngine        types.Engine
+	pool               *pgxpool.Pool
+	fieldEncrypt       *crypt.FieldEncrypt
+	transactionTimeout time.Duration
 }
 
 type installation struct {
@@ -84,6 +94,14 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
+	transactionTimeout := 5 * time.Minute
+	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			transactionTimeout = parsed
+		}
+	}
+	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
+
 	if storeEngine == types.SqliteStoreEngine {
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -101,17 +119,20 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
 		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
 	err = db.AutoMigrate(
-		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{}, &types.GroupPeer{},
+		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.ProxyAccessToken{},
+		&types.Group{}, &types.GroupPeer{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
+		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &reverseproxy.Service{}, &reverseproxy.Target{}, &domain.Domain{},
+		&accesslogs.AccessLogEntry{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -120,7 +141,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -128,6 +149,97 @@ func GetKeyQueryCondition(s *SqlStore) string {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
+}
+
+// SaveJob persists a job in DB
+func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.Create(job)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create job in store")
+	}
+	return nil
+}
+
+func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.
+		Model(&types.Job{}).
+		Where(idQueryCondition, job.ID).
+		Updates(job)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to update job in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+" AND id = ?"+" AND status = ?", accountID, peerID, jobID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+" AND status = ?", accountID, peerID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
+}
+
+// GetJobByID fetches job by ID
+func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error) {
+	var job types.Job
+	err := s.db.
+		Where(accountAndIDQueryCondition, accountID, jobID).
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, status.Errorf(status.NotFound, "job %s not found", jobID)
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch job from store: %s", err)
+		return nil, err
+	}
+	return &job, nil
+}
+
+// get all jobs
+func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error) {
+	var jobs []*types.Job
+	err := s.db.
+		Where(accountAndPeerIDQueryCondition, accountID, peerID).
+		Order("created_at DESC").
+		Find(&jobs).Error
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch jobs from store: %s", err)
+		return nil, err
+	}
+
+	return jobs, nil
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
@@ -164,6 +276,13 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 	s.checkAccountDomainBeforeSave(ctx, account.Id, account.Domain)
 
 	generateAccountSQLTypes(account)
+
+	// Encrypt sensitive user data before saving
+	for i := range account.UsersG {
+		if err := account.UsersG[i].EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+	}
 
 	for _, group := range account.GroupsG {
 		group.StoreGroupPeers()
@@ -430,7 +549,18 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 		return nil
 	}
 
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&users)
+	usersCopy := make([]*types.User, len(users))
+	for i, user := range users {
+		userCopy := user.Copy()
+		userCopy.Email = user.Email
+		userCopy.Name = user.Name
+		if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+			return fmt.Errorf("encrypt user: %w", err)
+		}
+		usersCopy[i] = userCopy
+	}
+
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&usersCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save users to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save users to store")
@@ -440,7 +570,15 @@ func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 
 // SaveUser saves the given user to the database.
 func (s *SqlStore) SaveUser(ctx context.Context, user *types.User) error {
-	result := s.db.Save(user)
+	userCopy := user.Copy()
+	userCopy.Email = user.Email
+	userCopy.Name = user.Name
+
+	if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt user: %w", err)
+	}
+
+	result := s.db.Save(userCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save user to store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to save user to store")
@@ -590,6 +728,10 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 		return nil, status.NewGetUserFromStoreError()
 	}
 
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
+	}
+
 	return &user, nil
 }
 
@@ -606,6 +748,10 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 			return nil, status.NewUserNotFoundError(userID)
 		}
 		return nil, status.NewGetUserFromStoreError()
+	}
+
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
 	}
 
 	return &user, nil
@@ -644,6 +790,12 @@ func (s *SqlStore) GetAccountUsers(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "issue getting users from store")
 	}
 
+	for _, user := range users {
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
+	}
+
 	return users, nil
 }
 
@@ -662,7 +814,135 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 		return nil, status.Errorf(status.Internal, "failed to get account owner from the store")
 	}
 
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt user: %w", err)
+	}
+
 	return &user, nil
+}
+
+// SaveUserInvite saves a user invite to the database
+func (s *SqlStore) SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error {
+	inviteCopy := invite.Copy()
+	if err := inviteCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt invite: %w", err)
+	}
+
+	result := s.db.Save(inviteCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save user invite to store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save user invite to store")
+	}
+	return nil
+}
+
+// GetUserInviteByID retrieves a user invite by its ID and account ID
+func (s *SqlStore) GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInviteRecord
+	result := tx.Where("account_id = ?", accountID).Take(&invite, idQueryCondition, inviteID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// GetUserInviteByHashedToken retrieves a user invite by its hashed token
+func (s *SqlStore) GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invite types.UserInviteRecord
+	result := tx.Take(&invite, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "user invite not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get user invite from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invite from store")
+	}
+
+	if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt invite: %w", err)
+	}
+
+	return &invite, nil
+}
+
+// GetUserInviteByEmail retrieves a user invite by account ID and email.
+// Since email is encrypted with random IVs, we fetch all invites for the account
+// and compare emails in memory after decryption.
+func (s *SqlStore) GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invites []*types.UserInviteRecord
+	result := tx.Find(&invites, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
+		}
+		if strings.EqualFold(invite.Email, email) {
+			return invite, nil
+		}
+	}
+
+	return nil, status.Errorf(status.NotFound, "user invite not found for email")
+}
+
+// GetAccountUserInvites retrieves all user invites for an account
+func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInviteRecord, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var invites []*types.UserInviteRecord
+	result := tx.Find(&invites, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get user invites from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get user invites from store")
+	}
+
+	for _, invite := range invites {
+		if err := invite.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt invite: %w", err)
+		}
+	}
+
+	return invites, nil
+}
+
+// DeleteUserInvite deletes a user invite by its ID
+func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
+	result := s.db.Delete(&types.UserInviteRecord{}, idQueryCondition, inviteID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete user invite from store")
+	}
+	return nil
 }
 
 func (s *SqlStore) GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error) {
@@ -725,6 +1005,18 @@ func (s *SqlStore) GetAccountsCounter(ctx context.Context) (int64, error) {
 	}
 
 	return count, nil
+}
+
+// GetCustomDomainsCounts returns the total and validated custom domain counts.
+func (s *SqlStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, error) {
+	var total, validated int64
+	if err := s.db.WithContext(ctx).Model(&domain.Domain{}).Count(&total).Error; err != nil {
+		return 0, 0, err
+	}
+	if err := s.db.WithContext(ctx).Model(&domain.Domain{}).Where("validated = ?", true).Count(&validated).Error; err != nil {
+		return 0, 0, err
+	}
+	return total, validated, nil
 }
 
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
@@ -820,6 +1112,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkRouters").
 		Preload("NetworkResources").
 		Preload("Onboarding").
+		Preload("Services.Targets").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
@@ -855,6 +1148,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		}
 		if user.AutoGroups == nil {
 			user.AutoGroups = []string{}
+		}
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
 		}
 		account.Users[user.Id] = &user
 		user.PATsG = nil
@@ -997,6 +1293,17 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		services, err := s.getServices(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.Services = services
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		networks, err := s.getNetworks(ctx, accountID)
 		if err != nil {
 			errChan <- err
@@ -1131,6 +1438,9 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.Users = make(map[string]*types.User, len(account.UsersG))
 	for i := range account.UsersG {
 		user := &account.UsersG[i]
+		if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt user: %w", err)
+		}
 		user.PATs = make(map[string]*types.PersonalAccessToken)
 		if userPats, ok := patsByUserID[user.Id]; ok {
 			for j := range userPats {
@@ -1392,7 +1702,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
 	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
 	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
-	location_geo_name_id FROM peers WHERE account_id = $1`
+	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1405,12 +1715,12 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			lastLogin, createdAt                                                                            sql.NullTime
 			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 			peerStatusLastSeen                                                                              sql.NullTime
-			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval                         sql.NullBool
+			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
 			ip, extraDNS, netAddr, env, flags, files, connIP                                                []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
-			locationCountryCode, locationCityName                                                           sql.NullString
+			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
 		)
 
@@ -1420,7 +1730,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
 			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID)
+			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1504,6 +1814,12 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if locationGeoNameID.Valid {
 				p.Location.GeoNameID = uint(locationGeoNameID.Int64)
 			}
+			if proxyEmbedded.Valid {
+				p.ProxyMeta.Embedded = proxyEmbedded.Bool
+			}
+			if proxyCluster.Valid {
+				p.ProxyMeta.Cluster = proxyCluster.String
+			}
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)
 			}
@@ -1535,7 +1851,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 }
 
 func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User, error) {
-	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type FROM users WHERE account_id = $1`
+	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1545,7 +1861,7 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 		var autoGroups []byte
 		var lastLogin, createdAt sql.NullTime
 		var isServiceUser, nonDeletable, blocked, pendingApproval sql.NullBool
-		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
+		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType, &u.Email, &u.Name)
 		if err == nil {
 			if lastLogin.Valid {
 				u.LastLogin = &lastLogin.Time
@@ -1759,6 +2075,132 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	return checks, nil
 }
 
+func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
+		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
+		pass_host_header, rewrite_redirects, session_private_key, session_public_key
+		FROM services WHERE account_id = $1`
+
+	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
+		target_id, target_type, enabled
+		FROM targets WHERE service_id = ANY($1)`
+
+	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*reverseproxy.Service, error) {
+		var s reverseproxy.Service
+		var auth []byte
+		var createdAt, certIssuedAt sql.NullTime
+		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
+		err := row.Scan(
+			&s.ID,
+			&s.AccountID,
+			&s.Name,
+			&s.Domain,
+			&s.Enabled,
+			&auth,
+			&createdAt,
+			&certIssuedAt,
+			&status,
+			&proxyCluster,
+			&s.PassHostHeader,
+			&s.RewriteRedirects,
+			&sessionPrivateKey,
+			&sessionPublicKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if auth != nil {
+			if err := json.Unmarshal(auth, &s.Auth); err != nil {
+				return nil, err
+			}
+		}
+
+		s.Meta = reverseproxy.ServiceMeta{}
+		if createdAt.Valid {
+			s.Meta.CreatedAt = createdAt.Time
+		}
+		if certIssuedAt.Valid {
+			t := certIssuedAt.Time
+			s.Meta.CertificateIssuedAt = &t
+		}
+		if status.Valid {
+			s.Meta.Status = status.String
+		}
+		if proxyCluster.Valid {
+			s.ProxyCluster = proxyCluster.String
+		}
+		if sessionPrivateKey.Valid {
+			s.SessionPrivateKey = sessionPrivateKey.String
+		}
+		if sessionPublicKey.Valid {
+			s.SessionPublicKey = sessionPublicKey.String
+		}
+
+		s.Targets = []*reverseproxy.Target{}
+		return &s, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(services) == 0 {
+		return services, nil
+	}
+
+	serviceIDs := make([]string, len(services))
+	serviceMap := make(map[string]*reverseproxy.Service)
+	for i, s := range services {
+		serviceIDs[i] = s.ID
+		serviceMap[s.ID] = s
+	}
+
+	targetRows, err := s.pool.Query(ctx, targetsQuery, serviceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	targets, err := pgx.CollectRows(targetRows, func(row pgx.CollectableRow) (*reverseproxy.Target, error) {
+		var t reverseproxy.Target
+		var path sql.NullString
+		err := row.Scan(
+			&t.ID,
+			&t.AccountID,
+			&t.ServiceID,
+			&path,
+			&t.Host,
+			&t.Port,
+			&t.Protocol,
+			&t.TargetId,
+			&t.TargetType,
+			&t.Enabled,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if path.Valid {
+			t.Path = &path.String
+		}
+		return &t, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, target := range targets {
+		if service, ok := serviceMap[target.ServiceID]; ok {
+			service.Targets = append(service.Targets, target)
+		}
+	}
+
+	return services, nil
+}
+
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {
 	const query = `SELECT id, account_id, name, description FROM networks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
@@ -1910,16 +2352,17 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 	if len(policyIDs) == 0 {
 		return nil, nil
 	}
-	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges FROM policy_rules WHERE policy_id = ANY($1)`
+	const query = `SELECT id, policy_id, name, description, enabled, action, destinations, destination_resource, sources, source_resource, bidirectional, protocol, ports, port_ranges, authorized_groups, authorized_user FROM policy_rules WHERE policy_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, query, policyIDs)
 	if err != nil {
 		return nil, err
 	}
 	rules, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.PolicyRule, error) {
 		var r types.PolicyRule
-		var dest, destRes, sources, sourceRes, ports, portRanges []byte
+		var dest, destRes, sources, sourceRes, ports, portRanges, authorizedGroups []byte
 		var enabled, bidirectional sql.NullBool
-		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges)
+		var authorizedUser sql.NullString
+		err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges, &authorizedGroups, &authorizedUser)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
@@ -1944,6 +2387,12 @@ func (s *SqlStore) getPolicyRules(ctx context.Context, policyIDs []string) ([]*t
 			}
 			if portRanges != nil {
 				_ = json.Unmarshal(portRanges, &r.PortRanges)
+			}
+			if authorizedGroups != nil {
+				_ = json.Unmarshal(authorizedGroups, &r.AuthorizedGroups)
+			}
+			if authorizedUser.Valid {
+				r.AuthorizedUser = authorizedUser.String
 			}
 		}
 		return &r, err
@@ -2356,7 +2805,7 @@ func getGormConfig() *gorm.Config {
 
 // newPostgresStore initializes a new Postgres store.
 func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
@@ -2365,7 +2814,7 @@ func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMig
 
 // newMysqlStore initializes a new MySQL store.
 func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
@@ -2890,8 +3339,11 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
+	defer cancel()
+
 	startTime := time.Now()
-	tx := s.db.Begin()
+	tx := s.db.WithContext(timeoutCtx).Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
@@ -2926,6 +3378,9 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
 		return err
 	}
 
@@ -2938,19 +3393,26 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}
 
 	err = tx.Commit().Error
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
+		}
+		return err
+	}
 
 	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
 
-	return err
+	return nil
 }
 
 func (s *SqlStore) withTx(tx *gorm.DB) Store {
 	return &SqlStore{
-		db:          tx,
-		storeEngine: s.storeEngine,
+		db:           tx,
+		storeEngine:  s.storeEngine,
+		fieldEncrypt: s.fieldEncrypt,
 	}
 }
 
@@ -2981,6 +3443,11 @@ func (s *SqlStore) transaction(fn func(*gorm.DB) error) error {
 
 func (s *SqlStore) GetDB() *gorm.DB {
 	return s.db
+}
+
+// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+func (s *SqlStore) SetFieldEncrypt(enc *crypt.FieldEncrypt) {
+	s.fieldEncrypt = enc
 }
 
 func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.DNSSettings, error) {
@@ -3925,6 +4392,79 @@ func (s *SqlStore) DeletePAT(ctx context.Context, userID, patID string) error {
 	return nil
 }
 
+// GetProxyAccessTokenByHashedToken retrieves a proxy access token by its hashed value.
+func (s *SqlStore) GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var token types.ProxyAccessToken
+	result := tx.Take(&token, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "proxy access token not found")
+		}
+		return nil, status.Errorf(status.Internal, "get proxy access token: %v", result.Error)
+	}
+
+	return &token, nil
+}
+
+// GetAllProxyAccessTokens retrieves all proxy access tokens.
+func (s *SqlStore) GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var tokens []*types.ProxyAccessToken
+	result := tx.Find(&tokens)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "get proxy access tokens: %v", result.Error)
+	}
+
+	return tokens, nil
+}
+
+// SaveProxyAccessToken saves a proxy access token to the database.
+func (s *SqlStore) SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error {
+	if result := s.db.WithContext(ctx).Create(token); result.Error != nil {
+		return status.Errorf(status.Internal, "save proxy access token: %v", result.Error)
+	}
+	return nil
+}
+
+// RevokeProxyAccessToken revokes a proxy access token by its ID.
+func (s *SqlStore) RevokeProxyAccessToken(ctx context.Context, tokenID string) error {
+	result := s.db.WithContext(ctx).Model(&types.ProxyAccessToken{}).Where(idQueryCondition, tokenID).Update("revoked", true)
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "revoke proxy access token: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "proxy access token not found")
+	}
+
+	return nil
+}
+
+// MarkProxyAccessTokenUsed updates the last used timestamp for a proxy access token.
+func (s *SqlStore) MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error {
+	result := s.db.WithContext(ctx).Model(&types.ProxyAccessToken{}).
+		Where(idQueryCondition, tokenID).
+		Update("last_used", time.Now().UTC())
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "mark proxy access token as used: %v", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "proxy access token not found")
+	}
+
+	return nil
+}
+
 func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
@@ -4074,4 +4614,664 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var userID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("user_id").
+		Take(&userID, GetKeyQueryCondition(s), peerKey)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", status.Errorf(status.NotFound, "peer not found: index lookup failed")
+		}
+		return "", status.Errorf(status.Internal, "failed to get user ID by peer key")
+	}
+
+	return userID, nil
+}
+
+func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Create(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Select("*").Save(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteZone(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&zones.Zone{}, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewZoneNotFoundError(zoneID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zone *zones.Zone
+	result := tx.Preload("Records").Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(zoneID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error) {
+	var zone *zones.Zone
+	result := s.db.Where("account_id = ? AND domain = ?", accountID, domain).First(&zone)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone by domain from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zones []*zones.Zone
+	result := tx.Preload("Records").Find(&zones, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zones from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zones from store")
+	}
+
+	return zones, nil
+}
+
+func (s *SqlStore) CreateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Create(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateDNSRecord(ctx context.Context, record *records.Record) error {
+	result := s.db.Select("*").Save(record)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update dns record to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update dns record to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete dns record from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete dns record from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewDNSRecordNotFoundError(recordID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var record *records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID).Take(&record)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewDNSRecordNotFoundError(recordID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get dns record from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get dns record from store")
+	}
+
+	return record, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ?", accountID, zoneID).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var recordsList []*records.Record
+	result := tx.Where("account_id = ? AND zone_id = ? AND name = ?", accountID, zoneID, name).Find(&recordsList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zone dns records by name from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone dns records by name from store")
+	}
+
+	return recordsList, nil
+}
+
+func (s *SqlStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ?", accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone dns records from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone dns records from store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		Where(GetKeyQueryCondition(s), key).
+		Limit(1).
+		Scan(&peerID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peer ID by key: %s", result.Error)
+		return "", status.Errorf(status.Internal, "failed to get peer ID by key")
+	}
+
+	return peerID, nil
+}
+
+func (s *SqlStore) CreateService(ctx context.Context, service *reverseproxy.Service) error {
+	serviceCopy := service.Copy()
+	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt service data: %w", err)
+	}
+	result := s.db.Create(serviceCopy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create service to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create service to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateService(ctx context.Context, service *reverseproxy.Service) error {
+	serviceCopy := service.Copy()
+	if err := serviceCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt service data: %w", err)
+	}
+
+	// Use a transaction to ensure atomic updates of the service and its targets
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Delete existing targets
+		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(&reverseproxy.Target{}).Error; err != nil {
+			return err
+		}
+
+		// Update the service and create new targets
+		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Save(serviceCopy).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to update service to store: %v", err)
+		return status.Errorf(status.Internal, "failed to update service to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteService(ctx context.Context, accountID, serviceID string) error {
+	result := s.db.Delete(&reverseproxy.Service{}, accountAndIDQueryCondition, accountID, serviceID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete service from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete service from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "service %s not found", serviceID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error {
+	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ? AND id = ?", accountID, serviceID, targetID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete target from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete target from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "target not found for service %s", serviceID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error {
+	result := s.db.Delete(&reverseproxy.Target{}, "account_id = ? AND service_id = ?", accountID, serviceID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete targets from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete targets from store")
+	}
+
+	return nil
+}
+
+// GetTargetsByServiceID retrieves all targets for a given service
+func (s *SqlStore) GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error) {
+	var targets []*reverseproxy.Target
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	result := tx.Where("account_id = ? AND service_id = ?", accountID, serviceID).Find(&targets)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get targets from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get targets from store")
+	}
+
+	return targets, nil
+}
+
+func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var service *reverseproxy.Service
+	result := tx.Take(&service, accountAndIDQueryCondition, accountID, serviceID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service %s not found", serviceID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get service from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service from store")
+	}
+
+	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt service data: %w", err)
+	}
+
+	return service, nil
+}
+
+func (s *SqlStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
+}
+
+func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
+	var service *reverseproxy.Service
+	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get service by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service by domain from store")
+	}
+
+	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt service data: %w", err)
+	}
+
+	return service, nil
+}
+
+func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
+}
+
+func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	tx := s.db.Preload("Targets")
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serviceList []*reverseproxy.Service
+	result := tx.Find(&serviceList, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get services from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get services from store")
+	}
+
+	for _, service := range serviceList {
+		if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt service data: %w", err)
+		}
+	}
+
+	return serviceList, nil
+}
+
+func (s *SqlStore) GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error) {
+	tx := s.db
+
+	customDomain := &domain.Domain{}
+	result := tx.Take(&customDomain, accountAndIDQueryCondition, accountID, domainID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "custom domain %s not found", domainID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get custom domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get custom domain from store")
+	}
+
+	return customDomain, nil
+}
+
+func (s *SqlStore) ListFreeDomains(ctx context.Context, accountID string) ([]string, error) {
+	return nil, nil
+}
+
+func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
+	tx := s.db
+
+	var domains []*domain.Domain
+	result := tx.Find(&domains, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get reverse proxy custom domains from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get reverse proxy custom domains from store")
+	}
+
+	return domains, nil
+}
+
+func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
+	newDomain := &domain.Domain{
+		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
+		Domain:        domainName,
+		AccountID:     accountID,
+		TargetCluster: targetCluster,
+		Type:          domain.TypeCustom,
+		Validated:     validated,
+	}
+	result := s.db.Create(newDomain)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
+	}
+
+	return newDomain, nil
+}
+
+func (s *SqlStore) UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error) {
+	d.AccountID = accountID
+	result := s.db.Select("*").Save(d)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update reverse proxy custom domain to store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to update reverse proxy custom domain to store")
+	}
+
+	return d, nil
+}
+
+func (s *SqlStore) DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error {
+	result := s.db.Delete(domain.Domain{}, accountAndIDQueryCondition, accountID, domainID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete reverse proxy custom domain from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete reverse proxy custom domain from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "reverse proxy custom domain %s not found", domainID)
+	}
+
+	return nil
+}
+
+// CreateAccessLog creates a new access log entry in the database
+func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
+	result := s.db.Create(logEntry)
+	if result.Error != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"service_id": logEntry.ServiceID,
+			"method":     logEntry.Method,
+			"host":       logEntry.Host,
+			"path":       logEntry.Path,
+		}).Errorf("failed to create access log entry in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create access log entry in store")
+	}
+	return nil
+}
+
+// GetAccountAccessLogs retrieves access logs for a given account with pagination and filtering
+func (s *SqlStore) GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
+	var logs []*accesslogs.AccessLogEntry
+	var totalCount int64
+
+	baseQuery := s.db.WithContext(ctx).
+		Model(&accesslogs.AccessLogEntry{}).
+		Where(accountIDCondition, accountID)
+
+	baseQuery = s.applyAccessLogFilters(baseQuery, filter)
+
+	if err := baseQuery.Count(&totalCount).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to count access logs: %v", err)
+		return nil, 0, status.Errorf(status.Internal, "failed to count access logs")
+	}
+
+	query := s.db.WithContext(ctx).
+		Where(accountIDCondition, accountID)
+
+	query = s.applyAccessLogFilters(query, filter)
+
+	sortColumns := filter.GetSortColumn()
+	sortOrder := strings.ToUpper(filter.GetSortOrder())
+
+	var orderClauses []string
+	for _, col := range strings.Split(sortColumns, ",") {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			orderClauses = append(orderClauses, col+" "+sortOrder)
+		}
+	}
+	orderClause := strings.Join(orderClauses, ", ")
+
+	query = query.
+		Order(orderClause).
+		Limit(filter.GetLimit()).
+		Offset(filter.GetOffset())
+
+	if lockStrength != LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	result := query.Find(&logs)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get access logs from store: %v", result.Error)
+		return nil, 0, status.Errorf(status.Internal, "failed to get access logs from store")
+	}
+
+	return logs, totalCount, nil
+}
+
+// DeleteOldAccessLogs deletes all access logs older than the specified time
+func (s *SqlStore) DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("timestamp < ?", olderThan).
+		Delete(&accesslogs.AccessLogEntry{})
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
+	}
+
+	return result.RowsAffected, nil
+}
+
+// applyAccessLogFilters applies filter conditions to the query
+func (s *SqlStore) applyAccessLogFilters(query *gorm.DB, filter accesslogs.AccessLogFilter) *gorm.DB {
+	if filter.Search != nil {
+		searchPattern := "%" + *filter.Search + "%"
+		query = query.Where(
+			"id LIKE ? OR location_connection_ip LIKE ? OR host LIKE ? OR path LIKE ? OR CONCAT(host, path) LIKE ? OR user_id IN (SELECT id FROM users WHERE email LIKE ? OR name LIKE ?)",
+			searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern,
+		)
+	}
+
+	if filter.SourceIP != nil {
+		query = query.Where("location_connection_ip = ?", *filter.SourceIP)
+	}
+
+	if filter.Host != nil {
+		query = query.Where("host = ?", *filter.Host)
+	}
+
+	if filter.Path != nil {
+		// Support LIKE pattern for path filtering
+		query = query.Where("path LIKE ?", "%"+*filter.Path+"%")
+	}
+
+	if filter.UserID != nil {
+		query = query.Where("user_id = ?", *filter.UserID)
+	}
+
+	if filter.Method != nil {
+		query = query.Where("method = ?", *filter.Method)
+	}
+
+	if filter.Status != nil {
+		switch *filter.Status {
+		case "success":
+			query = query.Where("status_code >= ? AND status_code < ?", 200, 400)
+		case "failed":
+			query = query.Where("status_code < ? OR status_code >= ?", 200, 400)
+		}
+	}
+
+	if filter.StatusCode != nil {
+		query = query.Where("status_code = ?", *filter.StatusCode)
+	}
+
+	if filter.StartDate != nil {
+		query = query.Where("timestamp >= ?", *filter.StartDate)
+	}
+
+	if filter.EndDate != nil {
+		query = query.Where("timestamp <= ?", *filter.EndDate)
+	}
+
+	return query
+}
+
+func (s *SqlStore) GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var target *reverseproxy.Target
+	result := tx.Take(&target, "account_id = ? AND target_id = ?", accountID, targetID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "service target with ID %s not found", targetID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get service target from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get service target from store")
+	}
+
+	return target, nil
 }

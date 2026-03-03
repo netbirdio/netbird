@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -51,8 +52,9 @@ type WorkerICE struct {
 	// increase by one when disconnecting the agent
 	// with it the remote peer can discard the already deprecated offer/answer
 	// Without it the remote peer may recreate a workable ICE connection
-	sessionID ICESessionID
-	muxAgent  sync.Mutex
+	sessionID            ICESessionID
+	remoteSessionChanged bool
+	muxAgent             sync.Mutex
 
 	localUfrag string
 	localPwd   string
@@ -105,9 +107,12 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			return
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
+		w.remoteSessionChanged = true
 		w.agentDialerCancel()
-		if err := w.agent.Close(); err != nil {
-			w.log.Warnf("failed to close ICE agent: %s", err)
+		if w.agent != nil {
+			if err := w.agent.Close(); err != nil {
+				w.log.Warnf("failed to close ICE agent: %s", err)
+			}
 		}
 
 		sessionID, err := NewICESessionID()
@@ -286,8 +291,8 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 		RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
-		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
+		LocalIceCandidateEndpoint:  net.JoinHostPort(pair.Local.Address(), strconv.Itoa(pair.Local.Port())),
+		RemoteIceCandidateEndpoint: net.JoinHostPort(pair.Remote.Address(), strconv.Itoa(pair.Remote.Port())),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
@@ -303,13 +308,17 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
-func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) {
+func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) bool {
 	cancel()
 	if err := agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
 	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	sessionChanged := w.remoteSessionChanged
+	w.remoteSessionChanged = false
 
 	if w.agent == agent {
 		// consider to remove from here and move to the OnNewOffer
@@ -322,19 +331,13 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 		w.agentConnecting = false
 		w.remoteSessionID = ""
 	}
-	w.muxAgent.Unlock()
+	return sessionChanged
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	// wait local endpoint configuration
 	time.Sleep(time.Second)
-	addrString := pair.Remote.Address()
-	parsed, err := netip.ParseAddr(addrString)
-	if (err == nil) && (parsed.Is6()) {
-		addrString = fmt.Sprintf("[%s]", addrString)
-		//IPv6 Literals need to be wrapped in brackets for Resolve*Addr()
-	}
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", addrString, remoteWgPort))
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(pair.Remote.Address(), strconv.Itoa(remoteWgPort)))
 	if err != nil {
 		w.log.Warnf("got an error while resolving the udp address, err: %s", err)
 		return
@@ -386,22 +389,54 @@ func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, 
 	}
 }
 
+func (w *WorkerICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
+	sessionID := w.SessionID()
+	stats := agent.GetCandidatePairsStats()
+	localCandidates, _ := agent.GetLocalCandidates()
+	remoteCandidates, _ := agent.GetRemoteCandidates()
+
+	localMap := make(map[string]ice.Candidate)
+	for _, c := range localCandidates {
+		localMap[c.ID()] = c
+	}
+	remoteMap := make(map[string]ice.Candidate)
+	for _, c := range remoteCandidates {
+		remoteMap[c.ID()] = c
+	}
+
+	for _, stat := range stats {
+		if stat.State == ice.CandidatePairStateSucceeded {
+			local, lok := localMap[stat.LocalCandidateID]
+			remote, rok := remoteMap[stat.RemoteCandidateID]
+			if !lok || !rok {
+				continue
+			}
+			w.log.Debugf("successful ICE path %s: [%s %s %s] <-> [%s %s %s] rtt=%.3fms",
+				sessionID,
+				local.NetworkType(), local.Type(), local.Address(),
+				remote.NetworkType(), remote.Type(), remote.Address(),
+				stat.CurrentRoundTripTime*1000)
+		}
+	}
+}
+
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
 	return func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
 		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
+			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
 			// notify the conn.onICEStateDisconnected changes to update the current used priority
 
-			w.closeAgent(agent, dialerCancel)
+			sessionChanged := w.closeAgent(agent, dialerCancel)
 
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
-				w.conn.onICEStateDisconnected()
+				w.conn.onICEStateDisconnected(sessionChanged)
 			}
 		default:
 			return

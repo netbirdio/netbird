@@ -18,6 +18,7 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
+	connChannelSize       = 100
 )
 
 var (
@@ -69,15 +70,37 @@ type connContainer struct {
 	cancel      context.CancelFunc
 }
 
-func newConnContainer(log *log.Entry, conn *Conn, messages chan Msg) *connContainer {
+func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &connContainer{
+	msgChan := make(chan Msg, connChannelSize)
+	cn := &Conn{
+		dstID:       peerID,
+		messageChan: msgChan,
+		instanceURL: instanceURL,
+	}
+	cc := &connContainer{
 		log:      log,
-		conn:     conn,
-		messages: messages,
+		conn:     cn,
+		messages: msgChan,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+
+	// bind conn to client
+	cn.writeFn = func(dstID messages.PeerID, payload []byte) (int, error) {
+		return c.writeTo(cc, dstID, payload)
+	}
+	cn.closeFn = func(dstID messages.PeerID) error {
+		return c.closeConn(cc, dstID)
+	}
+	cn.localAddrFn = func() net.Addr {
+		return c.relayConn.LocalAddr()
+	}
+	return cc
+}
+
+func (cc *connContainer) netConn() net.Conn {
+	return cc.conn
 }
 
 func (cc *connContainer) writeMsg(msg Msg) {
@@ -130,6 +153,7 @@ type Client struct {
 
 	relayConn        net.Conn
 	conns            map[messages.PeerID]*connContainer
+	earlyMsgs        *earlyMsgBuffer
 	serviceIsRunning bool
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
@@ -164,6 +188,8 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 		},
 		conns: make(map[messages.PeerID]*connContainer),
 	}
+
+	c.earlyMsgs = newEarlyMsgBuffer()
 
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
@@ -225,36 +251,47 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		c.mu.Unlock()
 		return nil, ErrConnAlreadyExists
 	}
-	c.mu.Unlock()
 
-	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
-		c.log.Errorf("peer not available: %s, %s", peerID, err)
-		return nil, err
-	}
-
-	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
-	msgChannel := make(chan Msg, 100)
-
-	c.mu.Lock()
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
-		return nil, fmt.Errorf("relay connection is not established")
-	}
+	c.log.Infof("prepare the relayed connection, waiting for remote peer: %s", peerID)
 
 	c.muInstanceURL.Lock()
 	instanceURL := c.instanceURL
 	c.muInstanceURL.Unlock()
-	conn := NewConn(c, peerID, msgChannel, instanceURL)
 
-	_, ok = c.conns[peerID]
-	if ok {
-		c.mu.Unlock()
-		_ = conn.Close()
-		return nil, ErrConnAlreadyExists
-	}
-	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
+	container := newConnContainer(c.log, c, peerID, instanceURL)
+	c.conns[peerID] = container
+	earlyMsg, hasEarly := c.earlyMsgs.pop(peerID)
 	c.mu.Unlock()
-	return conn, nil
+
+	if hasEarly {
+		container.writeMsg(earlyMsg)
+		c.log.Tracef("flushed buffered early message for peer: %s", peerID)
+	}
+
+	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
+		c.log.Errorf("peer not available: %s, %s", peerID, err)
+		c.mu.Lock()
+		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
+			delete(c.conns, peerID)
+		}
+		c.mu.Unlock()
+		container.close()
+		return nil, err
+	}
+
+	c.mu.Lock()
+	if !c.serviceIsRunning {
+		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
+			delete(c.conns, peerID)
+		}
+		c.mu.Unlock()
+		container.close()
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+	c.mu.Unlock()
+
+	c.log.Infof("remote peer is available: %s", peerID)
+	return container.netConn(), nil
 }
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
@@ -459,10 +496,20 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		return false
 	}
 	container, ok := c.conns[*peerID]
+	earlyBuf := c.earlyMsgs
 	c.mu.Unlock()
 	if !ok {
-		c.log.Errorf("peer not found: %s", peerID.String())
-		c.bufPool.Put(bufPtr)
+		msg := Msg{
+			bufPool: c.bufPool,
+			bufPtr:  bufPtr,
+			Payload: payload,
+		}
+		if earlyBuf == nil || !earlyBuf.put(*peerID, msg) {
+			c.log.Warnf("failed to buffer early message for peer: %s", peerID.String())
+			c.bufPool.Put(bufPtr)
+		} else {
+			c.log.Debugf("buffered early transport message for peer: %s", peerID.String())
+		}
 		return true
 	}
 	msg := Msg{
@@ -474,15 +521,15 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []byte) (int, error) {
+func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
-	conn, ok := c.conns[dstID]
+	current, ok := c.conns[dstID]
 	c.mu.Unlock()
 	if !ok {
 		return 0, net.ErrClosed
 	}
 
-	if conn.conn != connReference {
+	if current != containerRef {
 		return 0, net.ErrClosed
 	}
 
@@ -530,6 +577,9 @@ func (c *Client) closeAllConns() {
 		container.close()
 	}
 	c.conns = make(map[messages.PeerID]*connContainer)
+
+	c.earlyMsgs.close()
+	c.earlyMsgs = newEarlyMsgBuffer()
 }
 
 func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
@@ -553,26 +603,26 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 	}
 }
 
-func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
+func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	container, ok := c.conns[id]
+	current, ok := c.conns[id]
 	if !ok {
 		return net.ErrClosed
 	}
 
-	if container.conn != connReference {
+	if current != containerRef {
 		return fmt.Errorf("conn reference mismatch")
 	}
 
 	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{id}); err != nil {
-		container.log.Errorf("failed to unsubscribe from peer state change: %s", err)
+		current.log.Errorf("failed to unsubscribe from peer state change: %s", err)
 	}
 
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
-	container.close()
+	current.close()
 
 	return nil
 }

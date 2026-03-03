@@ -85,6 +85,7 @@ func (s *LoginFilterTestSuite) TestBanDurationIncreasesExponentially() {
 	s.True(s.filter.logged[pubKey].isBanned)
 	s.Equal(2, s.filter.logged[pubKey].banLevel)
 	secondBanDuration := s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen)
+	// nolint
 	expectedSecondDuration := time.Duration(float64(baseBan) * math.Pow(2, 1))
 	s.InDelta(expectedSecondDuration, secondBanDuration, float64(time.Millisecond))
 }

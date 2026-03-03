@@ -99,17 +99,17 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		profName = activeProf.Name
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), anonymizeFlag, resp.GetDaemonVersion(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
 	var statusOutputString string
 	switch {
 	case detailFlag:
-		statusOutputString = nbstatus.ParseToFullDetailSummary(outputInformationHolder)
+		statusOutputString = outputInformationHolder.FullDetailSummary()
 	case jsonFlag:
-		statusOutputString, err = nbstatus.ParseToJSON(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.JSON()
 	case yamlFlag:
-		statusOutputString, err = nbstatus.ParseToYAML(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.YAML()
 	default:
-		statusOutputString = nbstatus.ParseGeneralSummary(outputInformationHolder, false, false, false, false)
+		statusOutputString = outputInformationHolder.GeneralSummary(false, false, false, false)
 	}
 
 	if err != nil {
@@ -124,6 +124,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 func getStatus(ctx context.Context, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

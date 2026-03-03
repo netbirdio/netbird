@@ -29,11 +29,14 @@ import (
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -42,20 +45,20 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/shared/management/domain"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
-
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -71,7 +74,6 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
-	connInitLimit            = 200
 	disableAutoUpdate        = "disabled"
 )
 
@@ -132,6 +134,11 @@ type EngineConfig struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// for debug bundle generation
+	ProfileConfig *profilemanager.Config
+
+	LogPath string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -195,10 +202,10 @@ type Engine struct {
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
 
-	// Sync response persistence
+	// Sync response persistence (protected by syncRespMux)
+	syncRespMux         sync.RWMutex
 	persistSyncResponse bool
 	latestSyncResponse  *mgmProto.SyncResponse
-	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
 	// auto-update
@@ -211,6 +218,11 @@ type Engine struct {
 	shutdownWg sync.WaitGroup
 
 	probeStunTurn *relay.StunTurnProbe
+
+	jobExecutor   *jobexec.Executor
+	jobExecutorWG sync.WaitGroup
+
+	exposeManager *expose.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -224,7 +236,18 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager) *Engine {
+func NewEngine(
+	clientCtx context.Context,
+	clientCancel context.CancelFunc,
+	signalClient signal.Client,
+	mgmClient mgm.Client,
+	relayManager *relayClient.Manager,
+	config *EngineConfig,
+	mobileDep MobileDependency,
+	statusRecorder *peer.Status,
+	checks []*mgmProto.Checks,
+	stateManager *statemanager.Manager,
+) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -242,8 +265,8 @@ func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signa
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
 		checks:         checks,
-		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		jobExecutor:    jobexec.NewExecutor(),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -311,6 +334,8 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	e.jobExecutorWG.Wait() // block until job goroutines finish
 
 	e.close()
 
@@ -392,6 +417,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.cancel()
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
+	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -479,6 +505,15 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
+	// Set up notrack rules immediately after proxy is listening to prevent
+	// conntrack entries from being created before the rules are in place
+	e.setupWGProxyNoTrack()
+
+	// Set the WireGuard interface for rosenpass after interface is up
+	if e.rpManager != nil {
+		e.rpManager.SetInterface(e.wgInterface)
+	}
+
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
@@ -500,6 +535,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveJobEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -507,11 +543,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
+	wgIfaceName := e.wgInterface.Name()
 
 	go func() {
 		defer e.shutdownWg.Done()
 
-		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, wgIfaceName); shouldRestart {
 			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
 			e.triggerClientRestart()
 		} else if err != nil {
@@ -537,9 +574,11 @@ func (e *Engine) createFirewall() error {
 
 	var err error
 	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
-	if err != nil || e.firewall == nil {
-		log.Errorf("failed creating firewall manager: %s", err)
-		return nil
+	if err != nil {
+		return fmt.Errorf("create firewall manager: %w", err)
+	}
+	if e.firewall == nil {
+		return fmt.Errorf("create firewall manager: received nil manager")
 	}
 
 	if err := e.initFirewall(); err != nil {
@@ -583,6 +622,23 @@ func (e *Engine) initFirewall() error {
 	log.Infof("rosenpass interface traffic allowed on port %d", rosenpassPort)
 
 	return nil
+}
+
+// setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
+// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
+func (e *Engine) setupWGProxyNoTrack() {
+	if e.firewall == nil {
+		return
+	}
+
+	proxyPort := e.wgInterface.GetProxyPort()
+	if proxyPort == 0 {
+		return
+	}
+
+	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
+		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
+	}
 }
 
 func (e *Engine) blockLanAccess() {
@@ -744,7 +800,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 
 	disabled := autoUpdateSettings.Version == disableAutoUpdate
 
-	// Stop and cleanup if disabled
+	// stop and cleanup if disabled
 	if e.updateManager != nil && disabled {
 		log.Infof("auto-update is disabled, stopping update manager")
 		e.updateManager.Stop()
@@ -773,6 +829,10 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	started := time.Now()
+	defer func() {
+		log.Infof("sync finished in %s", time.Since(started))
+	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -828,9 +888,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
+	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
+	// Read the storage-enabled flag under the syncRespMux too.
+	e.syncRespMux.RLock()
+	enabled := e.persistSyncResponse
+	e.syncRespMux.RUnlock()
+
 	// Store sync response if persistence is enabled
-	if e.persistSyncResponse {
+	if enabled {
+		e.syncRespMux.Lock()
 		e.latestSyncResponse = update
+		e.syncRespMux.Unlock()
+
 		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
 	}
 
@@ -953,12 +1022,86 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
-	state.KernelInterface = device.WireGuardModuleIsLoaded()
+	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
+}
+func (e *Engine) receiveJobEvents() {
+	e.jobExecutorWG.Add(1)
+	go func() {
+		defer e.jobExecutorWG.Done()
+		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
+			resp := mgmProto.JobResponse{
+				ID:     msg.ID,
+				Status: mgmProto.JobStatus_failed,
+			}
+			switch params := msg.WorkloadParameters.(type) {
+			case *mgmProto.JobRequest_Bundle:
+				bundleResult, err := e.handleBundle(params.Bundle)
+				if err != nil {
+					log.Errorf("handling bundle: %v", err)
+					resp.Reason = []byte(err.Error())
+					return &resp
+				}
+				resp.Status = mgmProto.JobStatus_succeeded
+				resp.WorkloadResults = bundleResult
+				return &resp
+			default:
+				resp.Reason = []byte(jobexec.ErrJobNotImplemented.Error())
+				return &resp
+			}
+		})
+		if err != nil {
+			// happens if management is unavailable for a long time.
+			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			e.clientCancel()
+			return
+		}
+		log.Info("stopped receiving jobs from Management Service")
+	}()
+	log.Info("connecting to Management Service jobs stream")
+}
+
+func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
+	log.Infof("handle remote debug bundle request: %s", params.String())
+	syncResponse, err := e.GetLatestSyncResponse()
+	if err != nil {
+		log.Warnf("get latest sync response: %v", err)
+	}
+
+	bundleDeps := debug.GeneratorDependencies{
+		InternalConfig: e.config.ProfileConfig,
+		StatusRecorder: e.statusRecorder,
+		SyncResponse:   syncResponse,
+		LogPath:        e.config.LogPath,
+		RefreshStatus: func() {
+			e.RunHealthProbes(true)
+		},
+	}
+
+	bundleJobParams := debug.BundleConfig{
+		Anonymize:         params.Anonymize,
+		IncludeSystemInfo: true,
+		LogFileCount:      uint32(params.LogFileCount),
+	}
+
+	waitFor := time.Duration(params.BundleForTime) * time.Minute
+
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	if err != nil {
+		return nil, err
+	}
+
+	response := &mgmProto.JobResponse_Bundle{
+		Bundle: &mgmProto.BundleResult{
+			UploadKey: uploadKey,
+		},
+	}
+	return response, nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
@@ -1121,6 +1264,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
+	// Filter out own peer from the remote peers list
+	localPubKey := e.config.WgPrivateKey.PublicKey().String()
+	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
+	for _, p := range networkMap.GetRemotePeers() {
+		if p.GetWgPubKey() != localPubKey {
+			remotePeers = append(remotePeers, p)
+		}
+	}
+
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
@@ -1129,32 +1281,34 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			return err
 		}
 	} else {
-		err := e.removePeers(networkMap.GetRemotePeers())
+		err := e.removePeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
-		err = e.modifyPeers(networkMap.GetRemotePeers())
+		err = e.modifyPeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
-		err = e.addNewPeers(networkMap.GetRemotePeers())
+		err = e.addNewPeers(remotePeers)
 		if err != nil {
 			return err
 		}
 
 		e.statusRecorder.FinishPeerListModifications()
 
-		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
+		e.updatePeerSSHHostKeys(remotePeers)
 
-		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
+		if err := e.updateSSHClientConfig(remotePeers); err != nil {
 			log.Warnf("failed to update SSH client config: %v", err)
 		}
+
+		e.updateSSHServerAuth(networkMap.GetSshAuth())
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, networkMap.GetRemotePeers())
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
 	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
 
 	e.networkSerial = serial
@@ -1240,11 +1394,16 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 		ForwarderPort:    forwarderPort,
 	}
 
-	for _, zone := range protoDNSConfig.GetCustomZones() {
+	protoZones := protoDNSConfig.GetCustomZones()
+	// Treat single zone as authoritative for backward compatibility with old servers
+	// that only send the peer FQDN zone without setting field 4.
+	singleZoneCompat := len(protoZones) == 1
+
+	for _, zone := range protoZones {
 		dnsZone := nbdns.CustomZone{
 			Domain:               zone.GetDomain(),
 			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
-			SkipPTRProcess:       zone.GetSkipPTRProcess(),
+			NonAuthoritative:     zone.GetNonAuthoritative() && !singleZoneCompat,
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{
@@ -1379,7 +1538,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		IFaceDiscover:  e.mobileDep.IFaceDiscover,
 		RelayManager:   e.relayManager,
 		SrWatcher:      e.srWatcher,
-		Semaphore:      e.connSemaphore,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1389,6 +1547,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	if e.rpManager != nil {
 		peerConn.SetOnConnected(e.rpManager.OnConnected)
 		peerConn.SetOnDisconnected(e.rpManager.OnDisconnected)
+		peerConn.SetRosenpassInitializedPresharedKeyValidator(e.rpManager.IsPresharedKeyInitialized)
 	}
 
 	return peerConn, nil
@@ -1401,8 +1560,10 @@ func (e *Engine) receiveSignalEvents() {
 		defer e.shutdownWg.Done()
 		// connect to a stream of messages coming from the signal server
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
+			start := time.Now()
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
+			gotLock := time.Since(start)
 
 			// Check context INSIDE lock to ensure atomicity with shutdown
 			if e.ctx.Err() != nil {
@@ -1425,6 +1586,8 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)
@@ -1512,6 +1675,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 
 func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
@@ -1658,9 +1822,16 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
 }
 
-// GetFirewallManager returns the firewall manager
+// GetFirewallManager returns the firewall manager.
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
+}
+
+// GetExposeManager returns the expose session manager.
+func (e *Engine) GetExposeManager() *expose.Manager {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	return e.exposeManager
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
@@ -1698,7 +1869,7 @@ func (e *Engine) getRosenpassAddr() string {
 	return ""
 }
 
-// RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
+// RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services
 // and updates the status recorder with the latest states.
 func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
@@ -1712,42 +1883,31 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	stuns := slices.Clone(e.STUNs)
 	turns := slices.Clone(e.TURNs)
 
-	if e.wgInterface != nil {
-		stats, err := e.wgInterface.GetStats()
-		if err != nil {
-			log.Warnf("failed to get wireguard stats: %v", err)
-			e.syncMsgMux.Unlock()
-			return false
-		}
-		for _, key := range e.peerStore.PeersPubKey() {
-			// wgStats could be zero value, in which case we just reset the stats
-			wgStats, ok := stats[key]
-			if !ok {
-				continue
-			}
-			if err := e.statusRecorder.UpdateWireGuardPeerState(key, wgStats); err != nil {
-				log.Debugf("failed to update wg stats for peer %s: %s", key, err)
-			}
-		}
+	if err := e.statusRecorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("failed to refresh WireGuard stats: %v", err)
 	}
 
 	e.syncMsgMux.Unlock()
-	var results []relay.ProbeResult
-	if waitForResult {
-		results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
-	} else {
-		results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
-	}
-	e.statusRecorder.UpdateRelayStates(results)
 
+	// Skip STUN/TURN probing for JS/WASM as it's not available
 	relayHealthy := true
-	for _, res := range results {
-		if res.Err != nil {
-			relayHealthy = false
-			break
+	if runtime.GOOS != "js" {
+		var results []relay.ProbeResult
+		if waitForResult {
+			results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+		} else {
+			results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
 		}
+		e.statusRecorder.UpdateRelayStates(results)
+
+		for _, res := range results {
+			if res.Err != nil {
+				relayHealthy = false
+				break
+			}
+		}
+		log.Debugf("relay health check: healthy=%t", relayHealthy)
 	}
-	log.Debugf("relay health check: healthy=%t", relayHealthy)
 
 	allHealthy := signalHealthy && managementHealthy && relayHealthy
 	log.Debugf("all health checks completed: healthy=%t", allHealthy)
@@ -1773,7 +1933,7 @@ func (e *Engine) triggerClientRestart() {
 }
 
 func (e *Engine) startNetworkMonitor() {
-	if !e.config.NetworkMonitor {
+	if !e.config.NetworkMonitor || nbnetstack.IsEnabled() {
 		log.Infof("Network monitor is disabled, not starting")
 		return
 	}
@@ -1828,8 +1988,8 @@ func (e *Engine) stopDNSServer() {
 
 // SetSyncResponsePersistence enables or disables sync response persistence
 func (e *Engine) SetSyncResponsePersistence(enabled bool) {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
+	e.syncRespMux.Lock()
+	defer e.syncRespMux.Unlock()
 
 	if enabled == e.persistSyncResponse {
 		return
@@ -1844,20 +2004,22 @@ func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 
 // GetLatestSyncResponse returns the stored sync response if persistence is enabled
 func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
+	e.syncRespMux.RLock()
+	enabled := e.persistSyncResponse
+	latest := e.latestSyncResponse
+	e.syncRespMux.RUnlock()
 
-	if !e.persistSyncResponse {
+	if !enabled {
 		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if e.latestSyncResponse == nil {
+	if latest == nil {
 		//nolint:nilnil
 		return nil, nil
 	}
 
-	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(e.latestSyncResponse))
-	sr, ok := proto.Clone(e.latestSyncResponse).(*mgmProto.SyncResponse)
+	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(latest))
+	sr, ok := proto.Clone(latest).(*mgmProto.SyncResponse)
 	if !ok {
 		return nil, fmt.Errorf("failed to clone sync response")
 	}

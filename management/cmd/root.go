@@ -16,21 +16,22 @@ const (
 )
 
 var (
-	dnsDomain                string
-	mgmtDataDir              string
-	logLevel                 string
-	logFile                  string
-	disableMetrics           bool
-	disableSingleAccMode     bool
-	disableGeoliteUpdate     bool
-	idpSignKeyRefreshEnabled bool
-	userDeleteFromIDPEnabled bool
-	mgmtPort                 int
-	mgmtMetricsPort          int
-	mgmtLetsencryptDomain    string
-	mgmtSingleAccModeDomain  string
-	certFile                 string
-	certKey                  string
+	dnsDomain                   string
+	mgmtDataDir                 string
+	logLevel                    string
+	logFile                     string
+	disableMetrics              bool
+	disableSingleAccMode        bool
+	disableGeoliteUpdate        bool
+	idpSignKeyRefreshEnabled    bool
+	userDeleteFromIDPEnabled    bool
+	mgmtPort                    int
+	mgmtMetricsPort             int
+	disableLegacyManagementPort bool
+	mgmtLetsencryptDomain       string
+	mgmtSingleAccModeDomain     string
+	certFile                    string
+	certKey                     string
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird-mgmt",
@@ -55,6 +56,7 @@ func Execute() error {
 
 func init() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 80, "server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
+	mgmtCmd.Flags().BoolVar(&disableLegacyManagementPort, "disable-legacy-port", false, "disabling the old legacy port (33073)")
 	mgmtCmd.Flags().IntVar(&mgmtMetricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
 	mgmtCmd.Flags().StringVar(&nbconfig.MgmtConfigPath, "config", defaultMgmtConfig, "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
@@ -80,4 +82,8 @@ func init() {
 	migrationCmd.AddCommand(upCmd)
 
 	rootCmd.AddCommand(migrationCmd)
+
+	tc := newTokenCommands()
+	tc.PersistentFlags().StringVar(&nbconfig.MgmtConfigPath, "config", defaultMgmtConfig, "Netbird config file location")
+	rootCmd.AddCommand(tc)
 }

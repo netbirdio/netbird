@@ -47,6 +47,11 @@ type Settings struct {
 	// NetworkRange is the custom network range for that account
 	NetworkRange netip.Prefix `gorm:"serializer:json"`
 
+	// PeerExposeEnabled enables or disables peer-initiated service expose
+	PeerExposeEnabled bool
+	// PeerExposeGroups list of peer group IDs allowed to expose services
+	PeerExposeGroups []string `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
@@ -55,6 +60,14 @@ type Settings struct {
 
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
+
+	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
+	// This is a runtime-only field, not stored in the database.
+	EmbeddedIdpEnabled bool `gorm:"-"`
+
+	// LocalAuthDisabled indicates if local (email/password) authentication is disabled.
+	// This is a runtime-only field, not stored in the database.
+	LocalAuthDisabled bool `gorm:"-"`
 }
 
 // Copy copies the Settings struct
@@ -72,10 +85,14 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:               s.PeerExposeEnabled,
+		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
+		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
+		LocalAuthDisabled:               s.LocalAuthDisabled,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

@@ -23,7 +23,7 @@ jobs:
 
       - name: Check for problematic license dependencies
         run: |
-          echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+          echo "Checking for dependencies on management/, signal/, relay/, and proxy/ packages..."
           echo ""
 
           # Find all directories except the problematic ones and system dirs
@@ -31,7 +31,7 @@ jobs:
           while IFS= read -r dir; do
             echo "=== Checking $dir ==="
             # Search for problematic imports, excluding test files
-            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
+            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
             if [ -n "$RESULTS" ]; then
               echo "❌ Found problematic dependencies:"
               echo "$RESULTS"
@@ -39,11 +39,11 @@ jobs:
             else
               echo "✓ No problematic dependencies found"
             fi
-          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort)
+          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name "proxy" -not -name "combined" -not -name ".git*" | sort)
 
           echo ""
           if [ $FOUND_ISSUES -eq 1 ]; then
-            echo "❌ Found dependencies on management/, signal/, or relay/ packages"
+            echo "❌ Found dependencies on management/, signal/, relay/, or proxy/ packages"
             echo "These packages are licensed under AGPLv3 and must not be imported by BSD-licensed code"
             exit 1
           else
@@ -88,7 +88,7 @@ jobs:
               IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
 
               # Check if any importer is NOT in management/signal/relay
-              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\)" | head -1)
+              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\)" | head -1)
 
               if [ -n "$BSD_IMPORTER" ]; then
                 echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"

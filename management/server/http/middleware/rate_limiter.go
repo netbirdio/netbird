@@ -2,10 +2,14 @@ package middleware
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
 // RateLimiterConfig holds configuration for the API rate limiter
@@ -143,4 +147,26 @@ func (rl *APIRateLimiter) Reset(key string) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	delete(rl.limiters, key)
+}
+
+// Middleware returns an HTTP middleware that rate limits requests by client IP.
+// Returns 429 Too Many Requests if the rate limit is exceeded.
+func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := getClientIP(r)
+		if !rl.Allow(clientIP) {
+			util.WriteErrorResponse("rate limit exceeded, please try again later", http.StatusTooManyRequests, w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// getClientIP extracts the client IP address from the request.
+func getClientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }

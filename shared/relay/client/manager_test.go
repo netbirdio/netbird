@@ -13,6 +13,16 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 )
 
+// newManagerTestServerConfig creates a new server config for manager testing with the given address
+func newManagerTestServerConfig(address string) server.Config {
+	return server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: address,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
+}
+
 func TestEmptyURL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -27,15 +37,10 @@ func TestForeignConn(t *testing.T) {
 	ctx := context.Background()
 
 	lstCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52101",
 	}
 
-	srv1, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: lstCfg1.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srv1, err := server.NewServer(newManagerTestServerConfig(lstCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -59,14 +64,9 @@ func TestForeignConn(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52102",
 	}
-	srv2, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: srvCfg2.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -144,9 +144,9 @@ func TestForeginConnClose(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52201",
 	}
-	srv1, err := server.NewServer(serverCfg)
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -170,9 +170,9 @@ func TestForeginConnClose(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52202",
 	}
-	srv2, err := server.NewServer(serverCfg)
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -225,9 +225,9 @@ func TestForeignAutoClose(t *testing.T) {
 	keepUnusedServerTime = 2 * time.Second
 
 	srvCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52301",
 	}
-	srv1, err := server.NewServer(serverCfg)
+	srv1, err := server.NewServer(newManagerTestServerConfig(srvCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -252,9 +252,9 @@ func TestForeignAutoClose(t *testing.T) {
 	}
 
 	srvCfg2 := server.ListenerConfig{
-		Address: "localhost:2234",
+		Address: "localhost:52302",
 	}
-	srv2, err := server.NewServer(serverCfg)
+	srv2, err := server.NewServer(newManagerTestServerConfig(srvCfg2.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -327,9 +327,9 @@ func TestAutoReconnect(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52401",
 	}
-	srv, err := server.NewServer(serverCfg)
+	srv, err := server.NewServer(newManagerTestServerConfig(srvCfg.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -397,14 +397,9 @@ func TestNotifierDoubleAdd(t *testing.T) {
 	ctx := context.Background()
 
 	listenerCfg1 := server.ListenerConfig{
-		Address: "localhost:1234",
+		Address: "localhost:52501",
 	}
-	srv, err := server.NewServer(server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: listenerCfg1.Address,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	})
+	srv, err := server.NewServer(newManagerTestServerConfig(listenerCfg1.Address))
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}

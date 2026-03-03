@@ -1,0 +1,18 @@
+<!doctype html>
+{{ range $method, $value := .Methods }}
+{{ if eq $method "pin" }}
+<form>
+    <label for={{ $value }}>PIN:</label>
+    <input name={{ $value }} id={{ $value }} />
+    <button type=submit>Submit</button>
+</form>
+{{ else if eq $method "password" }}
+<form>
+    <label for={{ $value }}>Password:</label>
+    <input name={{ $value }} id={{ $value }}/>
+    <button type=submit>Submit</button>
+</form>
+{{ else if eq $method "oidc" }}
+<a href={{ $value }}>Click here to log in with SSO</a>
+{{ end }}
+{{ end }}

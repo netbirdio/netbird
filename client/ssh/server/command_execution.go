@@ -12,8 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// handleCommand executes an SSH command with privilege validation
-func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, winCh <-chan ssh.Window) {
+// handleExecution executes an SSH command or shell with privilege validation
+func (s *Server) handleExecution(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
 	hasPty := winCh != nil
 
 	commandType := "command"
@@ -23,7 +23,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 
 	logger.Infof("executing %s: %s", commandType, safeLogCommand(session.Command()))
 
-	execCmd, cleanup, err := s.createCommand(privilegeResult, session, hasPty)
+	execCmd, cleanup, err := s.createCommand(logger, privilegeResult, session, hasPty)
 	if err != nil {
 		logger.Errorf("%s creation failed: %v", commandType, err)
 
@@ -51,13 +51,12 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 
 	defer cleanup()
 
-	ptyReq, _, _ := session.Pty()
 	if s.executeCommandWithPty(logger, session, execCmd, privilegeResult, ptyReq, winCh) {
 		logger.Debugf("%s execution completed", commandType)
 	}
 }
 
-func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, func(), error) {
+func (s *Server) createCommand(logger *log.Entry, privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, func(), error) {
 	localUser := privilegeResult.User
 	if localUser == nil {
 		return nil, nil, errors.New("no user in privilege result")
@@ -66,28 +65,28 @@ func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh
 	// If PTY requested but su doesn't support --pty, skip su and use executor
 	// This ensures PTY functionality is provided (executor runs within our allocated PTY)
 	if hasPty && !s.suSupportsPty {
-		log.Debugf("PTY requested but su doesn't support --pty, using executor for PTY functionality")
-		cmd, cleanup, err := s.createExecutorCommand(session, localUser, hasPty)
+		logger.Debugf("PTY requested but su doesn't support --pty, using executor for PTY functionality")
+		cmd, cleanup, err := s.createExecutorCommand(logger, session, localUser, hasPty)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create command with privileges: %w", err)
 		}
-		cmd.Env = s.prepareCommandEnv(localUser, session)
+		cmd.Env = s.prepareCommandEnv(logger, localUser, session)
 		return cmd, cleanup, nil
 	}
 
 	// Try su first for system integration (PAM/audit) when privileged
-	cmd, err := s.createSuCommand(session, localUser, hasPty)
+	cmd, err := s.createSuCommand(logger, session, localUser, hasPty)
 	if err != nil || privilegeResult.UsedFallback {
-		log.Debugf("su command failed, falling back to executor: %v", err)
-		cmd, cleanup, err := s.createExecutorCommand(session, localUser, hasPty)
+		logger.Debugf("su command failed, falling back to executor: %v", err)
+		cmd, cleanup, err := s.createExecutorCommand(logger, session, localUser, hasPty)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create command with privileges: %w", err)
 		}
-		cmd.Env = s.prepareCommandEnv(localUser, session)
+		cmd.Env = s.prepareCommandEnv(logger, localUser, session)
 		return cmd, cleanup, nil
 	}
 
-	cmd.Env = s.prepareCommandEnv(localUser, session)
+	cmd.Env = s.prepareCommandEnv(logger, localUser, session)
 	return cmd, func() {}, nil
 }
 

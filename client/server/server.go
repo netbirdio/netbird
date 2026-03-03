@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,18 +14,16 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.org/x/exp/maps"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -70,7 +69,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	clientRunning     bool // protected by mutex
 	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{}
+	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
 	connectClient *internal.ConnectClient
 
@@ -81,12 +80,14 @@ type Server struct {
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
 
+	cpuProfileBuf *bytes.Buffer
+	cpuProfiling  bool
+
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
-	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
-	sleepTriggeredDown atomic.Bool
+	sleepHandler *sleephandler.SleepHandler
 
 	jwtCache *jwtCache
 }
@@ -100,7 +101,7 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
-	return &Server{
+	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
@@ -110,6 +111,10 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	agent := &serverAgent{s}
+	s.sleepHandler = sleephandler.New(agent)
+
+	return s
 }
 
 func (s *Server) Start() error {
@@ -145,10 +150,10 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
-	// set the default config if not exists
-	if err := s.setDefaultConfigIfNotExists(ctx); err != nil {
-		log.Errorf("failed to set default config: %v", err)
-		return fmt.Errorf("failed to set default config: %w", err)
+	// copy old default config
+	_, err = s.profileManager.CopyDefaultProfileIfNotExists()
+	if err != nil && !errors.Is(err, profilemanager.ErrorOldDefaultConfigNotFound) {
+		return err
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
@@ -156,23 +161,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	config, err := s.getConfig(activeProf)
+	config, existingConfig, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name:     "default",
-			Username: "",
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return fmt.Errorf("failed to set active profile state: %w", err)
-		}
-
-		config, err = profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
-		if err != nil {
-			log.Errorf("failed to get default profile config: %v", err)
-			return fmt.Errorf("failed to get default profile config: %w", err)
-		}
+		return err
 	}
 	s.config = config
 
@@ -186,6 +179,13 @@ func (s *Server) Start() error {
 	}
 
 	if config.DisableAutoConnect {
+		state.Set(internal.StatusIdle)
+		return nil
+	}
+
+	if !existingConfig {
+		log.Warnf("not trying to connect when configuration was just created")
+		state.Set(internal.StatusNeedsLogin)
 		return nil
 	}
 
@@ -193,30 +193,6 @@ func (s *Server) Start() error {
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, false, s.clientRunningChan, s.clientGiveUpChan)
-	return nil
-}
-
-func (s *Server) setDefaultConfigIfNotExists(ctx context.Context) error {
-	ok, err := s.profileManager.CopyDefaultProfileIfNotExists()
-	if err != nil {
-		if err := s.profileManager.CreateDefaultProfile(); err != nil {
-			log.Errorf("failed to create default profile: %v", err)
-			return fmt.Errorf("failed to create default profile: %w", err)
-		}
-
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name:     "default",
-			Username: "",
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return fmt.Errorf("failed to set active profile state: %w", err)
-		}
-	}
-	if ok {
-		state := internal.CtxGetState(ctx)
-		state.Set(internal.StatusNeedsLogin)
-	}
-
 	return nil
 }
 
@@ -282,10 +258,17 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
 func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
-	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	authClient, err := auth.NewAuth(ctx, s.config.PrivateKey, s.config.ManagementURL, s.config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+		log.Errorf("failed to create auth client: %v", err)
+		return internal.StatusLoginFailed, err
+	}
+	defer authClient.Close()
+
+	var status internal.StatusType
+	err, isAuthError := authClient.Login(ctx, setupKey, jwtToken)
+	if err != nil {
+		if isAuthError {
 			log.Warnf("failed login: %v", err)
 			status = internal.StatusNeedsLogin
 		} else {
@@ -487,7 +470,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	s.mutex.Unlock()
 
-	config, err := s.getConfig(activeProf)
+	config, _, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -610,8 +593,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
+	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	s.mutex.Lock()
@@ -659,8 +641,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
-	defer s.mutex.Unlock()
-
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
@@ -672,10 +652,12 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
+		s.mutex.Unlock()
 		return nil, err
 	}
 
 	if status != internal.StatusIdle {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
@@ -692,17 +674,20 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.actCancel = cancel
 
 	if s.config == nil {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	if msg != nil && msg.ProfileName != nil {
 		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			s.mutex.Unlock()
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
@@ -710,14 +695,16 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	log.Infof("active profile: %s for %s", activeProf.Name, activeProf.Username)
 
-	config, err := s.getConfig(activeProf)
+	config, _, err := s.getConfig(activeProf)
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
@@ -736,6 +723,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, doAutoUpdate, s.clientRunningChan, s.clientGiveUpChan)
 
+	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
@@ -811,7 +799,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
-	config, err := s.getConfig(activeProf)
+	config, _, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get default profile config: %v", err)
 		return nil, fmt.Errorf("failed to get default profile config: %w", err)
@@ -825,9 +813,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+
+	giveUpChan := s.clientGiveUpChan
 
 	if err := s.cleanupConnection(); err != nil {
+		s.mutex.Unlock()
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
@@ -835,6 +825,20 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
+
+	s.mutex.Unlock()
+
+	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
+	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
+	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	if giveUpChan != nil {
+		select {
+		case <-giveUpChan:
+			log.Debugf("client goroutine finished successfully")
+		case <-time.After(5 * time.Second):
+			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
+		}
+	}
 
 	return &proto.DownResponse{}, nil
 }
@@ -908,7 +912,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 			return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
 		}
 
-		config, err := s.getConfig(activeProf)
+		config, _, err := s.getConfig(activeProf)
 		if err != nil {
 			return nil, gstatus.Errorf(codes.FailedPrecondition, "not logged in")
 		}
@@ -932,19 +936,24 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig loads the config from the active profile
-func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, error) {
+// GetConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
+func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+		return nil, false, fmt.Errorf("failed to get active profile file path: %w", err)
 	}
 
-	config, err := profilemanager.GetConfig(cfgPath)
+	_, err = os.Stat(cfgPath)
+	configExisted := !os.IsNotExist(err)
+
+	log.Infof("active profile config existed: %t, err %v", configExisted, err)
+
+	config, err := profilemanager.ReadConfig(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config: %w", err)
+		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	return config, nil
+	return config, configExisted, nil
 }
 
 func (s *Server) canRemoveProfile(profileName string) error {
@@ -1091,11 +1100,9 @@ func (s *Server) Status(
 	if msg.GetFullPeerStatus {
 		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
-		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
-
 		pbFullStatus.SshServerState = s.getSSHServerState()
-
 		statusResponse.FullStatus = pbFullStatus
 	}
 
@@ -1128,6 +1135,7 @@ func (s *Server) getSSHServerState() *proto.SSHServerState {
 			RemoteAddress: session.RemoteAddress,
 			Command:       session.Command,
 			JwtUsername:   session.JWTUsername,
+			PortForwards:  session.PortForwards,
 		})
 	}
 
@@ -1315,6 +1323,60 @@ func (s *Server) WaitJWTToken(
 	}, nil
 }
 
+// ExposeService exposes a local port via the NetBird reverse proxy.
+func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+	}
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return gstatus.Errorf(codes.Internal, "expose manager not available")
+	}
+
+	ctx := srv.Context()
+
+	exposeCtx, exposeCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer exposeCancel()
+
+	mgmReq := expose.NewRequest(req)
+	result, err := mgr.Expose(exposeCtx, *mgmReq)
+	if err != nil {
+		return err
+	}
+
+	if err := srv.Send(&proto.ExposeServiceEvent{
+		Event: &proto.ExposeServiceEvent_Ready{
+			Ready: &proto.ExposeServiceReady{
+				ServiceName: result.ServiceName,
+				ServiceUrl:  result.ServiceURL,
+				Domain:      result.Domain,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	err = mgr.KeepAlive(ctx, result.Domain)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func isUnixRunningDesktop() bool {
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
 		return false
@@ -1335,6 +1397,10 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 	if time.Since(s.lastProbe) > probeThreshold {
 		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
+		}
+	} else {
+		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
+			log.Debugf("failed to refresh WireGuard stats: %v", err)
 		}
 	}
 }
@@ -1549,7 +1615,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan); err != nil {
+	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil
@@ -1621,94 +1687,6 @@ func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duratio
 		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
 	}
 	return defaultDuration
-}
-
-func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
-	pbFullStatus := proto.FullStatus{
-		ManagementState: &proto.ManagementState{},
-		SignalState:     &proto.SignalState{},
-		LocalPeerState:  &proto.LocalPeerState{},
-		Peers:           []*proto.PeerState{},
-	}
-
-	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
-	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
-	if err := fullStatus.ManagementState.Error; err != nil {
-		pbFullStatus.ManagementState.Error = err.Error()
-	}
-
-	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
-	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
-	if err := fullStatus.SignalState.Error; err != nil {
-		pbFullStatus.SignalState.Error = err.Error()
-	}
-
-	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
-	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
-	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
-	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
-	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
-	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
-	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
-	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
-
-	for _, peerState := range fullStatus.Peers {
-		pbPeerState := &proto.PeerState{
-			IP:                         peerState.IP,
-			PubKey:                     peerState.PubKey,
-			ConnStatus:                 peerState.ConnStatus.String(),
-			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                    peerState.Relayed,
-			LocalIceCandidateType:      peerState.LocalIceCandidateType,
-			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
-			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
-			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
-			RelayAddress:               peerState.RelayServerAddress,
-			Fqdn:                       peerState.FQDN,
-			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
-			BytesRx:                    peerState.BytesRx,
-			BytesTx:                    peerState.BytesTx,
-			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Networks:                   maps.Keys(peerState.GetRoutes()),
-			Latency:                    durationpb.New(peerState.Latency),
-			SshHostKey:                 peerState.SSHHostKey,
-		}
-		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
-	}
-
-	for _, relayState := range fullStatus.Relays {
-		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI,
-			Available: relayState.Err == nil,
-		}
-		if err := relayState.Err; err != nil {
-			pbRelayState.Error = err.Error()
-		}
-		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
-	}
-
-	for _, dnsState := range fullStatus.NSGroupStates {
-		var err string
-		if dnsState.Error != nil {
-			err = dnsState.Error.Error()
-		}
-
-		var servers []string
-		for _, server := range dnsState.Servers {
-			servers = append(servers, server.String())
-		}
-
-		pbDnsState := &proto.NSGroupState{
-			Servers: servers,
-			Domains: dnsState.Domains,
-			Enabled: dnsState.Enabled,
-			Error:   err,
-		}
-		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
-	}
-
-	return &pbFullStatus
 }
 
 // sendTerminalNotification sends a terminal notification message

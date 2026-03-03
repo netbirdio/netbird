@@ -56,7 +56,7 @@ var (
 )
 
 // ExecutePtyWithUserToken executes a command with ConPty using user token.
-func ExecutePtyWithUserToken(ctx context.Context, session ssh.Session, ptyConfig PtyConfig, userConfig UserConfig) error {
+func ExecutePtyWithUserToken(session ssh.Session, ptyConfig PtyConfig, userConfig UserConfig) error {
 	args := buildShellArgs(ptyConfig.Shell, ptyConfig.Command)
 	commandLine := buildCommandLine(args)
 
@@ -64,7 +64,7 @@ func ExecutePtyWithUserToken(ctx context.Context, session ssh.Session, ptyConfig
 		Pty:     ptyConfig,
 		User:    userConfig,
 		Session: session,
-		Context: ctx,
+		Context: session.Context(),
 	}
 
 	return executeConPtyWithConfig(commandLine, config)

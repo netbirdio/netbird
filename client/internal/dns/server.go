@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -27,6 +29,8 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
+const envSkipDNSProbe = "NB_SKIP_DNS_PROBE"
+
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
 	OnReady()
@@ -41,6 +45,9 @@ type IosDnsManager interface {
 type Server interface {
 	RegisterHandler(domains domain.List, handler dns.Handler, priority int)
 	DeregisterHandler(domains domain.List, priority int)
+	BeginBatch()
+	EndBatch()
+	CancelBatch()
 	Initialize() error
 	Stop()
 	DnsIP() netip.Addr
@@ -80,8 +87,10 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
+	currentConfigHash  uint64
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
+	batchMode          bool
 
 	mgmtCacheResolver *mgmt.Resolver
 
@@ -207,6 +216,7 @@ func newDefaultServer(
 		hostsDNSHolder:    newHostsDNSHolder(),
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
+		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -228,7 +238,9 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 		// convert to zone with simple ref counter
 		s.extraDomains[toZone(domain)]++
 	}
-	s.applyHostConfig()
+	if !s.batchMode {
+		s.applyHostConfig()
+	}
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
@@ -257,7 +269,39 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 			delete(s.extraDomains, zone)
 		}
 	}
+	if !s.batchMode {
+		s.applyHostConfig()
+	}
+}
+
+// BeginBatch starts batch mode for DNS handler registration/deregistration.
+// In batch mode, applyHostConfig() is not called after each handler operation,
+// allowing multiple handlers to be registered/deregistered efficiently.
+// Must be followed by EndBatch() to apply the accumulated changes.
+func (s *DefaultServer) BeginBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode enabled")
+	s.batchMode = true
+}
+
+// EndBatch ends batch mode and applies all accumulated DNS configuration changes.
+func (s *DefaultServer) EndBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode disabled, applying accumulated changes")
+	s.batchMode = false
 	s.applyHostConfig()
+}
+
+// CancelBatch cancels batch mode without applying accumulated changes.
+// This is useful when operations fail partway through and you want to
+// discard partial state rather than applying it.
+func (s *DefaultServer) CancelBatch() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	log.Debugf("DNS batch mode cancelled, discarding accumulated changes")
+	s.batchMode = false
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
@@ -437,6 +481,17 @@ func (s *DefaultServer) SearchDomains() []string {
 // ProbeAvailability tests each upstream group's servers for availability
 // and deactivates the group if no server responds
 func (s *DefaultServer) ProbeAvailability() {
+	if val := os.Getenv(envSkipDNSProbe); val != "" {
+		skipProbe, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", envSkipDNSProbe, err)
+		}
+		if skipProbe {
+			log.Infof("skipping DNS probe due to %s", envSkipDNSProbe)
+			return
+		}
+	}
+
 	var wg sync.WaitGroup
 	for _, mux := range s.dnsMuxMap {
 		wg.Add(1)
@@ -483,7 +538,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		}
 	}
 
-	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -496,8 +551,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 
-	// register local records
-	s.localResolver.Update(localRecords)
+	s.localResolver.Update(localZones)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
@@ -507,6 +561,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.currentConfig.RouteAll = false
 	}
 
+	// Always apply host config for management updates, regardless of batch mode
 	s.applyHostConfig()
 
 	s.shutdownWg.Add(1)
@@ -586,14 +641,35 @@ func (s *DefaultServer) applyHostConfig() {
 
 	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
+	hash, err := hashstructure.Hash(config, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Warnf("unable to hash the host dns configuration, will apply config anyway: %s", err)
+		// Fall through to apply config anyway (fail-safe approach)
+	} else if s.currentConfigHash == hash {
+		log.Debugf("not applying host config as there are no changes")
+		return
+	}
+
+	log.Debugf("applying host config as there are changes")
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
+		return
+	}
+
+	// Only update hash if it was computed successfully and config was applied
+	if err == nil {
+		s.currentConfigHash = hash
 	}
 
 	s.registerFallback(config)
 }
 
-// registerFallback registers original nameservers as low-priority fallback handlers
+// registerFallback registers original nameservers as low-priority fallback handlers.
 func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
 	if !ok {
@@ -602,6 +678,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	originalNameservers := hostMgrWithNS.getOriginalNameservers()
 	if len(originalNameservers) == 0 {
+		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
 		return
 	}
 
@@ -609,9 +686,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,
@@ -636,9 +711,9 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
 	var muxUpdates []handlerWrapper
-	var localRecords []nbdns.SimpleRecord
+	var zones []nbdns.CustomZone
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -652,17 +727,20 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 			priority: PriorityLocal,
 		})
 
+		// zone records contain the fqdn, so we can just flatten them
+		var localRecords []nbdns.SimpleRecord
 		for _, record := range customZone.Records {
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-			// zone records contain the fqdn, so we can just flatten them
 			localRecords = append(localRecords, record)
 		}
+		customZone.Records = localRecords
+		zones = append(zones, customZone)
 	}
 
-	return muxUpdates, localRecords, nil
+	return muxUpdates, zones, nil
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
@@ -718,9 +796,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		log.Debugf("creating handler for domain=%s with priority=%d", domainGroup.domain, priority)
 		handler, err := newUpstreamResolver(
 			s.ctx,
-			s.wgInterface.Name(),
-			s.wgInterface.Address().IP,
-			s.wgInterface.Address().Network,
+			s.wgInterface,
 			s.statusRecorder,
 			s.hostsDNSHolder,
 			domainGroup.domain,
@@ -850,6 +926,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 
+		// Always apply host config when nameserver goes down, regardless of batch mode
 		s.applyHostConfig()
 
 		go func() {
@@ -885,6 +962,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
 		}
 
+		// Always apply host config when nameserver reactivates, regardless of batch mode
 		s.applyHostConfig()
 
 		s.updateNSState(nsGroup, nil, true)
@@ -901,9 +979,7 @@ func (s *DefaultServer) addHostRootZone() {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,

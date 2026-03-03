@@ -20,9 +20,9 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -40,7 +40,7 @@ type Server interface {
 	SetContainer(key string, container any)
 }
 
-// Server holds the HTTP BaseServer instance.
+// BaseServer holds the HTTP server instance.
 // Add any additional fields you need, such as database connections, Config, etc.
 type BaseServer struct {
 	// Config holds the server configuration
@@ -50,13 +50,16 @@ type BaseServer struct {
 	// AfterInit is a function that will be called after the server is initialized
 	afterInit []func(s *BaseServer)
 
-	disableMetrics           bool
-	dnsDomain                string
-	disableGeoliteUpdate     bool
-	userDeleteFromIDPEnabled bool
-	mgmtSingleAccModeDomain  string
-	mgmtMetricsPort          int
-	mgmtPort                 int
+	disableMetrics              bool
+	dnsDomain                   string
+	disableGeoliteUpdate        bool
+	userDeleteFromIDPEnabled    bool
+	mgmtSingleAccModeDomain     string
+	mgmtMetricsPort             int
+	mgmtPort                    int
+	disableLegacyManagementPort bool
+
+	proxyAuthClose func()
 
 	listener    net.Listener
 	certManager *autocert.Manager
@@ -67,18 +70,32 @@ type BaseServer struct {
 	cancel context.CancelFunc
 }
 
+// Config holds the configuration parameters for creating a new server
+type Config struct {
+	NbConfig                    *nbconfig.Config
+	DNSDomain                   string
+	MgmtSingleAccModeDomain     string
+	MgmtPort                    int
+	MgmtMetricsPort             int
+	DisableLegacyManagementPort bool
+	DisableMetrics              bool
+	DisableGeoliteUpdate        bool
+	UserDeleteFromIDPEnabled    bool
+}
+
 // NewServer initializes and configures a new Server instance
-func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
+func NewServer(cfg *Config) *BaseServer {
 	return &BaseServer{
-		Config:                   config,
-		container:                make(map[string]any),
-		dnsDomain:                dnsDomain,
-		mgmtSingleAccModeDomain:  mgmtSingleAccModeDomain,
-		disableMetrics:           disableMetrics,
-		disableGeoliteUpdate:     disableGeoliteUpdate,
-		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
-		mgmtPort:                 mgmtPort,
-		mgmtMetricsPort:          mgmtMetricsPort,
+		Config:                      cfg.NbConfig,
+		container:                   make(map[string]any),
+		dnsDomain:                   cfg.DNSDomain,
+		mgmtSingleAccModeDomain:     cfg.MgmtSingleAccModeDomain,
+		disableMetrics:              cfg.DisableMetrics,
+		disableGeoliteUpdate:        cfg.DisableGeoliteUpdate,
+		userDeleteFromIDPEnabled:    cfg.UserDeleteFromIDPEnabled,
+		mgmtPort:                    cfg.MgmtPort,
+		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
+		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 	}
 }
 
@@ -129,12 +146,28 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		if s.Config.IdpManagerConfig != nil && s.Config.IdpManagerConfig.ManagerType != "" {
 			idpManager = s.Config.IdpManagerConfig.ManagerType
 		}
+
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpManager = metrics.EmbeddedType
+		}
+
 		metricsWorker := metrics.NewWorker(srvCtx, installationID, s.Store(), s.PeersUpdateManager(), idpManager)
 		go metricsWorker.Run(srvCtx)
 	}
 
+	// Eagerly create the gRPC server so that all AfterInit hooks are registered
+	// before we iterate them. Lazy creation after the loop would miss hooks
+	// registered during GRPCServer() construction (e.g., SetProxyManager).
+	s.GRPCServer()
+
+	for _, fn := range s.afterInit {
+		if fn != nil {
+			fn(s)
+		}
+	}
+
 	var compatListener net.Listener
-	if s.mgmtPort != ManagementLegacyPort {
+	if s.mgmtPort != ManagementLegacyPort && !s.disableLegacyManagementPort {
 		// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
 		// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
 		compatListener, err = s.serveGRPC(srvCtx, s.GRPCServer(), ManagementLegacyPort)
@@ -144,7 +177,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
+	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -170,12 +203,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
-		}
-	}
-
-	for _, fn := range s.afterInit {
-		if fn != nil {
-			fn(s)
 		}
 	}
 
@@ -210,10 +237,19 @@ func (s *BaseServer) Stop() error {
 		_ = s.certManager.Listener().Close()
 	}
 	s.GRPCServer().Stop()
+	s.ReverseProxyGRPCServer().Close()
+	if s.proxyAuthClose != nil {
+		s.proxyAuthClose()
+		s.proxyAuthClose = nil
+	}
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
 		s.update.StopWatch()
+	}
+	// Stop embedded IdP if configured
+	if embeddedIdP, ok := s.IdpManager().(*idp.EmbeddedIdPManager); ok {
+		_ = embeddedIdP.Stop(ctx)
 	}
 
 	select {
@@ -246,11 +282,23 @@ func (s *BaseServer) SetContainer(key string, container any) {
 	log.Tracef("container with key %s set successfully", key)
 }
 
-func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config) error {
-	return util.DirectWriteJson(ctx, path, config)
+// SetHandlerFunc allows overriding the default HTTP handler function.
+// This is useful for multiplexing additional services on the same port.
+func (s *BaseServer) SetHandlerFunc(handler http.Handler) {
+	s.container["customHandler"] = handler
+	log.Tracef("custom handler set successfully")
 }
 
-func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+	// Check if a custom handler was set (for multiplexing additional services)
+	if customHandler, ok := s.GetContainer("customHandler"); ok {
+		if handler, ok := customHandler.(http.Handler); ok {
+			log.Tracef("using custom handler")
+			return handler
+		}
+	}
+
+	// Use default handler
 	wsProxy := wsproxyserver.New(gRPCHandler, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

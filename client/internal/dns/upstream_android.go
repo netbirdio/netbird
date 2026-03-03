@@ -23,9 +23,7 @@ type upstreamResolver struct {
 // first time, and we need to wait for a while to start to use again the proper DNS resolver.
 func newUpstreamResolver(
 	ctx context.Context,
-	_ string,
-	_ netip.Addr,
-	_ netip.Prefix,
+	_ WGIface,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
 	domain string,

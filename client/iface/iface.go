@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
@@ -50,6 +51,7 @@ func ValidateMTU(mtu uint16) error {
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
+	GetProxyPort() uint16
 	Free() error
 }
 
@@ -78,6 +80,12 @@ type WGIface struct {
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
+}
+
+// GetProxyPort returns the proxy port used by the WireGuard proxy.
+// Returns 0 if no proxy port is used (e.g., for userspace WireGuard).
+func (w *WGIface) GetProxyPort() uint16 {
+	return w.wgProxyFactory.GetProxyPort()
 }
 
 // GetBind returns the EndpointManager userspace bind mode.
@@ -221,6 +229,10 @@ func (w *WGIface) Close() error {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
 	}
 
+	if nbnetstack.IsEnabled() {
+		return errors.FormatErrorOrNil(result)
+	}
+
 	if err := w.waitUntilRemoved(); err != nil {
 		log.Warnf("failed to remove WireGuard interface %s: %v", w.Name(), err)
 		if err := w.Destroy(); err != nil {
@@ -295,6 +307,19 @@ func (w *WGIface) FullStats() (*configurer.Stats, error) {
 	}
 
 	return w.configurer.FullStats()
+}
+
+// SetPresharedKey sets or updates the preshared key for a peer.
+// If updateOnly is true, only updates existing peer; if false, creates or updates.
+func (w *WGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	return w.configurer.SetPresharedKey(peerKey, psk, updateOnly)
 }
 
 func (w *WGIface) waitUntilRemoved() error {

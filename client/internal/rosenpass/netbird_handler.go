@@ -1,15 +1,19 @@
 package rosenpass
 
 import (
-	"fmt"
-	"log/slog"
+	"sync"
 
 	rp "cunicu.li/go-rosenpass"
 	log "github.com/sirupsen/logrus"
 
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+// PresharedKeySetter is the interface for setting preshared keys on WireGuard peers.
+// This minimal interface allows rosenpass to update PSKs without depending on the full WGIface.
+type PresharedKeySetter interface {
+	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
+}
 
 type wireGuardPeer struct {
 	Interface string
@@ -17,30 +21,30 @@ type wireGuardPeer struct {
 }
 
 type NetbirdHandler struct {
-	ifaceName    string
-	client       *wgctrl.Client
-	peers        map[rp.PeerID]wireGuardPeer
-	presharedKey [32]byte
+	mu               sync.Mutex
+	iface            PresharedKeySetter
+	peers            map[rp.PeerID]wireGuardPeer
+	initializedPeers map[rp.PeerID]bool
 }
 
-func NewNetbirdHandler(preSharedKey *[32]byte, wgIfaceName string) (hdlr *NetbirdHandler, err error) {
-	hdlr = &NetbirdHandler{
-		ifaceName: wgIfaceName,
-		peers:     map[rp.PeerID]wireGuardPeer{},
+func NewNetbirdHandler() *NetbirdHandler {
+	return &NetbirdHandler{
+		peers:            map[rp.PeerID]wireGuardPeer{},
+		initializedPeers: map[rp.PeerID]bool{},
 	}
+}
 
-	if preSharedKey != nil {
-		hdlr.presharedKey = *preSharedKey
-	}
-
-	if hdlr.client, err = wgctrl.New(); err != nil {
-		return nil, fmt.Errorf("failed to creat WireGuard client: %w", err)
-	}
-
-	return hdlr, nil
+// SetInterface sets the WireGuard interface for the handler.
+// This must be called after the WireGuard interface is created.
+func (h *NetbirdHandler) SetInterface(iface PresharedKeySetter) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.iface = iface
 }
 
 func (h *NetbirdHandler) AddPeer(pid rp.PeerID, intf string, pk rp.Key) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.peers[pid] = wireGuardPeer{
 		Interface: intf,
 		PublicKey: pk,
@@ -48,79 +52,61 @@ func (h *NetbirdHandler) AddPeer(pid rp.PeerID, intf string, pk rp.Key) {
 }
 
 func (h *NetbirdHandler) RemovePeer(pid rp.PeerID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	delete(h.peers, pid)
+	delete(h.initializedPeers, pid)
+}
+
+// IsPeerInitialized returns true if Rosenpass has completed a handshake
+// and set a PSK for this peer.
+func (h *NetbirdHandler) IsPeerInitialized(pid rp.PeerID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.initializedPeers[pid]
 }
 
 func (h *NetbirdHandler) HandshakeCompleted(pid rp.PeerID, key rp.Key) {
-	log.Debug("Handshake complete")
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
 func (h *NetbirdHandler) HandshakeExpired(pid rp.PeerID) {
 	key, _ := rp.GeneratePresharedKey()
-	log.Debug("Handshake expired")
 	h.outputKey(rp.KeyOutputReasonStale, pid, key)
 }
 
 func (h *NetbirdHandler) outputKey(_ rp.KeyOutputReason, pid rp.PeerID, psk rp.Key) {
+	h.mu.Lock()
+	iface := h.iface
 	wg, ok := h.peers[pid]
+	isInitialized := h.initializedPeers[pid]
+	h.mu.Unlock()
+
+	if iface == nil {
+		log.Warn("rosenpass: interface not set, cannot update preshared key")
+		return
+	}
+
 	if !ok {
 		return
 	}
 
-	device, err := h.client.Device(h.ifaceName)
-	if err != nil {
-		log.Errorf("Failed to get WireGuard device: %v", err)
+	peerKey := wgtypes.Key(wg.PublicKey).String()
+	pskKey := wgtypes.Key(psk)
+
+	// Use updateOnly=true for later rotations (peer already has Rosenpass PSK)
+	// Use updateOnly=false for first rotation (peer has original/empty PSK)
+	if err := iface.SetPresharedKey(peerKey, pskKey, isInitialized); err != nil {
+		log.Errorf("Failed to apply rosenpass key: %v", err)
 		return
 	}
-	config := []wgtypes.PeerConfig{
-		{
-			UpdateOnly:   true,
-			PublicKey:    wgtypes.Key(wg.PublicKey),
-			PresharedKey: (*wgtypes.Key)(&psk),
-		},
-	}
-	for _, peer := range device.Peers {
-		if peer.PublicKey == wgtypes.Key(wg.PublicKey) {
-			if publicKeyEmpty(peer.PresharedKey) || peer.PresharedKey == h.presharedKey {
-				log.Debugf("Restart wireguard connection to peer %s", peer.PublicKey)
-				config = []wgtypes.PeerConfig{
-					{
-						PublicKey:    wgtypes.Key(wg.PublicKey),
-						PresharedKey: (*wgtypes.Key)(&psk),
-						Endpoint:     peer.Endpoint,
-						AllowedIPs:   peer.AllowedIPs,
-					},
-				}
-				err = h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
-					Peers: []wgtypes.PeerConfig{
-						{
-							Remove:    true,
-							PublicKey: wgtypes.Key(wg.PublicKey),
-						},
-					},
-				})
-				if err != nil {
-					slog.Debug("Failed to remove peer")
-					return
-				}
-			}
 
+	// Mark peer as isInitialized after the successful first rotation
+	if !isInitialized {
+		h.mu.Lock()
+		if _, exists := h.peers[pid]; exists {
+			h.initializedPeers[pid] = true
 		}
+		h.mu.Unlock()
 	}
-
-	if err = h.client.ConfigureDevice(wg.Interface, wgtypes.Config{
-		Peers: config,
-	}); err != nil {
-		log.Errorf("Failed to apply rosenpass key: %v", err)
-	}
-}
-
-func publicKeyEmpty(key wgtypes.Key) bool {
-	for _, b := range key {
-		if b != 0 {
-			return false
-		}
-	}
-	return true
 }

@@ -60,6 +60,7 @@ type Validator struct {
 	keysLocation             string
 	idpSignkeyRefreshEnabled bool
 	keys                     *Jwks
+	lastForcedRefresh        time.Time
 }
 
 var (
@@ -71,8 +72,8 @@ var (
 
 func NewValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) *Validator {
 	keys, err := getPemKeys(keysLocation)
-	if err != nil {
-		log.WithField("keysLocation", keysLocation).Errorf("could not get keys from location: %s", err)
+	if err != nil && !strings.Contains(keysLocation, "localhost") {
+		log.WithField("keysLocation", keysLocation).Warnf("could not get keys from location: %s, it will try again on the next http request", err)
 	}
 
 	return &Validator{
@@ -84,32 +85,35 @@ func NewValidator(issuer string, audienceList []string, keysLocation string, idp
 	}
 }
 
+// forcedRefreshCooldown is the minimum time between forced key refreshes
+// to prevent abuse from invalid tokens with fake kid values
+const forcedRefreshCooldown = 30 * time.Second
+
 func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 	return func(token *jwt.Token) (interface{}, error) {
 		// If keys are rotated, verify the keys prior to token validation
 		if v.idpSignkeyRefreshEnabled {
 			// If the keys are invalid, retrieve new ones
-			// @todo propose a separate go routine to regularly check these to prevent blocking when actually
-			// validating the token
 			if !v.keys.stillValid() {
-				v.lock.Lock()
-				defer v.lock.Unlock()
-
-				refreshedKeys, err := getPemKeys(v.keysLocation)
-				if err != nil {
-					log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
-					refreshedKeys = v.keys
-				}
-
-				log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
-
-				v.keys = refreshedKeys
+				v.refreshKeys(ctx)
 			}
 		}
 
 		publicKey, err := getPublicKey(token, v.keys)
 		if err == nil {
 			return publicKey, nil
+		}
+
+		// If key not found and refresh is enabled, try refreshing keys and retry once.
+		// This handles the case where keys were rotated but cache hasn't expired yet.
+		// Use a cooldown to prevent abuse from tokens with fake kid values.
+		if errors.Is(err, errKeyNotFound) && v.idpSignkeyRefreshEnabled {
+			if v.forceRefreshKeys(ctx) {
+				publicKey, err = getPublicKey(token, v.keys)
+				if err == nil {
+					return publicKey, nil
+				}
+			}
 		}
 
 		msg := fmt.Sprintf("getPublicKey error: %s", err)
@@ -121,6 +125,46 @@ func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 
 		return nil, err
 	}
+}
+
+func (v *Validator) refreshKeys(ctx context.Context) {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	refreshedKeys, err := getPemKeys(v.keysLocation)
+	if err != nil {
+		log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+		return
+	}
+
+	log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+	v.keys = refreshedKeys
+}
+
+// forceRefreshKeys refreshes keys if the cooldown period has passed.
+// Returns true if keys were refreshed, false if cooldown prevented refresh.
+// The cooldown check is done inside the lock to prevent race conditions.
+func (v *Validator) forceRefreshKeys(ctx context.Context) bool {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	// Check cooldown inside lock to prevent multiple goroutines from refreshing
+	if time.Since(v.lastForcedRefresh) <= forcedRefreshCooldown {
+		return false
+	}
+
+	log.WithContext(ctx).Debugf("key not found in cache, forcing JWKS refresh")
+
+	refreshedKeys, err := getPemKeys(v.keysLocation)
+	if err != nil {
+		log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+		return false
+	}
+
+	log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+	v.keys = refreshedKeys
+	v.lastForcedRefresh = time.Now()
+	return true
 }
 
 // ValidateAndParse validates the token and returns the parsed token
@@ -165,12 +209,12 @@ func (jwks *Jwks) stillValid() bool {
 func getPemKeys(keysLocation string) (*Jwks, error) {
 	jwks := &Jwks{}
 
-	url, err := url.ParseRequestURI(keysLocation)
+	requestURI, err := url.ParseRequestURI(keysLocation)
 	if err != nil {
 		return jwks, err
 	}
 
-	resp, err := http.Get(url.String())
+	resp, err := http.Get(requestURI.String())
 	if err != nil {
 		return jwks, err
 	}

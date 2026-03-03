@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -202,6 +203,8 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
+	peersManager := peers.NewManager(str, permissionsManager)
+	jobManager := job.NewJobManager(nil, str, peersManager)
 
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
@@ -213,6 +216,7 @@ func startServer(
 		nil,
 		str,
 		networkMapController,
+		jobManager,
 		nil,
 		"",
 		eventStore,
@@ -237,11 +241,13 @@ func startServer(
 		config,
 		accountManager,
 		settingsMockManager,
+		jobManager,
 		secretsManager,
 		nil,
 		nil,
 		server.MockIntegratedValidator{},
 		networkMapController,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)
@@ -604,6 +610,7 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 
 	initialPeers := 10
 	additionalPeers := 10
+	expectedPeerCount := initialPeers + additionalPeers - 1 // -1 because peer doesn't see itself
 
 	var peers []wgtypes.Key
 	for i := 0; i < initialPeers; i++ {
@@ -612,8 +619,19 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		peers = append(peers, key)
 	}
 
+	// Track the maximum peer count each peer has seen
+	type peerState struct {
+		mu           sync.Mutex
+		maxPeerCount int
+		done         bool
+	}
+	peerStates := make(map[string]*peerState)
+	for _, pk := range peers {
+		peerStates[pk.PublicKey().String()] = &peerState{}
+	}
+
 	var wg sync.WaitGroup
-	wg.Add(initialPeers + initialPeers*additionalPeers)
+	wg.Add(initialPeers) // One completion per initial peer
 
 	var syncClients []mgmtProto.ManagementService_SyncClient
 	for _, pk := range peers {
@@ -637,6 +655,9 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		syncClients = append(syncClients, s)
 
 		go func(pk wgtypes.Key, syncStream mgmtProto.ManagementService_SyncClient) {
+			pubKey := pk.PublicKey().String()
+			state := peerStates[pubKey]
+
 			for {
 				encMsg := &mgmtProto.EncryptedMessage{}
 				err := syncStream.RecvMsg(encMsg)
@@ -645,19 +666,28 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 				}
 				decryptedBytes, decErr := encryption.Decrypt(encMsg.Body, ts.serverPubKey, pk)
 				if decErr != nil {
-					t.Errorf("failed to decrypt SyncResponse for peer %s: %v", pk.PublicKey().String(), decErr)
+					t.Errorf("failed to decrypt SyncResponse for peer %s: %v", pubKey, decErr)
 					return
 				}
 				resp := &mgmtProto.SyncResponse{}
 				umErr := pb.Unmarshal(decryptedBytes, resp)
 				if umErr != nil {
-					t.Errorf("failed to unmarshal SyncResponse for peer %s: %v", pk.PublicKey().String(), umErr)
+					t.Errorf("failed to unmarshal SyncResponse for peer %s: %v", pubKey, umErr)
 					return
 				}
-				// We only count if there's a new peer update
-				if len(resp.GetRemotePeers()) > 0 {
+
+				// Track the maximum peer count seen (due to debouncing, updates are coalesced)
+				peerCount := len(resp.GetRemotePeers())
+				state.mu.Lock()
+				if peerCount > state.maxPeerCount {
+					state.maxPeerCount = peerCount
+				}
+				// Signal completion when this peer has seen all expected peers
+				if !state.done && state.maxPeerCount >= expectedPeerCount {
+					state.done = true
 					wg.Done()
 				}
+				state.mu.Unlock()
 			}
 		}(pk, s)
 	}
@@ -671,7 +701,30 @@ func TestSync10PeersGetUpdates(t *testing.T) {
 		time.Sleep(time.Duration(n) * time.Millisecond)
 	}
 
-	wg.Wait()
+	// Wait for debouncer to flush final updates (debounce interval is 1000ms)
+	time.Sleep(1500 * time.Millisecond)
+
+	// Wait with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success - all peers received expected peer count
+	case <-time.After(5 * time.Second):
+		// Timeout - report which peers didn't receive all updates
+		t.Error("Timeout waiting for all peers to receive updates")
+		for pubKey, state := range peerStates {
+			state.mu.Lock()
+			if state.maxPeerCount < expectedPeerCount {
+				t.Errorf("Peer %s only saw %d peers, expected %d", pubKey, state.maxPeerCount, expectedPeerCount)
+			}
+			state.mu.Unlock()
+		}
+	}
 
 	for _, sc := range syncClients {
 		err := sc.CloseSend()

@@ -10,12 +10,16 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -25,30 +29,133 @@ import (
 // Handler is a handler that returns peers of the account
 type Handler struct {
 	accountManager       account.Manager
+	permissionsManager   permissions.Manager
 	networkMapController network_map.Controller
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
-	peersHandler := NewHandler(accountManager, networkMapController)
+func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
+	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/temporary-access", peersHandler.CreateTemporaryAccess).Methods("POST", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.ListJobs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.CreateJob).Methods("POST", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs/{jobId}", peersHandler.GetJob).Methods("GET", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager, networkMapController network_map.Controller) *Handler {
+func NewHandler(accountManager account.Manager, networkMapController network_map.Controller, permissionsManager permissions.Manager) *Handler {
 	return &Handler{
 		accountManager:       accountManager,
 		networkMapController: networkMapController,
+		permissionsManager:   permissionsManager,
 	}
+}
+
+func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	req := &api.JobRequest{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, req)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+	if err := h.accountManager.CreatePeerJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
+}
+
+func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	jobs, err := h.accountManager.GetAllPeerJobs(ctx, userAuth.AccountId, userAuth.UserId, peerID)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	respBody := make([]*api.JobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		resp, err := toSingleJobResponse(job)
+		if err != nil {
+			util.WriteError(ctx, err, w)
+			return
+		}
+		respBody = append(respBody, resp)
+	}
+
+	util.WriteJSONObject(ctx, w, respBody)
+}
+
+func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	jobID := vars["jobId"]
+
+	job, err := h.accountManager.GetPeerJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
+		return
+	}
+
+	if peer.ProxyMeta.Embedded {
+		util.WriteError(ctx, status.Errorf(status.InvalidArgument, "not allowed to read peer"), w)
 		return
 	}
 
@@ -219,6 +326,9 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
+		if peer.ProxyMeta.Embedded {
+			continue
+		}
 		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
@@ -262,21 +372,30 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	user, err := h.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	// If the user is regular user and does not own the peer
-	// with the given peerID return an empty list
-	if !user.HasAdminPower() && !user.IsServiceUser && !userAuth.IsChild {
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
+	if err != nil {
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		return
+	}
+
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	if !allowed && !userAuth.IsChild {
+		if account.Settings.RegularUsersViewBlocked {
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+			return
+		}
+
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
@@ -298,8 +417,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
-	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	netMap := account.GetPeerNetworkMap(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
@@ -368,6 +486,9 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 				Protocol:      protocol,
 				PortRanges:    []types.RulePortRange{portRange},
 			}},
+		}
+		if protocol == types.PolicyRuleProtocolNetbirdSSH {
+			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
@@ -449,6 +570,18 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
+		LocalFlags: &api.PeerLocalFlags{
+			BlockInbound:          &peer.Meta.Flags.BlockInbound,
+			BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
+			DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
+			DisableDns:            &peer.Meta.Flags.DisableDNS,
+			DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
+			DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
+			LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
+			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
+			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
+			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+		},
 	}
 
 	if !approved {
@@ -463,7 +596,6 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
-
 	return &api.PeerBatch{
 		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
@@ -492,7 +624,41 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
+		LocalFlags: &api.PeerLocalFlags{
+			BlockInbound:          &peer.Meta.Flags.BlockInbound,
+			BlockLanAccess:        &peer.Meta.Flags.BlockLANAccess,
+			DisableClientRoutes:   &peer.Meta.Flags.DisableClientRoutes,
+			DisableDns:            &peer.Meta.Flags.DisableDNS,
+			DisableFirewall:       &peer.Meta.Flags.DisableFirewall,
+			DisableServerRoutes:   &peer.Meta.Flags.DisableServerRoutes,
+			LazyConnectionEnabled: &peer.Meta.Flags.LazyConnectionEnabled,
+			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
+			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
+			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+		},
 	}
+}
+
+func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
+	workload, err := job.BuildWorkloadResponse()
+	if err != nil {
+		return nil, err
+	}
+
+	var failed *string
+	if job.FailedReason != "" {
+		failed = &job.FailedReason
+	}
+
+	return &api.JobResponse{
+		Id:           job.ID,
+		CreatedAt:    job.CreatedAt,
+		CompletedAt:  job.CompletedAt,
+		TriggeredBy:  job.TriggeredBy,
+		Status:       api.JobResponseStatus(job.Status),
+		FailedReason: failed,
+		Workload:     *workload,
+	}, nil
 }
 
 func fqdn(peer *nbpeer.Peer, dnsDomain string) string {

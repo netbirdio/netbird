@@ -80,6 +80,12 @@ type PolicyRule struct {
 
 	// PortRanges a list of port ranges.
 	PortRanges []RulePortRange `gorm:"serializer:json"`
+
+	// AuthorizedGroups is a map of groupIDs and their respective access to local users via ssh
+	AuthorizedGroups map[string][]string `gorm:"serializer:json"`
+
+	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
+	AuthorizedUser string
 }
 
 // Copy returns a copy of a policy rule
@@ -99,10 +105,16 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Protocol:            pm.Protocol,
 		Ports:               make([]string, len(pm.Ports)),
 		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
+		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
+		AuthorizedUser:      pm.AuthorizedUser,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
 	copy(rule.Ports, pm.Ports)
 	copy(rule.PortRanges, pm.PortRanges)
+	for k, v := range pm.AuthorizedGroups {
+		rule.AuthorizedGroups[k] = make([]string, len(v))
+		copy(rule.AuthorizedGroups[k], v)
+	}
 	return rule
 }

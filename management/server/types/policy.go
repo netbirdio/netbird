@@ -23,6 +23,8 @@ const (
 	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
 	// PolicyRuleProtocolICMP type of traffic
 	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
+	// PolicyRuleProtocolNetbirdSSH type of traffic
+	PolicyRuleProtocolNetbirdSSH = PolicyRuleProtocolType("netbird-ssh")
 )
 
 const (
@@ -167,6 +169,8 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 		protocol = PolicyRuleProtocolUDP
 	case "icmp":
 		return "", RulePortRange{}, errors.New("icmp does not accept ports; use 'icmp' without '/…'")
+	case "netbird-ssh":
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
 	default:
 		return "", RulePortRange{}, fmt.Errorf("invalid protocol: %q", protoStr)
 	}

@@ -224,6 +224,96 @@ func TestServer_PortForwardingRestriction(t *testing.T) {
 	}
 }
 
+func TestServer_PrivilegedPortAccess(t *testing.T) {
+	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	require.NoError(t, err)
+
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+	}
+	server := New(serverConfig)
+	server.SetAllowRemotePortForwarding(true)
+
+	tests := []struct {
+		name          string
+		forwardType   string
+		port          uint32
+		username      string
+		expectError   bool
+		errorMsg      string
+		skipOnWindows bool
+	}{
+		{
+			name:          "non-root user remote forward privileged port",
+			forwardType:   "remote",
+			port:          80,
+			username:      "testuser",
+			expectError:   true,
+			errorMsg:      "cannot bind to privileged port",
+			skipOnWindows: true,
+		},
+		{
+			name:          "non-root user tcpip-forward privileged port",
+			forwardType:   "tcpip-forward",
+			port:          443,
+			username:      "testuser",
+			expectError:   true,
+			errorMsg:      "cannot bind to privileged port",
+			skipOnWindows: true,
+		},
+		{
+			name:        "non-root user remote forward unprivileged port",
+			forwardType: "remote",
+			port:        8080,
+			username:    "testuser",
+			expectError: false,
+		},
+		{
+			name:        "non-root user remote forward port 0",
+			forwardType: "remote",
+			port:        0,
+			username:    "testuser",
+			expectError: false,
+		},
+		{
+			name:        "root user remote forward privileged port",
+			forwardType: "remote",
+			port:        22,
+			username:    "root",
+			expectError: false,
+		},
+		{
+			name:        "local forward privileged port allowed for non-root",
+			forwardType: "local",
+			port:        80,
+			username:    "testuser",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skipOnWindows && runtime.GOOS == "windows" {
+				t.Skip("Windows does not have privileged port restrictions")
+			}
+
+			result := PrivilegeCheckResult{
+				Allowed: true,
+				User:    &user.User{Username: tt.username},
+			}
+
+			err := server.checkPrivilegedPortAccess(tt.forwardType, tt.port, result)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestServer_PortConflictHandling(t *testing.T) {
 	// Test that multiple sessions requesting the same local port are handled naturally by the OS
 	// Get current user for SSH connection
@@ -389,6 +479,76 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 		t.Run(tt.description, func(t *testing.T) {
 			result := isPrivilegedUsername(tt.username)
 			assert.Equal(t, tt.expected, result, tt.description)
+		})
+	}
+}
+
+func TestServer_NonPtyShellSession(t *testing.T) {
+	// Test that non-PTY shell sessions (ssh -T) work regardless of port forwarding settings.
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
+	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name                  string
+		allowLocalForwarding  bool
+		allowRemoteForwarding bool
+	}{
+		{
+			name:                  "shell_with_local_forwarding_enabled",
+			allowLocalForwarding:  true,
+			allowRemoteForwarding: false,
+		},
+		{
+			name:                  "shell_with_remote_forwarding_enabled",
+			allowLocalForwarding:  false,
+			allowRemoteForwarding: true,
+		},
+		{
+			name:                  "shell_with_both_forwarding_enabled",
+			allowLocalForwarding:  true,
+			allowRemoteForwarding: true,
+		},
+		{
+			name:                  "shell_with_forwarding_disabled",
+			allowLocalForwarding:  false,
+			allowRemoteForwarding: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
+			server.SetAllowRootLogin(true)
+			server.SetAllowLocalPortForwarding(tt.allowLocalForwarding)
+			server.SetAllowRemotePortForwarding(tt.allowRemoteForwarding)
+
+			serverAddr := StartTestServer(t, server)
+			defer func() {
+				_ = server.Stop()
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			client, err := sshclient.Dial(ctx, serverAddr, currentUser.Username, sshclient.DialOptions{
+				InsecureSkipVerify: true,
+			})
+			require.NoError(t, err)
+			defer func() {
+				_ = client.Close()
+			}()
+
+			// Execute without PTY and no command - simulates ssh -T (shell without PTY)
+			// Should always succeed regardless of port forwarding settings
+			_, err = client.ExecuteCommand(ctx, "")
+			assert.NoError(t, err, "Non-PTY shell session should be allowed")
 		})
 	}
 }

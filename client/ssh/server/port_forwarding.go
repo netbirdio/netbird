@@ -1,25 +1,32 @@
+// Package server implements port forwarding for the SSH server.
+//
+// Security note: Port forwarding runs in the main server process without privilege separation.
+// The attack surface is primarily io.Copy through well-tested standard library code, making it
+// lower risk than shell execution which uses privilege-separated child processes. We enforce
+// user-level port restrictions: non-privileged users cannot bind to ports < 1024.
 package server
 
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
+	"runtime"
 	"strconv"
 
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
+
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
 
-// SessionKey uniquely identifies an SSH session
-type SessionKey string
+const privilegedPortThreshold = 1024
 
-// ConnectionKey uniquely identifies a port forwarding connection within a session
-type ConnectionKey string
+// sessionKey uniquely identifies an SSH session
+type sessionKey string
 
-// ForwardKey uniquely identifies a port forwarding listener
-type ForwardKey string
+// forwardKey uniquely identifies a port forwarding listener
+type forwardKey string
 
 // tcpipForwardMsg represents the structure for tcpip-forward SSH requests
 type tcpipForwardMsg struct {
@@ -47,34 +54,32 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 	allowRemote := s.allowRemotePortForwarding
 
 	server.LocalPortForwardingCallback = func(ctx ssh.Context, dstHost string, dstPort uint32) bool {
+		logger := s.getRequestLogger(ctx)
 		if !allowLocal {
-			log.Warnf("local port forwarding denied for %s from %s: disabled by configuration",
-				net.JoinHostPort(dstHost, fmt.Sprintf("%d", dstPort)), ctx.RemoteAddr())
+			logger.Warnf("local port forwarding denied for %s:%d: disabled", dstHost, dstPort)
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "local", dstPort); err != nil {
-			log.Warnf("local port forwarding denied for %s:%d from %s: %v", dstHost, dstPort, ctx.RemoteAddr(), err)
+			logger.Warnf("local port forwarding denied for %s:%d: %v", dstHost, dstPort, err)
 			return false
 		}
 
-		log.Debugf("local port forwarding allowed: %s:%d", dstHost, dstPort)
 		return true
 	}
 
 	server.ReversePortForwardingCallback = func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
+		logger := s.getRequestLogger(ctx)
 		if !allowRemote {
-			log.Warnf("remote port forwarding denied for %s from %s: disabled by configuration",
-				net.JoinHostPort(bindHost, fmt.Sprintf("%d", bindPort)), ctx.RemoteAddr())
+			logger.Warnf("remote port forwarding denied for %s:%d: disabled", bindHost, bindPort)
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "remote", bindPort); err != nil {
-			log.Warnf("remote port forwarding denied for %s:%d from %s: %v", bindHost, bindPort, ctx.RemoteAddr(), err)
+			logger.Warnf("remote port forwarding denied for %s:%d: %v", bindHost, bindPort, err)
 			return false
 		}
 
-		log.Debugf("remote port forwarding allowed: %s:%d", bindHost, bindPort)
 		return true
 	}
 
@@ -82,23 +87,20 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 }
 
 // checkPortForwardingPrivileges validates privilege requirements for port forwarding operations.
-// Returns nil if allowed, error if denied.
+// For remote port forwarding (binding), it enforces that non-privileged users cannot bind to
+// ports below 1024, mirroring the restriction they would face if binding directly.
+//
+// Note: FeatureSupportsUserSwitch is true because we accept requests from any authenticated user,
+// though we don't actually switch users - port forwarding runs in the server process. The resolved
+// user is used for privileged port access checks.
 func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType string, port uint32) error {
 	if ctx == nil {
 		return fmt.Errorf("%s port forwarding denied: no context", forwardType)
 	}
 
-	username := ctx.User()
-	remoteAddr := "unknown"
-	if ctx.RemoteAddr() != nil {
-		remoteAddr = ctx.RemoteAddr().String()
-	}
-
-	logger := log.WithFields(log.Fields{"user": username, "remote": remoteAddr, "port": port})
-
 	result := s.CheckPrivileges(PrivilegeCheckRequest{
-		RequestedUsername:         username,
-		FeatureSupportsUserSwitch: false,
+		RequestedUsername:         ctx.User(),
+		FeatureSupportsUserSwitch: true,
 		FeatureName:               forwardType + " port forwarding",
 	})
 
@@ -106,10 +108,40 @@ func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType stri
 		return result.Error
 	}
 
-	logger.Debugf("%s port forwarding allowed: user %s validated (port %d)",
-		forwardType, result.User.Username, port)
+	if err := s.checkPrivilegedPortAccess(forwardType, port, result); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// checkPrivilegedPortAccess enforces that non-privileged users cannot bind to privileged ports.
+// This applies to remote port forwarding where the server binds a port on behalf of the user.
+// On Windows, there is no privileged port restriction, so this check is skipped.
+func (s *Server) checkPrivilegedPortAccess(forwardType string, port uint32, result PrivilegeCheckResult) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	isBindOperation := forwardType == "remote" || forwardType == "tcpip-forward"
+	if !isBindOperation {
+		return nil
+	}
+
+	// Port 0 means "pick any available port", which will be >= 1024
+	if port == 0 || port >= privilegedPortThreshold {
+		return nil
+	}
+
+	if result.User != nil && isPrivilegedUsername(result.User.Username) {
+		return nil
+	}
+
+	username := "unknown"
+	if result.User != nil {
+		username = result.User.Username
+	}
+	return fmt.Errorf("user %s cannot bind to privileged port %d (requires root)", username, port)
 }
 
 // tcpipForwardHandler handles tcpip-forward requests for remote port forwarding.
@@ -132,8 +164,6 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 		return false, nil
 	}
 
-	logger.Debugf("tcpip-forward request: %s:%d", payload.Host, payload.Port)
-
 	sshConn, err := s.getSSHConnection(ctx)
 	if err != nil {
 		logger.Warnf("tcpip-forward request denied: %v", err)
@@ -153,8 +183,10 @@ func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *
 		return false, nil
 	}
 
-	key := ForwardKey(fmt.Sprintf("%s:%d", payload.Host, payload.Port))
+	key := forwardKey(fmt.Sprintf("%s:%d", payload.Host, payload.Port))
 	if s.removeRemoteForwardListener(key) {
+		forwardAddr := fmt.Sprintf("-R %s:%d", payload.Host, payload.Port)
+		s.removeConnectionPortForward(ctx.RemoteAddr(), forwardAddr)
 		logger.Infof("remote port forwarding cancelled: %s:%d", payload.Host, payload.Port)
 		return true, nil
 	}
@@ -165,14 +197,11 @@ func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *
 
 // handleRemoteForwardListener handles incoming connections for remote port forwarding.
 func (s *Server) handleRemoteForwardListener(ctx ssh.Context, ln net.Listener, host string, port uint32) {
-	log.Debugf("starting remote forward listener handler for %s:%d", host, port)
+	logger := s.getRequestLogger(ctx)
 
 	defer func() {
-		log.Debugf("cleaning up remote forward listener for %s:%d", host, port)
 		if err := ln.Close(); err != nil {
-			log.Debugf("remote forward listener close error: %v", err)
-		} else {
-			log.Debugf("remote forward listener closed successfully for %s:%d", host, port)
+			logger.Debugf("remote forward listener close error for %s:%d: %v", host, port, err)
 		}
 	}()
 
@@ -196,28 +225,43 @@ func (s *Server) handleRemoteForwardListener(ctx ssh.Context, ln net.Listener, h
 		select {
 		case result := <-acceptChan:
 			if result.err != nil {
-				log.Debugf("remote forward accept error: %v", result.err)
+				logger.Debugf("remote forward accept error: %v", result.err)
 				return
 			}
 			go s.handleRemoteForwardConnection(ctx, result.conn, host, port)
 		case <-ctx.Done():
-			log.Debugf("remote forward listener shutting down due to context cancellation for %s:%d", host, port)
+			logger.Debugf("remote forward listener shutting down for %s:%d", host, port)
 			return
 		}
 	}
 }
 
-// getRequestLogger creates a logger with user and remote address context
+// getRequestLogger creates a logger with session/conn and jwt_user context
 func (s *Server) getRequestLogger(ctx ssh.Context) *log.Entry {
-	remoteAddr := "unknown"
-	username := "unknown"
-	if ctx != nil {
-		if ctx.RemoteAddr() != nil {
-			remoteAddr = ctx.RemoteAddr().String()
+	sessionKey := s.findSessionKeyByContext(ctx)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if state, exists := s.sessions[sessionKey]; exists {
+		logger := log.WithField("session", sessionKey)
+		if state.jwtUsername != "" {
+			logger = logger.WithField("jwt_user", state.jwtUsername)
 		}
-		username = ctx.User()
+		return logger
 	}
-	return log.WithFields(log.Fields{"user": username, "remote": remoteAddr})
+
+	if ctx.RemoteAddr() != nil {
+		if connState, exists := s.connections[connKey(ctx.RemoteAddr().String())]; exists {
+			return s.connLogger(connState)
+		}
+	}
+
+	remoteAddr := "unknown"
+	if ctx.RemoteAddr() != nil {
+		remoteAddr = ctx.RemoteAddr().String()
+	}
+	return log.WithField("session", fmt.Sprintf("%s@%s", ctx.User(), remoteAddr))
 }
 
 // isRemotePortForwardingAllowed checks if remote port forwarding is enabled
@@ -267,10 +311,11 @@ func (s *Server) setupDirectForward(ctx ssh.Context, logger *log.Entry, sshConn 
 		logger.Debugf("tcpip-forward allocated port %d for %s", actualPort, payload.Host)
 	}
 
-	key := ForwardKey(fmt.Sprintf("%s:%d", payload.Host, payload.Port))
+	key := forwardKey(fmt.Sprintf("%s:%d", payload.Host, payload.Port))
 	s.storeRemoteForwardListener(key, ln)
 
-	s.markConnectionActivePortForward(sshConn, ctx.User(), ctx.RemoteAddr().String())
+	forwardAddr := fmt.Sprintf("-R %s:%d", payload.Host, actualPort)
+	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
 	go s.handleRemoteForwardListener(ctx, ln, payload.Host, actualPort)
 
 	response := make([]byte, 4)
@@ -288,44 +333,34 @@ type acceptResult struct {
 
 // handleRemoteForwardConnection handles a single remote port forwarding connection
 func (s *Server) handleRemoteForwardConnection(ctx ssh.Context, conn net.Conn, host string, port uint32) {
-	sessionKey := s.findSessionKeyByContext(ctx)
-	connID := fmt.Sprintf("pf-%s->%s:%d", conn.RemoteAddr(), host, port)
-	logger := log.WithFields(log.Fields{
-		"session": sessionKey,
-		"conn":    connID,
-	})
+	logger := s.getRequestLogger(ctx)
 
-	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Debugf("connection close error: %v", err)
-		}
-	}()
-
-	sshConn := ctx.Value(ssh.ContextKeyConn).(*cryptossh.ServerConn)
-	if sshConn == nil {
+	sshConn, ok := ctx.Value(ssh.ContextKeyConn).(*cryptossh.ServerConn)
+	if !ok || sshConn == nil {
 		logger.Debugf("remote forward: no SSH connection in context")
+		_ = conn.Close()
 		return
 	}
 
 	remoteAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
 		logger.Warnf("remote forward: non-TCP connection type: %T", conn.RemoteAddr())
+		_ = conn.Close()
 		return
 	}
 
-	channel, err := s.openForwardChannel(sshConn, host, port, remoteAddr, logger)
+	channel, err := s.openForwardChannel(sshConn, host, port, remoteAddr)
 	if err != nil {
-		logger.Debugf("open forward channel: %v", err)
+		logger.Debugf("open forward channel for %s:%d: %v", host, port, err)
+		_ = conn.Close()
 		return
 	}
 
-	s.proxyForwardConnection(ctx, logger, conn, channel)
+	nbssh.BidirectionalCopyWithContext(logger, ctx, conn, channel)
 }
 
 // openForwardChannel creates an SSH forwarded-tcpip channel
-func (s *Server) openForwardChannel(sshConn *cryptossh.ServerConn, host string, port uint32, remoteAddr *net.TCPAddr, logger *log.Entry) (cryptossh.Channel, error) {
-	logger.Tracef("opening forwarded-tcpip channel for %s:%d", host, port)
-
+func (s *Server) openForwardChannel(sshConn *cryptossh.ServerConn, host string, port uint32, remoteAddr *net.TCPAddr) (cryptossh.Channel, error) {
 	payload := struct {
 		ConnectedAddress  string
 		ConnectedPort     uint32
@@ -345,42 +380,4 @@ func (s *Server) openForwardChannel(sshConn *cryptossh.ServerConn, host string, 
 
 	go cryptossh.DiscardRequests(reqs)
 	return channel, nil
-}
-
-// proxyForwardConnection handles bidirectional data transfer between connection and SSH channel
-func (s *Server) proxyForwardConnection(ctx ssh.Context, logger *log.Entry, conn net.Conn, channel cryptossh.Channel) {
-	done := make(chan struct{}, 2)
-
-	go func() {
-		if _, err := io.Copy(channel, conn); err != nil {
-			logger.Debugf("copy error (conn->channel): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	go func() {
-		if _, err := io.Copy(conn, channel); err != nil {
-			logger.Debugf("copy error (channel->conn): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-		logger.Debugf("session ended, closing connections")
-	case <-done:
-		// First copy finished, wait for second copy or context cancellation
-		select {
-		case <-ctx.Done():
-			logger.Debugf("session ended, closing connections")
-		case <-done:
-		}
-	}
-
-	if err := channel.Close(); err != nil {
-		logger.Debugf("channel close error: %v", err)
-	}
-	if err := conn.Close(); err != nil {
-		logger.Debugf("connection close error: %v", err)
-	}
 }

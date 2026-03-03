@@ -11,11 +11,32 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
+// APIError represents an error response from the management API.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+// Error implements the error interface.
+func (e *APIError) Error() string {
+	return e.Message
+}
+
+// IsNotFound returns true if the error represents a 404 Not Found response.
+func IsNotFound(err error) bool {
+	var apiErr *APIError
+	if ok := errors.As(err, &apiErr); ok {
+		return apiErr.StatusCode == http.StatusNotFound
+	}
+	return false
+}
+
 // Client Management service HTTP REST API Client
 type Client struct {
 	managementURL string
 	authHeader    string
 	httpClient    HttpClient
+	userAgent     string
 
 	// Accounts NetBird account APIs
 	// see more: https://docs.netbird.io/api/resources/accounts
@@ -58,8 +79,12 @@ type Client struct {
 	Routes *RoutesAPI
 
 	// DNS NetBird DNS APIs
-	// see more: https://docs.netbird.io/api/resources/routes
+	// see more: https://docs.netbird.io/api/resources/dns
 	DNS *DNSAPI
+
+	// DNSZones NetBird DNS Zones APIs
+	// see more: https://docs.netbird.io/api/resources/dns-zones
+	DNSZones *DNSZonesAPI
 
 	// GeoLocation NetBird Geo Location APIs
 	// see more: https://docs.netbird.io/api/resources/geo-locations
@@ -68,6 +93,47 @@ type Client struct {
 	// Events NetBird Events APIs
 	// see more: https://docs.netbird.io/api/resources/events
 	Events *EventsAPI
+
+	// Billing NetBird Billing APIs for subscriptions, plans, and invoices
+	// see more: https://docs.netbird.io/api/resources/billing
+	Billing *BillingAPI
+
+	// MSP NetBird MSP tenant management APIs
+	// see more: https://docs.netbird.io/api/resources/msp
+	MSP *MSPAPI
+
+	// EDR NetBird EDR integration APIs (Intune, SentinelOne, Falcon, Huntress)
+	// see more: https://docs.netbird.io/api/resources/edr
+	EDR *EDRAPI
+
+	// SCIM NetBird SCIM IDP integration APIs
+	// see more: https://docs.netbird.io/api/resources/scim
+	SCIM *SCIMAPI
+
+	// EventStreaming NetBird Event Streaming integration APIs
+	// see more: https://docs.netbird.io/api/resources/event-streaming
+	EventStreaming *EventStreamingAPI
+
+	// IdentityProviders NetBird Identity Providers APIs
+	// see more: https://docs.netbird.io/api/resources/identity-providers
+	IdentityProviders *IdentityProvidersAPI
+
+	// Ingress NetBird Ingress Peers APIs
+	// see more: https://docs.netbird.io/api/resources/ingress-ports
+	Ingress *IngressAPI
+
+	// Instance NetBird Instance API
+	// see more: https://docs.netbird.io/api/resources/instance
+	Instance *InstanceAPI
+
+	// ReverseProxyServices NetBird reverse proxy services APIs
+	ReverseProxyServices *ReverseProxyServicesAPI
+
+	// ReverseProxyClusters NetBird reverse proxy clusters APIs
+	ReverseProxyClusters *ReverseProxyClustersAPI
+
+	// ReverseProxyDomains NetBird reverse proxy domains APIs
+	ReverseProxyDomains *ReverseProxyDomainsAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -112,8 +178,20 @@ func (c *Client) initialize() {
 	c.Networks = &NetworksAPI{c}
 	c.Routes = &RoutesAPI{c}
 	c.DNS = &DNSAPI{c}
+	c.DNSZones = &DNSZonesAPI{c}
 	c.GeoLocation = &GeoLocationAPI{c}
 	c.Events = &EventsAPI{c}
+	c.Billing = &BillingAPI{c}
+	c.MSP = &MSPAPI{c}
+	c.EDR = &EDRAPI{c}
+	c.SCIM = &SCIMAPI{c}
+	c.EventStreaming = &EventStreamingAPI{c}
+	c.IdentityProviders = &IdentityProvidersAPI{c}
+	c.Ingress = &IngressAPI{c}
+	c.Instance = &InstanceAPI{c}
+	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
+	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
+	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
 }
 
 // NewRequest creates and executes new management API request
@@ -127,6 +205,9 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	req.Header.Add("Accept", "application/json")
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
+	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
 	}
 
 	if len(query) != 0 {
@@ -145,10 +226,12 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	if resp.StatusCode > 299 {
 		parsedErr, pErr := parseResponse[util.ErrorResponse](resp)
 		if pErr != nil {
-
 			return nil, pErr
 		}
-		return nil, errors.New(parsedErr.Message)
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    parsedErr.Message,
+		}
 	}
 
 	return resp, nil
@@ -157,7 +240,7 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 func parseResponse[T any](resp *http.Response) (T, error) {
 	var ret T
 	if resp.Body == nil {
-		return ret, fmt.Errorf("Body missing, HTTP Error code %d", resp.StatusCode)
+		return ret, fmt.Errorf("body missing, HTTP Error code %d", resp.StatusCode)
 	}
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -165,7 +248,7 @@ func parseResponse[T any](resp *http.Response) (T, error) {
 	}
 	err = json.Unmarshal(bs, &ret)
 	if err != nil {
-		return ret, fmt.Errorf("Error code %d, error unmarshalling body: %w", resp.StatusCode, err)
+		return ret, fmt.Errorf("error code %d, error unmarshalling body: %w", resp.StatusCode, err)
 	}
 
 	return ret, nil

@@ -1,5 +1,7 @@
 package store
 
+//go:generate go run github.com/golang/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+
 import (
 	"context"
 	"errors"
@@ -23,10 +25,16 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -89,12 +97,25 @@ type Store interface {
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
 
+	SaveUserInvite(ctx context.Context, invite *types.UserInviteRecord) error
+	GetUserInviteByID(ctx context.Context, lockStrength LockingStrength, accountID, inviteID string) (*types.UserInviteRecord, error)
+	GetUserInviteByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.UserInviteRecord, error)
+	GetUserInviteByEmail(ctx context.Context, lockStrength LockingStrength, accountID, email string) (*types.UserInviteRecord, error)
+	GetAccountUserInvites(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.UserInviteRecord, error)
+	DeleteUserInvite(ctx context.Context, inviteID string) error
+
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
 	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
 	MarkPATUsed(ctx context.Context, patID string) error
 	SavePAT(ctx context.Context, pat *types.PersonalAccessToken) error
 	DeletePAT(ctx context.Context, userID, patID string) error
+
+	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
+	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
+	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
+	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
@@ -204,12 +225,75 @@ type Store interface {
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
+
+	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
+	SetFieldEncrypt(enc *crypt.FieldEncrypt)
+	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
+
+	CreateZone(ctx context.Context, zone *zones.Zone) error
+	UpdateZone(ctx context.Context, zone *zones.Zone) error
+	DeleteZone(ctx context.Context, accountID, zoneID string) error
+	GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error)
+	GetZoneByDomain(ctx context.Context, accountID, domain string) (*zones.Zone, error)
+	GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error)
+
+	CreateDNSRecord(ctx context.Context, record *records.Record) error
+	UpdateDNSRecord(ctx context.Context, record *records.Record) error
+	DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error
+	GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error)
+	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
+	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
+	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
+	CreatePeerJob(ctx context.Context, job *types.Job) error
+	CompletePeerJob(ctx context.Context, job *types.Job) error
+	GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, jobID, reason string) error
+	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
+	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
+
+	CreateService(ctx context.Context, service *reverseproxy.Service) error
+	UpdateService(ctx context.Context, service *reverseproxy.Service) error
+	DeleteService(ctx context.Context, accountID, serviceID string) error
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
+	GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
+	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
+
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+
+	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
+	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
+	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*reverseproxy.Target, error)
+	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
+	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
+
+	// GetCustomDomainsCounts returns the total and validated custom domain counts.
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 }
 
 const (
-	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
-	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
+	postgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
+	postgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	mysqlDsnEnv          = "NB_STORE_ENGINE_MYSQL_DSN"
+	mysqlDsnEnvLegacy    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
+
+// lookupDSNEnv checks the NB_ env var first, then falls back to the legacy NETBIRD_ env var.
+func lookupDSNEnv(nbKey, legacyKey string) (string, bool) {
+	if v, ok := os.LookupEnv(nbKey); ok {
+		return v, true
+	}
+	return os.LookupEnv(legacyKey)
+}
 
 var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
 
@@ -339,8 +423,19 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "name", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[types.User](ctx, db, "email", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
 	}
-} // migratePostAuto migrates the SQLite database to the latest schema
+}
+
+// migratePostAuto migrates the SQLite database to the latest schema
 func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 	migrations := getMigrationsPostAuto(ctx)
 
@@ -369,6 +464,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 					PeerID:    value,
 				}
 			})
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[nbpeer.Peer](ctx, db, "idx_peers_key")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
 	}
 }
@@ -478,7 +579,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreatePostgresTestContainer()
@@ -516,7 +617,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 }
 
 func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreateMysqlTestContainer()

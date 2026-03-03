@@ -358,9 +358,9 @@ func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	// Fast path for IPv4 addresses (4 bytes) - most common case
 	if len(oldBytes) == 4 && len(newBytes) == 4 {
 		sum += uint32(^binary.BigEndian.Uint16(oldBytes[0:2]))
-		sum += uint32(^binary.BigEndian.Uint16(oldBytes[2:4]))
+		sum += uint32(^binary.BigEndian.Uint16(oldBytes[2:4])) //nolint:gosec // length checked above
 		sum += uint32(binary.BigEndian.Uint16(newBytes[0:2]))
-		sum += uint32(binary.BigEndian.Uint16(newBytes[2:4]))
+		sum += uint32(binary.BigEndian.Uint16(newBytes[2:4])) //nolint:gosec // length checked above
 	} else {
 		// Fallback for other lengths
 		for i := 0; i < len(oldBytes)-1; i += 2 {

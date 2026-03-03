@@ -634,7 +634,11 @@ func parseAndStartLocalForward(ctx context.Context, c *sshclient.Client, forward
 		return err
 	}
 
-	cmd.Printf("Local port forwarding: %s -> %s\n", localAddr, remoteAddr)
+	if err := validateDestinationPort(remoteAddr); err != nil {
+		return fmt.Errorf("invalid remote address: %w", err)
+	}
+
+	log.Debugf("Local port forwarding: %s -> %s", localAddr, remoteAddr)
 
 	go func() {
 		if err := c.LocalPortForward(ctx, localAddr, remoteAddr); err != nil && !errors.Is(err, context.Canceled) {
@@ -652,13 +656,46 @@ func parseAndStartRemoteForward(ctx context.Context, c *sshclient.Client, forwar
 		return err
 	}
 
-	cmd.Printf("Remote port forwarding: %s -> %s\n", remoteAddr, localAddr)
+	if err := validateDestinationPort(localAddr); err != nil {
+		return fmt.Errorf("invalid local address: %w", err)
+	}
+
+	log.Debugf("Remote port forwarding: %s -> %s", remoteAddr, localAddr)
 
 	go func() {
 		if err := c.RemotePortForward(ctx, remoteAddr, localAddr); err != nil && !errors.Is(err, context.Canceled) {
 			cmd.Printf("Remote port forward error: %v\n", err)
 		}
 	}()
+
+	return nil
+}
+
+// validateDestinationPort checks that the destination address has a valid port.
+// Port 0 is only valid for bind addresses (where the OS picks an available port),
+// not for destination addresses where we need to connect.
+func validateDestinationPort(addr string) error {
+	if strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, "./") {
+		return nil
+	}
+
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("parse address %s: %w", addr, err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("invalid port %s: %w", portStr, err)
+	}
+
+	if port == 0 {
+		return fmt.Errorf("port 0 is not valid for destination address")
+	}
+
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("port %d out of range (1-65535)", port)
+	}
 
 	return nil
 }

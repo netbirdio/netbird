@@ -17,6 +17,11 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+const (
+	defaultLog         = slog.LevelInfo
+	defaultLogLevelVar = "NB_ROSENPASS_LOG_LEVEL"
+)
+
 func hashRosenpassKey(key []byte) string {
 	hasher := sha256.New()
 	hasher.Write(key)
@@ -34,6 +39,7 @@ type Manager struct {
 	server       *rp.Server
 	lock         sync.Mutex
 	port         int
+	wgIface      PresharedKeySetter
 }
 
 // NewManager creates a new Rosenpass manager
@@ -44,7 +50,7 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 	}
 
 	rpKeyHash := hashRosenpassKey(public)
-	log.Debugf("generated new rosenpass key pair with public key %s", rpKeyHash)
+	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
 	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
 }
 
@@ -100,7 +106,7 @@ func (m *Manager) removePeer(wireGuardPubKey string) error {
 
 func (m *Manager) generateConfig() (rp.Config, error) {
 	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: getLogLevel(),
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
 	cfg := rp.Config{Logger: logger}
@@ -109,7 +115,13 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	m.rpWgHandler, _ = NewNetbirdHandler(m.preSharedKey, m.ifaceName)
+
+	m.lock.Lock()
+	m.rpWgHandler = NewNetbirdHandler()
+	if m.wgIface != nil {
+		m.rpWgHandler.SetInterface(m.wgIface)
+	}
+	m.lock.Unlock()
 
 	cfg.Handlers = []rp.Handler{m.rpWgHandler}
 
@@ -124,6 +136,26 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
 
 	return cfg, nil
+}
+
+func getLogLevel() slog.Level {
+	level, ok := os.LookupEnv(defaultLogLevelVar)
+	if !ok {
+		return defaultLog
+	}
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		log.Warnf("unknown log level: %s. Using default %s", level, defaultLog.String())
+		return defaultLog
+	}
 }
 
 func (m *Manager) OnDisconnected(peerKey string) {
@@ -172,6 +204,20 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// SetInterface sets the WireGuard interface for the rosenpass handler.
+// This can be called before or after Run() - the interface will be stored
+// and passed to the handler when it's created or updated immediately if
+// already running.
+func (m *Manager) SetInterface(iface PresharedKeySetter) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.wgIface = iface
+	if m.rpWgHandler != nil {
+		m.rpWgHandler.SetInterface(iface)
+	}
+}
+
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
 func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
 	m.lock.Lock()
@@ -190,6 +236,20 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
+}
+
+// IsPresharedKeyInitialized returns true if Rosenpass has completed a handshake
+// and set a PSK for the given WireGuard peer.
+func (m *Manager) IsPresharedKeyInitialized(wireGuardPubKey string) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	peerID, ok := m.rpPeerIDs[wireGuardPubKey]
+	if !ok || peerID == nil {
+		return false
+	}
+
+	return m.rpWgHandler.IsPeerInitialized(*peerID)
 }
 
 func findRandomAvailableUDPPort() (int, error) {

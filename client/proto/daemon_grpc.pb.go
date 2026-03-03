@@ -70,8 +70,14 @@ type DaemonServiceClient interface {
 	RequestJWTAuth(ctx context.Context, in *RequestJWTAuthRequest, opts ...grpc.CallOption) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(ctx context.Context, in *WaitJWTTokenRequest, opts ...grpc.CallOption) (*WaitJWTTokenResponse, error)
+	// StartCPUProfile starts CPU profiling in the daemon
+	StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error)
+	// StopCPUProfile stops CPU profiling in the daemon
+	StopCPUProfile(ctx context.Context, in *StopCPUProfileRequest, opts ...grpc.CallOption) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error)
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error)
 }
 
 type daemonServiceClient struct {
@@ -384,6 +390,24 @@ func (c *daemonServiceClient) WaitJWTToken(ctx context.Context, in *WaitJWTToken
 	return out, nil
 }
 
+func (c *daemonServiceClient) StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error) {
+	out := new(StartCPUProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/StartCPUProfile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) StopCPUProfile(ctx context.Context, in *StopCPUProfileRequest, opts ...grpc.CallOption) (*StopCPUProfileResponse, error) {
+	out := new(StopCPUProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/StopCPUProfile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error) {
 	out := new(OSLifecycleResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/NotifyOSLifecycle", in, out, opts...)
@@ -400,6 +424,38 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/ExposeService", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceExposeServiceClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_ExposeServiceClient interface {
+	Recv() (*ExposeServiceEvent, error)
+	grpc.ClientStream
+}
+
+type daemonServiceExposeServiceClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceExposeServiceClient) Recv() (*ExposeServiceEvent, error) {
+	m := new(ExposeServiceEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // DaemonServiceServer is the server API for DaemonService service.
@@ -458,8 +514,14 @@ type DaemonServiceServer interface {
 	RequestJWTAuth(context.Context, *RequestJWTAuthRequest) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error)
+	// StartCPUProfile starts CPU profiling in the daemon
+	StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error)
+	// StopCPUProfile stops CPU profiling in the daemon
+	StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error)
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -560,11 +622,20 @@ func (UnimplementedDaemonServiceServer) RequestJWTAuth(context.Context, *Request
 func (UnimplementedDaemonServiceServer) WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitJWTToken not implemented")
 }
+func (UnimplementedDaemonServiceServer) StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartCPUProfile not implemented")
+}
+func (UnimplementedDaemonServiceServer) StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopCPUProfile not implemented")
+}
 func (UnimplementedDaemonServiceServer) NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyOSLifecycle not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstallerResult not implemented")
+}
+func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error {
+	return status.Errorf(codes.Unimplemented, "method ExposeService not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1140,6 +1211,42 @@ func _DaemonService_WaitJWTToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_StartCPUProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartCPUProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StartCPUProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/StartCPUProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StartCPUProfile(ctx, req.(*StartCPUProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_StopCPUProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopCPUProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StopCPUProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/StopCPUProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StopCPUProfile(ctx, req.(*StopCPUProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_NotifyOSLifecycle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OSLifecycleRequest)
 	if err := dec(in); err != nil {
@@ -1174,6 +1281,27 @@ func _DaemonService_GetInstallerResult_Handler(srv interface{}, ctx context.Cont
 		return srv.(DaemonServiceServer).GetInstallerResult(ctx, req.(*InstallerResultRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ExposeService_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ExposeServiceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).ExposeService(m, &daemonServiceExposeServiceServer{stream})
+}
+
+type DaemonService_ExposeServiceServer interface {
+	Send(*ExposeServiceEvent) error
+	grpc.ServerStream
+}
+
+type daemonServiceExposeServiceServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceExposeServiceServer) Send(m *ExposeServiceEvent) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
@@ -1304,6 +1432,14 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_WaitJWTToken_Handler,
 		},
 		{
+			MethodName: "StartCPUProfile",
+			Handler:    _DaemonService_StartCPUProfile_Handler,
+		},
+		{
+			MethodName: "StopCPUProfile",
+			Handler:    _DaemonService_StopCPUProfile_Handler,
+		},
+		{
 			MethodName: "NotifyOSLifecycle",
 			Handler:    _DaemonService_NotifyOSLifecycle_Handler,
 		},
@@ -1316,6 +1452,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _DaemonService_SubscribeEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExposeService",
+			Handler:       _DaemonService_ExposeService_Handler,
 			ServerStreams: true,
 		},
 	},

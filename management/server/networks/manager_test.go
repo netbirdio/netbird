@@ -29,7 +29,7 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
@@ -52,7 +52,7 @@ func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
@@ -75,7 +75,7 @@ func Test_GetNetworkReturnsNetwork(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	networks, err := manager.GetNetwork(ctx, accountID, userID, networkID)
@@ -98,7 +98,7 @@ func Test_GetNetworkReturnsPermissionDenied(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	network, err := manager.GetNetwork(ctx, accountID, userID, networkID)
@@ -123,7 +123,7 @@ func Test_CreateNetworkSuccessfully(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	createdNetwork, err := manager.CreateNetwork(ctx, userID, network)
@@ -148,7 +148,7 @@ func Test_CreateNetworkFailsWithPermissionDenied(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	createdNetwork, err := manager.CreateNetwork(ctx, userID, network)
@@ -171,7 +171,7 @@ func Test_DeleteNetworkSuccessfully(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	err = manager.DeleteNetwork(ctx, accountID, userID, networkID)
@@ -193,7 +193,7 @@ func Test_DeleteNetworkFailsWithPermissionDenied(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	err = manager.DeleteNetwork(ctx, accountID, userID, networkID)
@@ -218,7 +218,7 @@ func Test_UpdateNetworkSuccessfully(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	updatedNetwork, err := manager.UpdateNetwork(ctx, userID, network)
@@ -245,7 +245,7 @@ func Test_UpdateNetworkFailsWithPermissionDenied(t *testing.T) {
 	permissionsManager := permissions.NewManager(s)
 	groupsManager := groups.NewManagerMock()
 	routerManager := routers.NewManagerMock()
-	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am)
+	resourcesManager := resources.NewManager(s, permissionsManager, groupsManager, &am, nil)
 	manager := NewManager(s, permissionsManager, resourcesManager, routerManager, &am)
 
 	updatedNetwork, err := manager.UpdateNetwork(ctx, userID, network)
