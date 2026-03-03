@@ -84,6 +84,10 @@ type Server struct {
 	GenerateACMECertificates bool
 	ACMEChallengeAddress     string
 	ACMEDirectory            string
+	// ACMEEABKID is the External Account Binding Key ID for CAs that require EAB (e.g., ZeroSSL).
+	ACMEEABKID string
+	// ACMEEABHMACKey is the External Account Binding HMAC key (base64 URL-encoded) for CAs that require EAB.
+	ACMEEABHMACKey string
 	// ACMEChallengeType specifies the ACME challenge type: "http-01" or "tls-alpn-01".
 	// Defaults to "tls-alpn-01" if not specified.
 	ACMEChallengeType string
@@ -419,7 +423,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s, s.Logger, s.CertLockMethod)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{

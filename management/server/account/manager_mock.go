@@ -13,7 +13,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	dns "github.com/netbirdio/netbird/dns"
-	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	activity "github.com/netbirdio/netbird/management/server/activity"
 	idp "github.com/netbirdio/netbird/management/server/idp"
 	peer "github.com/netbirdio/netbird/management/server/peer"
@@ -1494,7 +1494,7 @@ func (mr *MockManagerMockRecorder) SaveUser(ctx, accountID, initiatorUserID, upd
 }
 
 // SetServiceManager mocks base method.
-func (m *MockManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+func (m *MockManager) SetServiceManager(serviceManager service.Manager) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetServiceManager", serviceManager)
 }

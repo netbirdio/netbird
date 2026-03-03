@@ -42,6 +42,8 @@ var (
 	acmeCerts         bool
 	acmeAddr          string
 	acmeDir           string
+	acmeEABKID        string
+	acmeEABHMACKey    string
 	acmeChallengeType string
 	debugEndpoint     bool
 	debugEndpointAddr string
@@ -74,6 +76,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&acmeCerts, "acme-certs", envBoolOrDefault("NB_PROXY_ACME_CERTIFICATES", false), "Generate ACME certificates automatically")
 	rootCmd.Flags().StringVar(&acmeAddr, "acme-addr", envStringOrDefault("NB_PROXY_ACME_ADDRESS", ":80"), "HTTP address for ACME HTTP-01 challenges (only used when acme-challenge-type is http-01)")
 	rootCmd.Flags().StringVar(&acmeDir, "acme-dir", envStringOrDefault("NB_PROXY_ACME_DIRECTORY", acme.LetsEncryptURL), "URL of ACME challenge directory")
+	rootCmd.Flags().StringVar(&acmeEABKID, "acme-eab-kid", envStringOrDefault("NB_PROXY_ACME_EAB_KID", ""), "ACME EAB KID for account registration")
+	rootCmd.Flags().StringVar(&acmeEABHMACKey, "acme-eab-hmac-key", envStringOrDefault("NB_PROXY_ACME_EAB_HMAC_KEY", ""), "ACME EAB HMAC key for account registration")
 	rootCmd.Flags().StringVar(&acmeChallengeType, "acme-challenge-type", envStringOrDefault("NB_PROXY_ACME_CHALLENGE_TYPE", "tls-alpn-01"), "ACME challenge type: tls-alpn-01 (default, port 443 only) or http-01 (requires port 80)")
 	rootCmd.Flags().BoolVar(&debugEndpoint, "debug-endpoint", envBoolOrDefault("NB_PROXY_DEBUG_ENDPOINT", false), "Enable debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&debugEndpointAddr, "debug-endpoint-addr", envStringOrDefault("NB_PROXY_DEBUG_ENDPOINT_ADDRESS", "localhost:8444"), "Address for the debug HTTP endpoint")
@@ -149,6 +153,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 		GenerateACMECertificates: acmeCerts,
 		ACMEChallengeAddress:     acmeAddr,
 		ACMEDirectory:            acmeDir,
+		ACMEEABKID:               acmeEABKID,
+		ACMEEABHMACKey:           acmeEABHMACKey,
 		ACMEChallengeType:        acmeChallengeType,
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,

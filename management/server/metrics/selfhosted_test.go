@@ -6,7 +6,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -116,29 +116,29 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					},
 				},
 			},
-			Services: []*reverseproxy.Service{
+			Services: []*rpservice.Service{
 				{
 					ID:      "svc1",
 					Enabled: true,
-					Targets: []*reverseproxy.Target{
+					Targets: []*rpservice.Target{
 						{TargetType: "peer"},
 						{TargetType: "host"},
 					},
-					Auth: reverseproxy.AuthConfig{
-						PasswordAuth: &reverseproxy.PasswordAuthConfig{Enabled: true},
+					Auth: rpservice.AuthConfig{
+						PasswordAuth: &rpservice.PasswordAuthConfig{Enabled: true},
 					},
-					Meta: reverseproxy.ServiceMeta{Status: string(reverseproxy.StatusActive)},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusActive)},
 				},
 				{
 					ID:      "svc2",
 					Enabled: false,
-					Targets: []*reverseproxy.Target{
+					Targets: []*rpservice.Target{
 						{TargetType: "domain"},
 					},
-					Auth: reverseproxy.AuthConfig{
-						BearerAuth: &reverseproxy.BearerAuthConfig{Enabled: true},
+					Auth: rpservice.AuthConfig{
+						BearerAuth: &rpservice.BearerAuthConfig{Enabled: true},
 					},
-					Meta: reverseproxy.ServiceMeta{Status: string(reverseproxy.StatusPending)},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusPending)},
 				},
 			},
 		},

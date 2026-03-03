@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -34,11 +34,15 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	testStore, storeCleanup, err := store.NewTestStoreFromSQL(ctx, "../../../server/testdata/auth_callback.sql", t.TempDir())
 	require.NoError(t, err)
 
-	proxyManager := &testValidateSessionProxyManager{store: testStore}
+	serviceManager := &testValidateSessionServiceManager{store: testStore}
 	usersManager := &testValidateSessionUsersManager{store: testStore}
+	proxyManager := &testValidateSessionProxyManager{}
 
-	proxyService := NewProxyServiceServer(nil, NewOneTimeTokenStore(time.Minute), ProxyOIDCConfig{}, nil, usersManager)
-	proxyService.SetProxyManager(proxyManager)
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	proxyService := NewProxyServiceServer(nil, tokenStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
+	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
 
@@ -54,7 +58,7 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 
 	pubKey, privKey := generateSessionKeyPair(t)
 
-	testProxy := &reverseproxy.Service{
+	testProxy := &service.Service{
 		ID:                "testProxyId",
 		AccountID:         "testAccountId",
 		Name:              "Test Proxy",
@@ -62,15 +66,15 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 		Enabled:           true,
 		SessionPrivateKey: privKey,
 		SessionPublicKey:  pubKey,
-		Auth: reverseproxy.AuthConfig{
-			BearerAuth: &reverseproxy.BearerAuthConfig{
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
 				Enabled: true,
 			},
 		},
 	}
 	require.NoError(t, testStore.CreateService(ctx, testProxy))
 
-	restrictedProxy := &reverseproxy.Service{
+	restrictedProxy := &service.Service{
 		ID:                "restrictedProxyId",
 		AccountID:         "testAccountId",
 		Name:              "Restricted Proxy",
@@ -78,8 +82,8 @@ func createTestProxies(t *testing.T, ctx context.Context, testStore store.Store)
 		Enabled:           true,
 		SessionPrivateKey: privKey,
 		SessionPublicKey:  pubKey,
-		Auth: reverseproxy.AuthConfig{
-			BearerAuth: &reverseproxy.BearerAuthConfig{
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
 				Enabled:            true,
 				DistributionGroups: []string{"allowedGroupId"},
 			},
@@ -239,79 +243,101 @@ func TestValidateSession_MissingToken(t *testing.T) {
 	assert.Contains(t, resp.DeniedReason, "missing")
 }
 
-type testValidateSessionProxyManager struct {
+type testValidateSessionServiceManager struct {
 	store store.Store
 }
 
-func (m *testValidateSessionProxyManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) GetService(_ context.Context, _, _, _ string) (*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) DeleteService(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) DeleteAllServices(_ context.Context, _, _ string) error {
+func (m *testValidateSessionServiceManager) DeleteAllServices(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
+func (m *testValidateSessionServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) SetStatus(_ context.Context, _, _ string, _ reverseproxy.ProxyStatus) error {
+func (m *testValidateSessionServiceManager) SetStatus(_ context.Context, _, _ string, _ service.Status) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) ReloadAllServicesForAccount(_ context.Context, _ string) error {
+func (m *testValidateSessionServiceManager) ReloadAllServicesForAccount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) ReloadService(_ context.Context, _, _ string) error {
+func (m *testValidateSessionServiceManager) ReloadService(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
 	return m.store.GetServices(ctx, store.LockingStrengthNone)
 }
 
-func (m *testValidateSessionProxyManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, proxyID)
 }
 
-func (m *testValidateSessionProxyManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+func (m *testValidateSessionServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
-func (m *testValidateSessionProxyManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
+func (m *testValidateSessionServiceManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
 
-func (m *testValidateSessionProxyManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.ExposeServiceRequest) (*reverseproxy.ExposeServiceResponse, error) {
+func (m *testValidateSessionServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
 	return nil, nil
 }
 
-func (m *testValidateSessionProxyManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) StartExposeReaper(_ context.Context) {}
+func (m *testValidateSessionServiceManager) StartExposeReaper(_ context.Context) {}
+
+type testValidateSessionProxyManager struct{}
+
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
 
 type testValidateSessionUsersManager struct {
 	store store.Store
