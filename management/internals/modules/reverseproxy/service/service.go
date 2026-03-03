@@ -133,8 +133,8 @@ type Service struct {
 	Meta              Meta       `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string     `gorm:"column:session_private_key"`
 	SessionPublicKey  string     `gorm:"column:session_public_key"`
-	Source            string     `gorm:"default:'permanent'"`
-	SourcePeer        string
+	Source            string     `gorm:"default:'permanent';index:idx_service_source_peer"`
+	SourcePeer        string     `gorm:"index:idx_service_source_peer"`
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {

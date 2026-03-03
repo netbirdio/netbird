@@ -37,7 +37,7 @@ type Manager struct {
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
 	clusterDeriver     ClusterDeriver
-	exposeTracker      *exposeTracker
+	exposeReaper       *exposeReaper
 }
 
 // NewManager creates a new service manager.
@@ -49,13 +49,13 @@ func NewManager(store store.Store, accountManager account.Manager, permissionsMa
 		proxyController:    proxyController,
 		clusterDeriver:     clusterDeriver,
 	}
-	mgr.exposeTracker = &exposeTracker{manager: mgr}
+	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
 }
 
-// StartExposeReaper delegates to the expose tracker.
+// StartExposeReaper starts the background goroutine that reaps expired ephemeral services.
 func (m *Manager) StartExposeReaper(ctx context.Context) {
-	m.exposeTracker.StartExposeReaper(ctx)
+	m.exposeReaper.StartExposeReaper(ctx)
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
@@ -209,6 +209,44 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, servi
 
 		if err := transaction.CreateService(ctx, service); err != nil {
 			return fmt.Errorf("failed to create service: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// persistNewEphemeralService creates an ephemeral service inside a single transaction
+// that also enforces the duplicate and per-peer limit checks atomically.
+// The count and exists queries use FOR UPDATE locking to serialize concurrent creates
+// for the same peer, preventing the per-peer limit from being bypassed.
+func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
+	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
+		if err != nil {
+			return fmt.Errorf("check existing expose: %w", err)
+		}
+		if exists {
+			return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
+		}
+
+		count, err := transaction.CountEphemeralServicesByPeer(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return fmt.Errorf("count peer exposes: %w", err)
+		}
+		if count >= int64(maxExposesPerPeer) {
+			return status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
+		}
+
+		if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
+			return err
+		}
+
+		if err := validateTargetReferences(ctx, transaction, accountID, svc.Targets); err != nil {
+			return err
+		}
+
+		if err := transaction.CreateService(ctx, svc); err != nil {
+			return fmt.Errorf("create service: %w", err)
 		}
 
 		return nil
@@ -412,10 +450,6 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 		return err
 	}
 
-	if s.Source == service.SourceEphemeral {
-		m.exposeTracker.UntrackExpose(s.SourcePeer, s.Domain)
-	}
-
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, s.EventMeta())
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
@@ -457,9 +491,6 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 	oidcCfg := m.proxyController.GetOIDCValidationConfig()
 
 	for _, svc := range services {
-		if svc.Source == service.SourceEphemeral {
-			m.exposeTracker.UntrackExpose(svc.SourcePeer, svc.Domain)
-		}
 		m.accountManager.StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, svc.EventMeta())
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
 	}
@@ -681,26 +712,13 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 		return nil, err
 	}
 
-	now := time.Now()
-	svc.Meta.LastRenewedAt = &now
 	svc.SourcePeer = peerID
 
-	if err := m.persistNewService(ctx, accountID, svc); err != nil {
-		return nil, err
-	}
+	now := time.Now()
+	svc.Meta.LastRenewedAt = &now
 
-	alreadyTracked, allowed := m.exposeTracker.TrackExposeIfAllowed(peerID, svc.Domain, accountID)
-	if alreadyTracked {
-		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, svc.Domain, false); err != nil {
-			log.WithContext(ctx).Debugf("failed to delete duplicate expose service for domain %s: %v", svc.Domain, err)
-		}
-		return nil, status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
-	}
-	if !allowed {
-		if err := m.deleteServiceFromPeer(ctx, accountID, peerID, svc.Domain, false); err != nil {
-			log.WithContext(ctx).Debugf("failed to delete service after limit exceeded for domain %s: %v", svc.Domain, err)
-		}
-		return nil, status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
+	if err := m.persistNewEphemeralService(ctx, accountID, peerID, svc); err != nil {
+		return nil, err
 	}
 
 	meta := addPeerInfoToEventMeta(svc.EventMeta(), peer)
@@ -748,26 +766,17 @@ func (m *Manager) buildRandomDomain(name string) (string, error) {
 	return domain, nil
 }
 
-// RenewServiceFromPeer renews the in-memory TTL tracker for the peer's expose session.
-// Returns an error if the expose is not actively tracked.
-func (m *Manager) RenewServiceFromPeer(_ context.Context, _, peerID, domain string) error {
-	if !m.exposeTracker.RenewTrackedExpose(peerID, domain) {
-		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
-	}
-	return nil
+// RenewServiceFromPeer updates the DB timestamp for the peer's ephemeral service.
+func (m *Manager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+	return m.store.RenewEphemeralService(ctx, accountID, peerID, domain)
 }
 
-// StopServiceFromPeer stops a peer's active expose session by untracking and deleting the service.
+// StopServiceFromPeer stops a peer's active expose session by deleting the service from the DB.
 func (m *Manager) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
 	if err := m.deleteServiceFromPeer(ctx, accountID, peerID, domain, false); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer-exposed service for domain %s: %v", domain, err)
 		return err
 	}
-
-	if !m.exposeTracker.StopTrackedExpose(peerID, domain) {
-		log.WithContext(ctx).Warnf("expose tracker entry for domain %s already removed; service was deleted", domain)
-	}
-
 	return nil
 }
 
@@ -843,6 +852,55 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 
+	m.accountManager.UpdateAccountPeers(ctx, accountID)
+
+	return nil
+}
+
+// deleteExpiredPeerService deletes an ephemeral service by ID after re-checking
+// that it is still expired under a row lock. This prevents deleting a service
+// that was renewed between the batch query and this delete, and ensures only one
+// management instance processes the deletion in HA deployments.
+func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerID, serviceID string) error {
+	var svc *service.Service
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		svc, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
+		if err != nil {
+			return err
+		}
+
+		if svc.Source != service.SourceEphemeral || svc.SourcePeer != peerID {
+			return status.Errorf(status.PermissionDenied, "service does not match expected ephemeral owner")
+		}
+
+		if svc.Meta.LastRenewedAt != nil && time.Since(*svc.Meta.LastRenewedAt) <= exposeTTL {
+			return nil
+		}
+
+		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
+			return fmt.Errorf("delete service: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if svc.Meta.LastRenewedAt != nil && time.Since(*svc.Meta.LastRenewedAt) <= exposeTTL {
+		return nil
+	}
+
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get peer %s for event metadata: %v", peerID, err)
+		peer = nil
+	}
+
+	meta := addPeerInfoToEventMeta(svc.EventMeta(), peer)
+	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activity.PeerServiceExposeExpired, meta)
+	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 	m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil
