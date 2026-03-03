@@ -392,13 +392,6 @@ func parseRelayInfo(loginResp *mgmProto.LoginResponse) ([]string, *hmac.Token) {
 	return relayCfg.GetUrls(), token
 }
 
-func (c *ConnectClient) UpdateManager() *updatemanager.Manager {
-	if c == nil {
-		return nil
-	}
-	return c.updateManager
-}
-
 func (c *ConnectClient) Engine() *Engine {
 	if c == nil {
 		return nil
