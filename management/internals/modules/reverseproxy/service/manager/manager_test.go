@@ -23,7 +23,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -1128,25 +1127,32 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	mockPerms := permissions.NewMockManager(ctrl)
 	mockAcct := account.NewMockManager(ctrl)
-	mockGRPC := &nbgrpc.ProxyServiceServer{}
 
-	mgr := &managerImpl{
+	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
+	t.Cleanup(proxySrv.Close)
+
+	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
+
+	mgr := &Manager{
 		store:              sqlStore,
 		permissionsManager: mockPerms,
 		accountManager:     mockAcct,
-		proxyGRPCServer:    mockGRPC,
+		proxyController:    proxyController,
 	}
 
-	service := &reverseproxy.Service{
+	service := &rpservice.Service{
 		ID:           "service-1",
 		AccountID:    accountID,
 		Domain:       "test.example.com",
 		ProxyCluster: "cluster1",
 		Enabled:      true,
-		Targets: []*reverseproxy.Target{
-			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-1"},
-			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-2"},
-			{AccountID: accountID, ServiceID: "service-1", TargetType: reverseproxy.TargetTypePeer, TargetId: "peer-3"},
+		Targets: []*rpservice.Target{
+			{AccountID: accountID, ServiceID: "service-1", TargetType: rpservice.TargetTypePeer, TargetId: "peer-1"},
+			{AccountID: accountID, ServiceID: "service-1", TargetType: rpservice.TargetTypePeer, TargetId: "peer-2"},
+			{AccountID: accountID, ServiceID: "service-1", TargetType: rpservice.TargetTypePeer, TargetId: "peer-3"},
 		},
 	}
 
