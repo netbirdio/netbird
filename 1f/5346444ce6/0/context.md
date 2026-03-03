@@ -1,0 +1,47 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+how datadir is used in the combined/
+
+### Prompt 2
+
+add support of providing a file of the sqlite storage if sqlite engine is specified in combined/ for store, authStore and activityStore
+
+### Prompt 3
+
+[Request interrupted by user for tool use]
+
+### Prompt 4
+
+we need to chevck if teh user provided query params to the file after ?
+
+### Prompt 5
+
+[Request interrupted by user for tool use]
+
+### Prompt 6
+
+question, do we need to do the query separation for activity store?
+
+### Prompt 7
+
+summarize the changes in a short pr description
+
+### Prompt 8
+
+Verify each finding against the current code and only fix it if needed.
+
+In `@combined/cmd/config.go` around lines 572 - 574, The assignment of
+c.Server.AuthStore.File to authStorageFile should resolve relative paths against
+mgmt.DataDir so the auth DB lives under the management data directory like the
+other sqlite stores; update the logic where authStorageFile is set (referencing
+c.Server.AuthStore.File and authStorageFile) to check if the value is non-empty
+and not an absolute path (use filepa...
+
+### Prompt 9
+
+Relative paths like "custom_idp.db" are now resolved against mgmt.DataDir
+
