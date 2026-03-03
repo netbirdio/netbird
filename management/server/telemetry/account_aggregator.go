@@ -32,8 +32,11 @@ type accountHistogram struct {
 
 // NewAccountDurationAggregator creates aggregator using OTel histograms
 func NewAccountDurationAggregator(ctx context.Context, flushInterval, maxAge time.Duration) *AccountDurationAggregator {
-	// Manual reader allows us to read metrics without exporting
-	manualReader := sdkmetric.NewManualReader()
+	manualReader := sdkmetric.NewManualReader(
+		sdkmetric.WithTemporalitySelector(func(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+			return metricdata.DeltaTemporality
+		}),
+	)
 
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(manualReader),
