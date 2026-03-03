@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
@@ -3115,6 +3116,12 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
 
+	proxyManager := proxy.NewMockManager(ctrl)
+	proxyManager.EXPECT().
+		CleanupStale(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	ctx := context.Background()
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
@@ -3125,7 +3132,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		return nil, nil, err
 	}
 
-	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, nil)
+	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager)
 	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
 	if err != nil {
 		return nil, nil, err
