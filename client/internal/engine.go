@@ -792,15 +792,6 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
-// TriggerUpdate initiates installation of the pending enforced version via the update manager.
-// Called from the server when the user clicks the install button in the UI.
-func (e *Engine) TriggerUpdate(ctx context.Context) error {
-	if e.updateManager == nil {
-		return fmt.Errorf("update manager not available")
-	}
-	return e.updateManager.Install(ctx)
-}
-
 func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
 	if e.updateManager == nil {
 		return
