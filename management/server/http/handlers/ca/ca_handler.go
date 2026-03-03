@@ -1,9 +1,12 @@
 package ca
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -78,7 +81,9 @@ func (h *handler) initCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caCert, err := h.caManager.InitForAccount(r.Context(), accountID, dnsDomain, nbca.CAOptions{})
+	opts := parseCAOptions(r)
+
+	caCert, err := h.caManager.InitForAccount(r.Context(), accountID, dnsDomain, opts)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -86,9 +91,13 @@ func (h *handler) initCA(w http.ResponseWriter, r *http.Request) {
 
 	// Enable certificate authority in account settings
 	settings, err := h.accountManager.GetStore().GetAccountSettings(r.Context(), store.LockingStrengthNone, accountID)
-	if err == nil && !settings.CertificateAuthorityEnabled {
+	if err != nil {
+		log.WithContext(r.Context()).Errorf("failed to get account settings for CA enable: %v", err)
+	} else if !settings.CertificateAuthorityEnabled {
 		settings.CertificateAuthorityEnabled = true
-		_ = h.accountManager.GetStore().SaveAccountSettings(r.Context(), accountID, settings)
+		if saveErr := h.accountManager.GetStore().SaveAccountSettings(r.Context(), accountID, settings); saveErr != nil {
+			log.WithContext(r.Context()).Errorf("failed to enable certificate authority in account settings: %v", saveErr)
+		}
 	}
 
 	h.accountManager.StoreEvent(r.Context(), userID, caCert.ID, accountID, activity.CertificateAuthorityCreated, nil)
@@ -156,7 +165,9 @@ func (h *handler) rotateCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caCert, err := h.caManager.RotateCA(r.Context(), accountID, dnsDomain, nbca.CAOptions{})
+	opts := parseCAOptions(r)
+
+	caCert, err := h.caManager.RotateCA(r.Context(), accountID, dnsDomain, opts)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -255,14 +266,35 @@ func (h *handler) getAccountDNSDomain(r *http.Request, accountID string) (string
 	return settings.DNSDomain, nil
 }
 
+// parseCAOptions extracts optional CA configuration from the request body.
+// An empty or missing body is valid — all fields fall back to defaults.
+func parseCAOptions(r *http.Request) nbca.CAOptions {
+	var req api.CAInitRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	opts := nbca.CAOptions{}
+	if req.DisplayName != nil {
+		opts.DisplayName = *req.DisplayName
+	}
+	if req.Organization != nil {
+		opts.Organization = *req.Organization
+	}
+	if req.ValidityDays != nil {
+		opts.Validity = time.Duration(*req.ValidityDays) * 24 * time.Hour
+	}
+	return opts
+}
+
 func toCACertificateResponse(c *nbca.CACertificate, includePEM bool) api.CACertificateResponse {
 	resp := api.CACertificateResponse{
-		Id:          c.ID,
-		Fingerprint: c.Fingerprint,
-		NotBefore:   c.NotBefore.UTC(),
-		NotAfter:    c.NotAfter.UTC(),
-		IsActive:    c.IsActive,
-		CreatedAt:   c.CreatedAt.UTC(),
+		Id:           c.ID,
+		Fingerprint:  c.Fingerprint,
+		DisplayName:  &c.DisplayName,
+		Organization: &c.Organization,
+		NotBefore:    c.NotBefore.UTC(),
+		NotAfter:     c.NotAfter.UTC(),
+		IsActive:     c.IsActive,
+		CreatedAt:    c.CreatedAt.UTC(),
 	}
 	if includePEM {
 		resp.CertificatePem = &c.CertificatePEM

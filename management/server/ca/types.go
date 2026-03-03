@@ -16,6 +16,8 @@ type CACertificate struct {
 	CertificatePEM string    `gorm:"type:text"`
 	PrivateKeyPEM  string    `gorm:"type:text"` // encrypted at rest via FieldEncrypt
 	Fingerprint    string    `gorm:"index"`
+	DisplayName    string    // CN used when generating the CA
+	Organization   string    // O used when generating the CA
 	NotBefore      time.Time
 	NotAfter       time.Time
 	IsActive       bool      `gorm:"index"`
@@ -23,13 +25,15 @@ type CACertificate struct {
 }
 
 // NewCACertificate creates a new CACertificate with a generated ID and creation timestamp.
-func NewCACertificate(accountID, certPEM, keyPEM, fingerprint string, notBefore, notAfter time.Time) *CACertificate {
+func NewCACertificate(accountID, certPEM, keyPEM, fingerprint, displayName, organization string, notBefore, notAfter time.Time) *CACertificate {
 	return &CACertificate{
 		ID:             xid.New().String(),
 		AccountID:      accountID,
 		CertificatePEM: certPEM,
 		PrivateKeyPEM:  keyPEM,
 		Fingerprint:    fingerprint,
+		DisplayName:    displayName,
+		Organization:   organization,
 		NotBefore:      notBefore,
 		NotAfter:       notAfter,
 		IsActive:       true,

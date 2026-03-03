@@ -66,23 +66,23 @@ func (m *Manager) RegisterSigner(signer CertSigner) {
 // The CA is constrained to the account's DNS domain via x509 NameConstraints.
 // Encryption of sensitive fields is handled transparently by the store layer.
 func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain string, opts CAOptions) (*CACertificate, error) {
-	certPEM, keyPEM, fingerprint, err := GenerateCA(dnsDomain, opts)
+	result, err := GenerateCA(dnsDomain, opts)
 	if err != nil {
 		return nil, fmt.Errorf("generate CA: %w", err)
 	}
 
-	cert, err := parseCertificatePEM(certPEM)
+	cert, err := parseCertificatePEM(result.CertPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse generated CA cert: %w", err)
 	}
 
-	caCert := NewCACertificate(accountID, string(certPEM), string(keyPEM), fingerprint, cert.NotBefore, cert.NotAfter)
+	caCert := NewCACertificate(accountID, string(result.CertPEM), string(result.KeyPEM), result.Fingerprint, result.DisplayName, result.Organization, cert.NotBefore, cert.NotAfter)
 
 	if err := m.store.CreateCACertificate(ctx, caCert); err != nil {
 		return nil, fmt.Errorf("store CA certificate: %w", err)
 	}
 
-	log.WithContext(ctx).Infof("initialized internal CA for account %s (fingerprint: %s)", accountID, fingerprint)
+	log.WithContext(ctx).Infof("initialized internal CA for account %s (fingerprint: %s)", accountID, result.Fingerprint)
 
 	return caCert, nil
 }

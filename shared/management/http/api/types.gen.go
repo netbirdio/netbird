@@ -1297,6 +1297,9 @@ type AccountSettings struct {
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
+	// CertWildcardAllowed Allows peers to request wildcard subdomain certificates
+	CertWildcardAllowed *bool `json:"cert_wildcard_allowed,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
 
@@ -1423,6 +1426,9 @@ type CACertificateResponse struct {
 	// CreatedAt CA certificate creation time (UTC)
 	CreatedAt time.Time `json:"created_at"`
 
+	// DisplayName Display name (CommonName) of the CA certificate
+	DisplayName *string `json:"display_name,omitempty"`
+
 	// Fingerprint SHA-256 fingerprint of the CA certificate
 	Fingerprint string `json:"fingerprint"`
 
@@ -1437,6 +1443,21 @@ type CACertificateResponse struct {
 
 	// NotBefore Certificate validity start time (UTC)
 	NotBefore time.Time `json:"not_before"`
+
+	// Organization Organization of the CA certificate
+	Organization *string `json:"organization,omitempty"`
+}
+
+// CAInitRequest Optional parameters for initializing a CA certificate
+type CAInitRequest struct {
+	// DisplayName Display name for the CA certificate CommonName. Defaults to "{domain} Internal CA ({suffix})"
+	DisplayName *string `json:"display_name,omitempty"`
+
+	// Organization Organization name for the CA certificate. Defaults to "NetBird Self-Hosted"
+	Organization *string `json:"organization,omitempty"`
+
+	// ValidityDays CA certificate validity in days. Defaults to 3650 (~10 years)
+	ValidityDays *int `json:"validity_days,omitempty"`
 }
 
 // CheckoutResponse defines model for CheckoutResponse.
@@ -4374,6 +4395,12 @@ type GetApiUsersParams struct {
 
 // PutApiAccountsAccountIdJSONRequestBody defines body for PutApiAccountsAccountId for application/json ContentType.
 type PutApiAccountsAccountIdJSONRequestBody = AccountRequest
+
+// PostApiCaJSONRequestBody defines body for PostApiCa for application/json ContentType.
+type PostApiCaJSONRequestBody = CAInitRequest
+
+// PostApiCaRotateJSONRequestBody defines body for PostApiCaRotate for application/json ContentType.
+type PostApiCaRotateJSONRequestBody = CAInitRequest
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest

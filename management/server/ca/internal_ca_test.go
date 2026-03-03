@@ -15,13 +15,13 @@ import (
 )
 
 func TestGenerateCA(t *testing.T) {
-	certPEM, keyPEM, fingerprint, err := GenerateCA("netbird.example", CAOptions{})
+	result, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
-	require.NotEmpty(t, certPEM)
-	require.NotEmpty(t, keyPEM)
-	require.NotEmpty(t, fingerprint)
+	require.NotEmpty(t, result.CertPEM)
+	require.NotEmpty(t, result.KeyPEM)
+	require.NotEmpty(t, result.Fingerprint)
 
-	cert, err := parseCertificatePEM(certPEM)
+	cert, err := parseCertificatePEM(result.CertPEM)
 	require.NoError(t, err)
 
 	assert.True(t, cert.IsCA)
@@ -33,31 +33,31 @@ func TestGenerateCA(t *testing.T) {
 	assert.Contains(t, cert.PermittedDNSDomains, ".netbird.example")
 	assert.Contains(t, cert.PermittedDNSDomains, "netbird.example")
 
-	key, err := parseECPrivateKeyPEM(keyPEM)
+	key, err := parseECPrivateKeyPEM(result.KeyPEM)
 	require.NoError(t, err)
 	assert.Equal(t, elliptic.P256(), key.Curve)
 }
 
 func TestGenerateCA_Fingerprint(t *testing.T) {
-	certPEM, _, fingerprint1, err := GenerateCA("test.example", CAOptions{})
+	result, err := GenerateCA("test.example", CAOptions{})
 	require.NoError(t, err)
 
-	fingerprint2, err := Fingerprint(certPEM)
+	fingerprint2, err := Fingerprint(result.CertPEM)
 	require.NoError(t, err)
 
-	assert.Equal(t, fingerprint1, fingerprint2)
-	assert.Len(t, fingerprint1, 64) // SHA-256 hex = 64 chars
+	assert.Equal(t, result.Fingerprint, fingerprint2)
+	assert.Len(t, result.Fingerprint, 64) // SHA-256 hex = 64 chars
 }
 
 func TestGenerateCA_CustomOptions(t *testing.T) {
-	certPEM, _, _, err := GenerateCA("zakhar.internal", CAOptions{
+	result, err := GenerateCA("zakhar.internal", CAOptions{
 		DisplayName:  "Zakhar",
 		Organization: "Zakhar Corp",
 		Validity:     5 * 365 * 24 * time.Hour,
 	})
 	require.NoError(t, err)
 
-	cert, err := parseCertificatePEM(certPEM)
+	cert, err := parseCertificatePEM(result.CertPEM)
 	require.NoError(t, err)
 
 	assert.Equal(t, "Zakhar Internal CA", cert.Subject.CommonName)
@@ -69,17 +69,17 @@ func TestGenerateCA_CustomOptions(t *testing.T) {
 }
 
 func TestGenerateCA_EmptyDomainReturnsError(t *testing.T) {
-	_, _, _, err := GenerateCA("", CAOptions{})
+	_, err := GenerateCA("", CAOptions{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "dnsDomain is required")
 }
 
 func TestGenerateCA_DomainOnlyFallback(t *testing.T) {
 	// No display name or org → CN falls back to domain + unique suffix, org to default
-	certPEM, _, _, err := GenerateCA("mynetwork.selfhosted", CAOptions{})
+	result, err := GenerateCA("mynetwork.selfhosted", CAOptions{})
 	require.NoError(t, err)
 
-	cert, err := parseCertificatePEM(certPEM)
+	cert, err := parseCertificatePEM(result.CertPEM)
 	require.NoError(t, err)
 
 	assert.Contains(t, cert.Subject.CommonName, "mynetwork.selfhosted Internal CA (")
@@ -89,10 +89,10 @@ func TestGenerateCA_DomainOnlyFallback(t *testing.T) {
 
 func TestGenerateCA_CustomNameNoSuffix(t *testing.T) {
 	// When DisplayName is provided, no suffix is added
-	certPEM, _, _, err := GenerateCA("zakhar.internal", CAOptions{DisplayName: "Zakhar"})
+	result, err := GenerateCA("zakhar.internal", CAOptions{DisplayName: "Zakhar"})
 	require.NoError(t, err)
 
-	cert, err := parseCertificatePEM(certPEM)
+	cert, err := parseCertificatePEM(result.CertPEM)
 	require.NoError(t, err)
 
 	assert.Equal(t, "Zakhar Internal CA", cert.Subject.CommonName)
@@ -100,8 +100,9 @@ func TestGenerateCA_CustomNameNoSuffix(t *testing.T) {
 }
 
 func TestInternalCASigner_Sign(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -134,8 +135,9 @@ func TestInternalCASigner_Sign(t *testing.T) {
 }
 
 func TestInternalCASigner_SignWildcard(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -163,8 +165,9 @@ func TestInternalCASigner_SignWildcard(t *testing.T) {
 }
 
 func TestInternalCASigner_SignRejectsMismatchedFQDN(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -187,8 +190,9 @@ func TestInternalCASigner_SignRejectsMismatchedFQDN(t *testing.T) {
 }
 
 func TestInternalCASigner_SignRejectsWildcardWhenNotRequested(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -212,8 +216,9 @@ func TestInternalCASigner_SignRejectsWildcardWhenNotRequested(t *testing.T) {
 }
 
 func TestInternalCASigner_SignRejectsEmptyDNSNames(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -235,8 +240,9 @@ func TestInternalCASigner_SignRejectsEmptyDNSNames(t *testing.T) {
 }
 
 func TestInternalCASigner_Type(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -245,8 +251,9 @@ func TestInternalCASigner_Type(t *testing.T) {
 }
 
 func TestInternalCASigner_CertificateChainVerifies(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)
@@ -288,8 +295,9 @@ func TestInternalCASigner_CertificateChainVerifies(t *testing.T) {
 }
 
 func TestSerialNumberFromResult(t *testing.T) {
-	certPEM, keyPEM, _, err := GenerateCA("netbird.example", CAOptions{})
+	caResult, err := GenerateCA("netbird.example", CAOptions{})
 	require.NoError(t, err)
+	certPEM, keyPEM := caResult.CertPEM, caResult.KeyPEM
 
 	signer, err := NewInternalCASigner(certPEM, keyPEM, "test-ca-id", 0)
 	require.NoError(t, err)

@@ -215,6 +215,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.LazyConnectionEnabled != nil {
 		returnSettings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
+	if req.Settings.CertWildcardAllowed != nil {
+		returnSettings.CertWildcardAllowed = *req.Settings.CertWildcardAllowed
+	}
 	if req.Settings.AutoUpdateVersion != nil {
 		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
 		if *req.Settings.AutoUpdateVersion == autoUpdateLatestVersion ||
@@ -345,6 +348,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 		PeerExposeEnabled:               settings.PeerExposeEnabled,
 		PeerExposeGroups:                settings.PeerExposeGroups,
+		CertWildcardAllowed:            &settings.CertWildcardAllowed,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,

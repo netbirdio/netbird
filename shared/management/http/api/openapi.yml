@@ -338,6 +338,9 @@ components:
           items:
             type: string
             example: ch8i4ug6lnn4g9hqv7m0
+        cert_wildcard_allowed:
+          description: Allows peers to request wildcard subdomain certificates
+          type: boolean
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
         lazy_connection_enabled:
@@ -4233,6 +4236,19 @@ components:
           type: string
           description: The ID of the bypassed peer.
           example: "chacbco6lnnbn6cg5s91"
+    CAInitRequest:
+      type: object
+      description: Optional parameters for initializing a CA certificate
+      properties:
+        display_name:
+          description: Display name for the CA certificate CommonName. Defaults to "{domain} Internal CA ({suffix})"
+          type: string
+        organization:
+          description: Organization name for the CA certificate. Defaults to "NetBird Self-Hosted"
+          type: string
+        validity_days:
+          description: CA certificate validity in days. Defaults to 3650 (~10 years)
+          type: integer
     CACertificateResponse:
       type: object
       description: A certificate authority certificate
@@ -4245,6 +4261,12 @@ components:
           description: SHA-256 fingerprint of the CA certificate
           type: string
           example: "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"
+        display_name:
+          description: Display name (CommonName) of the CA certificate
+          type: string
+        organization:
+          description: Organization of the CA certificate
+          type: string
         certificate_pem:
           description: PEM-encoded CA certificate (only included in single CA detail responses)
           type: string
@@ -10021,6 +10043,12 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      requestBody:
+        description: Optional CA configuration parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CAInitRequest'
       responses:
         '200':
           description: A JSON Object of the created CA Certificate
@@ -10105,6 +10133,12 @@ paths:
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      requestBody:
+        description: Optional CA configuration parameters for the new CA
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CAInitRequest'
       responses:
         '200':
           description: A JSON Object of the new CA Certificate

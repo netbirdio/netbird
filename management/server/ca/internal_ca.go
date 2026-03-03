@@ -162,22 +162,31 @@ func NotAfterFromResult(certPEM []byte) (time.Time, error) {
 	return cert.NotAfter, nil
 }
 
+// GenerateCAResult holds the output of GenerateCA including the resolved subject fields.
+type GenerateCAResult struct {
+	CertPEM      []byte
+	KeyPEM       []byte
+	Fingerprint  string
+	DisplayName  string // the resolved CN (after applying defaults)
+	Organization string // the resolved O (after applying defaults)
+}
+
 // GenerateCA creates a new ECDSA P-256 self-signed root CA certificate with
 // NameConstraints limiting issuance to the given DNS domain.
-// Returns the certificate and key in PEM format, and the SHA-256 fingerprint.
-func GenerateCA(dnsDomain string, opts CAOptions) (certPEM, keyPEM []byte, fingerprint string, err error) {
+// Returns the certificate and key in PEM format, the SHA-256 fingerprint, and the resolved subject fields.
+func GenerateCA(dnsDomain string, opts CAOptions) (*GenerateCAResult, error) {
 	if dnsDomain == "" {
-		return nil, nil, "", fmt.Errorf("dnsDomain is required for CA generation")
+		return nil, fmt.Errorf("dnsDomain is required for CA generation")
 	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate CA key: %w", err)
+		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
 
 	serialNumber, err := generateSerialNumber()
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate serial number: %w", err)
+		return nil, fmt.Errorf("generate serial number: %w", err)
 	}
 
 	// Generate a short unique suffix from the serial number for default names.
@@ -220,21 +229,27 @@ func GenerateCA(dnsDomain string, opts CAOptions) (certPEM, keyPEM []byte, finge
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("create CA certificate: %w", err)
+		return nil, fmt.Errorf("create CA certificate: %w", err)
 	}
 
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("marshal CA private key: %w", err)
+		return nil, fmt.Errorf("marshal CA private key: %w", err)
 	}
 
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	hash := sha256.Sum256(certDER)
-	fingerprint = hex.EncodeToString(hash[:])
+	fingerprint := hex.EncodeToString(hash[:])
 
-	return certPEM, keyPEM, fingerprint, nil
+	return &GenerateCAResult{
+		CertPEM:      certPEM,
+		KeyPEM:       keyPEM,
+		Fingerprint:  fingerprint,
+		DisplayName:  cn,
+		Organization: org,
+	}, nil
 }
 
 // Fingerprint computes the SHA-256 fingerprint of a PEM-encoded certificate.
