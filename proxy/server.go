@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -180,8 +181,39 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		return err
 	}
 
-	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
-	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(s.netbird), s.ForwardedProto, s.TrustedProxies, s.Logger)
+	// TEMPORARY: Create a test transport that uses direct HTTP (bypasses NetBird tunnel)
+	testTransport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+		WriteBufferSize:     256 * 1024,
+		ReadBufferSize:      256 * 1024,
+	}
+
+	// TEMPORARY: Start local file server for testing
+	go func() {
+		staticFile := os.Getenv("NB_PROXY_STATIC_FILE_PATH")
+		log.Infof("Reading static file from %s", staticFile)
+		fileServerMux := http.NewServeMux()
+		fileServerMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			s.Logger.Debugf("Serving test file to %s", r.RemoteAddr)
+			http.ServeFile(w, r, staticFile)
+		})
+		testServer := &http.Server{
+			Addr:    "127.0.0.1:9999",
+			Handler: fileServerMux,
+		}
+		s.Logger.Info("Started test file server on http://127.0.0.1:9999/")
+		if err := testServer.ListenAndServe(); err != nil {
+			s.Logger.Warnf("Test file server error: %v", err)
+		}
+	}()
+
+	// Configure the reverse proxy using direct transport for testing (bypasses NetBird)
+	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(testTransport), s.ForwardedProto, s.TrustedProxies, s.Logger)
+
+	// TEMPORARY: Add static test mapping pointing to local file server
+	// Using "/" as the path to match all requests to this host
 
 	// Configure the authentication middleware with session validator for OIDC group checks.
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient)
@@ -227,6 +259,19 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		s.Logger.Debugf("starting reverse proxy server on %s", addr)
 		httpsErr <- s.https.ServeTLS(ln, "", "")
 	}()
+
+	hostDomain := os.Getenv("NB_PROXY_FILE_HOST")
+
+	testURL, _ := url.Parse("http://127.0.0.1:9999")
+	s.proxy.AddMapping(proxy.Mapping{
+		ID:        "test-static-file",
+		AccountID: types.AccountID("test-account"),
+		Host:      hostDomain,
+		Paths: map[string]*url.URL{
+			"/": testURL,
+		},
+	})
+	s.Logger.Info("Added static test mapping: %s/* -> local test file server (bypassing NetBird tunnel)", hostDomain)
 
 	select {
 	case err := <-httpsErr:
