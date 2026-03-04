@@ -868,7 +868,7 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 // deleteExpiredPeerService deletes an ephemeral service by ID after re-checking
 // that it is still expired under a row lock. This prevents deleting a service
 // that was renewed between the batch query and this delete, and ensures only one
-// management instance processes the deletion in HA deployments.
+// management instance processes the deletion
 func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerID, serviceID string) error {
 	var svc *service.Service
 	deleted := false
