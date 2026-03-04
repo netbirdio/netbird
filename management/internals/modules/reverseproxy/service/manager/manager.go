@@ -871,6 +871,7 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 // management instance processes the deletion in HA deployments.
 func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerID, serviceID string) error {
 	var svc *service.Service
+	deleted := false
 	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
 		svc, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
@@ -889,6 +890,7 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 		if err = transaction.DeleteService(ctx, accountID, serviceID); err != nil {
 			return fmt.Errorf("delete service: %w", err)
 		}
+		deleted = true
 
 		return nil
 	})
@@ -896,7 +898,7 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 		return err
 	}
 
-	if svc.Meta.LastRenewedAt != nil && time.Since(*svc.Meta.LastRenewedAt) <= exposeTTL {
+	if !deleted {
 		return nil
 	}
 
