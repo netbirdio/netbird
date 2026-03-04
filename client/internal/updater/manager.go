@@ -276,6 +276,7 @@ func (m *Manager) NotifyUI() {
 	)
 }
 
+// Stop is not used at the moment because it fully depends on the daemon. In a future refactor it may make sense to use it.
 func (m *Manager) Stop() {
 	if m.cancel == nil {
 		return
