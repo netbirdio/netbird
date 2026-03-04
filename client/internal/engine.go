@@ -266,7 +266,7 @@ func NewEngine(
 		networkSerial:      0,
 		statusRecorder:     statusRecorder,
 		stateManager:       stateManager,
-		portForwardManager: portforward.NewManager(stateManager),
+		portForwardManager: portforward.NewManager(),
 		checks:             checks,
 		connSemaphore:      semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
@@ -513,7 +513,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.setupWGProxyNoTrack()
 
 	// Start after interface is up since port may have been resolved from 0 or changed if occupied
-	e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
+	}()
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -1692,7 +1696,11 @@ func (e *Engine) close() {
 		_ = e.rpManager.Close()
 	}
 
-	e.portForwardManager.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.portForwardManager.GracefullyStop(ctx); err != nil {
+		log.Warnf("failed to gracefully stop port forwarding manager: %s", err)
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {

@@ -1263,9 +1263,9 @@ func TestLocalResolver_AuthoritativeFlag(t *testing.T) {
 	})
 }
 
-// TestLocalResolver_Stop tests cleanup on Stop
+// TestLocalResolver_Stop tests cleanup on GracefullyStop
 func TestLocalResolver_Stop(t *testing.T) {
-	t.Run("Stop clears all state", func(t *testing.T) {
+	t.Run("GracefullyStop clears all state", func(t *testing.T) {
 		resolver := NewResolver()
 		resolver.Update([]nbdns.CustomZone{{
 			Domain: "example.com.",
@@ -1285,7 +1285,7 @@ func TestLocalResolver_Stop(t *testing.T) {
 		assert.False(t, resolver.isInManagedZone("host.example.com."))
 	})
 
-	t.Run("Stop is safe to call multiple times", func(t *testing.T) {
+	t.Run("GracefullyStop is safe to call multiple times", func(t *testing.T) {
 		resolver := NewResolver()
 		resolver.Update([]nbdns.CustomZone{{
 			Domain: "example.com.",
@@ -1299,7 +1299,7 @@ func TestLocalResolver_Stop(t *testing.T) {
 		resolver.Stop()
 	})
 
-	t.Run("Stop cancels in-flight external resolution", func(t *testing.T) {
+	t.Run("GracefullyStop cancels in-flight external resolution", func(t *testing.T) {
 		resolver := NewResolver()
 
 		lookupStarted := make(chan struct{})
