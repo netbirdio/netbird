@@ -34,9 +34,15 @@ export default function App() {
   return (
     <HashRouter>
       <Navigator />
-      <div className="min-h-screen bg-nb-gray-DEFAULT text-nb-gray-100 flex">
+      <div
+        className="min-h-screen flex"
+        style={{
+          backgroundColor: 'var(--color-bg-primary)',
+          color: 'var(--color-text-primary)',
+        }}
+      >
         <NavBar />
-        <main className="flex-1 p-6 overflow-y-auto h-screen">
+        <main className="flex-1 px-10 py-8 overflow-y-auto h-screen">
           <Routes>
             <Route path="/" element={<Status />} />
             <Route path="/settings" element={<Settings />} />

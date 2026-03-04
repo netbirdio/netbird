@@ -14,7 +14,7 @@ export default function NetBirdLogo({ full = false, className }: { full?: boolea
   return (
     <div className={`flex items-center gap-2 ${className ?? ''}`}>
       <BirdMark />
-      <span className="text-lg font-bold tracking-wide text-nb-gray-100">NETBIRD</span>
+      <span className="text-lg font-bold tracking-wide" style={{ color: 'var(--color-text-primary)' }}>NETBIRD</span>
     </div>
   )
 }

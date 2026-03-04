@@ -1,7 +1,136 @@
 @import "tailwindcss";
 
+/* ── Light-mode tokens (default) ────────────────────────────────── */
+:root {
+  --color-bg-primary:       #ffffff;
+  --color-bg-secondary:     #f5f5f7;
+  --color-bg-tertiary:      #e8e8ed;
+  --color-bg-elevated:      #ffffff;
+  --color-bg-sidebar:       rgba(245, 245, 247, 0.8);
+  --color-sidebar-selected: rgba(0, 0, 0, 0.06);
+  --color-sidebar-hover:    rgba(0, 0, 0, 0.04);
+
+  --color-text-primary:     #1d1d1f;
+  --color-text-secondary:   #6e6e73;
+  --color-text-tertiary:    #86868b;
+  --color-text-quaternary:  #aeaeb2;
+
+  --color-separator:        rgba(0, 0, 0, 0.09);
+  --color-separator-heavy:  rgba(0, 0, 0, 0.16);
+
+  --color-accent:           #f68330;
+  --color-accent-hover:     #e55311;
+
+  --color-status-green:     #34c759;
+  --color-status-green-bg:  rgba(52, 199, 89, 0.12);
+  --color-status-yellow:    #ff9f0a;
+  --color-status-yellow-bg: rgba(255, 159, 10, 0.12);
+  --color-status-red:       #ff3b30;
+  --color-status-red-bg:    rgba(255, 59, 48, 0.12);
+  --color-status-gray:      #8e8e93;
+  --color-status-gray-bg:   rgba(142, 142, 147, 0.12);
+
+  --color-input-bg:         #ffffff;
+  --color-input-border:     rgba(0, 0, 0, 0.12);
+  --color-input-focus:      var(--color-accent);
+
+  --color-control-bg:       rgba(116, 116, 128, 0.08);
+
+  --shadow-card:            0 0.5px 1px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-elevated:        0 2px 8px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.08);
+  --shadow-segment:         0 1px 3px rgba(0,0,0,0.12), 0 0.5px 1px rgba(0,0,0,0.06);
+
+  --radius-card:            10px;
+  --radius-control:         6px;
+  --radius-sidebar-item:    7px;
+
+  --spacing-xs:             4px;
+  --spacing-sm:             8px;
+  --spacing-md:             16px;
+  --spacing-lg:             24px;
+  --spacing-xl:             32px;
+
+  color-scheme: light dark;
+}
+
+/* ── Dark-mode tokens ───────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-primary:       #1c1c1e;
+    --color-bg-secondary:     #2c2c2e;
+    --color-bg-tertiary:      #3a3a3c;
+    --color-bg-elevated:      #2c2c2e;
+    --color-bg-sidebar:       rgba(44, 44, 46, 0.8);
+    --color-sidebar-selected: rgba(255, 255, 255, 0.08);
+    --color-sidebar-hover:    rgba(255, 255, 255, 0.05);
+
+    --color-text-primary:     #f5f5f7;
+    --color-text-secondary:   #98989d;
+    --color-text-tertiary:    #6e6e73;
+    --color-text-quaternary:  #48484a;
+
+    --color-separator:        rgba(255, 255, 255, 0.08);
+    --color-separator-heavy:  rgba(255, 255, 255, 0.15);
+
+    --color-status-green:     #30d158;
+    --color-status-green-bg:  rgba(48, 209, 88, 0.15);
+    --color-status-yellow:    #ffd60a;
+    --color-status-yellow-bg: rgba(255, 214, 10, 0.15);
+    --color-status-red:       #ff453a;
+    --color-status-red-bg:    rgba(255, 69, 58, 0.15);
+    --color-status-gray:      #636366;
+    --color-status-gray-bg:   rgba(99, 99, 102, 0.15);
+
+    --color-input-bg:         rgba(255, 255, 255, 0.05);
+    --color-input-border:     rgba(255, 255, 255, 0.1);
+
+    --color-control-bg:       rgba(118, 118, 128, 0.24);
+
+    --shadow-card:            0 0.5px 1px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-elevated:        0 4px 16px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.3);
+    --shadow-segment:         0 1px 3px rgba(0,0,0,0.3), 0 0.5px 1px rgba(0,0,0,0.2);
+  }
+}
+
+/* Manual toggle for WebKitGTK fallback */
+[data-theme="dark"] {
+  --color-bg-primary:       #1c1c1e;
+  --color-bg-secondary:     #2c2c2e;
+  --color-bg-tertiary:      #3a3a3c;
+  --color-bg-elevated:      #2c2c2e;
+  --color-bg-sidebar:       rgba(44, 44, 46, 0.8);
+  --color-sidebar-selected: rgba(255, 255, 255, 0.08);
+  --color-sidebar-hover:    rgba(255, 255, 255, 0.05);
+
+  --color-text-primary:     #f5f5f7;
+  --color-text-secondary:   #98989d;
+  --color-text-tertiary:    #6e6e73;
+  --color-text-quaternary:  #48484a;
+
+  --color-separator:        rgba(255, 255, 255, 0.08);
+  --color-separator-heavy:  rgba(255, 255, 255, 0.15);
+
+  --color-status-green:     #30d158;
+  --color-status-green-bg:  rgba(48, 209, 88, 0.15);
+  --color-status-yellow:    #ffd60a;
+  --color-status-yellow-bg: rgba(255, 214, 10, 0.15);
+  --color-status-red:       #ff453a;
+  --color-status-red-bg:    rgba(255, 69, 58, 0.15);
+  --color-status-gray:      #636366;
+  --color-status-gray-bg:   rgba(99, 99, 102, 0.15);
+
+  --color-input-bg:         rgba(255, 255, 255, 0.05);
+  --color-input-border:     rgba(255, 255, 255, 0.1);
+
+  --color-control-bg:       rgba(118, 118, 128, 0.24);
+
+  --shadow-card:            0 0.5px 1px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-elevated:        0 4px 16px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-segment:         0 1px 3px rgba(0,0,0,0.3), 0 0.5px 1px rgba(0,0,0,0.2);
+}
+
 @theme {
-  --color-netbird-50: #fff6ed;
+  --color-netbird-50:  #fff6ed;
   --color-netbird-100: #feecd6;
   --color-netbird-150: #ffdfb8;
   --color-netbird-200: #ffd4a6;
@@ -15,26 +144,10 @@
   --color-netbird-900: #7a2b14;
   --color-netbird-950: #421308;
 
-  --color-nb-gray-DEFAULT: #181a1d;
-  --color-nb-gray-50: #f4f6f7;
-  --color-nb-gray-100: #e4e7e9;
-  --color-nb-gray-200: #cbd2d6;
-  --color-nb-gray-300: #a3adb5;
-  --color-nb-gray-400: #7c8994;
-  --color-nb-gray-500: #616e79;
-  --color-nb-gray-600: #535d67;
-  --color-nb-gray-700: #474e57;
-  --color-nb-gray-800: #3f444b;
-  --color-nb-gray-900: #2e3238;
-  --color-nb-gray-910: #292c31;
-  --color-nb-gray-920: #25282d;
-  --color-nb-gray-930: #212428;
-  --color-nb-gray-940: #1c1e21;
-  --color-nb-gray-950: #181a1d;
-
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
 }
 
+/* ── Base ────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
 }
@@ -42,72 +155,32 @@
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background-color: #181a1d;
-  color: #e4e7e9;
+  font-size: 13px;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Toggle switch — matches dashboard ToggleSwitch.tsx */
-.toggle-track {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 44px;
-  height: 24px;
-  border-radius: 9999px;
+/* ── Scrollbar (macOS-like thin) ────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-quaternary);
+  border-radius: 4px;
   border: 2px solid transparent;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  background-color: var(--color-nb-gray-700);
+  background-clip: content-box;
 }
-.toggle-track[aria-checked="true"] {
-  background-color: var(--color-netbird-400);
-}
-.toggle-thumb {
-  pointer-events: none;
-  display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 9999px;
-  background-color: white;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  transition: transform 0.2s;
-  transform: translateX(0);
-}
-.toggle-track[aria-checked="true"] .toggle-thumb {
-  transform: translateX(20px);
-}
-
-/* Small toggle (matches dashboard ToggleSwitch size=small) */
-.toggle-track-sm {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 36px;
-  height: 18px;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  background-color: var(--color-nb-gray-700);
-}
-.toggle-track-sm[aria-checked="true"] {
-  background-color: var(--color-netbird-400);
-}
-.toggle-thumb-sm {
-  pointer-events: none;
-  display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: 9999px;
-  background-color: white;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  transition: transform 0.2s;
-  transform: translateX(0);
-}
-.toggle-track-sm[aria-checked="true"] .toggle-thumb-sm {
-  transform: translateX(17px);
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+  background-clip: content-box;
 }

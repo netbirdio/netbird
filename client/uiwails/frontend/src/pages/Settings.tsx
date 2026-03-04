@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Call } from '@wailsio/runtime'
 import type { ConfigInfo } from '../bindings'
+import Card from '../components/ui/Card'
+import CardRow from '../components/ui/CardRow'
+import Toggle from '../components/ui/Toggle'
+import Input from '../components/ui/Input'
+import Button from '../components/ui/Button'
+import SegmentedControl from '../components/ui/SegmentedControl'
 
 async function getConfig(): Promise<ConfigInfo | null> {
   try {
@@ -20,6 +26,12 @@ async function setConfig(cfg: ConfigInfo): Promise<void> {
 }
 
 type Tab = 'connection' | 'network' | 'security'
+
+const tabOptions: { value: Tab; label: string }[] = [
+  { value: 'connection', label: 'Connection' },
+  { value: 'network', label: 'Network' },
+  { value: 'security', label: 'Security' },
+]
 
 export default function Settings() {
   const [config, setConfigState] = useState<ConfigInfo | null>(null)
@@ -53,160 +65,111 @@ export default function Settings() {
   }
 
   if (!config) {
-    return <div className="text-nb-gray-400">Loading settings…</div>
+    return <div style={{ color: 'var(--color-text-secondary)' }}>Loading settings\u2026</div>
   }
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+      <h1 className="text-xl font-semibold mb-6" style={{ color: 'var(--color-text-primary)' }}>Settings</h1>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-nb-gray-920 p-1 rounded-lg border border-nb-gray-900">
-        {(['connection', 'network', 'security'] as Tab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-2 rounded text-sm font-medium capitalize transition-colors ${
-              tab === t ? 'bg-netbird text-white' : 'text-nb-gray-400 hover:text-white'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl options={tabOptions} value={tab} onChange={setTab} className="mb-6" />
 
-      <div className="bg-nb-gray-920 rounded-xl p-6 border border-nb-gray-900 space-y-5">
-
-        {tab === 'connection' && (
-          <>
-            <Field label="Management URL">
-              <input
-                className="input"
+      {tab === 'connection' && (
+        <>
+          <Card label="SERVER CONFIGURATION" className="mb-5">
+            <CardRow label="Management URL">
+              <Input
                 value={config.managementUrl}
                 onChange={e => update('managementUrl', e.target.value)}
                 placeholder="https://api.netbird.io:443"
+                style={{ width: 240 }}
               />
-            </Field>
-            <Field label="Admin URL">
-              <input
-                className="input"
+            </CardRow>
+            <CardRow label="Admin URL">
+              <Input
                 value={config.adminUrl}
                 onChange={e => update('adminUrl', e.target.value)}
+                style={{ width: 240 }}
               />
-            </Field>
-            <Field label="Pre-shared Key">
-              <input
-                className="input"
+            </CardRow>
+            <CardRow label="Pre-shared Key">
+              <Input
                 type="password"
                 value={config.preSharedKey}
                 onChange={e => update('preSharedKey', e.target.value)}
                 placeholder="Leave empty to clear"
+                style={{ width: 240 }}
               />
-            </Field>
-            <Toggle
-              label="Connect automatically when service starts"
-              checked={!config.disableAutoConnect}
-              onChange={v => update('disableAutoConnect', !v)}
-            />
-            <Toggle
-              label="Enable notifications"
-              checked={!config.disableNotifications}
-              onChange={v => update('disableNotifications', !v)}
-            />
-          </>
-        )}
+            </CardRow>
+          </Card>
 
-        {tab === 'network' && (
-          <>
-            <Field label="Interface Name">
-              <input
-                className="input"
+          <Card label="BEHAVIOR" className="mb-5">
+            <CardRow label="Connect automatically">
+              <Toggle checked={!config.disableAutoConnect} onChange={v => update('disableAutoConnect', !v)} />
+            </CardRow>
+            <CardRow label="Enable notifications">
+              <Toggle checked={!config.disableNotifications} onChange={v => update('disableNotifications', !v)} />
+            </CardRow>
+          </Card>
+        </>
+      )}
+
+      {tab === 'network' && (
+        <>
+          <Card label="INTERFACE" className="mb-5">
+            <CardRow label="Interface Name">
+              <Input
                 value={config.interfaceName}
                 onChange={e => update('interfaceName', e.target.value)}
                 placeholder="netbird0"
+                style={{ width: 180 }}
               />
-            </Field>
-            <Field label="WireGuard Port">
-              <input
-                className="input"
+            </CardRow>
+            <CardRow label="WireGuard Port">
+              <Input
                 type="number"
                 min={1}
                 max={65535}
                 value={config.wireguardPort}
                 onChange={e => update('wireguardPort', parseInt(e.target.value) || 0)}
                 placeholder="51820"
+                style={{ width: 100 }}
               />
-            </Field>
-            <Toggle
-              label="Enable lazy connections (experimental)"
-              checked={config.lazyConnectionEnabled}
-              onChange={v => update('lazyConnectionEnabled', v)}
-            />
-            <Toggle
-              label="Block inbound connections"
-              checked={config.blockInbound}
-              onChange={v => update('blockInbound', v)}
-            />
-          </>
-        )}
+            </CardRow>
+          </Card>
 
-        {tab === 'security' && (
-          <>
-            <Toggle
-              label="Allow SSH connections"
-              checked={config.serverSshAllowed}
-              onChange={v => update('serverSshAllowed', v)}
-            />
-            <Toggle
-              label="Enable post-quantum security via Rosenpass"
-              checked={config.rosenpassEnabled}
-              onChange={v => update('rosenpassEnabled', v)}
-            />
-            <Toggle
-              label="Rosenpass permissive mode"
-              checked={config.rosenpassPermissive}
-              onChange={v => update('rosenpassPermissive', v)}
-            />
-          </>
-        )}
-      </div>
+          <Card label="OPTIONS" className="mb-5">
+            <CardRow label="Lazy connections" description="Experimental">
+              <Toggle checked={config.lazyConnectionEnabled} onChange={v => update('lazyConnectionEnabled', v)} />
+            </CardRow>
+            <CardRow label="Block inbound connections">
+              <Toggle checked={config.blockInbound} onChange={v => update('blockInbound', v)} />
+            </CardRow>
+          </Card>
+        </>
+      )}
 
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2.5 bg-netbird hover:bg-netbird-500 disabled:opacity-50 rounded-lg font-medium transition-colors"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {saved && <span className="text-green-400 text-sm">Saved!</span>}
-        {error && <span className="text-red-400 text-sm">{error}</span>}
+      {tab === 'security' && (
+        <Card label="SECURITY" className="mb-5">
+          <CardRow label="Allow SSH connections">
+            <Toggle checked={config.serverSshAllowed} onChange={v => update('serverSshAllowed', v)} />
+          </CardRow>
+          <CardRow label="Rosenpass post-quantum security">
+            <Toggle checked={config.rosenpassEnabled} onChange={v => update('rosenpassEnabled', v)} />
+          </CardRow>
+          <CardRow label="Rosenpass permissive mode">
+            <Toggle checked={config.rosenpassPermissive} onChange={v => update('rosenpassPermissive', v)} />
+          </CardRow>
+        </Card>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving\u2026' : 'Save'}
+        </Button>
+        {saved && <span className="text-[13px]" style={{ color: 'var(--color-status-green)' }}>Saved!</span>}
+        {error && <span className="text-[13px]" style={{ color: 'var(--color-status-red)' }}>{error}</span>}
       </div>
     </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm text-nb-gray-400 mb-1.5">{label}</label>
-      {children}
-    </div>
-  )
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <button
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className="toggle-track"
-      >
-        <span className="toggle-thumb" />
-      </button>
-      <span className="text-sm">{label}</span>
-    </label>
   )
 }

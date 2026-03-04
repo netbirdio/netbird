@@ -8,6 +8,7 @@ import (
 	"flag"
 	"os"
 	"runtime"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -122,6 +123,14 @@ func main() {
 
 	evtManager := event.NewManager(*daemonAddr, notify)
 	go evtManager.Start(ctx)
+
+	// TEST: fire a desktop notification shortly after startup so we can
+	// verify that the notification pipeline works end-to-end.
+	go func() {
+		time.Sleep(3 * time.Second)
+		log.Infof("--- trigger notification ---")
+		notify("NetBird Test", "If you see this, notifications are working!")
+	}()
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("app run: %v", err)

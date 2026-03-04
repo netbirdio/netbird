@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Events, Call } from '@wailsio/runtime'
 import type { StatusInfo } from '../bindings'
+import Card from '../components/ui/Card'
+import CardRow from '../components/ui/CardRow'
+import Button from '../components/ui/Button'
 
 async function getStatus(): Promise<StatusInfo | null> {
   try {
@@ -24,21 +27,21 @@ async function disconnect(): Promise<void> {
   await Call.ByName('github.com/netbirdio/netbird/client/uiwails/services.ConnectionService.Disconnect')
 }
 
-function statusColor(status: string): string {
+function statusDotColor(status: string): string {
   switch (status) {
-    case 'Connected': return 'text-green-400'
-    case 'Connecting': return 'text-yellow-400'
-    case 'Disconnected': return 'text-nb-gray-400'
-    default: return 'text-red-400'
+    case 'Connected': return 'var(--color-status-green)'
+    case 'Connecting': return 'var(--color-status-yellow)'
+    case 'Disconnected': return 'var(--color-status-gray)'
+    default: return 'var(--color-status-red)'
   }
 }
 
-function statusDot(status: string): string {
+function statusTextColor(status: string): string {
   switch (status) {
-    case 'Connected': return 'bg-green-400'
-    case 'Connecting': return 'bg-yellow-400 animate-pulse'
-    case 'Disconnected': return 'bg-nb-gray-600'
-    default: return 'bg-red-400'
+    case 'Connected': return 'var(--color-status-green)'
+    case 'Connecting': return 'var(--color-status-yellow)'
+    case 'Disconnected': return 'var(--color-text-secondary)'
+    default: return 'var(--color-status-red)'
   }
 }
 
@@ -54,9 +57,7 @@ export default function Status() {
 
   useEffect(() => {
     refresh()
-    // Poll every 10 seconds as fallback (push events handle real-time updates)
     const id = setInterval(refresh, 10000)
-    // Also listen for push events from the tray
     const unsub = Events.On('status-changed', (event: { data: StatusInfo[] }) => {
       if (event.data[0]) setStatus(event.data[0])
     })
@@ -97,65 +98,64 @@ export default function Status() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Status</h1>
+      <h1 className="text-xl font-semibold mb-6" style={{ color: 'var(--color-text-primary)' }}>Status</h1>
 
-      {/* Status card */}
-      <div className="bg-nb-gray-920 rounded-xl p-6 mb-6 border border-nb-gray-900">
-        <div className="flex items-center gap-3 mb-4">
-          <span className={`w-3 h-3 rounded-full ${status ? statusDot(status.status) : 'bg-nb-gray-600'}`} />
-          <span className={`text-xl font-semibold ${status ? statusColor(status.status) : 'text-nb-gray-400'}`}>
-            {status?.status ?? 'Loading…'}
-          </span>
+      {/* Status hero */}
+      <Card className="mb-6">
+        <div className="px-4 py-5">
+          <div className="flex items-center gap-3 mb-4">
+            <span
+              className={`w-3 h-3 rounded-full ${status?.status === 'Connecting' ? 'animate-pulse' : ''}`}
+              style={{ backgroundColor: status ? statusDotColor(status.status) : 'var(--color-status-gray)' }}
+            />
+            <span
+              className="text-xl font-semibold"
+              style={{ color: status ? statusTextColor(status.status) : 'var(--color-text-secondary)' }}
+            >
+              {status?.status ?? 'Loading\u2026'}
+            </span>
+          </div>
         </div>
 
-        {status && (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            {status.ip && (
-              <>
-                <span className="text-nb-gray-400">IP Address</span>
-                <span className="font-mono">{status.ip}</span>
-              </>
-            )}
-            {status.fqdn && (
-              <>
-                <span className="text-nb-gray-400">Hostname</span>
-                <span className="font-mono">{status.fqdn}</span>
-              </>
-            )}
-            {status.connectedPeers > 0 && (
-              <>
-                <span className="text-nb-gray-400">Connected Peers</span>
-                <span>{status.connectedPeers}</span>
-              </>
-            )}
-          </div>
+        {status?.ip && (
+          <CardRow label="IP Address">
+            <span className="font-mono text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>{status.ip}</span>
+          </CardRow>
         )}
-      </div>
+        {status?.fqdn && (
+          <CardRow label="Hostname">
+            <span className="font-mono text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>{status.fqdn}</span>
+          </CardRow>
+        )}
+        {status && status.connectedPeers > 0 && (
+          <CardRow label="Connected Peers">
+            <span style={{ color: 'var(--color-text-secondary)' }}>{status.connectedPeers}</span>
+          </CardRow>
+        )}
+      </Card>
 
-      {/* Action button */}
+      {/* Actions */}
       <div className="flex gap-3">
         {!isConnected && !isConnecting && (
-          <button
-            onClick={handleConnect}
-            disabled={busy}
-            className="px-6 py-2.5 bg-netbird hover:bg-netbird-500 disabled:opacity-50 rounded-lg font-medium transition-colors"
-          >
-            {busy ? 'Connecting…' : 'Connect'}
-          </button>
+          <Button onClick={handleConnect} disabled={busy}>
+            {busy ? 'Connecting\u2026' : 'Connect'}
+          </Button>
         )}
         {(isConnected || isConnecting) && (
-          <button
-            onClick={handleDisconnect}
-            disabled={busy}
-            className="px-6 py-2.5 bg-nb-gray-800 hover:bg-nb-gray-600 disabled:opacity-50 rounded-lg font-medium transition-colors"
-          >
-            {busy ? 'Disconnecting…' : 'Disconnect'}
-          </button>
+          <Button variant="secondary" onClick={handleDisconnect} disabled={busy}>
+            {busy ? 'Disconnecting\u2026' : 'Disconnect'}
+          </Button>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+        <div
+          className="mt-4 p-3 rounded-[var(--radius-control)] text-[13px]"
+          style={{
+            backgroundColor: 'var(--color-status-red-bg)',
+            color: 'var(--color-status-red)',
+          }}
+        >
           {error}
         </div>
       )}

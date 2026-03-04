@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Call } from '@wailsio/runtime'
 import type { ProfileInfo } from '../bindings'
+import Card from '../components/ui/Card'
+import CardRow from '../components/ui/CardRow'
+import Button from '../components/ui/Button'
+import Input from '../components/ui/Input'
+import Modal from '../components/ui/Modal'
 
 export default function Profiles() {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([])
@@ -63,101 +68,103 @@ export default function Profiles() {
     }
   }
 
+  function confirmTitle(): string {
+    if (!confirm) return ''
+    if (confirm.action === 'switch') return 'Switch Profile'
+    if (confirm.action === 'remove') return 'Remove Profile'
+    return 'Deregister Profile'
+  }
+
+  function confirmMessage(): string {
+    if (!confirm) return ''
+    if (confirm.action === 'switch') return `Switch to profile '${confirm.profile}'?`
+    if (confirm.action === 'remove') return `Delete profile '${confirm.profile}'? This cannot be undone.`
+    return `Deregister from '${confirm.profile}'?`
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Profiles</h1>
+      <h1 className="text-xl font-semibold mb-6" style={{ color: 'var(--color-text-primary)' }}>Profiles</h1>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+        <div
+          className="mb-4 p-3 rounded-[var(--radius-control)] text-[13px]"
+          style={{ backgroundColor: 'var(--color-status-red-bg)', color: 'var(--color-status-red)' }}
+        >
           {error}
         </div>
       )}
       {info && (
-        <div className="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-green-300 text-sm">
+        <div
+          className="mb-4 p-3 rounded-[var(--radius-control)] text-[13px]"
+          style={{ backgroundColor: 'var(--color-status-green-bg)', color: 'var(--color-status-green)' }}
+        >
           {info}
         </div>
       )}
 
-      {/* Confirm dialog */}
       {confirm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-nb-gray-920 rounded-xl p-6 max-w-sm w-full mx-4 border border-nb-gray-900">
-            <h2 className="text-lg font-semibold mb-2 capitalize">
-              {confirm.action === 'switch' ? 'Switch Profile' : confirm.action === 'remove' ? 'Remove Profile' : 'Deregister Profile'}
-            </h2>
-            <p className="text-nb-gray-300 text-sm mb-5">
-              {confirm.action === 'switch' && `Switch to profile '${confirm.profile}'?`}
-              {confirm.action === 'remove' && `Delete profile '${confirm.profile}'? This cannot be undone.`}
-              {confirm.action === 'logout' && `Deregister from '${confirm.profile}'?`}
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setConfirm(null)} className="px-4 py-2 text-sm bg-nb-gray-900 hover:bg-nb-gray-800 rounded-lg">
-                Cancel
-              </button>
-              <button onClick={handleConfirm} disabled={loading} className="px-4 py-2 text-sm bg-netbird hover:bg-netbird-500 disabled:opacity-50 rounded-lg">
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+        <Modal
+          title={confirmTitle()}
+          message={confirmMessage()}
+          destructive={confirm.action === 'remove'}
+          loading={loading}
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       {/* Profile list */}
-      <div className="bg-nb-gray-920 rounded-xl border border-nb-gray-900 overflow-hidden mb-6">
+      <Card label="PROFILES" className="mb-6">
         {profiles.length === 0 ? (
-          <div className="p-4 text-nb-gray-400 text-sm">No profiles found.</div>
+          <div className="p-4 text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>No profiles found.</div>
         ) : (
           profiles.map(p => (
-            <div key={p.name} className="flex items-center gap-3 px-4 py-3 border-b border-nb-gray-900 last:border-0">
-              <span className="text-green-400 w-5 text-center">
-                {p.isActive ? '✓' : ''}
-              </span>
-              <span className="flex-1 font-medium">{p.name}</span>
-              {p.isActive && <span className="text-xs text-netbird px-2 py-0.5 bg-netbird-950/40 rounded-full">Active</span>}
-              <div className="flex gap-2">
-                {!p.isActive && (
-                  <button
-                    onClick={() => setConfirm({ action: 'switch', profile: p.name })}
-                    className="px-3 py-1 text-xs bg-netbird-600 hover:bg-netbird-500 rounded transition-colors"
+            <CardRow key={p.name} label={p.name}>
+              <div className="flex items-center gap-2">
+                {p.isActive && (
+                  <span
+                    className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                    style={{
+                      backgroundColor: 'var(--color-status-green-bg)',
+                      color: 'var(--color-status-green)',
+                    }}
                   >
-                    Select
-                  </button>
+                    Active
+                  </span>
                 )}
-                <button
-                  onClick={() => setConfirm({ action: 'logout', profile: p.name })}
-                  className="px-3 py-1 text-xs bg-nb-gray-900 hover:bg-nb-gray-800 rounded transition-colors"
-                >
+                {!p.isActive && (
+                  <Button variant="primary" size="sm" onClick={() => setConfirm({ action: 'switch', profile: p.name })}>
+                    Select
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => setConfirm({ action: 'logout', profile: p.name })}>
                   Deregister
-                </button>
-                <button
-                  onClick={() => setConfirm({ action: 'remove', profile: p.name })}
-                  className="px-3 py-1 text-xs bg-red-900 hover:bg-red-800 rounded transition-colors"
-                >
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => setConfirm({ action: 'remove', profile: p.name })}>
                   Remove
-                </button>
+                </Button>
               </div>
-            </div>
+            </CardRow>
           ))
         )}
-      </div>
+      </Card>
 
       {/* Add new profile */}
-      <div className="flex gap-3">
-        <input
-          className="flex-1 px-3 py-2 bg-nb-gray-920 border border-nb-gray-800 rounded-lg text-sm focus:outline-none focus:border-netbird"
-          placeholder="New profile name"
-          value={newName}
-          onChange={e => setNewName(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAdd()}
-        />
-        <button
-          onClick={handleAdd}
-          disabled={!newName.trim() || loading}
-          className="px-4 py-2 text-sm bg-netbird hover:bg-netbird-500 disabled:opacity-50 rounded-lg transition-colors"
-        >
-          Add Profile
-        </button>
-      </div>
+      <Card label="ADD PROFILE">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <Input
+            className="flex-1"
+            placeholder="New profile name"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAdd()}
+          />
+          <Button onClick={handleAdd} disabled={!newName.trim() || loading} size="sm">
+            Add
+          </Button>
+        </div>
+      </Card>
     </div>
   )
 }

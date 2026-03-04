@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Call } from '@wailsio/runtime'
 import type { InstallerResult } from '../bindings'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
 
 type UpdateState = 'idle' | 'triggering' | 'polling' | 'success' | 'failed' | 'timeout'
 
@@ -10,7 +12,6 @@ export default function Update() {
   const [errorMsg, setErrorMsg] = useState('')
   const abortRef = useRef<AbortController | null>(null)
 
-  // Animate dots when polling
   useEffect(() => {
     if (state !== 'polling') return
     let count = 0
@@ -40,7 +41,6 @@ export default function Update() {
 
     setState('polling')
 
-    // Poll for installer result (up to 15 minutes handled server-side)
     try {
       console.log('[Update] calling services.UpdateService.GetInstallerResult')
       const result = await Call.ByName('github.com/netbirdio/netbird/client/uiwails/services.UpdateService.GetInstallerResult') as InstallerResult
@@ -51,63 +51,56 @@ export default function Update() {
         setErrorMsg(result?.errorMsg ?? 'Update failed')
         setState('failed')
       }
-    } catch (e) {
-      // If the daemon restarts, the gRPC call may fail — treat as success
+    } catch {
       setState('success')
     }
   }
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Update</h1>
-      <p className="text-nb-gray-400 text-sm mb-8">
+      <h1 className="text-xl font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>Update</h1>
+      <p className="text-[13px] mb-8" style={{ color: 'var(--color-text-secondary)' }}>
         Trigger an automatic client update managed by the NetBird daemon.
       </p>
 
-      <div className="bg-nb-gray-920 rounded-xl p-6 border border-nb-gray-900 text-center">
-        {state === 'idle' && (
-          <>
-            <p className="text-nb-gray-300 mb-5">Click below to trigger a daemon-managed update.</p>
-            <button
-              onClick={handleTriggerUpdate}
-              className="px-6 py-2.5 bg-netbird hover:bg-netbird-500 rounded-lg font-medium transition-colors"
-            >
-              Trigger Update
-            </button>
-          </>
-        )}
+      <Card>
+        <div className="px-6 py-8 text-center">
+          {state === 'idle' && (
+            <>
+              <p className="text-[13px] mb-5" style={{ color: 'var(--color-text-secondary)' }}>Click below to trigger a daemon-managed update.</p>
+              <Button onClick={handleTriggerUpdate}>Trigger Update</Button>
+            </>
+          )}
 
-        {state === 'triggering' && (
-          <p className="text-yellow-300 animate-pulse">Triggering update…</p>
-        )}
+          {state === 'triggering' && (
+            <p className="animate-pulse text-[15px]" style={{ color: 'var(--color-status-yellow)' }}>Triggering update\u2026</p>
+          )}
 
-        {state === 'polling' && (
-          <div>
-            <p className="text-yellow-300 text-lg mb-2">Updating{dots}</p>
-            <p className="text-nb-gray-400 text-sm">The daemon is installing the update. Please wait.</p>
-          </div>
-        )}
+          {state === 'polling' && (
+            <div>
+              <p className="text-[17px] mb-2" style={{ color: 'var(--color-status-yellow)' }}>Updating{dots}</p>
+              <p className="text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>The daemon is installing the update. Please wait.</p>
+            </div>
+          )}
 
-        {state === 'success' && (
-          <div>
-            <p className="text-green-400 text-lg font-semibold mb-2">Update Successful!</p>
-            <p className="text-nb-gray-300 text-sm">The client has been updated. You may need to restart.</p>
-          </div>
-        )}
+          {state === 'success' && (
+            <div>
+              <p className="text-[17px] font-semibold mb-2" style={{ color: 'var(--color-status-green)' }}>Update Successful!</p>
+              <p className="text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>The client has been updated. You may need to restart.</p>
+            </div>
+          )}
 
-        {state === 'failed' && (
-          <div>
-            <p className="text-red-400 text-lg font-semibold mb-2">Update Failed</p>
-            {errorMsg && <p className="text-nb-gray-300 text-sm mb-4">{errorMsg}</p>}
-            <button
-              onClick={() => { setState('idle'); setErrorMsg('') }}
-              className="px-4 py-2 text-sm bg-nb-gray-900 hover:bg-nb-gray-800 rounded-lg transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-      </div>
+          {state === 'failed' && (
+            <div>
+              <p className="text-[17px] font-semibold mb-2" style={{ color: 'var(--color-status-red)' }}>Update Failed</p>
+              {errorMsg && <p className="text-[13px] mb-4" style={{ color: 'var(--color-text-secondary)' }}>{errorMsg}</p>}
+              <Button variant="secondary" onClick={() => { setState('idle'); setErrorMsg('') }}>
+                Try Again
+              </Button>
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   )
 }
