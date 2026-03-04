@@ -720,7 +720,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 			domains: []string{"test.netbird.io"},
 		},
 	}
-	mgr.exposeTracker = &exposeTracker{manager: mgr}
+	mgr.exposeReaper = &exposeReaper{manager: mgr}
 
 	return mgr, testStore
 }
@@ -1017,36 +1017,38 @@ func TestStopServiceFromPeer(t *testing.T) {
 	})
 }
 
-func TestDeleteService_UntracksEphemeralExpose(t *testing.T) {
+func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	ctx := context.Background()
-	mgr, _ := setupIntegrationTest(t)
+	mgr, testStore := setupIntegrationTest(t)
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 		Port:     8080,
 		Protocol: "http",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 1, mgr.exposeTracker.CountPeerExposes(testPeerID), "expose should be tracked after create")
 
-	// Look up the service by domain to get its store ID
-	svc, err := mgr.store.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+	count, err := mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count, "one ephemeral service should exist after create")
+
+	svc, err := testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
 	require.NoError(t, err)
 
-	// Delete via the API path (user-initiated)
 	err = mgr.DeleteService(ctx, testAccountID, testUserID, svc.ID)
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, mgr.exposeTracker.CountPeerExposes(testPeerID), "expose should be untracked after API delete")
+	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count, "ephemeral service should be deleted after API delete")
 
-	// A new expose should succeed (not blocked by stale tracking)
 	_, err = mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 		Port:     9090,
 		Protocol: "http",
 	})
-	assert.NoError(t, err, "new expose should succeed after API delete cleared tracking")
+	assert.NoError(t, err, "new expose should succeed after API delete")
 }
 
-func TestDeleteAllServices_UntracksEphemeralExposes(t *testing.T) {
+func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
 	ctx := context.Background()
 	mgr, _ := setupIntegrationTest(t)
 
@@ -1058,12 +1060,16 @@ func TestDeleteAllServices_UntracksEphemeralExposes(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	assert.Equal(t, 3, mgr.exposeTracker.CountPeerExposes(testPeerID), "all exposes should be tracked")
+	count, err := mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), count, "all ephemeral services should exist")
 
-	err := mgr.DeleteAllServices(ctx, testAccountID, testUserID)
+	err = mgr.DeleteAllServices(ctx, testAccountID, testUserID)
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, mgr.exposeTracker.CountPeerExposes(testPeerID), "all exposes should be untracked after DeleteAllServices")
+	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), count, "all ephemeral services should be deleted after DeleteAllServices")
 }
 
 func TestRenewServiceFromPeer(t *testing.T) {
