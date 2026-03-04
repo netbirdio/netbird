@@ -737,6 +737,19 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
+	if initiatorUserId != activity.SystemInitiator {
+		freshInitiator, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, initiatorUserId)
+		if err != nil {
+			return false, nil, nil, nil, fmt.Errorf("failed to re-read initiator user in transaction: %w", err)
+		}
+
+		// Ensure the initiator still has admin privileges
+		if initiatorUser.HasAdminPower() && !freshInitiator.HasAdminPower() {
+			return false, nil, nil, nil, status.Errorf(status.PermissionDenied, "initiator role was changed during request processing")
+		}
+		initiatorUser = freshInitiator
+	}
+
 	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
 		return false, nil, nil, nil, err
@@ -864,7 +877,6 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 		return nil
 	}
 
-	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}

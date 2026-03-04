@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -145,6 +146,10 @@ type MockAccountManager struct {
 	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
+}
+
+func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
+	// Mock implementation - no-op
 }
 
 func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
@@ -402,7 +407,7 @@ func (am *MockAccountManager) AddPeer(
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
 func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-	if am.GetGroupFunc != nil {
+	if am.GetGroupByNameFunc != nil {
 		return am.GetGroupByNameFunc(ctx, accountID, groupName)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")

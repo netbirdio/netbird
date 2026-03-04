@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -84,6 +85,7 @@ type DefaultAccountManager struct {
 
 	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
+	serviceManager  service.Manager
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -112,6 +114,10 @@ type DefaultAccountManager struct {
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
+
+func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
+	am.serviceManager = serviceManager
+}
 
 func isUniqueConstraintError(err error) bool {
 	switch {
@@ -291,6 +297,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
+	var reloadReverseProxy bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -321,6 +328,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
+			reloadReverseProxy = true
 			updateAccountPeers = true
 		}
 
@@ -368,6 +376,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -384,6 +393,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
+	}
+	if reloadReverseProxy {
+		if err = am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
+		}
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
@@ -477,6 +491,21 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 			"version": newSettings.AutoUpdateVersion,
 		})
 	}
+}
+
+func (am *DefaultAccountManager) handlePeerExposeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	oldEnabled := oldSettings.PeerExposeEnabled
+	newEnabled := newSettings.PeerExposeEnabled
+
+	if oldEnabled == newEnabled {
+		return
+	}
+
+	event := activity.AccountPeerExposeEnabled
+	if !newEnabled {
+		event = activity.AccountPeerExposeDisabled
+	}
+	am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -699,6 +728,11 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
+	}
+
+	err = am.serviceManager.DeleteAllServices(ctx, accountID, userID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to delete service %s: %v", accountID, err)
 	}
 
 	for _, otherUser := range account.Users {

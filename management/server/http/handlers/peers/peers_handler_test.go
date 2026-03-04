@@ -22,6 +22,8 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -115,6 +117,16 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 	ctrl2 := gomock.NewController(t)
 	permissionsManager := permissions.NewMockManager(ctrl2)
 	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	permissionsManager.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		DoAndReturn(func(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
+			user, ok := account.Users[userID]
+			if !ok {
+				return false, fmt.Errorf("user not found")
+			}
+			return user.HasAdminPower() || user.IsServiceUser, nil
+		}).
+		AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -383,12 +395,11 @@ func TestGetAccessiblePeers(t *testing.T) {
 		UserID:                 regularUser,
 	}
 
-	p := initTestMetaData(t, peer1, peer2, peer3)
-
 	tt := []struct {
 		name           string
 		peerID         string
 		callerUserID   string
+		viewBlocked    bool
 		expectedStatus int
 		expectedPeers  []string
 	}{
@@ -427,10 +438,56 @@ func TestGetAccessiblePeers(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedPeers:  []string{"peer1", "peer2"},
 		},
+		{
+			name:           "regular user gets empty for owned peer list when view blocked",
+			peerID:         "peer1",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "regular user gets empty list for unowned peer when view blocked",
+			peerID:         "peer2",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "admin user still sees accessible peers when view blocked",
+			peerID:         "peer2",
+			callerUserID:   adminUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer3"},
+		},
+		{
+			name:           "service user still sees accessible peers when view blocked",
+			peerID:         "peer3",
+			callerUserID:   serviceUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer2"},
+		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			p := initTestMetaData(t, peer1, peer2, peer3)
+
+			if tc.viewBlocked {
+				mockAM := p.accountManager.(*mock_server.MockAccountManager)
+				originalGetAccountByIDFunc := mockAM.GetAccountByIDFunc
+				mockAM.GetAccountByIDFunc = func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+					account, err := originalGetAccountByIDFunc(ctx, accountID, userID)
+					if err != nil {
+						return nil, err
+					}
+					account.Settings.RegularUsersViewBlocked = true
+					return account, nil
+				}
+			}
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)

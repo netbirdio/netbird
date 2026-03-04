@@ -262,3 +262,11 @@ func NewZoneNotFoundError(zoneID string) error {
 func NewDNSRecordNotFoundError(recordID string) error {
 	return Errorf(NotFound, "dns record: %s not found", recordID)
 }
+
+func NewResourceInUseError(resourceID string, proxyID string) error {
+	return Errorf(PreconditionFailed, "resource %s is in use by proxy %s", resourceID, proxyID)
+}
+
+func NewPeerInUseError(peerID string, proxyID string) error {
+	return Errorf(PreconditionFailed, "peer %s is in use by proxy %s", peerID, proxyID)
+}

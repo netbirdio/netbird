@@ -19,6 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -27,8 +28,13 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
@@ -1800,6 +1806,14 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
+		Services: []*service.Service{
+			{
+				ID:        "service1",
+				Name:      "test-service",
+				AccountID: "account1",
+				Targets:   []*service.Target{},
+			},
+		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
 	account.InitOnce()
@@ -3102,6 +3116,12 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
 
+	proxyManager := proxy.NewMockManager(ctrl)
+	proxyManager.EXPECT().
+		CleanupStale(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	ctx := context.Background()
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
@@ -3111,6 +3131,13 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
+
+	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager)
+	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
+	if err != nil {
+		return nil, nil, err
+	}
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, nil))
 
 	return manager, updateManager, nil
 }
@@ -3905,4 +3932,37 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 	assert.False(t, user.Blocked, "User should not be blocked when approval is not required")
 	assert.False(t, user.PendingApproval, "User should not be pending approval")
 	assert.Equal(t, existingAccountID, user.AccountID)
+}
+
+// TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange verifies that
+// changing NetworkRange via UpdateAccountSettings does not deadlock.
+// The deadlock occurs because ReloadAllServicesForAccount is called inside a DB
+// transaction but uses the main store connection, which blocks on the transaction lock.
+func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Use a channel to detect if the call completes or hangs
+	done := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+			PeerLoginExpiration:        time.Hour,
+			PeerLoginExpirationEnabled: true,
+			NetworkRange:               netip.MustParsePrefix("10.100.0.0/16"),
+			Extra:                      &types.ExtraSettings{},
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "UpdateAccountSettings should complete without error")
+	case <-time.After(10 * time.Second):
+		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
+	}
 }

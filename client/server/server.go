@@ -21,7 +21,9 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -85,8 +87,7 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
-	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
-	sleepTriggeredDown atomic.Bool
+	sleepHandler *sleephandler.SleepHandler
 
 	jwtCache *jwtCache
 }
@@ -100,7 +101,7 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
-	return &Server{
+	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
@@ -110,6 +111,10 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
 	}
+	agent := &serverAgent{s}
+	s.sleepHandler = sleephandler.New(agent)
+
+	return s
 }
 
 func (s *Server) Start() error {
@@ -636,8 +641,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
-	defer s.mutex.Unlock()
-
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
@@ -649,10 +652,12 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
+		s.mutex.Unlock()
 		return nil, err
 	}
 
 	if status != internal.StatusIdle {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
@@ -669,17 +674,20 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.actCancel = cancel
 
 	if s.config == nil {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	if msg != nil && msg.ProfileName != nil {
 		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			s.mutex.Unlock()
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
@@ -687,6 +695,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
@@ -695,6 +704,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	config, _, err := s.getConfig(activeProf)
 	if err != nil {
+		s.mutex.Unlock()
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
@@ -713,6 +723,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, doAutoUpdate, s.clientRunningChan, s.clientGiveUpChan)
 
+	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
@@ -1310,6 +1321,60 @@ func (s *Server) WaitJWTToken(
 		TokenType: tokenInfo.TokenType,
 		ExpiresIn: int64(tokenInfo.ExpiresIn),
 	}, nil
+}
+
+// ExposeService exposes a local port via the NetBird reverse proxy.
+func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.DaemonService_ExposeServiceServer) error {
+	s.mutex.Lock()
+	if !s.clientRunning {
+		s.mutex.Unlock()
+		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
+	}
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return gstatus.Errorf(codes.Internal, "expose manager not available")
+	}
+
+	ctx := srv.Context()
+
+	exposeCtx, exposeCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer exposeCancel()
+
+	mgmReq := expose.NewRequest(req)
+	result, err := mgr.Expose(exposeCtx, *mgmReq)
+	if err != nil {
+		return err
+	}
+
+	if err := srv.Send(&proto.ExposeServiceEvent{
+		Event: &proto.ExposeServiceEvent_Ready{
+			Ready: &proto.ExposeServiceReady{
+				ServiceName: result.ServiceName,
+				ServiceUrl:  result.ServiceURL,
+				Domain:      result.Domain,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
+	err = mgr.KeepAlive(ctx, result.Domain)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func isUnixRunningDesktop() bool {

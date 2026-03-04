@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
@@ -25,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 type ServiceDependencies struct {
@@ -34,7 +32,6 @@ type ServiceDependencies struct {
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
-	Semaphore          *semaphoregroup.SemaphoreGroup
 	PeerConnDispatcher *dispatcher.ConnectionDispatcher
 }
 
@@ -111,9 +108,8 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
-	semaphore *semaphoregroup.SemaphoreGroup
-	wg        sync.WaitGroup
+	guard *guard.Guard
+	wg    sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -139,7 +135,6 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		iFaceDiscover:   services.IFaceDiscover,
 		relayManager:    services.RelayManager,
 		srWatcher:       services.SrWatcher,
-		semaphore:       services.Semaphore,
 		statusRelay:     worker.NewAtomicStatus(),
 		statusICE:       worker.NewAtomicStatus(),
 		dumpState:       dumpState,
@@ -154,15 +149,10 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // It will try to establish a connection using ICE and in parallel with relay. The higher priority connection type will
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
-	if err := conn.semaphore.Add(engineCtx); err != nil {
-		return err
-	}
-
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
 	if conn.opened {
-		conn.semaphore.Done()
 		return nil
 	}
 
@@ -173,7 +163,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 	if err != nil {
-		conn.semaphore.Done()
 		return err
 	}
 	conn.workerICE = workerICE
@@ -207,10 +196,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
-
-		conn.waitInitialRandomSleepTime(conn.ctx)
-		conn.semaphore.Done()
-
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 	conn.opened = true
@@ -410,7 +395,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
 }
 
-func (conn *Conn) onICEStateDisconnected() {
+func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -430,14 +415,18 @@ func (conn *Conn) onICEStateDisconnected() {
 	if conn.isReadyToUpgrade() {
 		conn.Log.Infof("ICE disconnected, set Relay to active connection")
 		conn.dumpState.SwitchToRelay()
+		if sessionChanged {
+			conn.resetEndpoint()
+		}
+
+		// todo consider to move after the ConfigureWGEndpoint
 		conn.wgProxyRelay.Work()
 
 		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
-		if err := conn.endpointUpdater.ConfigureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
+		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
 
-		conn.wgProxyRelay.Work()
 		conn.currentConnPriority = conntype.Relay
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
@@ -499,20 +488,22 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
-	wgProxy.Work()
-	presharedKey := conn.presharedKey(rci.rosenpassPubKey)
+	controller := isController(conn.config)
 
+	if controller {
+		wgProxy.Work()
+	}
 	conn.enableWgWatcherIfNeeded()
-
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), presharedKey); err != nil {
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey)); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
 		conn.Log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
-
-	wgConfigWorkaround()
+	if !controller {
+		wgProxy.Work()
+	}
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
@@ -664,19 +655,6 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 	}
 }
 
-func (conn *Conn) waitInitialRandomSleepTime(ctx context.Context) {
-	maxWait := 300
-	duration := time.Duration(rand.Intn(maxWait)) * time.Millisecond
-
-	timeout := time.NewTimer(duration)
-	defer timeout.Stop()
-
-	select {
-	case <-ctx.Done():
-	case <-timeout.C:
-	}
-}
-
 func (conn *Conn) isRelayed() bool {
 	switch conn.currentConnPriority {
 	case conntype.Relay, conntype.ICETurn:
@@ -755,6 +733,17 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 		return nil, err
 	}
 	return wgProxy, nil
+}
+
+func (conn *Conn) resetEndpoint() {
+	if !isController(conn.config) {
+		return
+	}
+	conn.Log.Infof("reset wg endpoint")
+	conn.wgWatcher.Reset()
+	if err := conn.endpointUpdater.RemoveEndpointAddress(); err != nil {
+		conn.Log.Warnf("failed to remove endpoint address before update: %v", err)
+	}
 }
 
 func (conn *Conn) isReadyToUpgrade() bool {
@@ -861,10 +850,4 @@ func isController(config ConnConfig) bool {
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
-}
-
-// wgConfigWorkaround is a workaround for the issue with WireGuard configuration update
-// When update a peer configuration in near to each other time, the second update can be ignored by WireGuard
-func wgConfigWorkaround() {
-	time.Sleep(100 * time.Millisecond)
 }

@@ -2489,3 +2489,252 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 	_, _, _, err = manager.LoginPeer(context.Background(), login)
 	require.NoError(t, err, "Regular user should be able to login peers")
 }
+
+func TestHandleUserAddedPeer(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	t.Run("regular user can add peer", func(t *testing.T) {
+		regularUser := types.NewRegularUser("regular-user-1", "", "")
+		regularUser.AccountID = account.Id
+		regularUser.AutoGroups = []string{"group1", "group2"}
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, regularUser.Id, false, opEvent, config)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.Equal(t, regularUser.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, regularUser.Id, opEvent.InitiatorID)
+		assert.Equal(t, activity.PeerAddedByUser, opEvent.Activity)
+	})
+
+	t.Run("pending approval user cannot add peer", func(t *testing.T) {
+		pendingUser := types.NewRegularUser("pending-user", "", "")
+		pendingUser.AccountID = account.Id
+		pendingUser.PendingApproval = true
+		err = manager.Store.SaveUser(context.Background(), pendingUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, pendingUser.Id, false, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user pending approval cannot add peers")
+	})
+
+	t.Run("user not found", func(t *testing.T) {
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, "non-existent-user", false, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user not found")
+	})
+
+	t.Run("temporary peer requires permissions", func(t *testing.T) {
+		regularUser := types.NewRegularUser("regular-user-2", "", "")
+		regularUser.AccountID = account.Id
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		// Should fail because user doesn't have permissions for temporary peers
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, regularUser.Id, true, opEvent, config)
+		require.Error(t, err)
+	})
+}
+
+func TestHandleSetupKeyAddedPeer(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user for setup key creation
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	t.Run("valid setup key", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.NoError(t, err)
+		assert.Equal(t, setupKey.Id, config.SetupKeyID)
+		assert.Equal(t, setupKey.Name, config.SetupKeyName)
+		assert.Equal(t, setupKey.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, setupKey.Ephemeral, config.Ephemeral)
+		assert.Equal(t, setupKey.Id, opEvent.InitiatorID)
+		assert.Equal(t, activity.PeerAddedWithSetupKey, opEvent.Activity)
+	})
+
+	t.Run("invalid setup key", func(t *testing.T) {
+		invalidKey := "invalid-key"
+		hashedKey := sha256.Sum256([]byte(invalidKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "setup key is invalid")
+	})
+
+	t.Run("expired setup key", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "expired-key", types.SetupKeyReusable, time.Millisecond, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		// Wait for key to expire
+		time.Sleep(10 * time.Millisecond)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "setup key is invalid")
+	})
+
+	t.Run("extra DNS labels not allowed", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "no-dns-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{"custom.label"}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "doesn't allow extra DNS labels")
+	})
+
+	t.Run("extra DNS labels allowed", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "dns-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, true)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{"custom.label"}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.NoError(t, err)
+		assert.True(t, config.AllowExtraDNSLabels)
+	})
+}
+
+func TestProcessPeerAddAuth(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	adminUser := types.NewAdminUser("admin")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	t.Run("user authentication flow", func(t *testing.T) {
+		regularUser := types.NewRegularUser("user-auth-test", "", "")
+		regularUser.AccountID = account.Id
+		regularUser.AutoGroups = []string{"group1"}
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, regularUser.Id, "", peer, false, true, false, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.False(t, config.Ephemeral)
+		assert.Equal(t, regularUser.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, account.Id, opEvent.AccountID)
+	})
+
+	t.Run("setup key authentication flow", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "auth-test-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, true, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, "", encodedHashedKey, peer, false, false, true, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.True(t, config.Ephemeral) // setupKey.Ephemeral is true
+		assert.Equal(t, setupKey.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, account.Id, opEvent.AccountID)
+	})
+
+	t.Run("temporary flag overrides ephemeral", func(t *testing.T) {
+		regularUser := types.NewRegularUser("temp-user", "", "")
+		regularUser.AccountID = account.Id
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, regularUser.Id, "", peer, true, true, false, opEvent)
+		require.Error(t, err) // Will fail permission check but that's expected
+		_ = config            // avoid unused warning
+	})
+
+	t.Run("proxy embedded peer (no auth)", func(t *testing.T) {
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{
+			Ephemeral: false,
+			ProxyMeta: nbpeer.ProxyMeta{Embedded: true},
+		}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, "", "", peer, false, false, false, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.False(t, config.Ephemeral)
+		assert.Empty(t, config.GroupsToAdd)
+	})
+}

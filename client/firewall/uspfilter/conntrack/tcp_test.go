@@ -486,8 +486,10 @@ func TestTCPAbnormalSequences(t *testing.T) {
 }
 
 // TestTCPPortReuseTombstone verifies that a new connection on a port with a
-// tombstoned (closed) conntrack entry is properly tracked. A SYN on a
-// tombstoned entry must replace it so that the subsequent SYN-ACK is accepted.
+// tombstoned (closed) conntrack entry is properly tracked. Without the fix,
+// updateIfExists treats tombstoned entries as live, causing track() to skip
+// creating a new connection. The subsequent SYN-ACK then fails IsValidInbound
+// because the entry is tombstoned, and the response packet gets dropped by ACL.
 func TestTCPPortReuseTombstone(t *testing.T) {
 	srcIP := netip.MustParseAddr("100.64.0.1")
 	dstIP := netip.MustParseAddr("100.64.0.2")

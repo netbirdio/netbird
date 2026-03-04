@@ -50,4 +50,3 @@ func contains[T comparableObject[T]](slice []T, element T) bool {
 	}
 	return false
 }
-

@@ -2,6 +2,7 @@
 .run
 *.iml
 dist/
+!proxy/web/dist/
 bin/
 .env
 conf.json

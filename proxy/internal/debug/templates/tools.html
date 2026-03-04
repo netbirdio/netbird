@@ -1,0 +1,142 @@
+{{define "tools"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Client {{.AccountID}} - Tools</title>
+  <style>{{template "style"}}</style>
+</head>
+<body>
+  <h1>Client: {{.AccountID}}</h1>
+  <div class="nav">
+    <a href="/debug">&larr; Back</a>
+    <a href="/debug/clients/{{.AccountID}}/tools" class="active">Tools</a>
+    <a href="/debug/clients/{{.AccountID}}">Status</a>
+    <a href="/debug/clients/{{.AccountID}}/syncresponse">Sync Response</a>
+  </div>
+
+  <h2>Client Control</h2>
+  <div class="form-row">
+    <div class="form-group">
+      <span>&nbsp;</span>
+      <button onclick="startClient()">Start</button>
+    </div>
+    <div class="form-group">
+      <span>&nbsp;</span>
+      <button onclick="stopClient()">Stop</button>
+    </div>
+  </div>
+  <div id="client-result" class="result"></div>
+
+  <h2>Log Level</h2>
+  <div class="form-row">
+    <div class="form-group">
+      <label for="log-level">Level</label>
+      <select id="log-level" style="width: 120px;">
+        <option value="trace">trace</option>
+        <option value="debug">debug</option>
+        <option value="info">info</option>
+        <option value="warn" selected>warn</option>
+        <option value="error">error</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <span>&nbsp;</span>
+      <button onclick="setLogLevel()">Set Level</button>
+    </div>
+  </div>
+  <div id="log-result" class="result"></div>
+
+  <h2>TCP Ping</h2>
+  <div class="form-row">
+    <div class="form-group">
+      <label for="tcp-host">Host</label>
+      <input type="text" id="tcp-host" placeholder="100.0.0.1 or hostname.netbird.cloud" style="width: 300px;">
+    </div>
+    <div class="form-group">
+      <label for="tcp-port">Port</label>
+      <input type="number" id="tcp-port" placeholder="80" style="width: 80px;">
+    </div>
+    <div class="form-group">
+      <span>&nbsp;</span>
+      <button onclick="doTcpPing()">Connect</button>
+    </div>
+  </div>
+  <div id="tcp-result" class="result"></div>
+
+  <script>
+    const accountID = "{{.AccountID}}";
+
+    async function startClient() {
+        const resultDiv = document.getElementById('client-result');
+        resultDiv.innerHTML = '<span class="info">Starting client...</span>';
+        try {
+            const resp = await fetch('/debug/clients/' + accountID + '/start');
+            const data = await resp.json();
+            if (data.success) {
+                resultDiv.innerHTML = '<span class="success">✓ ' + data.message + '</span>';
+            } else {
+                resultDiv.innerHTML = '<span class="error">✗ ' + data.error + '</span>';
+            }
+        } catch (e) {
+            resultDiv.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        }
+    }
+
+    async function stopClient() {
+        const resultDiv = document.getElementById('client-result');
+        resultDiv.innerHTML = '<span class="info">Stopping client...</span>';
+        try {
+            const resp = await fetch('/debug/clients/' + accountID + '/stop');
+            const data = await resp.json();
+            if (data.success) {
+                resultDiv.innerHTML = '<span class="success">✓ ' + data.message + '</span>';
+            } else {
+                resultDiv.innerHTML = '<span class="error">✗ ' + data.error + '</span>';
+            }
+        } catch (e) {
+            resultDiv.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        }
+    }
+
+    async function setLogLevel() {
+        const level = document.getElementById('log-level').value;
+        const resultDiv = document.getElementById('log-result');
+        resultDiv.innerHTML = '<span class="info">Setting log level...</span>';
+        try {
+            const resp = await fetch('/debug/clients/' + accountID + '/loglevel?level=' + level);
+            const data = await resp.json();
+            if (data.success) {
+                resultDiv.innerHTML = '<span class="success">✓ Log level set to: ' + data.level + '</span>';
+            } else {
+                resultDiv.innerHTML = '<span class="error">✗ ' + data.error + '</span>';
+            }
+        } catch (e) {
+            resultDiv.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        }
+    }
+
+    async function doTcpPing() {
+        const host = document.getElementById('tcp-host').value;
+        const port = document.getElementById('tcp-port').value;
+        if (!host || !port) {
+            alert('Host and port required');
+            return;
+        }
+        const resultDiv = document.getElementById('tcp-result');
+        resultDiv.innerHTML = '<span class="info">Connecting...</span>';
+        try {
+            const resp = await fetch('/debug/clients/' + accountID + '/pingtcp?host=' + encodeURIComponent(host) + '&port=' + port);
+            const data = await resp.json();
+            if (data.success) {
+                resultDiv.innerHTML = '<span class="success">✓ ' + data.host + ':' + data.port + ' connected in ' + data.latency + '</span>';
+            } else {
+                resultDiv.innerHTML = '<span class="error">✗ ' + data.host + ':' + data.port + ': ' + data.error + '</span>';
+            }
+        } catch (e) {
+            resultDiv.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        }
+    }
+  </script>
+</body>
+</html>
+{{end}}
