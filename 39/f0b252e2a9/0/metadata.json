@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "39f0b252e2a9",
+  "session_id": "234e6a5f-73bd-4819-9dcf-9254a5fe0da3",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-04T10:09:54.85448Z",
+  "branch": "fix/selfhosted-idp-metrics-report",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "b8bf8f95-b9b5-4e5e-893e-d40a43a7c7c8",
+  "checkpoint_transcript_start": 289,
+  "transcript_lines_at_start": 289,
+  "token_usage": {
+    "input_tokens": 72,
+    "cache_creation_tokens": 120843,
+    "cache_read_tokens": 5950426,
+    "output_tokens": 19221,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-04T10:09:54.571727Z",
+    "agent_lines": 44,
+    "human_added": 99868,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99912,
+    "agent_percentage": 0.04403875410361118
+  }
+}

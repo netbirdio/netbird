@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "39f0b252e2a9",
+  "strategy": "manual-commit",
+  "branch": "fix/selfhosted-idp-metrics-report",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/39/f0b252e2a9/0/metadata.json",
+      "transcript": "/39/f0b252e2a9/0/full.jsonl",
+      "context": "/39/f0b252e2a9/0/context.md",
+      "content_hash": "/39/f0b252e2a9/0/content_hash.txt",
+      "prompt": "/39/f0b252e2a9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 72,
+    "cache_creation_tokens": 120843,
+    "cache_read_tokens": 5950426,
+    "output_tokens": 19221,
+    "api_call_count": 52
+  }
+}

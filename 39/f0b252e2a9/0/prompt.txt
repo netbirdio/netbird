@@ -1,0 +1,130 @@
+how datadir is used in the combined/
+
+---
+
+add support of providing a file of the sqlite storage if sqlite engine is specified in combined/ for store, authStore and activityStore
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+we need to chevck if teh user provided query params to the file after ?
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+question, do we need to do the query separation for activity store?
+
+---
+
+summarize the changes in a short pr description
+
+---
+
+Verify each finding against the current code and only fix it if needed.
+
+In `@combined/cmd/config.go` around lines 572 - 574, The assignment of
+c.Server.AuthStore.File to authStorageFile should resolve relative paths against
+mgmt.DataDir so the auth DB lives under the management data directory like the
+other sqlite stores; update the logic where authStorageFile is set (referencing
+c.Server.AuthStore.File and authStorageFile) to check if the value is non-empty
+and not an absolute path (use filepath.IsAbs) and if so join it with
+mgmt.DataDir (use filepath.Join and optionally filepath.Clean) before assigning;
+keep absolute paths unchanged.
+
+---
+
+Relative paths like "custom_idp.db" are now resolved against mgmt.DataDir
+
+---
+
+decode this dex user id: REDACTED
+
+---
+
+this one REDACTED and this one e1badda4-2a65-458c-aca0-b32c8e2b8a77
+
+---
+
+[Request interrupted by user]
+
+---
+
+this one REDACTED
+
+---
+
+decode these users, the first column is id: REDACTED|d67qqb69kmnc73b2nbm0|owner|0|0||[]|0|0|2026-02-22 14:49:17.460665591+00:00|2026-02-13 23:01:00.235815714+00:00|api|0||REDACTED|REDACTED
+REDACTED|d67qqb69kmnc73b2nbm0|admin|0|0||[]|0|0||2026-02-13 23:07:34.026260389+00:00|api|0||REDACTED|REDACTED
+REDACTED|d67qqb69kmnc73b2nbm0|admin|0|0||["d67qth69kmnc73b2nli0"]|0|0||2026-02-13 23:12:13.963185087+00:00|api|0||REDACTED|REDACTED
+REDACTED|d67qqb69kmnc73b2nbm0|user|0|0||["d67qth69kmnc73b2nli0"]|0|0||2026-02-13 23:39:32.97851149+00:00|api|0||REDACTED|REDACTED
+REDACTED|d67qqb69kmnc73b2nbm0|admin|0|0||[]|0|0|2026-02-19 09:44:19.187236451+00:00|2026-02-16 18:22:33.166228524+00:00|api|0||REDACTED|REDACTED
+
+---
+
+add the original stored id
+
+---
+
+add a column after decoding base64
+
+---
+
+in the // Returns the type prefix, or "oidc" if no known prefix is found.
+func extractIdpType(connectorID string) string {
+    idx := strings.LastIndex(connectorID, "-")
+    if idx <= 0 {
+        return "oidc"
+    }
+    return strings.ToLower(connectorID[:idx])
+} in management/server/metrics/selfhosted.go I think that we don't count local or maybe counting it wrong. Could you please check it, fix it and add a test?
+
+---
+
+liek before, decode these: REDACTED
+REDACTED
+REDACTED
+REDACTED
+REDACTED
+REDACTED
+
+---
+
+if there is no prefix - this is generic oidc: func generateIdentityProviderID(idpType types.IdentityProviderType) string {
+    id := xid.New().String()
+
+    switch idpType {
+    case types.IdentityProviderTypeOkta:
+        return "okta-" + id
+    case types.IdentityProviderTypeZitadel:
+        return "zitadel-" + id
+    case types.IdentityProviderTypeEntra:
+        return "entra-" + id
+    case types.IdentityProviderTypeGoogle:
+        return "google-" + id
+    case types.IdentityProviderTypePocketID:
+        return "pocketid-" + id
+    case types.IdentityProviderTypeMicrosoft:
+        return "microsoft-" + id
+    case types.IdentityProviderTypeAuthentik:
+        return "authentik-" + id
+    case types.IdentityProviderTypeKeycloak:
+        return "keycloak-" + id
+    default:
+        // Generic OIDC - no prefix
+        return id
+    }
+}
+
+---
+
+you need to test generateProperties() with real dex-encoded userids too
+
+---
+
+create a pr description and a title
