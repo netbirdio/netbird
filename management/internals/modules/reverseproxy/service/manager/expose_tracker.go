@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"math/rand/v2"
 	"time"
 
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -22,6 +23,10 @@ type exposeReaper struct {
 // StartExposeReaper starts a background goroutine that reaps expired ephemeral services from the DB.
 func (r *exposeReaper) StartExposeReaper(ctx context.Context) {
 	go func() {
+		// start with a random delay
+		rn := rand.IntN(10)
+		time.Sleep(time.Duration(rn) * time.Second)
+
 		ticker := time.NewTicker(exposeReapInterval)
 		defer ticker.Stop()
 
