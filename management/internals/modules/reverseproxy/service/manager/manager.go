@@ -221,6 +221,14 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, servi
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		// Lock the peer row to serialize concurrent creates for the same peer.
+		// Without this, when no ephemeral rows exist yet, FOR UPDATE on the services
+		// table returns no rows and acquires no locks, allowing concurrent inserts
+		// to bypass the per-peer limit.
+		if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID); err != nil {
+			return fmt.Errorf("lock peer row: %w", err)
+		}
+
 		exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
 		if err != nil {
 			return fmt.Errorf("check existing expose: %w", err)

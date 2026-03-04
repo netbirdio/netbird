@@ -47,14 +47,13 @@ func (r *exposeReaper) reapExpiredExposes(ctx context.Context) {
 		log.Infof("reaping expired expose session for peer %s, domain %s", svc.SourcePeer, svc.Domain)
 
 		err := r.manager.deleteExpiredPeerService(ctx, svc.AccountID, svc.SourcePeer, svc.ID)
-		s, _ := status.FromError(err)
+		if err == nil {
+			continue
+		}
 
-		switch {
-		case err == nil:
-			// successfully deleted
-		case s.ErrorType == status.NotFound:
+		if s, ok := status.FromError(err); ok && s.ErrorType == status.NotFound {
 			log.Debugf("service %s was already deleted by another instance", svc.Domain)
-		default:
+		} else {
 			log.Errorf("failed to delete expired peer-exposed service for domain %s: %v", svc.Domain, err)
 		}
 	}
