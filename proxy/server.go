@@ -200,10 +200,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			http.ServeFile(w, r, staticFile)
 		})
 		testServer := &http.Server{
-			Addr:    "127.0.0.1:9999",
+			Addr:    "0.0.0.0:9999",
 			Handler: fileServerMux,
 		}
-		s.Logger.Info("Started test file server on http://127.0.0.1:9999/")
+		s.Logger.Info("Started test file server on http://0.0.0.0:9999/")
 		if err := testServer.ListenAndServe(); err != nil {
 			s.Logger.Warnf("Test file server error: %v", err)
 		}
