@@ -4274,7 +4274,6 @@ components:
           example: true
       required:
         - type
-        - target
         - event_types
         - enabled
     NotificationChannelResponse:
@@ -4309,7 +4308,6 @@ components:
       required:
         - id
         - type
-        - target
         - event_types
         - enabled
     NotificationTypeEntry:
