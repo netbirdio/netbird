@@ -271,6 +271,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 			"/": testURL,
 		},
 	})
+	if s.acme != nil {
+		s.acme.AddDomain(domain.Domain(hostDomain), "test-account", "test-static-file")
+	}
 	s.Logger.Info("Added static test mapping: %s/* -> local test file server (bypassing NetBird tunnel)", hostDomain)
 
 	select {
