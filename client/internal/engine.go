@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -228,6 +229,7 @@ type Engine struct {
 
 	exposeManager *expose.Manager
 	certManager   *cert.Manager
+	certRenewing  atomic.Bool
 }
 
 // Peer is an instance of the Connection Peer
@@ -423,7 +425,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
 	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
-	e.startCertRenewalLoop()
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -561,6 +562,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 			log.Warnf("WireGuard interface monitor: %s", err)
 		}
 	}()
+
+	e.startCertRenewalLoop()
 
 	return nil
 }
@@ -2118,6 +2121,12 @@ func (e *Engine) renewCertificate(trigger string) {
 		return
 	}
 
+	if !e.certRenewing.CompareAndSwap(false, true) {
+		log.Debugf("cert renewal (%s): already in progress, skipping", trigger)
+		return
+	}
+	defer e.certRenewing.Store(false)
+
 	fqdn := e.statusRecorder.GetLocalPeerState().FQDN
 	if fqdn == "" {
 		log.Warnf("cert renewal (%s): FQDN not available", trigger)
@@ -2130,7 +2139,18 @@ func (e *Engine) renewCertificate(trigger string) {
 		return
 	}
 
-	csrDER, err := e.certManager.CreateCSR(key, fqdn, false)
+	// Detect if the existing cert is a wildcard so we preserve it on renewal
+	isWildcard := false
+	if existing, loadErr := e.certManager.LoadCert(); loadErr == nil {
+		for _, name := range existing.DNSNames {
+			if strings.HasPrefix(name, "*.") {
+				isWildcard = true
+				break
+			}
+		}
+	}
+
+	csrDER, err := e.certManager.CreateCSR(key, fqdn, isWildcard)
 	if err != nil {
 		log.Warnf("cert renewal (%s): create CSR: %v", trigger, err)
 		return
@@ -2139,7 +2159,7 @@ func (e *Engine) renewCertificate(trigger string) {
 	signCtx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
 	defer cancel()
 
-	signResp, err := e.mgmClient.SignCertificate(signCtx, csrDER, mgmProto.CertSigningType_CERT_SIGNING_INTERNAL, false)
+	signResp, err := e.mgmClient.SignCertificate(signCtx, csrDER, mgmProto.CertSigningType_CERT_SIGNING_INTERNAL, isWildcard)
 	if err != nil {
 		log.Warnf("cert renewal (%s): sign certificate: %v", trigger, err)
 		e.statusRecorder.PublishEvent(cProto.SystemEvent_WARNING, cProto.SystemEvent_SYSTEM, "Certificate renewal failed", err.Error(), nil)

@@ -34,7 +34,10 @@ func (a *CertificateAuthorityAPI) InitCA(ctx context.Context) (*api.CACertificat
 		defer resp.Body.Close()
 	}
 	ret, err := parseResponse[api.CACertificateResponse](resp)
-	return &ret, err
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
 }
 
 // GetCA get CA certificate detail
@@ -47,7 +50,10 @@ func (a *CertificateAuthorityAPI) GetCA(ctx context.Context, caID string) (*api.
 		defer resp.Body.Close()
 	}
 	ret, err := parseResponse[api.CACertificateResponse](resp)
-	return &ret, err
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
 }
 
 // DeactivateCA deactivate a CA certificate
@@ -73,7 +79,10 @@ func (a *CertificateAuthorityAPI) RotateCA(ctx context.Context) (*api.CACertific
 		defer resp.Body.Close()
 	}
 	ret, err := parseResponse[api.CACertificateResponse](resp)
-	return &ret, err
+	if err != nil {
+		return nil, err
+	}
+	return &ret, nil
 }
 
 // ListIssuedCertificates list issued certificates, optionally filtered by peer ID

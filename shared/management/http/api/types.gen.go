@@ -82,6 +82,16 @@ const (
 	EventActivityCodeAccountSettingRoutingPeerDnsResolutionDisable EventActivityCode = "account.setting.routing.peer.dns.resolution.disable"
 	EventActivityCodeAccountSettingRoutingPeerDnsResolutionEnable  EventActivityCode = "account.setting.routing.peer.dns.resolution.enable"
 	EventActivityCodeAccountSettingsAutoVersionUpdate              EventActivityCode = "account.settings.auto.version.update"
+	EventActivityCodeCertificateAuthorityCreate                    EventActivityCode = "certificate.authority.create"
+	EventActivityCodeCertificateAuthorityDeactivate                EventActivityCode = "certificate.authority.deactivate"
+	EventActivityCodeCertificateAuthorityRotate                    EventActivityCode = "certificate.authority.rotate"
+	EventActivityCodeCertificateExpired                            EventActivityCode = "certificate.expired"
+	EventActivityCodeCertificateExpiring                           EventActivityCode = "certificate.expiring"
+	EventActivityCodeCertificateIssue                              EventActivityCode = "certificate.issue"
+	EventActivityCodeCertificateRateLimit                          EventActivityCode = "certificate.rate.limit"
+	EventActivityCodeCertificateRenew                              EventActivityCode = "certificate.renew"
+	EventActivityCodeCertificateRevoke                             EventActivityCode = "certificate.revoke"
+	EventActivityCodeCertificateWildcardIssue                      EventActivityCode = "certificate.wildcard.issue"
 	EventActivityCodeDashboardLogin                                EventActivityCode = "dashboard.login"
 	EventActivityCodeDnsSettingDisabledManagementGroupAdd          EventActivityCode = "dns.setting.disabled.management.group.add"
 	EventActivityCodeDnsSettingDisabledManagementGroupDelete       EventActivityCode = "dns.setting.disabled.management.group.delete"
@@ -217,6 +227,26 @@ func (e EventActivityCode) Valid() bool {
 	case EventActivityCodeAccountSettingRoutingPeerDnsResolutionEnable:
 		return true
 	case EventActivityCodeAccountSettingsAutoVersionUpdate:
+		return true
+	case EventActivityCodeCertificateAuthorityCreate:
+		return true
+	case EventActivityCodeCertificateAuthorityDeactivate:
+		return true
+	case EventActivityCodeCertificateAuthorityRotate:
+		return true
+	case EventActivityCodeCertificateExpired:
+		return true
+	case EventActivityCodeCertificateExpiring:
+		return true
+	case EventActivityCodeCertificateIssue:
+		return true
+	case EventActivityCodeCertificateRateLimit:
+		return true
+	case EventActivityCodeCertificateRenew:
+		return true
+	case EventActivityCodeCertificateRevoke:
+		return true
+	case EventActivityCodeCertificateWildcardIssue:
 		return true
 	case EventActivityCodeDashboardLogin:
 		return true

@@ -350,6 +350,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			newSettings.Extra = oldSettings.Extra
 		}
 
+		// Preserve internal-only CA settings not exposed in the API schema.
+		// These are managed by the CA handler endpoints, not the account update.
+		newSettings.CertificateAuthorityEnabled = oldSettings.CertificateAuthorityEnabled
+		newSettings.CertCAValidity = oldSettings.CertCAValidity
+		newSettings.CertCADisplayName = oldSettings.CertCADisplayName
+		newSettings.CertCAOrganization = oldSettings.CertCAOrganization
+		newSettings.CertDefaultValidity = oldSettings.CertDefaultValidity
+		newSettings.CertRateLimitPerPeer = oldSettings.CertRateLimitPerPeer
+		newSettings.CertACMEEnabled = oldSettings.CertACMEEnabled
+		newSettings.CertACMECAURL = oldSettings.CertACMECAURL
+
 		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
 			return err
 		}

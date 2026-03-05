@@ -138,11 +138,13 @@ func certTrustCAFn(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("trust CA: %v", status.Convert(err).Message())
 	}
 
-	if resp.Success {
-		cmd.Printf("CA certificate(s) installed into OS trust store\n")
-		for _, fp := range resp.CaFingerprints {
-			cmd.Printf("  Fingerprint: %s\n", fp)
-		}
+	if !resp.Success {
+		return fmt.Errorf("trust CA failed")
+	}
+
+	cmd.Printf("CA certificate(s) installed into OS trust store\n")
+	for _, fp := range resp.CaFingerprints {
+		cmd.Printf("  Fingerprint: %s\n", fp)
 	}
 
 	return nil
@@ -161,9 +163,10 @@ func certUntrustCAFn(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("untrust CA: %v", status.Convert(err).Message())
 	}
 
-	if resp.Success {
-		cmd.Println("CA certificate(s) removed from OS trust store")
+	if !resp.Success {
+		return fmt.Errorf("untrust CA failed")
 	}
 
+	cmd.Println("CA certificate(s) removed from OS trust store")
 	return nil
 }

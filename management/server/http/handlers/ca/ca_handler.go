@@ -2,6 +2,8 @@ package ca
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -81,7 +83,11 @@ func (h *handler) initCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := parseCAOptions(r)
+	opts, err := parseCAOptions(r)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
 	caCert, err := h.caManager.InitForAccount(r.Context(), accountID, dnsDomain, opts)
 	if err != nil {
@@ -93,10 +99,15 @@ func (h *handler) initCA(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.accountManager.GetStore().GetAccountSettings(r.Context(), store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to get account settings for CA enable: %v", err)
-	} else if !settings.CertificateAuthorityEnabled {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	if !settings.CertificateAuthorityEnabled {
 		settings.CertificateAuthorityEnabled = true
 		if saveErr := h.accountManager.GetStore().SaveAccountSettings(r.Context(), accountID, settings); saveErr != nil {
 			log.WithContext(r.Context()).Errorf("failed to enable certificate authority in account settings: %v", saveErr)
+			util.WriteError(r.Context(), saveErr, w)
+			return
 		}
 	}
 
@@ -165,7 +176,11 @@ func (h *handler) rotateCA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := parseCAOptions(r)
+	opts, err := parseCAOptions(r)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
 
 	caCert, err := h.caManager.RotateCA(r.Context(), accountID, dnsDomain, opts)
 	if err != nil {
@@ -268,9 +283,11 @@ func (h *handler) getAccountDNSDomain(r *http.Request, accountID string) (string
 
 // parseCAOptions extracts optional CA configuration from the request body.
 // An empty or missing body is valid — all fields fall back to defaults.
-func parseCAOptions(r *http.Request) nbca.CAOptions {
+func parseCAOptions(r *http.Request) (nbca.CAOptions, error) {
 	var req api.CAInitRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return nbca.CAOptions{}, status.Errorf(status.InvalidArgument, "invalid request body: %v", err)
+	}
 
 	opts := nbca.CAOptions{}
 	if req.DisplayName != nil {
@@ -282,7 +299,7 @@ func parseCAOptions(r *http.Request) nbca.CAOptions {
 	if req.ValidityDays != nil {
 		opts.Validity = time.Duration(*req.ValidityDays) * 24 * time.Hour
 	}
-	return opts
+	return opts, nil
 }
 
 func toCACertificateResponse(c *nbca.CACertificate, includePEM bool) api.CACertificateResponse {

@@ -96,6 +96,10 @@ func (s *Server) RequestCertificate(ctx context.Context, req *proto.CertificateR
 		chainPEM = signResp.InternalChainPem
 	}
 
+	if len(certPEM) == 0 {
+		return nil, gstatus.Errorf(codes.Internal, "sign certificate: empty certificate returned")
+	}
+
 	if err := s.certManager.StoreCert(certPEM, chainPEM, keyPEM); err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "store certificate: %v", err)
 	}

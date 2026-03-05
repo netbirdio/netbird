@@ -103,6 +103,13 @@ func (s *InternalCASigner) Sign(ctx context.Context, csr *x509.CertificateReques
 	}
 
 	now := time.Now().UTC()
+	notAfter := now.Add(s.validity)
+	if notAfter.After(s.caCert.NotAfter) {
+		notAfter = s.caCert.NotAfter
+	}
+	if !notAfter.After(now) {
+		return nil, fmt.Errorf("CA certificate is expired or has insufficient remaining validity")
+	}
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -110,7 +117,7 @@ func (s *InternalCASigner) Sign(ctx context.Context, csr *x509.CertificateReques
 		},
 		DNSNames:  dnsNames,
 		NotBefore: now,
-		NotAfter:  now.Add(s.validity),
+		NotAfter:  notAfter,
 		KeyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageServerAuth,
@@ -191,7 +198,8 @@ func GenerateCA(dnsDomain string, opts CAOptions) (*GenerateCAResult, error) {
 
 	// Generate a short unique suffix from the serial number for default names.
 	// This helps distinguish multiple CA instances on the same domain.
-	suffix := fmt.Sprintf("%06x", serialNumber.Bytes()[:3])
+	serialBytes := serialNumber.FillBytes(make([]byte, 16))
+	suffix := fmt.Sprintf("%06x", serialBytes[:3])
 
 	var cn string
 	if opts.DisplayName != "" {
@@ -224,7 +232,8 @@ func GenerateCA(dnsDomain string, opts CAOptions) (*GenerateCAResult, error) {
 		IsCA:                  true,
 		MaxPathLen:            0,
 		MaxPathLenZero:        true,
-		PermittedDNSDomains:   []string{"." + dnsDomain, dnsDomain},
+		PermittedDNSDomainsCritical: true,
+		PermittedDNSDomains:         []string{"." + dnsDomain, dnsDomain},
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
@@ -268,9 +277,9 @@ func (s *InternalCASigner) validateCSRNames(csr *x509.CertificateRequest, peerFQ
 		return fmt.Errorf("CSR must contain at least one DNS name")
 	}
 
-	expectedNames := map[string]bool{peerFQDN: true}
+	expectedNames := map[string]bool{strings.ToLower(peerFQDN): true}
 	if wildcard {
-		expectedNames["*."+peerFQDN] = true
+		expectedNames["*."+strings.ToLower(peerFQDN)] = true
 	}
 
 	for _, name := range csr.DNSNames {

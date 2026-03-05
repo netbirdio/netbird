@@ -67,8 +67,19 @@ func (s *Server) SignCertificate(ctx context.Context, req *proto.EncryptedMessag
 		return nil, status.Errorf(codes.FailedPrecondition, "peer has no FQDN configured")
 	}
 
-	if len(csr.DNSNames) == 0 || csr.DNSNames[0] != peerFQDN {
-		return nil, status.Errorf(codes.InvalidArgument, "CSR FQDN does not match peer FQDN %q", peerFQDN)
+	// Enforce exact SAN allowlist: the CSR must contain only the peer's FQDN
+	// and, if wildcard is requested, the wildcard form. No extra SANs allowed.
+	expected := map[string]struct{}{peerFQDN: {}}
+	if wildcard {
+		expected["*."+peerFQDN] = struct{}{}
+	}
+	if len(csr.DNSNames) != len(expected) {
+		return nil, status.Errorf(codes.InvalidArgument, "CSR SAN set is invalid for peer FQDN %q", peerFQDN)
+	}
+	for _, name := range csr.DNSNames {
+		if _, ok := expected[name]; !ok {
+			return nil, status.Errorf(codes.InvalidArgument, "CSR SAN %q is not allowed", name)
+		}
 	}
 
 	signingType := certSigningTypeToString(signReq.SigningType)

@@ -5374,12 +5374,14 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to save proxy")
 // CreateCACertificate persists a new CA certificate in the database.
+// A copy is made before encryption to avoid mutating the caller's struct.
 func (s *SqlStore) CreateCACertificate(ctx context.Context, caCert *ca.CACertificate) error {
-	if err := caCert.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+	caCopy := *caCert
+	if err := caCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt CA certificate: %w", err)
 	}
 
-	result := s.db.Create(caCert)
+	result := s.db.Create(&caCopy)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create CA certificate in store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to create CA certificate in store")

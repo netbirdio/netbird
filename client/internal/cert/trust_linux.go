@@ -89,15 +89,33 @@ func IsCATrusted(caPEM []byte) bool {
 	return err == nil
 }
 
+// resolveCmd tries known absolute paths before falling back to LookPath,
+// which may fail in restricted daemon/service environments where /usr/sbin
+// is not in PATH.
+func resolveCmd(name string) (string, error) {
+	candidates := []string{
+		"/usr/sbin/" + name,
+		"/usr/bin/" + name,
+		"/sbin/" + name,
+		"/bin/" + name,
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && st.Mode().Perm()&0111 != 0 {
+			return p, nil
+		}
+	}
+	return exec.LookPath(name)
+}
+
 func detectDistro() (certDir, updateCmd string, err error) {
 	if _, err := os.Stat(debianCertDir); err == nil {
-		if _, err := exec.LookPath(debianUpdateCmd); err == nil {
-			return debianCertDir, debianUpdateCmd, nil
+		if cmd, err := resolveCmd(debianUpdateCmd); err == nil {
+			return debianCertDir, cmd, nil
 		}
 	}
 	if _, err := os.Stat(rhelCertDir); err == nil {
-		if _, err := exec.LookPath(rhelUpdateCmd); err == nil {
-			return rhelCertDir, rhelUpdateCmd, nil
+		if cmd, err := resolveCmd(rhelUpdateCmd); err == nil {
+			return rhelCertDir, cmd, nil
 		}
 	}
 	return "", "", fmt.Errorf("unsupported Linux distribution: neither %s nor %s found", debianUpdateCmd, rhelUpdateCmd)

@@ -481,7 +481,12 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 func (c *ConnectClient) SetCertManager(m *cert.Manager) {
 	c.engineMutex.Lock()
 	c.certManager = m
+	engine := c.engine
 	c.engineMutex.Unlock()
+
+	if engine != nil {
+		engine.SetCertManager(m)
+	}
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig

@@ -117,7 +117,11 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
 
-	certDir := filepath.Join(profilemanager.DefaultConfigPathDir, "certs")
+	certBaseDir := profilemanager.DefaultConfigPathDir
+	if configFile != "" {
+		certBaseDir = filepath.Dir(configFile)
+	}
+	certDir := filepath.Join(certBaseDir, "certs")
 	certMgr, err := cert.NewManager(certDir)
 	if err != nil {
 		log.Warnf("failed to initialize certificate manager: %v", err)

@@ -90,6 +90,10 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 // SignCertificate signs a CSR using the specified backend and records the issuance.
 // Decryption of CA private keys is handled transparently by the store layer.
 func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string, validity time.Duration) (*SigningResult, *IssuedCertificate, error) {
+	if csr == nil {
+		return nil, nil, fmt.Errorf("csr is required")
+	}
+
 	if signingType == SigningTypeACME {
 		signer, ok := m.signers[SigningTypeACME]
 		if !ok {
@@ -100,10 +104,10 @@ func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string,
 		return result, nil, err
 	}
 
-	peerFQDN := ""
-	if len(csr.DNSNames) > 0 {
-		peerFQDN = csr.DNSNames[0]
+	if len(csr.DNSNames) == 0 {
+		return nil, nil, fmt.Errorf("csr must include at least one DNS SAN")
 	}
+	peerFQDN := csr.DNSNames[0]
 
 	activeCAs, err := m.store.GetActiveCACertificates(ctx, accountID)
 	if err != nil {

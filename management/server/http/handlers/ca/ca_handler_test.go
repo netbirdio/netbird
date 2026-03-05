@@ -148,6 +148,11 @@ func (m *mockStoreForSettings) GetAccountSettings(_ context.Context, _ store.Loc
 	return m.settings, nil
 }
 
+func (m *mockStoreForSettings) SaveAccountSettings(_ context.Context, _ string, settings *types.Settings) error {
+	m.settings = settings
+	return nil
+}
+
 func setupTestHandler(t *testing.T, allowPermission bool) (*handler, *mockCAStore) {
 	t.Helper()
 

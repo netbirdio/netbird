@@ -155,7 +155,12 @@ func (m *Manager) FQDNChanged(currentFQDN string) bool {
 	if len(cert.DNSNames) == 0 {
 		return true
 	}
-	return cert.DNSNames[0] != currentFQDN
+	for _, name := range cert.DNSNames {
+		if name == currentFQDN {
+			return false
+		}
+	}
+	return true
 }
 
 // loadCert is the internal unlocked version of LoadCert. Callers must hold mu.

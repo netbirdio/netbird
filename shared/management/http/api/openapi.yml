@@ -2308,7 +2308,11 @@ components:
             "peer.job.create",
             "user.password.change",
             "user.invite.link.create", "user.invite.link.accept", "user.invite.link.regenerate", "user.invite.link.delete",
-            "service.create", "service.update", "service.delete"
+            "service.create", "service.update", "service.delete",
+            "certificate.authority.create", "certificate.authority.rotate", "certificate.authority.deactivate",
+            "certificate.issue", "certificate.renew", "certificate.revoke",
+            "certificate.expiring", "certificate.expired", "certificate.rate.limit",
+            "certificate.wildcard.issue"
           ]
           example: route.add
         initiator_id:
@@ -4243,12 +4247,16 @@ components:
         display_name:
           description: Display name for the CA certificate CommonName. Defaults to "{domain} Internal CA ({suffix})"
           type: string
+          maxLength: 64
         organization:
           description: Organization name for the CA certificate. Defaults to "NetBird Self-Hosted"
           type: string
+          maxLength: 64
         validity_days:
           description: CA certificate validity in days. Defaults to 3650 (~10 years)
           type: integer
+          minimum: 1
+          maximum: 36500
     CACertificateResponse:
       type: object
       description: A certificate authority certificate
