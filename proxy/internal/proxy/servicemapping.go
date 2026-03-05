@@ -6,21 +6,41 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
+
+// PathRewriteMode controls how the request path is rewritten before forwarding.
+type PathRewriteMode int
+
+const (
+	// PathRewriteDefault strips the matched prefix and joins with the target path.
+	PathRewriteDefault PathRewriteMode = iota
+	// PathRewritePreserve keeps the full original request path as-is.
+	PathRewritePreserve
+)
+
+// PathTarget holds a backend URL and per-target behavioral options.
+type PathTarget struct {
+	URL            *url.URL
+	SkipTLSVerify  bool
+	RequestTimeout time.Duration
+	PathRewrite    PathRewriteMode
+	CustomHeaders  map[string]string
+}
 
 type Mapping struct {
 	ID               string
 	AccountID        types.AccountID
 	Host             string
-	Paths            map[string]*url.URL
+	Paths            map[string]*PathTarget
 	PassHostHeader   bool
 	RewriteRedirects bool
 }
 
 type targetResult struct {
-	url              *url.URL
+	target           *PathTarget
 	matchedPath      string
 	serviceID        string
 	accountID        types.AccountID
@@ -55,10 +75,14 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 
 	for _, path := range paths {
 		if strings.HasPrefix(req.URL.Path, path) {
-			target := m.Paths[path]
-			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, target)
+			pt := m.Paths[path]
+			if pt == nil || pt.URL == nil {
+				p.logger.Warnf("invalid mapping for host: %s, path: %s (nil target)", host, path)
+				continue
+			}
+			p.logger.Debugf("matched host: %s, path: %s -> %s", host, path, pt.URL)
 			return targetResult{
-				url:              target,
+				target:           pt,
 				matchedPath:      path,
 				serviceID:        m.ID,
 				accountID:        m.AccountID,

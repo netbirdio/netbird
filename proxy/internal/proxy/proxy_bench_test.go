@@ -28,10 +28,12 @@ func BenchmarkServeHTTP(b *testing.B) {
 		ID:        rand.Text(),
 		AccountID: types.AccountID(rand.Text()),
 		Host:      "app.example.com",
-		Paths: map[string]*url.URL{
+		Paths: map[string]*proxy.PathTarget{
 			"/": {
-				Scheme: "http",
-				Host:   "10.0.0.1:8080",
+				URL: &url.URL{
+					Scheme: "http",
+					Host:   "10.0.0.1:8080",
+				},
 			},
 		},
 	})
@@ -67,10 +69,12 @@ func BenchmarkServeHTTPHostCount(b *testing.B) {
 					ID:        id,
 					AccountID: types.AccountID(rand.Text()),
 					Host:      host,
-					Paths: map[string]*url.URL{
+					Paths: map[string]*proxy.PathTarget{
 						"/": {
-							Scheme: "http",
-							Host:   "10.0.0.1:8080",
+							URL: &url.URL{
+								Scheme: "http",
+								Host:   "10.0.0.1:8080",
+							},
 						},
 					},
 				})
@@ -100,15 +104,17 @@ func BenchmarkServeHTTPPathCount(b *testing.B) {
 				b.Fatal(err)
 			}
 
-			paths := make(map[string]*url.URL, pathCount)
+			paths := make(map[string]*proxy.PathTarget, pathCount)
 			for i := range pathCount {
 				path := "/" + rand.Text()
 				if int64(i) == targetIndex.Int64() {
 					target = path
 				}
-				paths[path] = &url.URL{
-					Scheme: "http",
-					Host:   "10.0.0.1:" + fmt.Sprintf("%d", 8080+i),
+				paths[path] = &proxy.PathTarget{
+					URL: &url.URL{
+						Scheme: "http",
+						Host:   "10.0.0.1:" + fmt.Sprintf("%d", 8080+i),
+					},
 				}
 			}
 			rp.AddMapping(proxy.Mapping{
