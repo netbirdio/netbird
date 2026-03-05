@@ -73,7 +73,10 @@ func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	service := new(rpservice.Service)
-	service.FromAPIRequest(&req, userAuth.AccountId)
+	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
+		return
+	}
 
 	if err = service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
@@ -132,7 +135,10 @@ func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
 
 	service := new(rpservice.Service)
 	service.ID = serviceID
-	service.FromAPIRequest(&req, userAuth.AccountId)
+	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
+		return
+	}
 
 	if err = service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)

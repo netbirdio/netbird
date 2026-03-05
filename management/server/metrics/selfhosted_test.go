@@ -29,6 +29,7 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 	localUserID := dex.EncodeDexUserID("10", "local")
 	idpUserID := dex.EncodeDexUserID("20", "zitadel-d5uv82dra0haedlf6kv0")
+	oidcUserID := dex.EncodeDexUserID("30", "d6jvvp69kmnc73c9pl40")
 	return []*types.Account{
 		{
 			Id:       "1",
@@ -206,6 +207,13 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 						"1": {},
 					},
 				},
+				oidcUserID: {
+					Id:            oidcUserID,
+					IsServiceUser: false,
+					PATs: map[string]*types.PersonalAccessToken{
+						"1": {},
+					},
+				},
 			},
 			Networks: []*networkTypes.Network{
 				{
@@ -278,14 +286,14 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["rules"] != 4 {
 		t.Errorf("expected 4 rules, got %d", properties["rules"])
 	}
-	if properties["users"] != 2 {
-		t.Errorf("expected 1 users, got %d", properties["users"])
+	if properties["users"] != 3 {
+		t.Errorf("expected 3 users, got %d", properties["users"])
 	}
 	if properties["setup_keys_usage"] != 2 {
 		t.Errorf("expected 1 setup_keys_usage, got %d", properties["setup_keys_usage"])
 	}
-	if properties["pats"] != 4 {
-		t.Errorf("expected 4 personal_access_tokens, got %d", properties["pats"])
+	if properties["pats"] != 5 {
+		t.Errorf("expected 5 personal_access_tokens, got %d", properties["pats"])
 	}
 	if properties["peers_ssh_enabled"] != 2 {
 		t.Errorf("expected 2 peers_ssh_enabled, got %d", properties["peers_ssh_enabled"])
@@ -369,14 +377,20 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["local_users_count"] != 1 {
 		t.Errorf("expected 1 local_users_count, got %d", properties["local_users_count"])
 	}
-	if properties["idp_users_count"] != 1 {
-		t.Errorf("expected 1 idp_users_count, got %d", properties["idp_users_count"])
+	if properties["idp_users_count"] != 2 {
+		t.Errorf("expected 2 idp_users_count, got %d", properties["idp_users_count"])
+	}
+	if properties["embedded_idp_users_local"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_local, got %v", properties["embedded_idp_users_local"])
 	}
 	if properties["embedded_idp_users_zitadel"] != 1 {
 		t.Errorf("expected 1 embedded_idp_users_zitadel, got %v", properties["embedded_idp_users_zitadel"])
 	}
-	if properties["embedded_idp_count"] != 1 {
-		t.Errorf("expected 1 embedded_idp_count, got %v", properties["embedded_idp_count"])
+	if properties["embedded_idp_users_oidc"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_oidc, got %v", properties["embedded_idp_users_oidc"])
+	}
+	if properties["embedded_idp_count"] != 3 {
+		t.Errorf("expected 3 embedded_idp_count, got %v", properties["embedded_idp_count"])
 	}
 
 	if properties["services"] != 2 {
@@ -436,7 +450,8 @@ func TestExtractIdpType(t *testing.T) {
 		{"microsoft-abc123", "microsoft"},
 		{"authentik-abc123", "authentik"},
 		{"keycloak-d5uv82dra0haedlf6kv0", "keycloak"},
-		{"local", "oidc"},
+		{"local", "local"},
+		{"d6jvvp69kmnc73c9pl40", "oidc"},
 		{"", "oidc"},
 	}
 

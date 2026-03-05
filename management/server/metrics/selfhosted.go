@@ -294,9 +294,9 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 							localUsers++
 						} else {
 							idpUsers++
-							idpType := extractIdpType(idpID)
-							embeddedIdpTypes[idpType]++
 						}
+						idpType := extractIdpType(idpID)
+						embeddedIdpTypes[idpType]++
 					}
 				}
 			}
@@ -531,6 +531,9 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 // Connector IDs are formatted as "<type>-<xid>" (e.g., "okta-abc123", "zitadel-xyz").
 // Returns the type prefix, or "oidc" if no known prefix is found.
 func extractIdpType(connectorID string) string {
+	if connectorID == "local" {
+		return "local"
+	}
 	idx := strings.LastIndex(connectorID, "-")
 	if idx <= 0 {
 		return "oidc"

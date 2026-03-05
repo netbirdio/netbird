@@ -326,6 +326,11 @@ const (
 	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
 )
 
+// Defines values for ServiceTargetOptionsPathRewrite.
+const (
+	ServiceTargetOptionsPathRewritePreserve ServiceTargetOptionsPathRewrite = "preserve"
+)
+
 // Defines values for TenantResponseStatus.
 const (
 	TenantResponseStatusActive   TenantResponseStatus = "active"
@@ -365,6 +370,27 @@ const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
 	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
 	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
+)
+
+// Defines values for GetApiEventsProxyParamsSortBy.
+const (
+	GetApiEventsProxyParamsSortByAuthMethod GetApiEventsProxyParamsSortBy = "auth_method"
+	GetApiEventsProxyParamsSortByDuration   GetApiEventsProxyParamsSortBy = "duration"
+	GetApiEventsProxyParamsSortByHost       GetApiEventsProxyParamsSortBy = "host"
+	GetApiEventsProxyParamsSortByMethod     GetApiEventsProxyParamsSortBy = "method"
+	GetApiEventsProxyParamsSortByPath       GetApiEventsProxyParamsSortBy = "path"
+	GetApiEventsProxyParamsSortByReason     GetApiEventsProxyParamsSortBy = "reason"
+	GetApiEventsProxyParamsSortBySourceIp   GetApiEventsProxyParamsSortBy = "source_ip"
+	GetApiEventsProxyParamsSortByStatusCode GetApiEventsProxyParamsSortBy = "status_code"
+	GetApiEventsProxyParamsSortByTimestamp  GetApiEventsProxyParamsSortBy = "timestamp"
+	GetApiEventsProxyParamsSortByUrl        GetApiEventsProxyParamsSortBy = "url"
+	GetApiEventsProxyParamsSortByUserId     GetApiEventsProxyParamsSortBy = "user_id"
+)
+
+// Defines values for GetApiEventsProxyParamsSortOrder.
+const (
+	GetApiEventsProxyParamsSortOrderAsc  GetApiEventsProxyParamsSortOrder = "asc"
+	GetApiEventsProxyParamsSortOrderDesc GetApiEventsProxyParamsSortOrder = "desc"
 )
 
 // Defines values for GetApiEventsProxyParamsMethod.
@@ -2741,7 +2767,8 @@ type ServiceTarget struct {
 	Enabled bool `json:"enabled"`
 
 	// Host Backend ip or domain for this target
-	Host *string `json:"host,omitempty"`
+	Host    *string               `json:"host,omitempty"`
+	Options *ServiceTargetOptions `json:"options,omitempty"`
 
 	// Path URL path prefix for this target
 	Path *string `json:"path,omitempty"`
@@ -2764,6 +2791,24 @@ type ServiceTargetProtocol string
 
 // ServiceTargetTargetType Target type (e.g., "peer", "resource")
 type ServiceTargetTargetType string
+
+// ServiceTargetOptions defines model for ServiceTargetOptions.
+type ServiceTargetOptions struct {
+	// CustomHeaders Extra headers sent to the backend. Hop-by-hop and proxy-managed headers (Host, Connection, Transfer-Encoding, etc.) are rejected.
+	CustomHeaders *map[string]string `json:"custom_headers,omitempty"`
+
+	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
+	PathRewrite *ServiceTargetOptionsPathRewrite `json:"path_rewrite,omitempty"`
+
+	// RequestTimeout Per-target response timeout as a Go duration string (e.g. "30s", "2m")
+	RequestTimeout *string `json:"request_timeout,omitempty"`
+
+	// SkipTlsVerify Skip TLS certificate verification for this backend
+	SkipTlsVerify *bool `json:"skip_tls_verify,omitempty"`
+}
+
+// ServiceTargetOptionsPathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
+type ServiceTargetOptionsPathRewrite string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
@@ -3335,6 +3380,12 @@ type GetApiEventsProxyParams struct {
 	// PageSize Number of items per page (max 100)
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 
+	// SortBy Field to sort by (url sorts by host then path)
+	SortBy *GetApiEventsProxyParamsSortBy `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+
+	// SortOrder Sort order (ascending or descending)
+	SortOrder *GetApiEventsProxyParamsSortOrder `form:"sort_order,omitempty" json:"sort_order,omitempty"`
+
 	// Search General search across request ID, host, path, source IP, user email, and user name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
@@ -3371,6 +3422,12 @@ type GetApiEventsProxyParams struct {
 	// EndDate Filter by timestamp <= end_date (RFC3339 format)
 	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
 }
+
+// GetApiEventsProxyParamsSortBy defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsSortBy string
+
+// GetApiEventsProxyParamsSortOrder defines parameters for GetApiEventsProxy.
+type GetApiEventsProxyParamsSortOrder string
 
 // GetApiEventsProxyParamsMethod defines parameters for GetApiEventsProxy.
 type GetApiEventsProxyParamsMethod string
