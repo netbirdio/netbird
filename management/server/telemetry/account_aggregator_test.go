@@ -101,6 +101,7 @@ func TestStaleAccountEviction(t *testing.T) {
 	agg.Record("account-B", 200*time.Millisecond)
 
 	p95s = agg.FlushAndGetP95s()
+	assert.Len(t, p95s, 1, "both accounts should have P95 values")
 
 	// account-A should have been evicted from the accounts map
 	agg.mu.RLock()
