@@ -41,7 +41,10 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	tokenStore, err := NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
-	proxyService := NewProxyServiceServer(nil, tokenStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
