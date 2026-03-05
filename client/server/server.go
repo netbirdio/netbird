@@ -360,6 +360,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.NetworkMonitor = msg.NetworkMonitor
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
+	config.DisableDefaultRoute = msg.DisableDefaultRoute
 	config.DisableDNS = msg.DisableDns
 	config.DisableFirewall = msg.DisableFirewall
 	config.BlockLANAccess = msg.BlockLanAccess
@@ -1451,6 +1452,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableDNS := cfg.DisableDNS
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
+	disableDefaultRoute := cfg.DisableDefaultRoute
 	blockLANAccess := cfg.BlockLANAccess
 
 	enableSSHRoot := false
@@ -1501,6 +1503,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableDns:                    disableDNS,
 		DisableClientRoutes:           disableClientRoutes,
 		DisableServerRoutes:           disableServerRoutes,
+		DisableDefaultRoute:           disableDefaultRoute,
 		BlockLanAccess:                blockLANAccess,
 		EnableSSHRoot:                 enableSSHRoot,
 		EnableSSHSFTP:                 enableSSHSFTP,
