@@ -366,8 +366,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		state.Set(StatusConnected)
 
 		if runningChan != nil {
-			close(runningChan)
-			runningChan = nil
+			select {
+			case <-runningChan:
+			default:
+				close(runningChan)
+			}
 		}
 
 		<-engineCtx.Done()

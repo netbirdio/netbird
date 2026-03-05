@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/client/common"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
@@ -80,6 +81,9 @@ type Server struct {
 	syncSem        atomic.Int32
 	syncLimEnabled bool
 	syncLim        int32
+
+	reverseProxyManager rpservice.Manager
+	reverseProxyMu      sync.RWMutex
 }
 
 // NewServer creates a new Management server

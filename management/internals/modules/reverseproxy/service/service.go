@@ -1,16 +1,20 @@
-package reverseproxy
+package service
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -26,20 +30,23 @@ const (
 	Delete Operation = "delete"
 )
 
-type ProxyStatus string
+type Status string
 
 const (
-	StatusPending            ProxyStatus = "pending"
-	StatusActive             ProxyStatus = "active"
-	StatusTunnelNotCreated   ProxyStatus = "tunnel_not_created"
-	StatusCertificatePending ProxyStatus = "certificate_pending"
-	StatusCertificateFailed  ProxyStatus = "certificate_failed"
-	StatusError              ProxyStatus = "error"
+	StatusPending            Status = "pending"
+	StatusActive             Status = "active"
+	StatusTunnelNotCreated   Status = "tunnel_not_created"
+	StatusCertificatePending Status = "certificate_pending"
+	StatusCertificateFailed  Status = "certificate_failed"
+	StatusError              Status = "error"
 
 	TargetTypePeer   = "peer"
 	TargetTypeHost   = "host"
 	TargetTypeDomain = "domain"
 	TargetTypeSubnet = "subnet"
+
+	SourcePermanent = "permanent"
+	SourceEphemeral = "ephemeral"
 )
 
 type Target struct {
@@ -105,17 +112,11 @@ func (a *AuthConfig) ClearSecrets() {
 	}
 }
 
-type OIDCValidationConfig struct {
-	Issuer             string
-	Audiences          []string
-	KeysLocation       string
-	MaxTokenAgeSeconds int64
-}
-
-type ServiceMeta struct {
+type Meta struct {
 	CreatedAt           time.Time
-	CertificateIssuedAt time.Time
+	CertificateIssuedAt *time.Time
 	Status              string
+	LastRenewedAt       *time.Time
 }
 
 type Service struct {
@@ -128,10 +129,12 @@ type Service struct {
 	Enabled           bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig  `gorm:"serializer:json"`
-	Meta              ServiceMeta `gorm:"embedded;embeddedPrefix:meta_"`
-	SessionPrivateKey string      `gorm:"column:session_private_key"`
-	SessionPublicKey  string      `gorm:"column:session_public_key"`
+	Auth              AuthConfig `gorm:"serializer:json"`
+	Meta              Meta       `gorm:"embedded;embeddedPrefix:meta_"`
+	SessionPrivateKey string     `gorm:"column:session_private_key"`
+	SessionPublicKey  string     `gorm:"column:session_public_key"`
+	Source            string     `gorm:"default:'permanent';index:idx_service_source_peer"`
+	SourcePeer        string     `gorm:"index:idx_service_source_peer"`
 }
 
 func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
@@ -156,7 +159,7 @@ func NewService(accountID, name, domain, proxyCluster string, targets []*Target,
 // only be called during initial creation, not for updates.
 func (s *Service) InitNewRecord() {
 	s.ID = xid.New().String()
-	s.Meta = ServiceMeta{
+	s.Meta = Meta{
 		CreatedAt: time.Now(),
 		Status:    string(StatusPending),
 	}
@@ -207,8 +210,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Status:    api.ServiceMetaStatus(s.Meta.Status),
 	}
 
-	if !s.Meta.CertificateIssuedAt.IsZero() {
-		meta.CertificateIssuedAt = &s.Meta.CertificateIssuedAt
+	if s.Meta.CertificateIssuedAt != nil {
+		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
 	}
 
 	resp := &api.Service{
@@ -230,7 +233,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
-func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig OIDCValidationConfig) *proto.ProxyMapping {
+func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
 	for _, target := range s.Targets {
 		if !target.Enabled {
@@ -403,7 +406,11 @@ func (s *Service) Validate() error {
 }
 
 func (s *Service) EventMeta() map[string]any {
-	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster}
+	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster, "source": s.Source, "auth": s.isAuthEnabled()}
+}
+
+func (s *Service) isAuthEnabled() bool {
+	return s.Auth.PasswordAuth != nil || s.Auth.PinAuth != nil || s.Auth.BearerAuth != nil
 }
 
 func (s *Service) Copy() *Service {
@@ -427,6 +434,8 @@ func (s *Service) Copy() *Service {
 		Meta:              s.Meta,
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
+		Source:            s.Source,
+		SourcePeer:        s.SourcePeer,
 	}
 }
 
@@ -460,4 +469,141 @@ func (s *Service) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	}
 
 	return nil
+}
+
+var pinRegexp = regexp.MustCompile(`^\d{6}$`)
+
+const alphanumCharset = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// ExposeServiceRequest contains the parameters for creating a peer-initiated expose service.
+type ExposeServiceRequest struct {
+	NamePrefix string
+	Port       int
+	Protocol   string
+	Domain     string
+	Pin        string
+	Password   string
+	UserGroups []string
+}
+
+// Validate checks all fields of the expose request.
+func (r *ExposeServiceRequest) Validate() error {
+	if r == nil {
+		return errors.New("request cannot be nil")
+	}
+
+	if r.Port < 1 || r.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
+	}
+
+	if r.Protocol != "http" && r.Protocol != "https" {
+		return fmt.Errorf("unsupported protocol %q: must be http or https", r.Protocol)
+	}
+
+	if r.Pin != "" && !pinRegexp.MatchString(r.Pin) {
+		return errors.New("invalid pin: must be exactly 6 digits")
+	}
+
+	for _, g := range r.UserGroups {
+		if g == "" {
+			return errors.New("user group name cannot be empty")
+		}
+	}
+
+	if r.NamePrefix != "" && !validNamePrefix.MatchString(r.NamePrefix) {
+		return fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", r.NamePrefix)
+	}
+
+	return nil
+}
+
+// ToService builds a Service from the expose request.
+func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) *Service {
+	service := &Service{
+		AccountID: accountID,
+		Name:      serviceName,
+		Enabled:   true,
+		Targets: []*Target{
+			{
+				AccountID:  accountID,
+				Port:       r.Port,
+				Protocol:   r.Protocol,
+				TargetId:   peerID,
+				TargetType: TargetTypePeer,
+				Enabled:    true,
+			},
+		},
+	}
+
+	if r.Domain != "" {
+		service.Domain = serviceName + "." + r.Domain
+	}
+
+	if r.Pin != "" {
+		service.Auth.PinAuth = &PINAuthConfig{
+			Enabled: true,
+			Pin:     r.Pin,
+		}
+	}
+
+	if r.Password != "" {
+		service.Auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  true,
+			Password: r.Password,
+		}
+	}
+
+	if len(r.UserGroups) > 0 {
+		service.Auth.BearerAuth = &BearerAuthConfig{
+			Enabled:            true,
+			DistributionGroups: r.UserGroups,
+		}
+	}
+
+	return service
+}
+
+// ExposeServiceResponse contains the result of a successful peer expose creation.
+type ExposeServiceResponse struct {
+	ServiceName string
+	ServiceURL  string
+	Domain      string
+}
+
+// GenerateExposeName generates a random service name for peer-exposed services.
+// The prefix, if provided, must be a valid DNS label component (lowercase alphanumeric and hyphens).
+func GenerateExposeName(prefix string) (string, error) {
+	if prefix != "" && !validNamePrefix.MatchString(prefix) {
+		return "", fmt.Errorf("invalid name prefix %q: must be lowercase alphanumeric with optional hyphens, 1-32 characters", prefix)
+	}
+
+	suffixLen := 12
+	if prefix != "" {
+		suffixLen = 4
+	}
+
+	suffix, err := randomAlphanumeric(suffixLen)
+	if err != nil {
+		return "", fmt.Errorf("generate random name: %w", err)
+	}
+
+	if prefix == "" {
+		return suffix, nil
+	}
+	return prefix + "-" + suffix, nil
+}
+
+func randomAlphanumeric(n int) (string, error) {
+	result := make([]byte, n)
+	charsetLen := big.NewInt(int64(len(alphanumCharset)))
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+		result[i] = alphanumCharset[idx.Int64()]
+	}
+	return string(result), nil
 }

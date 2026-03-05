@@ -84,6 +84,10 @@ type Server struct {
 	GenerateACMECertificates bool
 	ACMEChallengeAddress     string
 	ACMEDirectory            string
+	// ACMEEABKID is the External Account Binding Key ID for CAs that require EAB (e.g., ZeroSSL).
+	ACMEEABKID string
+	// ACMEEABHMACKey is the External Account Binding HMAC key (base64 URL-encoded) for CAs that require EAB.
+	ACMEEABHMACKey string
 	// ACMEChallengeType specifies the ACME challenge type: "http-01" or "tls-alpn-01".
 	// Defaults to "tls-alpn-01" if not specified.
 	ACMEChallengeType string
@@ -114,6 +118,8 @@ type Server struct {
 	// When enabled, the real client IP is extracted from the PROXY header
 	// sent by upstream L4 proxies that support PROXY protocol.
 	ProxyProtocol bool
+	// PreSharedKey used for tunnel between proxy and peers (set globally not per account)
+	PreSharedKey string
 }
 
 // NotifyStatus sends a status update to management about tunnel connectivity
@@ -163,7 +169,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ManagementAddress, s.ID, s.ProxyURL, s.WireguardPort, s.Logger, s, s.mgmtClient)
+	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{
+		MgmtAddr:     s.ManagementAddress,
+		WGPort:       s.WireguardPort,
+		PreSharedKey: s.PreSharedKey,
+	}, s.Logger, s, s.mgmtClient)
 
 	tlsConfig, err := s.configureTLS(ctx)
 	if err != nil {
@@ -413,7 +423,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s, s.Logger, s.CertLockMethod)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{

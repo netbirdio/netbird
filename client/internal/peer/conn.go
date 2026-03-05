@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
@@ -26,7 +25,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 // MetricsRecorder is an interface for recording peer connection metrics
@@ -45,7 +43,6 @@ type ServiceDependencies struct {
 	IFaceDiscover      stdnet.ExternalIFaceDiscover
 	RelayManager       *relayClient.Manager
 	SrWatcher          *guard.SRWatcher
-	Semaphore          *semaphoregroup.SemaphoreGroup
 	PeerConnDispatcher *dispatcher.ConnectionDispatcher
 	MetricsRecorder    MetricsRecorder
 }
@@ -123,9 +120,8 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
-	semaphore *semaphoregroup.SemaphoreGroup
-	wg        sync.WaitGroup
+	guard *guard.Guard
+	wg    sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -155,15 +151,13 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		iFaceDiscover:   services.IFaceDiscover,
 		relayManager:    services.RelayManager,
 		srWatcher:       services.SrWatcher,
-		semaphore:       services.Semaphore,
 		statusRelay:     worker.NewAtomicStatus(),
 		statusICE:       worker.NewAtomicStatus(),
 		dumpState:       dumpState,
 		endpointUpdater: NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
+		wgWatcher:       NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState),
 		metricsRecorder: services.MetricsRecorder,
 	}
-
-	conn.wgWatcher = NewWGWatcher(connLog, config.WgConfig.WgInterface, config.Key, dumpState)
 
 	return conn, nil
 }
@@ -173,33 +167,15 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 // be used.
 func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
 	if conn.opened {
-		conn.mu.Unlock()
 		return nil
 	}
 
 	// Record the start time - beginning of connection attempt
 	conn.metricsStages = MetricsStages{}
 	conn.metricsStages.RecordCreated()
-
-	conn.mu.Unlock()
-
-	// Semaphore.Add() blocks here until there's a free slot
-	// todo create common semaphor logic for reconnection and connections too that can remote seats from semaphor on the fly
-	if err := conn.semaphore.Add(engineCtx); err != nil {
-		return err
-	}
-
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.opened {
-		conn.semaphore.Done()
-		return nil
-	}
-
-	// Record when semaphore was acquired (after the wait)
-	conn.metricsStages.RecordSemaphoreAcquired()
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
@@ -208,7 +184,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 	if err != nil {
-		conn.semaphore.Done()
 		return err
 	}
 	conn.workerICE = workerICE
@@ -242,10 +217,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
-
-		conn.waitInitialRandomSleepTime(conn.ctx)
-		conn.semaphore.Done()
-
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 	conn.opened = true
@@ -717,19 +688,6 @@ func (conn *Conn) doOnConnected(remoteRosenpassPubKey []byte, remoteRosenpassAdd
 
 	if conn.onConnected != nil {
 		conn.onConnected(conn.config.Key, remoteRosenpassPubKey, conn.config.WgConfig.AllowedIps[0].Addr().String(), remoteRosenpassAddr)
-	}
-}
-
-func (conn *Conn) waitInitialRandomSleepTime(ctx context.Context) {
-	maxWait := 300
-	duration := time.Duration(rand.Intn(maxWait)) * time.Millisecond
-
-	timeout := time.NewTimer(duration)
-	defer timeout.Stop()
-
-	select {
-	case <-ctx.Done():
-	case <-timeout.C:
 	}
 }
 

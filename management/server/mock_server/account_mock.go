@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -148,7 +148,7 @@ type MockAccountManager struct {
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
 }
 
-func (am *MockAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
 	// Mock implementation - no-op
 }
 
@@ -407,7 +407,7 @@ func (am *MockAccountManager) AddPeer(
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
 func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-	if am.GetGroupFunc != nil {
+	if am.GetGroupByNameFunc != nil {
 		return am.GetGroupByNameFunc(ctx, accountID, groupName)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
