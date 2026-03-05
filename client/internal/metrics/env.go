@@ -22,6 +22,9 @@ const (
 	// Format: duration string like "1h", "30m", "4h"
 	EnvMetricsInterval = "NB_METRICS_INTERVAL"
 
+	// EnvMetricsToken is the optional authentication token for the metrics server
+	EnvMetricsToken = "NB_METRICS_TOKEN"
+
 	// EnvMetricsConfigURL is the environment variable to override the metrics push config URL
 	EnvMetricsConfigURL = "NB_METRICS_CONFIG_URL"
 
@@ -34,7 +37,7 @@ var (
 
 func init() {
 	var err error
-	defaultMetricsURL, err = url.Parse("https://api.netbird.io:8428/api/v1/import/prometheus")
+	defaultMetricsURL, err = url.Parse("https://api.netbird.io:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns")
 	if err != nil {
 		log.Fatalf("failed to parse default metrics URL: %v", err)
 	}
@@ -70,6 +73,11 @@ func getMetricsConfigURL() string {
 		return envURL
 	}
 	return defaultMetricsConfigURL
+}
+
+// getMetricsToken returns the optional auth token for the metrics server
+func getMetricsToken() string {
+	return os.Getenv(EnvMetricsToken)
 }
 
 // getMetricsInterval returns the metrics push interval from environment variable

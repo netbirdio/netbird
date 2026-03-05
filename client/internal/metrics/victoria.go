@@ -4,29 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	log "github.com/sirupsen/logrus"
 )
 
-type metricSample struct {
-	name      string
-	value     float64
-	timestamp time.Time
-}
-
-// victoriaMetrics collects metric events as timestamped samples.
-// Each event is recorded with its exact timestamp, pushed once, then cleared.
+// victoriaMetrics is the VictoriaMetrics implementation of ClientMetrics
 type victoriaMetrics struct {
-	mu      sync.Mutex
-	samples []metricSample
+	// Metrics set for managing all metrics
+	set *metrics.Set
 }
 
 func newVictoriaMetrics() metricsImplementation {
-	return &victoriaMetrics{}
+	return &victoriaMetrics{
+		set: metrics.NewSet(),
+	}
 }
 
+// RecordConnectionStages records the duration of each connection stage from timestamps
 func (m *victoriaMetrics) RecordConnectionStages(
 	_ context.Context,
 	agentInfo AgentInfo,
@@ -54,82 +50,57 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	}
 
 	connTypeStr := connectionType.String()
-	labels := fmt.Sprintf(`deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q,os=%q`,
-		agentInfo.DeploymentType.String(),
-		connTypeStr,
-		attemptType,
-		agentInfo.Version,
-		agentInfo.OS,
-	)
 
-	now := time.Now()
+	m.set.GetOrCreateHistogram(
+		m.getMetricName(agentInfo, "netbird_peer_connection_stage_signaling_received_to_connection", connTypeStr, attemptType),
+	).Update(signalingReceivedToConnection)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.set.GetOrCreateHistogram(
+		m.getMetricName(agentInfo, "netbird_peer_connection_stage_connection_to_wg_handshake", connTypeStr, attemptType),
+	).Update(connectionToWgHandshake)
 
-	m.samples = append(m.samples,
-		metricSample{
-			name:      fmt.Sprintf("netbird_peer_connection_stage_signaling_received_to_connection_seconds{%s}", labels),
-			value:     signalingReceivedToConnection,
-			timestamp: now,
-		},
-		metricSample{
-			name:      fmt.Sprintf("netbird_peer_connection_stage_connection_to_wg_handshake_seconds{%s}", labels),
-			value:     connectionToWgHandshake,
-			timestamp: now,
-		},
-		metricSample{
-			name:      fmt.Sprintf("netbird_peer_connection_total_seconds{%s}", labels),
-			value:     totalDuration,
-			timestamp: now,
-		},
-		metricSample{
-			name:      fmt.Sprintf("netbird_peer_connection_count{%s}", labels),
-			value:     1,
-			timestamp: now,
-		},
-	)
+	m.set.GetOrCreateHistogram(
+		m.getMetricName(agentInfo, "netbird_peer_connection_total_creation_to_wg_handshake", connTypeStr, attemptType),
+	).Update(totalDuration)
 
 	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→wg_handshake: %.3fs, total: %.3fs",
 		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToWgHandshake, totalDuration)
 }
 
+// getMetricName constructs a metric name with labels
+func (m *victoriaMetrics) getMetricName(agentInfo AgentInfo, baseName, connectionType, attemptType string) string {
+	return fmt.Sprintf(`%s{deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q,os=%q}`,
+		baseName,
+		agentInfo.DeploymentType.String(),
+		connectionType,
+		attemptType,
+		agentInfo.Version,
+		agentInfo.OS,
+	)
+}
+
+// RecordSyncDuration records the duration of sync message processing
 func (m *victoriaMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration) {
-	name := fmt.Sprintf(`netbird_sync_duration_seconds{deployment_type=%q,version=%q,os=%q}`,
+	metricName := fmt.Sprintf(`netbird_sync_duration_seconds{deployment_type=%q,version=%q,os=%q}`,
 		agentInfo.DeploymentType.String(),
 		agentInfo.Version,
 		agentInfo.OS,
 	)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.samples = append(m.samples, metricSample{
-		name:      name,
-		value:     duration.Seconds(),
-		timestamp: time.Now(),
-	})
+	m.set.GetOrCreateHistogram(metricName).Update(duration.Seconds())
 }
 
-// Export writes pending samples in Prometheus text format with explicit timestamps.
-// Format: metric_name{labels} value timestamp_ms
+// Export writes metrics in Prometheus text format
 func (m *victoriaMetrics) Export(w io.Writer) error {
-	m.mu.Lock()
-	samples := make([]metricSample, len(m.samples))
-	copy(samples, m.samples)
-	m.mu.Unlock()
-
-	for _, s := range samples {
-		if _, err := fmt.Fprintf(w, "%s %g %d\n", s.name, s.value, s.timestamp.UnixMilli()); err != nil {
-			return err
-		}
+	if m.set == nil {
+		return fmt.Errorf("metrics set not initialized")
 	}
+
+	m.set.WritePrometheus(w)
 	return nil
 }
 
-// Reset clears pending samples after a successful push
+// Reset clears all collected metrics
 func (m *victoriaMetrics) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.samples = m.samples[:0]
+	m.set.UnregisterAllMetrics()
 }

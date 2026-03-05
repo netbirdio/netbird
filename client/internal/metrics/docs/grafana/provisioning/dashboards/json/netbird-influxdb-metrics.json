@@ -1,13 +1,17 @@
 {
-  "uid": "netbird-connection-metrics",
-  "title": "NetBird Client Connection Metrics",
-  "tags": ["netbird", "connections"],
+  "uid": "netbird-influxdb-metrics",
+  "title": "NetBird Client Metrics (InfluxDB)",
+  "tags": ["netbird", "connections", "influxdb"],
   "timezone": "browser",
   "panels": [
     {
-      "id": 8,
+      "id": 1,
       "title": "Sync Duration",
       "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": ""
+      },
       "gridPos": {
         "h": 6,
         "w": 24,
@@ -16,8 +20,7 @@
       },
       "targets": [
         {
-          "expr": "netbird_sync_duration_seconds_sum / netbird_sync_duration_seconds_count * 1000",
-          "legendFormat": "{{deployment_type}}/{{os}}",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))",
           "refId": "A"
         }
       ],
@@ -33,9 +36,13 @@
       }
     },
     {
-      "id": 1,
+      "id": 2,
       "title": "Connection Stage Durations",
       "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": ""
+      },
       "gridPos": {
         "h": 9,
         "w": 24,
@@ -44,14 +51,8 @@
       },
       "targets": [
         {
-          "expr": "netbird_peer_connection_stage_signaling_received_to_connection_sum / netbird_peer_connection_stage_signaling_received_to_connection_count * 1000",
-          "legendFormat": "1. SignalingReceived→Connection ({{deployment_type}}/{{connection_type}})",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and (r._field == \"signaling_to_connection_seconds\" or r._field == \"connection_to_wg_handshake_seconds\"))\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))",
           "refId": "A"
-        },
-        {
-          "expr": "netbird_peer_connection_stage_connection_to_wg_handshake_sum / netbird_peer_connection_stage_connection_to_wg_handshake_count * 1000",
-          "legendFormat": "2. Connection→WG Handshake ({{deployment_type}}/{{connection_type}})",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
@@ -65,9 +66,13 @@
       }
     },
     {
-      "id": 2,
+      "id": 3,
       "title": "Total Connection Time",
       "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": ""
+      },
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -76,8 +81,7 @@
       },
       "targets": [
         {
-          "expr": "netbird_peer_connection_total_creation_to_wg_handshake_sum / netbird_peer_connection_total_creation_to_wg_handshake_count * 1000",
-          "legendFormat": "{{deployment_type}}/{{connection_type}}",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))",
           "refId": "A"
         }
       ],
@@ -96,6 +100,10 @@
       "id": 4,
       "title": "ICE vs Relay",
       "type": "piechart",
+      "datasource": {
+        "type": "influxdb",
+        "uid": ""
+      },
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -104,19 +112,13 @@
       },
       "targets": [
         {
-          "expr": "sum(netbird_peer_connection_total_creation_to_wg_handshake_count{connection_type=\"ice\"})",
-          "legendFormat": "ICE",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> group(columns: [\"connection_type\"])\n  |> count()\n  |> rename(columns: {_value: \"count\"})",
           "refId": "A"
-        },
-        {
-          "expr": "sum(netbird_peer_connection_total_creation_to_wg_handshake_count{connection_type=\"relay\"})",
-          "legendFormat": "Relay",
-          "refId": "B"
         }
       ],
       "options": {
         "reduceOptions": {
-          "calcs": ["sum"]
+          "calcs": ["lastNotNull"]
         },
         "pieType": "donut",
         "tooltip": {
@@ -126,6 +128,6 @@
     }
   ],
   "schemaVersion": 27,
-  "version": 12,
+  "version": 1,
   "refresh": "30s"
 }

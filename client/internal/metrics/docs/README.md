@@ -4,10 +4,17 @@ Internal documentation for the NetBird client metrics system.
 
 ## Overview
 
-Client metrics track connection performance and sync durations. Metrics are:
-- Collected in-memory using VictoriaMetrics histograms
-- Pushed periodically to a VictoriaMetrics server
-- Disabled by default (opt-in via environment variable)
+Client metrics track connection performance and sync durations. Two backend implementations are available:
+
+- **InfluxDB** (`influxdb.go`): Timestamped samples in InfluxDB line protocol. Best for sparse one-shot events (connections, syncs). Each event is pushed once then cleared.
+- **VictoriaMetrics** (`victoria.go`): Prometheus-style cumulative histograms. Better for continuous/high-frequency metrics.
+
+Select the implementation in `metrics_default.go`:
+- `newInfluxDBMetrics()` — InfluxDB line protocol
+- `newVictoriaMetrics()` — Prometheus format
+
+Metrics are:
+- Disabled by default (opt-in via `NB_METRICS_ENABLED=true`)
 - Managed at daemon layer (survives engine restarts)
 
 ## Architecture
@@ -25,57 +32,36 @@ Engine Layer (engine.go)
   └─ Records metrics via ClientMetrics methods
 ```
 
-### Data Flow
-
-```
-NetBird Client
-  ├─ Records metrics in memory (histograms)
-  ├─ Push to VictoriaMetrics via HTTP POST
-  └─ Metrics endpoint: /api/v1/import/prometheus
-      │
-      ▼
-VictoriaMetrics (port 8428)
-  ├─ Stores time-series data
-  ├─ 12 month retention
-  └─ Prometheus-compatible query API
-      │
-      ▼
-Grafana (port 3000)
-  └─ Pre-configured dashboard
-```
-
 ## Metrics Collected
 
 ### Connection Stage Timing
 
-1. `netbird_peer_connection_stage_signaling_received_to_connection`
-2. `netbird_peer_connection_stage_connection_to_wg_handshake`
-3. `netbird_peer_connection_total_creation_to_handshake`
+Measurement: `netbird_peer_connection`
 
-**Stage descriptions:**
+| Field | Timestamps | Description |
+|-------|-----------|-------------|
+| `signaling_to_connection_seconds` | `SignalingReceived → ConnectionReady` | ICE/relay negotiation time after the first signal is received from the remote peer |
+| `connection_to_wg_handshake_seconds` | `ConnectionReady → WgHandshakeSuccess` | WireGuard cryptographic handshake latency once the transport layer is ready |
+| `total_seconds` | `SignalingReceived → WgHandshakeSuccess` | End-to-end connection time anchored at the first received signal |
 
-| Metric suffix                        | Timestamps                              | Description                                                                                                                       |
-|--------------------------------------|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `signaling_received_to_connection`   | `SignalingReceived → ConnectionReady`   | ICE/relay negotiation time after the first signal is received from the remote peer. Excludes the wait for the remote peer to come online. |
-| `connection_to_wg_handshake`            | `ConnectionReady → WgHandshakeSuccess`  | WireGuard cryptographic handshake latency once the transport layer is ready.                                                      |
-| `total_creation_to_handshake`        | `SignalingReceived → WgHandshakeSuccess`| End-to-end connection time anchored at the first received signal. Excludes offline-peer wait time.                                |
-
-**Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It is the anchor for all downstream stage durations, ensuring metrics reflect actual negotiation performance rather than how long the remote peer was unreachable.
-
-Labels:
+Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
 - `connection_type`: "ice" | "relay"
 - `attempt_type`: "initial" | "reconnection"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 
+**Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It excludes the potentially unbounded wait for the remote peer to come online.
+
 ### Sync Duration
 
-Tracks time to process sync messages from management server:
+Measurement: `netbird_sync`
 
-1. `netbird_sync_duration_seconds`
+| Field | Description |
+|-------|-------------|
+| `duration_seconds` | Time to process a sync message from management server |
 
-Labels:
+Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
@@ -84,11 +70,20 @@ Labels:
 
 ### Environment Variables
 
-| Variable | Default | Description                             |
-|----------|---------|-----------------------------------------|
-| `NB_METRICS_ENABLED` | `false` | Enable metrics push                     |
-| `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8428/api/v1/import/prometheus` | VictoriaMetrics endpoint                |
-| `NB_METRICS_INTERVAL` |  | Push interval (e.g., "1m", "30m", "4h") |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NB_METRICS_ENABLED` | `false` | Enable metrics push |
+| `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns` | Metrics endpoint URL |
+| `NB_METRICS_INTERVAL` | | Push interval (e.g., "1m", "30m", "4h"). When set, bypasses remote config. |
+| `NB_METRICS_TOKEN` | | Optional auth token for the metrics server |
+| `NB_METRICS_CONFIG_URL` | `https://api.netbird.io/client-metrics-config.json` | Remote push config URL |
+
+### Backend-specific URLs
+
+| Backend | URL |
+|---------|-----|
+| **InfluxDB** | `http://<host>:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns` |
+| **VictoriaMetrics** | `http://<host>:8428/api/v1/import/prometheus` |
 
 ### Configuration Precedence
 
@@ -99,91 +94,75 @@ For URL and Interval, the precedence is:
 
 ## Push Behavior
 
-1. `StartPush()` spawns background goroutine with ticker
+1. `StartPush()` spawns background goroutine with timer
 2. First push happens immediately on startup
 3. Periodically: `push()` → `Export()` → HTTP POST
 4. On failure: log error, continue (non-blocking)
-5. On success: log debug message
+5. On success: `Reset()` clears pushed samples, log debug message
 6. `StopPush()` cancels context and waits for goroutine
 
-**Important:**
-- Metrics **accumulate** in memory (cumulative histograms)
-- Each push sends all accumulated metrics; VictoriaMetrics computes deltas
-- Use `rate(sum)/rate(count)` for averages per time window
-- Use `increase(count)` for event counts per time window
-- Metrics only reset on process restart
+**InfluxDB mode:** Samples are collected with exact timestamps, pushed once, then cleared. No data is resent.
+
+**VictoriaMetrics mode:** Cumulative histograms accumulate in memory. After successful push, metrics are unregistered. Use `rate(sum)/rate(count)` for averages.
 
 ## Local Development Setup
 
-### 1. Start VictoriaMetrics
+### 1. Start Services
 
 ```bash
 # From this directory
-docker-compose -f docker-compose.victoria.yml up -d
-
-# View logs
-docker-compose -f docker-compose.victoria.yml logs -f
+docker compose -f docker-compose.victoria.yml up -d
 ```
 
 **Access:**
-- VictoriaMetrics UI: http://localhost:8428
 - Grafana: http://localhost:3001 (admin/admin)
+- InfluxDB: http://localhost:8086
+- VictoriaMetrics: http://localhost:8428
 
-### 2. Configure Client
+### 2. Configure Client (InfluxDB)
+
+```bash
+export NB_METRICS_ENABLED=true
+export NB_METRICS_SERVER_URL='http://localhost:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns'
+export NB_METRICS_TOKEN=netbird-metrics-token
+export NB_METRICS_INTERVAL=1m
+```
+
+Make sure `metrics_default.go` uses `newInfluxDBMetrics()`.
+
+### 3. Configure Client (VictoriaMetrics)
 
 ```bash
 export NB_METRICS_ENABLED=true
 export NB_METRICS_SERVER_URL=http://localhost:8428/api/v1/import/prometheus
 export NB_METRICS_INTERVAL=1m
-
-# Run client
-cd ../../../..
-go run main.go up
 ```
 
-### 3. Verify Metrics
+Make sure `metrics_default.go` uses `newVictoriaMetrics()`.
+
+### 4. Run Client
 
 ```bash
-# Watch client logs
-go run main.go up 2>&1 | grep -i metric
+cd ../../../..
+go run ./client/ up
+```
 
-# List all available metric names
+### 5. View in Grafana
+
+- **InfluxDB dashboard:** http://localhost:3001/d/netbird-influxdb-metrics
+- **VictoriaMetrics dashboard:** http://localhost:3001/d/netbird-connection-metrics
+
+### 6. Verify Data
+
+```bash
+# InfluxDB - query data
+curl -H "Authorization: Token netbird-metrics-token" \
+  'http://localhost:8086/api/v2/query?org=netbird' \
+  --data-urlencode 'q=from(bucket:"metrics") |> range(start: -1h)'
+
+# VictoriaMetrics - list metrics
 curl http://localhost:8428/api/v1/label/__name__/values
 
-# Query specific metric
-curl 'http://localhost:8428/api/v1/query?query=netbird_peer_connection_total_creation_to_handshake_count'
-```
-
-### 4. View in Grafana
-
-Open http://localhost:3001/d/netbird-connection-metrics
-
-Dashboard JSON location:
-```
-grafana/provisioning/dashboards/json/netbird-connection-metrics.json
-```
-
-Export modified dashboards from Grafana UI and replace this file.
-
-## Querying Metrics
-
-### VictoriaMetrics UI
-
-Open http://localhost:8428/vmui
-
-```promql
-# P95 connection time
-histogram_quantile(0.95, netbird_peer_connection_total_creation_to_handshake)
-
-# Connection rate
-rate(netbird_peer_connection_total_creation_to_handshake_count[5m])
-
-# Average sync duration
-rate(netbird_sync_duration_seconds_sum[5m]) / rate(netbird_sync_duration_seconds_count[5m])
-```
-
-### API Queries
-
-```bash
-curl 'http://localhost:8428/api/v1/query?query=netbird_peer_connection_total_creation_to_handshake_count'
+# VictoriaMetrics - delete all data
+curl -s http://localhost:8428/api/v1/admin/tsdb/delete_series --data-urlencode 'match[]={__name__=~".+"}'
 ```

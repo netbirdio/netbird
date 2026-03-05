@@ -173,7 +173,10 @@ func (p *Push) push(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	if token := getMetricsToken(); token != "" {
+		req.Header.Set("Authorization", "Token "+token)
+	}
 
 	// Send request
 	resp, err := p.client.Do(req)

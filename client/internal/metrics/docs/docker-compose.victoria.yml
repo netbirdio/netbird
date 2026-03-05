@@ -17,6 +17,26 @@ services:
     networks:
       - metrics
 
+  influxdb:
+    container_name: influxdb
+    image: influxdb:2
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminadmin
+      - DOCKER_INFLUXDB_INIT_ORG=netbird
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_RETENTION=365d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=netbird-metrics-token
+      - INFLUXD_HTTP_AUTH_ENABLED=false
+    restart: unless-stopped
+    networks:
+      - metrics
+
   grafana:
     container_name: grafana
     image: grafana/grafana:latest
@@ -26,17 +46,20 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - victoriametrics
+      - influxdb
     restart: unless-stopped
     networks:
       - metrics
 
 volumes:
   victoria-metrics-data:
+  influxdb-data:
   grafana-data:
 
 networks:
