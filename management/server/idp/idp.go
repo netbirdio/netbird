@@ -49,6 +49,7 @@ type Config struct {
 	AzureClientCredentials    *AzureClientConfig
 	KeycloakClientCredentials *KeycloakClientConfig
 	ZitadelClientCredentials  *ZitadelClientConfig
+	LogtoClientCredentials    *LogtoClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -208,6 +209,35 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 			GRPCAddr: config.ExtraConfig["GRPCAddr"],
 			Issuer:   config.ClientConfig.Issuer,
 		}, appMetrics)
+	case "logto":
+		logtoClientConfig := config.LogtoClientCredentials
+		if config.ClientConfig != nil {
+			// Build resource URL from tenant ID or use provided resource
+			resource := config.ExtraConfig["Resource"]
+			if resource == "" {
+				tenantID := config.ExtraConfig["TenantID"]
+				if tenantID == "" {
+					tenantID = "default" // Default for OSS
+				}
+				resource = fmt.Sprintf("https://%s.logto.app/api", tenantID)
+			}
+
+			logtoClientConfig = &LogtoClientConfig{
+				ClientID:           config.ClientConfig.ClientID,
+				ClientSecret:       config.ClientConfig.ClientSecret,
+				GrantType:          config.ClientConfig.GrantType,
+				TokenEndpoint:      config.ClientConfig.TokenEndpoint,
+				ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+				Resource:           resource,
+				TenantID:           config.ExtraConfig["TenantID"],
+			}
+		}
+
+		if logtoClientConfig == nil {
+			return nil, fmt.Errorf("logto IdP configuration is missing")
+		}
+
+		return NewLogtoManager(*logtoClientConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
