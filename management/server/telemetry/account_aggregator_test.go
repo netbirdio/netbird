@@ -14,7 +14,12 @@ func TestDeltaTemporality_P95ReflectsCurrentWindow(t *testing.T) {
 	// recordings since the last flush — not all-time data.
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 5*time.Minute)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	// Window 1: Record 100 slow requests (500ms each)
 	for range 100 {
@@ -48,7 +53,12 @@ func TestEqualWeightPerAccount(t *testing.T) {
 	// regardless of how many requests it made.
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 5*time.Minute)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	// Account A: 10,000 requests at 500ms (noisy customer)
 	for range 10000 {
@@ -72,7 +82,12 @@ func TestStaleAccountEviction(t *testing.T) {
 	ctx := context.Background()
 	// Use a very short MaxAge so we can test staleness
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 50*time.Millisecond)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	agg.Record("account-A", 100*time.Millisecond)
 	agg.Record("account-B", 200*time.Millisecond)
@@ -102,7 +117,12 @@ func TestStaleAccountEviction_DoesNotReappear(t *testing.T) {
 	// reappear in subsequent flushes.
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 50*time.Millisecond)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	agg.Record("account-stale", 100*time.Millisecond)
 
@@ -126,7 +146,12 @@ func TestStaleAccountEviction_DoesNotReappear(t *testing.T) {
 func TestP95Calculation_SingleSample(t *testing.T) {
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 5*time.Minute)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	agg.Record("account-A", 150*time.Millisecond)
 
@@ -139,7 +164,12 @@ func TestP95Calculation_SingleSample(t *testing.T) {
 func TestP95Calculation_AllSameValue(t *testing.T) {
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 5*time.Minute)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	// All samples are 100ms — P95 should be the bucket bound containing 100ms
 	for range 100 {
@@ -154,7 +184,12 @@ func TestP95Calculation_AllSameValue(t *testing.T) {
 func TestMultipleAccounts_IndependentP95s(t *testing.T) {
 	ctx := context.Background()
 	agg := NewAccountDurationAggregator(ctx, time.Minute, 5*time.Minute)
-	defer agg.Shutdown()
+	defer func(agg *AccountDurationAggregator) {
+		err := agg.Shutdown()
+		if err != nil {
+			t.Errorf("failed to shutdown aggregator: %v", err)
+		}
+	}(agg)
 
 	// Account A: all fast (10ms)
 	for range 100 {
