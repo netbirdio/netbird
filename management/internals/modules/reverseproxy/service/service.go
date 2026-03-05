@@ -571,6 +571,7 @@ func validateCustomHeaders(idx int, headers map[string]string) error {
 	if len(headers) > maxCustomHeaders {
 		return fmt.Errorf("target %d: custom_headers count %d exceeds maximum of %d", idx, len(headers), maxCustomHeaders)
 	}
+	seen := make(map[string]string, len(headers))
 	for key, value := range headers {
 		if !httpHeaderNameRe.MatchString(key) {
 			return fmt.Errorf("target %d: custom header key %q is not a valid HTTP header name", idx, key)
@@ -585,6 +586,10 @@ func validateCustomHeaders(idx int, headers map[string]string) error {
 			return fmt.Errorf("target %d: custom header %q contains invalid characters", idx, key)
 		}
 		canonical := http.CanonicalHeaderKey(key)
+		if prev, ok := seen[canonical]; ok {
+			return fmt.Errorf("target %d: custom header keys %q and %q collide (both canonicalize to %q)", idx, prev, key, canonical)
+		}
+		seen[canonical] = key
 		if _, ok := hopByHopHeaders[canonical]; ok {
 			return fmt.Errorf("target %d: custom header %q is a hop-by-hop header and cannot be set", idx, key)
 		}

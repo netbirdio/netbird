@@ -204,6 +204,15 @@ func TestValidateTargetOptions_CustomHeaders(t *testing.T) {
 		rp.Targets[0].Options.CustomHeaders = map[string]string{"X-Ok": strings.Repeat("v", 4097)}
 		assert.ErrorContains(t, rp.Validate(), "value exceeds maximum length")
 	})
+
+	t.Run("duplicate canonical keys rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{
+			"x-custom": "a",
+			"X-Custom": "b",
+		}
+		assert.ErrorContains(t, rp.Validate(), "collide")
+	})
 }
 
 func TestToProtoMapping_TargetOptions(t *testing.T) {
