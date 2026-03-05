@@ -65,14 +65,6 @@ func (c ConnectionStageTimestamps) String() string {
 	)
 }
 
-// NewClientMetrics creates a new ClientMetrics instance
-func NewClientMetrics(agentInfo AgentInfo) *ClientMetrics {
-	return &ClientMetrics{
-		impl:      newVictoriaMetrics(),
-		agentInfo: agentInfo,
-	}
-}
-
 // RecordConnectionStages calculates stage durations from timestamps and records them
 func (c *ClientMetrics) RecordConnectionStages(
 	ctx context.Context,
