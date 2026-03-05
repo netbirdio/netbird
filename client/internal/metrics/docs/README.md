@@ -49,7 +49,7 @@ Grafana (port 3000)
 ### Connection Stage Timing
 
 1. `netbird_peer_connection_stage_signaling_received_to_connection`
-2. `netbird_peer_connection_stage_connection_to_handshake`
+2. `netbird_peer_connection_stage_connection_to_wg_handshake`
 3. `netbird_peer_connection_total_creation_to_handshake`
 
 **Stage descriptions:**
@@ -57,7 +57,7 @@ Grafana (port 3000)
 | Metric suffix                        | Timestamps                              | Description                                                                                                                       |
 |--------------------------------------|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | `signaling_received_to_connection`   | `SignalingReceived → ConnectionReady`   | ICE/relay negotiation time after the first signal is received from the remote peer. Excludes the wait for the remote peer to come online. |
-| `connection_to_handshake`            | `ConnectionReady → WgHandshakeSuccess`  | WireGuard cryptographic handshake latency once the transport layer is ready.                                                      |
+| `connection_to_wg_handshake`            | `ConnectionReady → WgHandshakeSuccess`  | WireGuard cryptographic handshake latency once the transport layer is ready.                                                      |
 | `total_creation_to_handshake`        | `SignalingReceived → WgHandshakeSuccess`| End-to-end connection time anchored at the first received signal. Excludes offline-peer wait time.                                |
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It is the anchor for all downstream stage durations, ensuring metrics reflect actual negotiation performance rather than how long the remote peer was unreachable.
@@ -108,9 +108,9 @@ For URL and Interval, the precedence is:
 
 **Important:**
 - Metrics **accumulate** in memory (cumulative histograms)
-- Metrics are **NOT reset** after push (correct Prometheus behavior)
-- VictoriaMetrics calculates rates from deltas between pushes
-- Each push sends **all** accumulated metrics
+- Each push sends all accumulated metrics; VictoriaMetrics computes deltas
+- Use `rate(sum)/rate(count)` for averages per time window
+- Use `increase(count)` for event counts per time window
 - Metrics only reset on process restart
 
 ## Local Development Setup

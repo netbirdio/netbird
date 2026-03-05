@@ -60,6 +60,9 @@ func (m *mockMetrics) Export(w io.Writer) error {
 	return nil
 }
 
+func (m *mockMetrics) Reset() {
+}
+
 func TestPush_OverrideIntervalAlwaysPushes(t *testing.T) {
 	var pushCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

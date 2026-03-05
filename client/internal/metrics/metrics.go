@@ -35,6 +35,9 @@ type metricsImplementation interface {
 
 	// Export exports metrics in Prometheus format
 	Export(w io.Writer) error
+
+	// Reset clears all collected metrics
+	Reset()
 }
 
 type ClientMetrics struct {
@@ -79,6 +82,7 @@ func (c *ClientMetrics) RecordConnectionStages(
 	agentInfo := c.agentInfo
 	c.mu.RUnlock()
 
+	log.Infof("--- conn stages: %v, %v", connectionType, timestamps)
 	c.impl.RecordConnectionStages(ctx, agentInfo, connectionType, isReconnection, timestamps)
 }
 
@@ -101,14 +105,8 @@ func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo) {
 	}
 
 	c.mu.Lock()
-	oldDeploymentType := c.agentInfo.DeploymentType
 	c.agentInfo = agentInfo
 	c.mu.Unlock()
-
-	if oldDeploymentType != agentInfo.DeploymentType {
-		log.Infof("metrics deployment type updated: %s -> %s",
-			oldDeploymentType.String(), agentInfo.DeploymentType.String())
-	}
 }
 
 // Export exports metrics to the writer
@@ -116,6 +114,7 @@ func (c *ClientMetrics) Export(w io.Writer) error {
 	if c == nil {
 		return nil
 	}
+
 	return c.impl.Export(w)
 }
 

@@ -12,6 +12,7 @@ services:
       - "--storageDataPath=/victoria-metrics-data"
       - "--httpListenAddr=:8428"
       - "--retentionPeriod=12" # Keep data for 12 months
+      - "--search.maxStalenessInterval=1m" # Stop forward-filling after 1 minute of no new data
     restart: unless-stopped
     networks:
       - metrics

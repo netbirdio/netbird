@@ -195,6 +195,7 @@ func (p *Push) push(ctx context.Context) error {
 	}
 
 	log.Debugf("successfully pushed metrics to %s", p.pushURL)
+	p.metrics.Reset()
 	return nil
 }
 

@@ -4,105 +4,132 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
-	"github.com/VictoriaMetrics/metrics"
 	log "github.com/sirupsen/logrus"
 )
 
-// victoriaMetrics is the VictoriaMetrics implementation of ClientMetrics
+type metricSample struct {
+	name      string
+	value     float64
+	timestamp time.Time
+}
+
+// victoriaMetrics collects metric events as timestamped samples.
+// Each event is recorded with its exact timestamp, pushed once, then cleared.
 type victoriaMetrics struct {
-	// Metrics set for managing all metrics
-	set *metrics.Set
+	mu      sync.Mutex
+	samples []metricSample
 }
 
 func newVictoriaMetrics() metricsImplementation {
-	return &victoriaMetrics{
-		set: metrics.NewSet(),
-	}
+	return &victoriaMetrics{}
 }
 
-// RecordConnectionStages records the duration of each connection stage from timestamps
 func (m *victoriaMetrics) RecordConnectionStages(
-	ctx context.Context,
+	_ context.Context,
 	agentInfo AgentInfo,
 	connectionType ConnectionType,
 	isReconnection bool,
 	timestamps ConnectionStageTimestamps,
 ) {
-	// Calculate stage durations
-	var signalingReceivedToConnection, connectionToHandshake, totalDuration float64
+	var signalingReceivedToConnection, connectionToWgHandshake, totalDuration float64
 
-	// Use SignalingReceived as the base: measures negotiation time after the remote peer
-	// responded, excluding unbounded wait time when the remote peer is offline.
 	if !timestamps.SignalingReceived.IsZero() && !timestamps.ConnectionReady.IsZero() {
 		signalingReceivedToConnection = timestamps.ConnectionReady.Sub(timestamps.SignalingReceived).Seconds()
 	}
 
 	if !timestamps.ConnectionReady.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
-		connectionToHandshake = timestamps.WgHandshakeSuccess.Sub(timestamps.ConnectionReady).Seconds()
+		connectionToWgHandshake = timestamps.WgHandshakeSuccess.Sub(timestamps.ConnectionReady).Seconds()
 	}
 
-	// Calculate total duration anchored at SignalingReceived → WgHandshakeSuccess.
-	// This excludes the potentially unbounded wait for the remote peer to come online.
 	if !timestamps.SignalingReceived.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
 		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.SignalingReceived).Seconds()
 	}
 
-	// Determine attempt type
 	attemptType := "initial"
 	if isReconnection {
 		attemptType = "reconnection"
 	}
 
 	connTypeStr := connectionType.String()
-
-	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_stage_signaling_received_to_connection", connTypeStr, attemptType),
-	).Update(signalingReceivedToConnection)
-
-	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_stage_connection_to_handshake", connTypeStr, attemptType),
-	).Update(connectionToHandshake)
-
-	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_total_creation_to_handshake", connTypeStr, attemptType),
-	).Update(totalDuration)
-
-	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
-		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToHandshake, totalDuration)
-}
-
-// getMetricName constructs a metric name with labels
-func (m *victoriaMetrics) getMetricName(agentInfo AgentInfo, baseName, connectionType, attemptType string) string {
-	return fmt.Sprintf(`%s{deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q,os=%q}`,
-		baseName,
+	labels := fmt.Sprintf(`deployment_type=%q,connection_type=%q,attempt_type=%q,version=%q,os=%q`,
 		agentInfo.DeploymentType.String(),
-		connectionType,
+		connTypeStr,
 		attemptType,
 		agentInfo.Version,
 		agentInfo.OS,
 	)
+
+	now := time.Now()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.samples = append(m.samples,
+		metricSample{
+			name:      fmt.Sprintf("netbird_peer_connection_stage_signaling_received_to_connection_seconds{%s}", labels),
+			value:     signalingReceivedToConnection,
+			timestamp: now,
+		},
+		metricSample{
+			name:      fmt.Sprintf("netbird_peer_connection_stage_connection_to_wg_handshake_seconds{%s}", labels),
+			value:     connectionToWgHandshake,
+			timestamp: now,
+		},
+		metricSample{
+			name:      fmt.Sprintf("netbird_peer_connection_total_seconds{%s}", labels),
+			value:     totalDuration,
+			timestamp: now,
+		},
+		metricSample{
+			name:      fmt.Sprintf("netbird_peer_connection_count{%s}", labels),
+			value:     1,
+			timestamp: now,
+		},
+	)
+
+	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→wg_handshake: %.3fs, total: %.3fs",
+		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToWgHandshake, totalDuration)
 }
 
-// RecordSyncDuration records the duration of sync message processing
-func (m *victoriaMetrics) RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration) {
-	metricName := fmt.Sprintf(`netbird_sync_duration_seconds{deployment_type=%q,version=%q,os=%q}`,
+func (m *victoriaMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration) {
+	name := fmt.Sprintf(`netbird_sync_duration_seconds{deployment_type=%q,version=%q,os=%q}`,
 		agentInfo.DeploymentType.String(),
 		agentInfo.Version,
 		agentInfo.OS,
 	)
 
-	m.set.GetOrCreateHistogram(metricName).Update(duration.Seconds())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.samples = append(m.samples, metricSample{
+		name:      name,
+		value:     duration.Seconds(),
+		timestamp: time.Now(),
+	})
 }
 
-// Export writes metrics in Prometheus text format with HELP comments
+// Export writes pending samples in Prometheus text format with explicit timestamps.
+// Format: metric_name{labels} value timestamp_ms
 func (m *victoriaMetrics) Export(w io.Writer) error {
-	if m.set == nil {
-		return fmt.Errorf("metrics set not initialized")
-	}
+	m.mu.Lock()
+	samples := make([]metricSample, len(m.samples))
+	copy(samples, m.samples)
+	m.mu.Unlock()
 
-	// Write metrics in Prometheus format
-	m.set.WritePrometheus(w)
+	for _, s := range samples {
+		if _, err := fmt.Fprintf(w, "%s %g %d\n", s.name, s.value, s.timestamp.UnixMilli()); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// Reset clears pending samples after a successful push
+func (m *victoriaMetrics) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.samples = m.samples[:0]
 }
