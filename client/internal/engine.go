@@ -2181,6 +2181,11 @@ func (e *Engine) renewCertificate(trigger string) {
 	certPEM := signResp.InternalCertPem
 	chainPEM := signResp.InternalChainPem
 
+	if len(certPEM) == 0 {
+		log.Warnf("cert renewal (%s): server returned empty certificate", trigger)
+		return
+	}
+
 	if err := e.certManager.StoreCert(certPEM, chainPEM, keyPEM); err != nil {
 		log.Warnf("cert renewal (%s): store certificate: %v", trigger, err)
 		return

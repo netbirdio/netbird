@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"crypto/x509"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -197,22 +198,24 @@ func validateCSRSANs(csr *x509.CertificateRequest, peerFQDN string, wildcard boo
 		return status.Errorf(codes.InvalidArgument, "CSR must not contain URI SANs")
 	}
 
-	expected := map[string]struct{}{peerFQDN: {}}
+	lowerFQDN := strings.ToLower(peerFQDN)
+	expected := map[string]struct{}{lowerFQDN: {}}
 	if wildcard {
-		expected["*."+peerFQDN] = struct{}{}
+		expected["*."+lowerFQDN] = struct{}{}
 	}
 	if len(csr.DNSNames) != len(expected) {
 		return status.Errorf(codes.InvalidArgument, "CSR SAN set is invalid for peer FQDN %q", peerFQDN)
 	}
 	seen := make(map[string]struct{}, len(csr.DNSNames))
 	for _, name := range csr.DNSNames {
-		if _, ok := expected[name]; !ok {
+		lower := strings.ToLower(name)
+		if _, ok := expected[lower]; !ok {
 			return status.Errorf(codes.InvalidArgument, "CSR SAN %q is not allowed", name)
 		}
-		if _, dup := seen[name]; dup {
+		if _, dup := seen[lower]; dup {
 			return status.Errorf(codes.InvalidArgument, "CSR contains duplicate SAN %q", name)
 		}
-		seen[name] = struct{}{}
+		seen[lower] = struct{}{}
 	}
 	return nil
 }

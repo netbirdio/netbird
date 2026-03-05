@@ -5373,6 +5373,10 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to save proxy")
+	}
+	return nil
+}
+
 // CreateCACertificate persists a new CA certificate in the database.
 // A copy is made before encryption to avoid mutating the caller's struct.
 func (s *SqlStore) CreateCACertificate(ctx context.Context, caCert *ca.CACertificate) error {
@@ -5403,6 +5407,10 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID string) err
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update proxy heartbeat: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to update proxy heartbeat")
+	}
+	return nil
+}
+
 // GetCACertificateByID returns a CA certificate by its ID for the given account.
 func (s *SqlStore) GetCACertificateByID(ctx context.Context, accountID, caID string) (*ca.CACertificate, error) {
 	var caCert ca.CACertificate
@@ -5494,6 +5502,7 @@ func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration t
 
 	return nil
 }
+
 // CreateIssuedCertificate persists a new issued certificate record.
 func (s *SqlStore) CreateIssuedCertificate(ctx context.Context, cert *ca.IssuedCertificate) error {
 	if cert == nil {
