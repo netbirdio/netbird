@@ -49,8 +49,6 @@ type ClientMetrics struct {
 
 // ConnectionStageTimestamps holds timestamps for each connection stage
 type ConnectionStageTimestamps struct {
-	Created            time.Time
-	SemaphoreAcquired  time.Time
 	SignalingReceived  time.Time // First signal received from remote peer (both initial and reconnection)
 	ConnectionReady    time.Time
 	WgHandshakeSuccess time.Time
@@ -58,9 +56,7 @@ type ConnectionStageTimestamps struct {
 
 // String returns a human-readable representation of the connection stage timestamps
 func (c ConnectionStageTimestamps) String() string {
-	return fmt.Sprintf("ConnectionStageTimestamps{Created=%v, SemaphoreAcquired=%v, SignalingReceived=%v, ConnectionReady=%v, WgHandshakeSuccess=%v}",
-		c.Created.Format(time.RFC3339Nano),
-		c.SemaphoreAcquired.Format(time.RFC3339Nano),
+	return fmt.Sprintf("ConnectionStageTimestamps{SignalingReceived=%v, ConnectionReady=%v, WgHandshakeSuccess=%v}",
 		c.SignalingReceived.Format(time.RFC3339Nano),
 		c.ConnectionReady.Format(time.RFC3339Nano),
 		c.WgHandshakeSuccess.Format(time.RFC3339Nano),

@@ -31,11 +31,7 @@ func (m *victoriaMetrics) RecordConnectionStages(
 	timestamps ConnectionStageTimestamps,
 ) {
 	// Calculate stage durations
-	var creationToSemaphore, signalingReceivedToConnection, connectionToHandshake, totalDuration float64
-
-	if !timestamps.Created.IsZero() && !timestamps.SemaphoreAcquired.IsZero() {
-		creationToSemaphore = timestamps.SemaphoreAcquired.Sub(timestamps.Created).Seconds()
-	}
+	var signalingReceivedToConnection, connectionToHandshake, totalDuration float64
 
 	// Use SignalingReceived as the base: measures negotiation time after the remote peer
 	// responded, excluding unbounded wait time when the remote peer is offline.
@@ -61,11 +57,6 @@ func (m *victoriaMetrics) RecordConnectionStages(
 
 	connTypeStr := connectionType.String()
 
-	// Record observations using histograms
-	m.set.GetOrCreateHistogram(
-		m.getMetricName(agentInfo, "netbird_peer_connection_stage_creation_to_semaphore", connTypeStr, attemptType),
-	).Update(creationToSemaphore)
-
 	m.set.GetOrCreateHistogram(
 		m.getMetricName(agentInfo, "netbird_peer_connection_stage_signaling_received_to_connection", connTypeStr, attemptType),
 	).Update(signalingReceivedToConnection)
@@ -78,10 +69,8 @@ func (m *victoriaMetrics) RecordConnectionStages(
 		m.getMetricName(agentInfo, "netbird_peer_connection_total_creation_to_handshake", connTypeStr, attemptType),
 	).Update(totalDuration)
 
-	log.Tracef("peer connection metrics [%s, %s, %s]: creation→semaphore: %.3fs, signalingReceived→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
-		agentInfo.DeploymentType.String(), connTypeStr, attemptType,
-		creationToSemaphore, signalingReceivedToConnection, connectionToHandshake,
-		totalDuration)
+	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→handshake: %.3fs, total: %.3fs",
+		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToHandshake, totalDuration)
 }
 
 // getMetricName constructs a metric name with labels

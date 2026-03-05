@@ -175,7 +175,6 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	// Record the start time - beginning of connection attempt
 	conn.metricsStages = MetricsStages{}
-	conn.metricsStages.RecordCreated()
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 

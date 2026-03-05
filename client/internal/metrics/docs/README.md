@@ -48,19 +48,17 @@ Grafana (port 3000)
 
 ### Connection Stage Timing
 
-1. `netbird_peer_connection_stage_creation_to_semaphore`
-2. `netbird_peer_connection_stage_signaling_received_to_connection`
-3. `netbird_peer_connection_stage_connection_to_handshake`
-4. `netbird_peer_connection_total_creation_to_handshake`
+1. `netbird_peer_connection_stage_signaling_received_to_connection`
+2. `netbird_peer_connection_stage_connection_to_handshake`
+3. `netbird_peer_connection_total_creation_to_handshake`
 
 **Stage descriptions:**
 
 | Metric suffix                        | Timestamps                              | Description                                                                                                                       |
 |--------------------------------------|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `creation_to_semaphore`              | `Created → SemaphoreAcquired`           | Queuing delay waiting for a connection semaphore slot. Only recorded for initial connections.                                     |
 | `signaling_received_to_connection`   | `SignalingReceived → ConnectionReady`   | ICE/relay negotiation time after the first signal is received from the remote peer. Excludes the wait for the remote peer to come online. |
 | `connection_to_handshake`            | `ConnectionReady → WgHandshakeSuccess`  | WireGuard cryptographic handshake latency once the transport layer is ready.                                                      |
-| `total_creation_to_handshake`        | `SignalingReceived → WgHandshakeSuccess`| End-to-end connection time anchored at the first received signal. Excludes semaphore queuing and offline-peer wait time.          |
+| `total_creation_to_handshake`        | `SignalingReceived → WgHandshakeSuccess`| End-to-end connection time anchored at the first received signal. Excludes offline-peer wait time.                                |
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It is the anchor for all downstream stage durations, ensuring metrics reflect actual negotiation performance rather than how long the remote peer was unreachable.
 
@@ -136,7 +134,7 @@ docker-compose -f docker-compose.victoria.yml logs -f
 ```bash
 export NB_METRICS_ENABLED=true
 export NB_METRICS_SERVER_URL=http://localhost:8428/api/v1/import/prometheus
-export NB_METRICS_INTERVAL=1m  
+export NB_METRICS_INTERVAL=1m
 
 # Run client
 cd ../../../..

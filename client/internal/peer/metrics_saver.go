@@ -16,13 +16,6 @@ type MetricsStages struct {
 func (s *MetricsStages) RecordCreated() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.stageTimestamps.Created = time.Now()
-}
-
-func (s *MetricsStages) RecordSemaphoreAcquired() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.stageTimestamps.SemaphoreAcquired = time.Now()
 }
 
 // RecordSignalingReceived records when the first signal is received from the remote peer.
@@ -67,8 +60,7 @@ func (s *MetricsStages) Disconnected() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Reset all timestamps for reconnection; Created and SemaphoreAcquired are not
-	// tracked for reconnections since only SignalingReceived onwards is meaningful.
+	// Reset all timestamps for reconnection
 	s.stageTimestamps = metrics.ConnectionStageTimestamps{}
 	s.isReconnectionAttempt = true
 }
