@@ -19,8 +19,10 @@ func (s *ShutdownState) Name() string {
 
 func (s *ShutdownState) Cleanup() error {
 	if s.InterfaceName == "" {
-		// State file from an older version without interface name — skip cleanup
-		// rather than fail; legacy keys will be cleaned up on next successful start.
+		// State file from an older version without interface name — skip cleanup.
+		// Returning nil causes the state manager to delete this state entry.
+		// Legacy scutil keys will be discovered and removed by discoverExistingKeys()
+		// on the next successful start.
 		log.Warn("dns shutdown state has no interface name, skipping cleanup of legacy scutil keys")
 		return nil
 	}

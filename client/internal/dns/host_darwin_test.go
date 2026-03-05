@@ -552,6 +552,13 @@ func TestNewHostManagerWithInterfaceName(t *testing.T) {
 	assert.NotNil(t, manager.createdKeys)
 }
 
+func TestNewHostManagerWithEmptyInterfaceName(t *testing.T) {
+	manager, err := newHostManager("")
+	require.Error(t, err)
+	assert.Nil(t, manager)
+	assert.Contains(t, err.Error(), "interfaceName must not be empty")
+}
+
 func TestMultipleInterfacesGenerateDifferentKeys(t *testing.T) {
 	iface1 := "utun0"
 	iface2 := "utun1"
