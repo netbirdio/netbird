@@ -8,7 +8,10 @@ import (
 	"net/url"
 	"time"
 
+	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/metrics/remoteconfig"
 )
 
 const (
@@ -18,8 +21,8 @@ const (
 
 var (
 	DefaultPushConfig = PushConfig{
-		URL:      nil, // Will use getMetricsServerURL()
-		Interval: 0,   // Will use getMetricsInterval() or DefaultPushInterval
+		URL:      nil,
+		Interval: 0,
 	}
 )
 
@@ -31,17 +34,24 @@ type PushConfig struct {
 	Interval time.Duration
 }
 
+// remoteConfigProvider abstracts remote push config fetching for testability
+type remoteConfigProvider interface {
+	RefreshIfNeeded(ctx context.Context) *remoteconfig.Config
+}
+
 // Push handles periodic pushing of metrics to VictoriaMetrics
 type Push struct {
-	metrics  metricsImplementation
-	pushURL  string
-	interval time.Duration
-	client   *http.Client
+	metrics          metricsImplementation
+	pushURL          string
+	agentVersion     *goversion.Version
+	overrideInterval time.Duration // if set, bypass remote config and always push at this interval
+
+	configManager remoteConfigProvider
+	client        *http.Client
 }
 
 // NewPush creates a new Push instance with configuration resolution
-// Precedence: config parameter > env var > DefaultPushConfig
-func NewPush(metrics metricsImplementation, config PushConfig) *Push {
+func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, config PushConfig, agentVersion string) *Push {
 	// Resolve URL: config > env var (always returns valid URL)
 	var pushURL url.URL
 	if config.URL != nil {
@@ -50,53 +60,91 @@ func NewPush(metrics metricsImplementation, config PushConfig) *Push {
 		pushURL = getMetricsServerURL()
 	}
 
-	// Resolve interval: config > env var > default
-	interval := config.Interval
-	if interval == 0 {
-		if envInterval := getMetricsInterval(); envInterval > 0 {
-			interval = envInterval
-		} else {
-			interval = DefaultPushInterval
-		}
+	// If interval is explicitly set (config param or env var), bypass remote config entirely
+	overrideInterval := config.Interval
+	if overrideInterval == 0 {
+		overrideInterval = getMetricsInterval() // 0 if env var not set
+	}
+
+	parsedVersion, err := goversion.NewVersion(agentVersion)
+	if err != nil {
+		log.Warnf("failed to parse agent version %q: %v", agentVersion, err)
 	}
 
 	return &Push{
-		metrics:  metrics,
-		pushURL:  pushURL.String(),
-		interval: interval,
+		metrics:          metrics,
+		pushURL:          pushURL.String(),
+		agentVersion:     parsedVersion,
+		overrideInterval: overrideInterval,
+		configManager:    configManager,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Start starts the periodic push ticker
-// Pushes immediately on start, then every interval
+// Start starts the periodic push loop.
+// If overrideInterval is set (via env var), pushes unconditionally at that interval.
+// Otherwise, fetches remote config to determine push period and version eligibility.
 func (p *Push) Start(ctx context.Context) {
 	if p.pushURL == "" {
 		log.Debug("metrics push URL not configured, skipping push")
 		return
 	}
 
-	// Push immediately on start
-	if err := p.push(ctx); err != nil {
-		log.Errorf("failed to push metrics on start: %v", err)
-	}
-
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(0) // fire immediately on first iteration
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Debug("stopping metrics push")
 			return
-		case <-ticker.C:
-			if err := p.push(ctx); err != nil {
-				log.Errorf("failed to push metrics: %v", err)
-			}
+		case <-timer.C:
+		}
+
+		nextInterval := p.tick(ctx)
+		timer.Reset(nextInterval)
+	}
+}
+
+// tick performs a single push cycle and returns the duration to wait before the next one.
+func (p *Push) tick(ctx context.Context) time.Duration {
+	interval, shouldPush := p.resolveInterval(ctx)
+	if shouldPush {
+		if err := p.push(ctx); err != nil {
+			log.Errorf("failed to push metrics: %v", err)
 		}
 	}
+	return interval
+}
+
+// resolveInterval determines the push interval and whether a push should happen.
+// If overrideInterval is set, it bypasses remote config and always pushes.
+// Otherwise, it fetches remote config and checks version eligibility.
+func (p *Push) resolveInterval(ctx context.Context) (time.Duration, bool) {
+	if p.overrideInterval > 0 {
+		return p.overrideInterval, true
+	}
+
+	config := p.configManager.RefreshIfNeeded(ctx)
+	if config == nil {
+		log.Debug("no metrics push config available, waiting to retry")
+		return DefaultPushInterval, false
+	}
+
+	if p.agentVersion == nil {
+		log.Debug("agent version not available, skipping metrics push")
+		return config.Period, false
+	}
+
+	if !isVersionInRange(p.agentVersion, config.VersionSince, config.VersionUntil) {
+		log.Debugf("agent version %s not in range [%s, %s), skipping metrics push",
+			p.agentVersion, config.VersionSince, config.VersionUntil)
+		return config.Period, false
+	}
+
+	return config.Period, true
 }
 
 // push exports metrics and sends them to VictoriaMetrics
@@ -148,4 +196,9 @@ func (p *Push) push(ctx context.Context) error {
 
 	log.Debugf("successfully pushed metrics to %s", p.pushURL)
 	return nil
+}
+
+// isVersionInRange checks if current falls within [since, until)
+func isVersionInRange(current, since, until *goversion.Version) bool {
+	return !current.LessThan(since) && current.LessThan(until)
 }

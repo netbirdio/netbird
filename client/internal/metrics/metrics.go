@@ -8,6 +8,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/metrics/remoteconfig"
 )
 
 // AgentInfo holds static information about the agent
@@ -143,7 +145,12 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	ctx, cancel := context.WithCancel(ctx)
 	c.pushCancel = cancel
 
-	push := NewPush(c.impl, config)
+	c.mu.RLock()
+	agentVersion := c.agentInfo.Version
+	c.mu.RUnlock()
+
+	configManager := remoteconfig.NewManager(getMetricsConfigURL(), remoteconfig.DefaultMinRefreshInterval)
+	push := NewPush(c.impl, configManager, config, agentVersion)
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -151,7 +158,11 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	}()
 	c.push = push
 
-	log.Infof("started metrics push to %s with interval %s", push.pushURL, push.interval)
+	if push.overrideInterval > 0 {
+		log.Infof("started metrics push to %s with override interval %s", push.pushURL, push.overrideInterval)
+	} else {
+		log.Infof("started metrics push to %s with remote config", push.pushURL)
+	}
 }
 
 func (c *ClientMetrics) StopPush() {

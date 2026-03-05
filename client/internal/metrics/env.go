@@ -16,9 +16,16 @@ const (
 	// EnvMetricsServerURL is the environment variable to override the metrics server URL
 	EnvMetricsServerURL = "NB_METRICS_SERVER_URL"
 
-	// EnvMetricsInterval is the environment variable to set the push interval (default: 4h)
+	// EnvMetricsInterval overrides the push interval from the remote config.
+	// When set, metrics are always pushed at this interval, ignoring remote config's
+	// period_minutes and version range filtering.
 	// Format: duration string like "1h", "30m", "4h"
 	EnvMetricsInterval = "NB_METRICS_INTERVAL"
+
+	// EnvMetricsConfigURL is the environment variable to override the metrics push config URL
+	EnvMetricsConfigURL = "NB_METRICS_CONFIG_URL"
+
+	defaultMetricsConfigURL = "https://api.netbird.io/client-metrics-config.json"
 )
 
 var (
@@ -55,6 +62,14 @@ func getMetricsServerURL() url.URL {
 	}
 
 	return *defaultMetricsURL
+}
+
+// getMetricsConfigURL returns the URL to fetch push configuration from
+func getMetricsConfigURL() string {
+	if envURL := os.Getenv(EnvMetricsConfigURL); envURL != "" {
+		return envURL
+	}
+	return defaultMetricsConfigURL
 }
 
 // getMetricsInterval returns the metrics push interval from environment variable
