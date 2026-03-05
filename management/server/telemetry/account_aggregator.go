@@ -106,6 +106,8 @@ func (a *AccountDurationAggregator) FlushAndGetP95s() []int64 {
 		}
 	}
 
+	a.cleanupStaleAccounts(now)
+
 	return p95s
 }
 
@@ -116,13 +118,17 @@ func (a *AccountDurationAggregator) processDataPoint(dataPoint metricdata.Histog
 		return
 	}
 
-	if a.isStaleAccount(accountID, now) {
-		delete(a.accounts, accountID)
-		return
-	}
-
 	if p95 := calculateP95FromHistogram(dataPoint); p95 > 0 {
 		*p95s = append(*p95s, p95)
+	}
+}
+
+// cleanupStaleAccounts removes accounts that haven't been updated recently
+func (a *AccountDurationAggregator) cleanupStaleAccounts(now time.Time) {
+	for accountID := range a.accounts {
+		if a.isStaleAccount(accountID, now) {
+			delete(a.accounts, accountID)
+		}
 	}
 }
 
