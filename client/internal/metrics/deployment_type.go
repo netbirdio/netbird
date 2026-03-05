@@ -26,7 +26,7 @@ func (d DeploymentType) String() string {
 	case DeploymentTypeSelfHosted:
 		return "selfhosted"
 	default:
-		return "selfhosted"
+		return "unknown"
 	}
 }
 
