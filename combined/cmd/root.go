@@ -493,9 +493,6 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*mgmtServer.BaseServer, error) {
 	mgmt := cfg.Management
 
-	dnsDomain := mgmt.DnsDomain
-	singleAccModeDomain := dnsDomain
-
 	// Extract port from listen address
 	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
 	if err != nil {
@@ -507,8 +504,9 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	mgmtSrv := mgmtServer.NewServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
-			DNSDomain:               dnsDomain,
-			MgmtSingleAccModeDomain: singleAccModeDomain,
+			DNSDomain:               "",
+			MgmtSingleAccModeDomain: "",
+			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,
