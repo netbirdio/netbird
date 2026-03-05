@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capabilities for the NetBird UI","local":true,"windows":["main"],"permissions":["core:default","core:tray:default"]}}

@@ -1,0 +1,29 @@
+[package]
+name = "netbird-ui"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+tonic-build = "0.12"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+notify-rust = "4"
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+tower = "0.5"
+hyper-util = "0.1"
+http = "1"
+
+[target.'cfg(unix)'.dependencies]
+tokio-stream = "0.1"
+tower = "0.5"
+hyper-util = "0.1"

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
+  "productName": "NetBird",
+  "identifier": "io.netbird.client",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "beforeBuildCommand": "cd ../frontend && npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NetBird",
+        "width": 900,
+        "height": 650,
+        "visible": false,
+        "resizable": true,
+        "skipTaskbar": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/netbird-systemtray-disconnected.png",
+      "iconAsTemplate": true
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/netbird.png"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri/capabilities-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for the NetBird UI",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:tray:default"
+  ]
+}
