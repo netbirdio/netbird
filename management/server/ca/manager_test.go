@@ -195,8 +195,10 @@ func TestManager_SignCertificate(t *testing.T) {
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	result, issued, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, 0,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeInternal, Trigger: TriggerManual,
+		},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -224,8 +226,10 @@ func TestManager_SignCertificate_Wildcard(t *testing.T) {
 	csr := createTestCSR(t, "peer1.netbird.example", true)
 
 	result, issued, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, true, TriggerManual, 0,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeInternal, Wildcard: true, Trigger: TriggerManual,
+		},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -240,8 +244,10 @@ func TestManager_SignCertificate_NoActiveCA(t *testing.T) {
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	_, _, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, 0,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeInternal, Trigger: TriggerManual,
+		},
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no active CA")
@@ -253,8 +259,10 @@ func TestManager_SignCertificate_ACMEStub(t *testing.T) {
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	_, _, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeACME, false, TriggerManual, 0,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeACME, Trigger: TriggerManual,
+		},
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet available")
@@ -379,8 +387,10 @@ func TestManager_RevokeCertificate(t *testing.T) {
 	csr := createTestCSR(t, "peer1.netbird.example", false)
 
 	_, issued, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, 0,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeInternal, Trigger: TriggerManual,
+		},
 	)
 	require.NoError(t, err)
 
@@ -400,8 +410,10 @@ func TestManager_SignCertificate_CustomValidity(t *testing.T) {
 
 	customValidity := 24 * time.Hour
 	result, issued, err := mgr.SignCertificate(
-		context.Background(), "account1", "peer1", csr,
-		SigningTypeInternal, false, TriggerManual, customValidity,
+		context.Background(), SignRequest{
+			AccountID: "account1", PeerID: "peer1", CSR: csr,
+			SigningType: SigningTypeInternal, Trigger: TriggerManual, Validity: customValidity,
+		},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)

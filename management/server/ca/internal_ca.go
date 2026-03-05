@@ -72,6 +72,14 @@ func NewInternalCASigner(certPEM, keyPEM []byte, caID string, validity time.Dura
 		validity = defaultCertValidity
 	}
 
+	certPubKey, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("CA certificate does not contain an ECDSA public key")
+	}
+	if !certPubKey.Equal(&key.PublicKey) {
+		return nil, fmt.Errorf("CA certificate and private key do not match")
+	}
+
 	return &InternalCASigner{
 		caCert:   cert,
 		caKey:    key,
@@ -84,6 +92,10 @@ func NewInternalCASigner(certPEM, keyPEM []byte, caID string, validity time.Dura
 // It validates that the CSR's DNS names match the expected peer FQDN and optionally adds
 // a wildcard SAN.
 func (s *InternalCASigner) Sign(ctx context.Context, csr *x509.CertificateRequest, peerFQDN string, wildcard bool) (*SigningResult, error) {
+	if csr == nil {
+		return nil, fmt.Errorf("CSR is nil")
+	}
+
 	if err := csr.CheckSignature(); err != nil {
 		return nil, fmt.Errorf("invalid CSR signature: %w", err)
 	}
@@ -306,11 +318,15 @@ func containsName(names []string, target string) bool {
 
 func generateSerialNumber() (*big.Int, error) {
 	max := new(big.Int).Lsh(big.NewInt(1), 128)
-	serial, err := rand.Int(rand.Reader, max)
-	if err != nil {
-		return nil, fmt.Errorf("generate random serial: %w", err)
+	for {
+		serial, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return nil, fmt.Errorf("generate random serial: %w", err)
+		}
+		if serial.Sign() > 0 {
+			return serial, nil
+		}
 	}
-	return serial, nil
 }
 
 func parseCertificatePEM(data []byte) (*x509.Certificate, error) {

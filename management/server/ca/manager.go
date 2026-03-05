@@ -76,7 +76,7 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 		return nil, fmt.Errorf("parse generated CA cert: %w", err)
 	}
 
-	caCert := NewCACertificate(accountID, string(result.CertPEM), string(result.KeyPEM), result.Fingerprint, result.DisplayName, result.Organization, cert.NotBefore, cert.NotAfter)
+	caCert := NewCACertificate(accountID, string(result.CertPEM), string(result.KeyPEM), result.Fingerprint, CAOptions{DisplayName: result.DisplayName, Organization: result.Organization}, cert.NotBefore, cert.NotAfter)
 
 	if err := m.store.CreateCACertificate(ctx, caCert); err != nil {
 		return nil, fmt.Errorf("store CA certificate: %w", err)
@@ -87,9 +87,22 @@ func (m *Manager) InitForAccount(ctx context.Context, accountID, dnsDomain strin
 	return caCert, nil
 }
 
+// SignRequest holds the parameters for signing a certificate.
+type SignRequest struct {
+	AccountID   string
+	PeerID      string
+	CSR         *x509.CertificateRequest
+	SigningType string
+	Wildcard    bool
+	Trigger     string
+	Validity    time.Duration
+}
+
 // SignCertificate signs a CSR using the specified backend and records the issuance.
 // Decryption of CA private keys is handled transparently by the store layer.
-func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string, csr *x509.CertificateRequest, signingType string, wildcard bool, trigger string, validity time.Duration) (*SigningResult, *IssuedCertificate, error) {
+func (m *Manager) SignCertificate(ctx context.Context, req SignRequest) (*SigningResult, *IssuedCertificate, error) {
+	accountID, peerID, csr := req.AccountID, req.PeerID, req.CSR
+	signingType, wildcard, trigger, validity := req.SigningType, req.Wildcard, req.Trigger, req.Validity
 	if csr == nil {
 		return nil, nil, fmt.Errorf("csr is required")
 	}
@@ -151,10 +164,17 @@ func (m *Manager) SignCertificate(ctx context.Context, accountID, peerID string,
 		dnsNames = append(dnsNames, "*."+peerFQDN)
 	}
 
-	issued := NewIssuedCertificate(
-		accountID, peerID, serialNumber, dnsNames, wildcard,
-		time.Now().UTC(), notAfter, SigningTypeInternal, ca.ID,
-	)
+	issued := NewIssuedCertificate(IssuedCertParams{
+		AccountID:    accountID,
+		PeerID:       peerID,
+		SerialNumber: serialNumber,
+		DNSNames:     dnsNames,
+		HasWildcard:  wildcard,
+		NotBefore:    time.Now().UTC(),
+		NotAfter:     notAfter,
+		SigningType:  SigningTypeInternal,
+		SignedByCAID: ca.ID,
+	})
 
 	if err := m.store.CreateIssuedCertificate(ctx, issued); err != nil {
 		return nil, nil, fmt.Errorf("store issued certificate: %w", err)
@@ -194,7 +214,7 @@ func (m *Manager) DeactivateCA(ctx context.Context, accountID, caID string) erro
 }
 
 // CheckRateLimit checks if the peer has exceeded the rate limit for certificate issuance.
-// domain_change triggers are exempt from rate limiting.
+// domain_change and session_renewal triggers are exempt from rate limiting.
 func (m *Manager) CheckRateLimit(ctx context.Context, accountID, peerID, trigger string, limit int) error {
 	if trigger == TriggerDomainChange || trigger == TriggerSessionRenewal {
 		return nil

@@ -49,6 +49,10 @@ func (m *Manager) GenerateKey() (crypto.Signer, error) {
 // CreateCSR creates a DER-encoded certificate signing request for the given FQDN.
 // If wildcard is true, a wildcard SAN (*.fqdn) is included alongside the base FQDN.
 func (m *Manager) CreateCSR(key crypto.Signer, fqdn string, wildcard bool) ([]byte, error) {
+	if fqdn == "" {
+		return nil, fmt.Errorf("FQDN is required for CSR creation")
+	}
+
 	dnsNames := []string{fqdn}
 	if wildcard {
 		dnsNames = append(dnsNames, "*."+fqdn)
@@ -67,20 +71,49 @@ func (m *Manager) CreateCSR(key crypto.Signer, fqdn string, wildcard bool) ([]by
 }
 
 // StoreCert writes the leaf certificate, CA chain, and private key to disk.
+// All three files are written to temp files first, then renamed atomically
+// to avoid leaving inconsistent state on partial failure.
 // The private key file is restricted to owner-only read/write (0600).
 func (m *Manager) StoreCert(certPEM, chainPEM, keyPEM []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := atomicWrite(filepath.Join(m.certDir, certFileName), certPEM, 0644); err != nil {
-		return fmt.Errorf("write cert: %w", err)
+	type pendingFile struct {
+		path string
+		data []byte
+		perm os.FileMode
 	}
-	if err := atomicWrite(filepath.Join(m.certDir, chainFileName), chainPEM, 0644); err != nil {
-		return fmt.Errorf("write chain: %w", err)
+	files := []pendingFile{
+		{filepath.Join(m.certDir, certFileName), certPEM, 0644},
+		{filepath.Join(m.certDir, chainFileName), chainPEM, 0644},
+		{filepath.Join(m.certDir, keyFileName), keyPEM, 0600},
 	}
-	if err := atomicWrite(filepath.Join(m.certDir, keyFileName), keyPEM, 0600); err != nil {
-		return fmt.Errorf("write key: %w", err)
+
+	// Phase 1: write all temp files
+	var tmpPaths []string
+	for _, f := range files {
+		tmp := f.path + ".tmp"
+		if err := os.WriteFile(tmp, f.data, f.perm); err != nil {
+			// Clean up any temp files written so far
+			for _, t := range tmpPaths {
+				_ = os.Remove(t)
+			}
+			return fmt.Errorf("write %s: %w", filepath.Base(f.path), err)
+		}
+		tmpPaths = append(tmpPaths, tmp)
 	}
+
+	// Phase 2: rename all (atomic on most filesystems)
+	for i, f := range files {
+		if err := os.Rename(tmpPaths[i], f.path); err != nil {
+			// Clean up the failed and remaining temp files
+			for j := i; j < len(tmpPaths); j++ {
+				_ = os.Remove(tmpPaths[j])
+			}
+			return fmt.Errorf("rename %s: %w", filepath.Base(f.path), err)
+		}
+	}
+
 	return nil
 }
 

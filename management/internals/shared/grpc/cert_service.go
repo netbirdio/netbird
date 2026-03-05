@@ -67,19 +67,8 @@ func (s *Server) SignCertificate(ctx context.Context, req *proto.EncryptedMessag
 		return nil, status.Errorf(codes.FailedPrecondition, "peer has no FQDN configured")
 	}
 
-	// Enforce exact SAN allowlist: the CSR must contain only the peer's FQDN
-	// and, if wildcard is requested, the wildcard form. No extra SANs allowed.
-	expected := map[string]struct{}{peerFQDN: {}}
-	if wildcard {
-		expected["*."+peerFQDN] = struct{}{}
-	}
-	if len(csr.DNSNames) != len(expected) {
-		return nil, status.Errorf(codes.InvalidArgument, "CSR SAN set is invalid for peer FQDN %q", peerFQDN)
-	}
-	for _, name := range csr.DNSNames {
-		if _, ok := expected[name]; !ok {
-			return nil, status.Errorf(codes.InvalidArgument, "CSR SAN %q is not allowed", name)
-		}
+	if err := validateCSRSANs(csr, peerFQDN, wildcard); err != nil {
+		return nil, err
 	}
 
 	signingType := certSigningTypeToString(signReq.SigningType)
@@ -97,7 +86,15 @@ func (s *Server) SignCertificate(ctx context.Context, req *proto.EncryptedMessag
 		return nil, status.Errorf(codes.ResourceExhausted, "certificate rate limit exceeded")
 	}
 
-	result, _, err := s.caManager.SignCertificate(ctx, accountID, peer.ID, csr, signingType, wildcard, trigger, certValidity)
+	result, _, err := s.caManager.SignCertificate(ctx, ca.SignRequest{
+		AccountID:   accountID,
+		PeerID:      peer.ID,
+		CSR:         csr,
+		SigningType: signingType,
+		Wildcard:    wildcard,
+		Trigger:     trigger,
+		Validity:    certValidity,
+	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to sign certificate for peer %s: %v", peer.ID, err)
 		return nil, status.Errorf(codes.Internal, "failed to sign certificate")
@@ -186,6 +183,38 @@ func (s *Server) getActiveCACertsPEM(ctx context.Context, accountID string, sett
 		certs = append(certs, []byte(c.CertificatePEM))
 	}
 	return certs
+}
+
+// validateCSRSANs ensures the CSR contains only the expected peer FQDN (and wildcard if requested).
+func validateCSRSANs(csr *x509.CertificateRequest, peerFQDN string, wildcard bool) error {
+	if len(csr.IPAddresses) > 0 {
+		return status.Errorf(codes.InvalidArgument, "CSR must not contain IP SANs")
+	}
+	if len(csr.EmailAddresses) > 0 {
+		return status.Errorf(codes.InvalidArgument, "CSR must not contain Email SANs")
+	}
+	if len(csr.URIs) > 0 {
+		return status.Errorf(codes.InvalidArgument, "CSR must not contain URI SANs")
+	}
+
+	expected := map[string]struct{}{peerFQDN: {}}
+	if wildcard {
+		expected["*."+peerFQDN] = struct{}{}
+	}
+	if len(csr.DNSNames) != len(expected) {
+		return status.Errorf(codes.InvalidArgument, "CSR SAN set is invalid for peer FQDN %q", peerFQDN)
+	}
+	seen := make(map[string]struct{}, len(csr.DNSNames))
+	for _, name := range csr.DNSNames {
+		if _, ok := expected[name]; !ok {
+			return status.Errorf(codes.InvalidArgument, "CSR SAN %q is not allowed", name)
+		}
+		if _, dup := seen[name]; dup {
+			return status.Errorf(codes.InvalidArgument, "CSR contains duplicate SAN %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
 }
 
 func certSigningTypeToString(t proto.CertSigningType) string {

@@ -1036,8 +1036,8 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
-	// Store CA certificates from sync
-	if caCerts := conf.GetCaCertificatesPem(); len(caCerts) > 0 && e.certManager != nil {
+	// Store CA certificates from sync (empty list clears the local bundle)
+	if caCerts := conf.GetCaCertificatesPem(); e.certManager != nil {
 		if err := e.certManager.StoreCA(caCerts); err != nil {
 			log.Warnf("failed to store CA certificates: %v", err)
 		}

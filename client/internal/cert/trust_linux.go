@@ -3,6 +3,7 @@
 package cert
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const (
@@ -36,14 +38,13 @@ func InstallCA(caPEM []byte) error {
 		return err
 	}
 
-	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp[:16])
+	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp)
 	if err := os.WriteFile(certPath, caPEM, 0644); err != nil {
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 
-	out, err := exec.Command(updateCmd).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %s: %w", updateCmd, strings.TrimSpace(string(out)), err)
+	if err := runWithTimeout(updateCmd, 30*time.Second); err != nil {
+		return err
 	}
 	return nil
 }
@@ -60,14 +61,13 @@ func UninstallCA(caPEM []byte) error {
 		return err
 	}
 
-	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp[:16])
+	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp)
 	if err := os.Remove(certPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove CA cert: %w", err)
 	}
 
-	out, err := exec.Command(updateCmd).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %s: %w", updateCmd, strings.TrimSpace(string(out)), err)
+	if err := runWithTimeout(updateCmd, 30*time.Second); err != nil {
+		return err
 	}
 	return nil
 }
@@ -84,7 +84,7 @@ func IsCATrusted(caPEM []byte) bool {
 		return false
 	}
 
-	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp[:16])
+	certPath := fmt.Sprintf("%s/netbird-%s.crt", certDir, fp)
 	_, err = os.Stat(certPath)
 	return err == nil
 }
@@ -119,6 +119,17 @@ func detectDistro() (certDir, updateCmd string, err error) {
 		}
 	}
 	return "", "", fmt.Errorf("unsupported Linux distribution: neither %s nor %s found", debianUpdateCmd, rhelUpdateCmd)
+}
+
+func runWithTimeout(command string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, command).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %s: %w", command, strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 func certFingerprint(caPEM []byte) (string, error) {

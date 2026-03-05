@@ -25,15 +25,15 @@ type CACertificate struct {
 }
 
 // NewCACertificate creates a new CACertificate with a generated ID and creation timestamp.
-func NewCACertificate(accountID, certPEM, keyPEM, fingerprint, displayName, organization string, notBefore, notAfter time.Time) *CACertificate {
+func NewCACertificate(accountID string, certPEM, keyPEM, fingerprint string, opts CAOptions, notBefore, notAfter time.Time) *CACertificate {
 	return &CACertificate{
 		ID:             xid.New().String(),
 		AccountID:      accountID,
 		CertificatePEM: certPEM,
 		PrivateKeyPEM:  keyPEM,
 		Fingerprint:    fingerprint,
-		DisplayName:    displayName,
-		Organization:   organization,
+		DisplayName:    opts.DisplayName,
+		Organization:   opts.Organization,
 		NotBefore:      notBefore,
 		NotAfter:       notAfter,
 		IsActive:       true,
@@ -91,19 +91,32 @@ type IssuedCertificate struct {
 	CreatedAt    time.Time
 }
 
+// IssuedCertParams holds the parameters for creating an IssuedCertificate.
+type IssuedCertParams struct {
+	AccountID    string
+	PeerID       string
+	SerialNumber string
+	DNSNames     []string
+	HasWildcard  bool
+	NotBefore    time.Time
+	NotAfter     time.Time
+	SigningType   string
+	SignedByCAID string
+}
+
 // NewIssuedCertificate creates a new IssuedCertificate with a generated ID and creation timestamp.
-func NewIssuedCertificate(accountID, peerID, serialNumber string, dnsNames []string, hasWildcard bool, notBefore, notAfter time.Time, signingType, signedByCAID string) *IssuedCertificate {
+func NewIssuedCertificate(p IssuedCertParams) *IssuedCertificate {
 	return &IssuedCertificate{
 		ID:           xid.New().String(),
-		AccountID:    accountID,
-		PeerID:       peerID,
-		SerialNumber: serialNumber,
-		DNSNames:     dnsNames,
-		HasWildcard:  hasWildcard,
-		NotBefore:    notBefore,
-		NotAfter:     notAfter,
-		SigningType:   signingType,
-		SignedByCAID: signedByCAID,
+		AccountID:    p.AccountID,
+		PeerID:       p.PeerID,
+		SerialNumber: p.SerialNumber,
+		DNSNames:     p.DNSNames,
+		HasWildcard:  p.HasWildcard,
+		NotBefore:    p.NotBefore,
+		NotAfter:     p.NotAfter,
+		SigningType:   p.SigningType,
+		SignedByCAID: p.SignedByCAID,
 		Revoked:      false,
 		CreatedAt:    time.Now().UTC(),
 	}

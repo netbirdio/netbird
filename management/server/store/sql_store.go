@@ -5376,6 +5376,10 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 // CreateCACertificate persists a new CA certificate in the database.
 // A copy is made before encryption to avoid mutating the caller's struct.
 func (s *SqlStore) CreateCACertificate(ctx context.Context, caCert *ca.CACertificate) error {
+	if caCert == nil {
+		return status.Errorf(status.InvalidArgument, "CA certificate is nil")
+	}
+
 	caCopy := *caCert
 	if err := caCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
 		return fmt.Errorf("encrypt CA certificate: %w", err)
@@ -5492,6 +5496,10 @@ func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration t
 }
 // CreateIssuedCertificate persists a new issued certificate record.
 func (s *SqlStore) CreateIssuedCertificate(ctx context.Context, cert *ca.IssuedCertificate) error {
+	if cert == nil {
+		return status.Errorf(status.InvalidArgument, "issued certificate is nil")
+	}
+
 	result := s.db.Create(cert)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create issued certificate in store: %v", result.Error)
