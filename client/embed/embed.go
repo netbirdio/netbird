@@ -202,7 +202,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	client := internal.NewConnectClient(ctx, c.config, c.recorder, false)
+	client := internal.NewConnectClient(ctx, c.config, c.recorder)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)

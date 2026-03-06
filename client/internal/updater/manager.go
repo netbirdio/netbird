@@ -1,12 +1,9 @@
-//go:build windows || darwin
-
-package updatemanager
+package updater
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -15,7 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -41,6 +38,9 @@ type Manager struct {
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 
+	downloadOnly bool // true when no enforcement from management; notifies UI to download latest
+	forceUpdate  bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
+
 	lastTrigger    time.Time
 	mgmUpdateChan  chan struct{}
 	updateChannel  chan struct{}
@@ -53,37 +53,38 @@ type Manager struct {
 	expectedVersion       *v.Version
 	updateToLatestVersion bool
 
-	// updateMutex protect update and expectedVersion fields
+	pendingVersion *v.Version
+
+	// updateMutex protects update, expectedVersion, updateToLatestVersion,
+	// downloadOnly, forceUpdate, pendingVersion, and lastTrigger fields
 	updateMutex sync.Mutex
 
-	triggerUpdateFn func(context.Context, string) error
+	// installMutex and installing guard against concurrent installation attempts
+	installMutex sync.Mutex
+	installing   bool
+
+	// protect to start the service multiple times
+	mu sync.Mutex
+
+	autoUpdateSupported func() bool
 }
 
-func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) (*Manager, error) {
-	if runtime.GOOS == "darwin" {
-		isBrew := !installer.TypeOfInstaller(context.Background()).Downloadable()
-		if isBrew {
-			log.Warnf("auto-update disabled on Home Brew installation")
-			return nil, fmt.Errorf("auto-update not supported on Home Brew installation yet")
-		}
-	}
-	return newManager(statusRecorder, stateManager)
-}
-
-func newManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) (*Manager, error) {
+// NewManager creates a new update manager. The manager is single-use: once Stop() is called, it cannot be restarted.
+func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
 	manager := &Manager{
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		mgmUpdateChan:  make(chan struct{}, 1),
-		updateChannel:  make(chan struct{}, 1),
-		currentVersion: version.NetbirdVersion(),
-		update:         version.NewUpdate("nb/client"),
+		statusRecorder:      statusRecorder,
+		stateManager:        stateManager,
+		mgmUpdateChan:       make(chan struct{}, 1),
+		updateChannel:       make(chan struct{}, 1),
+		currentVersion:      version.NetbirdVersion(),
+		update:              version.NewUpdate("nb/client"),
+		downloadOnly:        true,
+		autoUpdateSupported: isAutoUpdateSupported,
 	}
-	manager.triggerUpdateFn = manager.triggerUpdate
 
 	stateManager.RegisterState(&UpdateState{})
 
-	return manager, nil
+	return manager
 }
 
 // CheckUpdateSuccess checks if the update was successful and send a notification.
@@ -124,8 +125,10 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 }
 
 func (m *Manager) Start(ctx context.Context) {
+	log.Infof("starting update manager")
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.cancel != nil {
-		log.Errorf("Manager already started")
 		return
 	}
 
@@ -142,13 +145,31 @@ func (m *Manager) Start(ctx context.Context) {
 	m.cancel = cancel
 
 	m.wg.Add(1)
-	go m.updateLoop(ctx)
+	go func() {
+		defer m.wg.Done()
+		m.updateLoop(ctx)
+	}()
 }
 
-func (m *Manager) SetVersion(expectedVersion string) {
+func (m *Manager) SetDownloadOnly() {
+	m.updateMutex.Lock()
+	m.downloadOnly = true
+	m.forceUpdate = false
+	m.expectedVersion = nil
+	m.updateToLatestVersion = false
+	m.updateMutex.Unlock()
+
+	select {
+	case m.mgmUpdateChan <- struct{}{}:
+	default:
+	}
+}
+
+func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
-	if m.cancel == nil {
-		log.Errorf("manager not started")
+
+	if !m.autoUpdateSupported() {
+		log.Warnf("auto-update not supported on this platform")
 		return
 	}
 
@@ -159,6 +180,7 @@ func (m *Manager) SetVersion(expectedVersion string) {
 		log.Errorf("empty expected version provided")
 		m.expectedVersion = nil
 		m.updateToLatestVersion = false
+		m.downloadOnly = true
 		return
 	}
 
@@ -178,12 +200,83 @@ func (m *Manager) SetVersion(expectedVersion string) {
 		m.updateToLatestVersion = false
 	}
 
+	m.downloadOnly = false
+	m.forceUpdate = forceUpdate
+
 	select {
 	case m.mgmUpdateChan <- struct{}{}:
 	default:
 	}
 }
 
+// Install triggers the installation of the pending version. It is called when the user clicks the install button in the UI.
+func (m *Manager) Install(ctx context.Context) error {
+	if !m.autoUpdateSupported() {
+		return fmt.Errorf("auto-update not supported on this platform")
+	}
+
+	m.updateMutex.Lock()
+	pending := m.pendingVersion
+	m.updateMutex.Unlock()
+
+	if pending == nil {
+		return fmt.Errorf("no pending version to install")
+	}
+
+	return m.tryInstall(ctx, pending)
+}
+
+// tryInstall ensures only one installation runs at a time. Concurrent callers
+// receive an error immediately rather than queuing behind a running install.
+func (m *Manager) tryInstall(ctx context.Context, targetVersion *v.Version) error {
+	m.installMutex.Lock()
+	if m.installing {
+		m.installMutex.Unlock()
+		return fmt.Errorf("installation already in progress")
+	}
+	m.installing = true
+	m.installMutex.Unlock()
+
+	defer func() {
+		m.installMutex.Lock()
+		m.installing = false
+		m.installMutex.Unlock()
+	}()
+
+	return m.install(ctx, targetVersion)
+}
+
+// NotifyUI re-publishes the current update state to a newly connected UI client.
+// Only needed for download-only mode where the latest version is already cached
+// and won't be re-fetched on reconnect. In enforced modes, mgm will re-send the
+// policy on the next sync which triggers the notification naturally.
+func (m *Manager) NotifyUI() {
+	m.updateMutex.Lock()
+	if !m.downloadOnly || m.update == nil {
+		m.updateMutex.Unlock()
+		return
+	}
+	latestVersion := m.update.LatestVersion()
+	m.updateMutex.Unlock()
+
+	if latestVersion == nil {
+		return
+	}
+	currentVersion, err := v.NewVersion(m.currentVersion)
+	if err != nil || currentVersion.GreaterThanOrEqual(latestVersion) {
+		return
+	}
+
+	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_SYSTEM,
+		"New version available",
+		"",
+		map[string]string{"new_version_available": latestVersion.String()},
+	)
+}
+
+// Stop is not used at the moment because it fully depends on the daemon. In a future refactor it may make sense to use it.
 func (m *Manager) Stop() {
 	if m.cancel == nil {
 		return
@@ -214,8 +307,6 @@ func (m *Manager) onContextCancel() {
 }
 
 func (m *Manager) updateLoop(ctx context.Context) {
-	defer m.wg.Done()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -239,55 +330,89 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	expectedVersion := m.expectedVersion
-	useLatest := m.updateToLatestVersion
+	downloadOnly := m.downloadOnly
+	forceUpdate := m.forceUpdate
 	curLatestVersion := m.update.LatestVersion()
-	m.updateMutex.Unlock()
 
 	switch {
-	// Resolve "latest" to actual version
-	case useLatest:
+	// Download-only mode or resolve "latest" to actual version
+	case downloadOnly, m.updateToLatestVersion:
 		if curLatestVersion == nil {
 			log.Tracef("latest version not fetched yet")
+			m.updateMutex.Unlock()
 			return
 		}
 		updateVersion = curLatestVersion
-	// Update to specific version
-	case expectedVersion != nil:
-		updateVersion = expectedVersion
+	// Install to specific version
+	case m.expectedVersion != nil:
+		updateVersion = m.expectedVersion
 	default:
 		log.Debugf("no expected version information set")
+		m.updateMutex.Unlock()
 		return
 	}
 
 	log.Debugf("checking update option, current version: %s, target version: %s", m.currentVersion, updateVersion)
-	if !m.shouldUpdate(updateVersion) {
+	if !m.shouldUpdate(updateVersion, forceUpdate) {
+		m.updateMutex.Unlock()
 		return
 	}
 
 	m.lastTrigger = time.Now()
-	log.Infof("Auto-update triggered, current version: %s, target version: %s", m.currentVersion, updateVersion)
-	m.statusRecorder.PublishEvent(
-		cProto.SystemEvent_CRITICAL,
-		cProto.SystemEvent_SYSTEM,
-		"Automatically updating client",
-		"Your client version is older than auto-update version set in Management, updating client now.",
-		nil,
-	)
+	log.Infof("new version available: %s", updateVersion)
+
+	if !downloadOnly && !forceUpdate {
+		m.pendingVersion = updateVersion
+	}
+	m.updateMutex.Unlock()
+
+	if downloadOnly {
+		m.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"New version available",
+			"",
+			map[string]string{"new_version_available": updateVersion.String()},
+		)
+		return
+	}
+
+	if forceUpdate {
+		if err := m.tryInstall(ctx, updateVersion); err != nil {
+			log.Errorf("force update failed: %v", err)
+		}
+		return
+	}
 
 	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_SYSTEM,
+		"New version available",
+		"",
+		map[string]string{"new_version_available": updateVersion.String(), "enforced": "true"},
+	)
+}
+
+func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error {
+	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_CRITICAL,
+		cProto.SystemEvent_SYSTEM,
+		"Updating client",
+		"Installing update now.",
+		nil,
+	)
+	m.statusRecorder.PublishEvent(
 		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"",
 		"",
-		map[string]string{"progress_window": "show", "version": updateVersion.String()},
+		map[string]string{"progress_window": "show", "version": pendingVersion.String()},
 	)
 
 	updateState := UpdateState{
 		PreUpdateVersion: m.currentVersion,
-		TargetVersion:    updateVersion.String(),
+		TargetVersion:    pendingVersion.String(),
 	}
-
 	if err := m.stateManager.UpdateState(updateState); err != nil {
 		log.Warnf("failed to update state: %v", err)
 	} else {
@@ -296,8 +421,9 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		}
 	}
 
-	if err := m.triggerUpdateFn(ctx, updateVersion.String()); err != nil {
-		log.Errorf("Error triggering auto-update: %v", err)
+	inst := installer.New()
+	if err := inst.RunInstallation(ctx, pendingVersion.String()); err != nil {
+		log.Errorf("error triggering update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_SYSTEM,
@@ -305,7 +431,9 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 			fmt.Sprintf("Auto-update failed: %v", err),
 			nil,
 		)
+		return err
 	}
+	return nil
 }
 
 // loadAndDeleteUpdateState loads the update state, deletes it from storage, and returns it.
@@ -339,7 +467,7 @@ func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, e
 	return updateState, nil
 }
 
-func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
+func (m *Manager) shouldUpdate(updateVersion *v.Version, forceUpdate bool) bool {
 	if m.currentVersion == developmentVersion {
 		log.Debugf("skipping auto-update, running development version")
 		return false
@@ -354,7 +482,7 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 		return false
 	}
 
-	if time.Since(m.lastTrigger) < 5*time.Minute {
+	if forceUpdate && time.Since(m.lastTrigger) < 3*time.Minute {
 		log.Debugf("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
 		return false
 	}
@@ -366,9 +494,4 @@ func (m *Manager) lastResultErrReason() string {
 	inst := installer.New()
 	result := installer.NewResultHandler(inst.TempDir())
 	return result.GetErrorResultReason()
-}
-
-func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
-	inst := installer.New()
-	return inst.RunInstallation(ctx, targetVersion)
 }

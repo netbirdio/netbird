@@ -34,7 +34,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
@@ -308,10 +307,10 @@ type serviceClient struct {
 	sshJWTCacheTTL             int
 
 	connected            bool
-	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	isEnforcedUpdate     bool
 	settingsEnabled      bool
 	profilesEnabled      bool
 	showNetworks         bool
@@ -367,7 +366,6 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -828,7 +826,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
+func (s *serviceClient) menuUpClick(ctx context.Context) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -850,9 +848,7 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
-		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
-	}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -933,13 +929,13 @@ func (s *serviceClient) updateStatus() error {
 			systrayIconState = false
 		}
 
-		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully
-		// updated must reset the mUpdate visibility state
+		// if the daemon version changed (e.g. after a successful update), reset the update indication
 		if s.daemonVersion != status.DaemonVersion {
-			s.mUpdate.Hide()
+			if s.daemonVersion != "" {
+				s.mUpdate.Hide()
+				s.isUpdateIconActive = false
+			}
 			s.daemonVersion = status.DaemonVersion
-
-			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
 			if !s.isUpdateIconActive {
 				if systrayIconState {
 					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
@@ -1090,7 +1086,6 @@ func (s *serviceClient) onTrayReady() {
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
 
-	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
@@ -1132,6 +1127,13 @@ func (s *serviceClient) onTrayReady() {
 				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
 				s.updateContextCancel = cancel
 			}
+		}
+	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if newVersion, ok := event.Metadata["new_version_available"]; ok {
+			_, enforced := event.Metadata["enforced"]
+			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
+			s.onUpdateAvailable(newVersion, enforced)
 		}
 	})
 
@@ -1506,9 +1508,16 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	return &config
 }
 
-func (s *serviceClient) onUpdateAvailable() {
+func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
+
+	s.isEnforcedUpdate = enforced
+	if enforced {
+		s.mUpdate.SetTitle("Install version " + newVersion)
+	} else {
+		s.mUpdate.SetTitle("Download latest version")
+	}
 
 	s.mUpdate.Show()
 	s.isUpdateIconActive = true

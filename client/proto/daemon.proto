@@ -85,6 +85,10 @@ service DaemonService {
 
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
 
+  // TriggerUpdate initiates installation of the pending enforced version.
+  // Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+  rpc TriggerUpdate(TriggerUpdateRequest) returns (TriggerUpdateResponse) {}
+
   // GetPeerSSHHostKey retrieves SSH host key for a specific peer
   rpc GetPeerSSHHostKey(GetPeerSSHHostKeyRequest) returns (GetPeerSSHHostKeyResponse) {}
 
@@ -226,7 +230,8 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
-  optional bool autoUpdate = 3;
+  // deprecated, reserve 3
+  // optional bool autoUpdate = 3;
 }
 
 message UpResponse {}
@@ -723,6 +728,13 @@ message GetFeaturesRequest{}
 message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
+}
+
+message TriggerUpdateRequest {}
+
+message TriggerUpdateResponse {
+  bool success = 1;
+  string errorMsg = 2;
 }
 
 // GetPeerSSHHostKeyRequest for retrieving SSH host key for a specific peer
