@@ -6,6 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -103,6 +105,16 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() network_map.Controller {
 		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.Config)
+	})
+}
+
+func (s *BaseServer) ServiceProxyController() proxy.Controller {
+	return Create(s, func() proxy.Controller {
+		controller, err := proxymanager.NewGRPCController(s.ReverseProxyGRPCServer(), s.Metrics().GetMeter())
+		if err != nil {
+			log.Fatalf("failed to create service proxy controller: %v", err)
+		}
+		return controller
 	})
 }
 

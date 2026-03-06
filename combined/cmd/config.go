@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ type ServerConfig struct {
 	Auth                    AuthConfig         `yaml:"auth"`
 	Store                   StoreConfig        `yaml:"store"`
 	ActivityStore           StoreConfig        `yaml:"activityStore"`
+	AuthStore               StoreConfig        `yaml:"authStore"`
 	ReverseProxy            ReverseProxyConfig `yaml:"reverseProxy"`
 }
 
@@ -171,7 +173,8 @@ type RelaysConfig struct {
 type StoreConfig struct {
 	Engine        string `yaml:"engine"`
 	EncryptionKey string `yaml:"encryptionKey"`
-	DSN           string `yaml:"dsn"` // Connection string for postgres or mysql engines
+	DSN           string `yaml:"dsn"`  // Connection string for postgres or mysql engines
+	File          string `yaml:"file"` // SQLite database file path (optional, defaults to dataDir)
 }
 
 // ReverseProxyConfig contains reverse proxy settings
@@ -533,6 +536,74 @@ func stripSignalProtocol(uri string) string {
 	return uri
 }
 
+func buildRelayConfig(relays RelaysConfig) (*nbconfig.Relay, error) {
+	var ttl time.Duration
+	if relays.CredentialsTTL != "" {
+		var err error
+		ttl, err = time.ParseDuration(relays.CredentialsTTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", relays.CredentialsTTL, err)
+		}
+	}
+	return &nbconfig.Relay{
+		Addresses:      relays.Addresses,
+		CredentialsTTL: util.Duration{Duration: ttl},
+		Secret:         relays.Secret,
+	}, nil
+}
+
+// buildEmbeddedIdPConfig builds the embedded IdP configuration.
+// authStore overrides auth.storage when set.
+func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.EmbeddedIdPConfig, error) {
+	authStorageType := mgmt.Auth.Storage.Type
+	authStorageDSN := c.Server.AuthStore.DSN
+	if c.Server.AuthStore.Engine != "" {
+		authStorageType = c.Server.AuthStore.Engine
+	}
+	if authStorageType == "" {
+		authStorageType = "sqlite3"
+	}
+	authStorageFile := ""
+	if authStorageType == "postgres" {
+		if authStorageDSN == "" {
+			return nil, fmt.Errorf("authStore.dsn is required when authStore.engine is postgres")
+		}
+	} else {
+		authStorageFile = path.Join(mgmt.DataDir, "idp.db")
+		if c.Server.AuthStore.File != "" {
+			authStorageFile = c.Server.AuthStore.File
+			if !filepath.IsAbs(authStorageFile) {
+				authStorageFile = filepath.Join(mgmt.DataDir, authStorageFile)
+			}
+		}
+	}
+
+	cfg := &idp.EmbeddedIdPConfig{
+		Enabled:               true,
+		Issuer:                mgmt.Auth.Issuer,
+		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
+		Storage: idp.EmbeddedStorageConfig{
+			Type: authStorageType,
+			Config: idp.EmbeddedStorageTypeConfig{
+				File: authStorageFile,
+				DSN:  authStorageDSN,
+			},
+		},
+		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
+		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+	}
+
+	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
+		cfg.Owner = &idp.OwnerConfig{
+			Email: mgmt.Auth.Owner.Email,
+			Hash:  mgmt.Auth.Owner.Password,
+		}
+	}
+
+	return cfg, nil
+}
+
 // ToManagementConfig converts CombinedConfig to management server config
 func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	mgmt := c.Management
@@ -551,19 +622,11 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	// Build relay config
 	var relayConfig *nbconfig.Relay
 	if len(mgmt.Relays.Addresses) > 0 || mgmt.Relays.Secret != "" {
-		var ttl time.Duration
-		if mgmt.Relays.CredentialsTTL != "" {
-			var err error
-			ttl, err = time.ParseDuration(mgmt.Relays.CredentialsTTL)
-			if err != nil {
-				return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", mgmt.Relays.CredentialsTTL, err)
-			}
+		relay, err := buildRelayConfig(mgmt.Relays)
+		if err != nil {
+			return nil, err
 		}
-		relayConfig = &nbconfig.Relay{
-			Addresses:      mgmt.Relays.Addresses,
-			CredentialsTTL: util.Duration{Duration: ttl},
-			Secret:         mgmt.Relays.Secret,
-		}
+		relayConfig = relay
 	}
 
 	// Build signal config
@@ -599,31 +662,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 	httpConfig := &nbconfig.HttpServerConfig{}
 
 	// Build embedded IDP config (always enabled in combined server)
-	storageFile := mgmt.Auth.Storage.File
-	if storageFile == "" {
-		storageFile = path.Join(mgmt.DataDir, "idp.db")
-	}
-
-	embeddedIdP := &idp.EmbeddedIdPConfig{
-		Enabled:               true,
-		Issuer:                mgmt.Auth.Issuer,
-		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
-		Storage: idp.EmbeddedStorageConfig{
-			Type: mgmt.Auth.Storage.Type,
-			Config: idp.EmbeddedStorageTypeConfig{
-				File: storageFile,
-			},
-		},
-		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
-		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
-	}
-
-	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {
-		embeddedIdP.Owner = &idp.OwnerConfig{
-			Email: mgmt.Auth.Owner.Email,
-			Hash:  mgmt.Auth.Owner.Password, // Will be hashed if plain text
-		}
+	embeddedIdP, err := c.buildEmbeddedIdPConfig(mgmt)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set HTTP config fields for embedded IDP

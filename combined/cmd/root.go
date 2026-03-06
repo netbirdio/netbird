@@ -140,6 +140,9 @@ func initializeConfig() error {
 			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
 		}
 	}
+	if file := config.Server.Store.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
 
 	if engine := config.Server.ActivityStore.Engine; engine != "" {
 		engineLower := strings.ToLower(engine)
@@ -150,6 +153,9 @@ func initializeConfig() error {
 		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
 			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
 		}
+	}
+	if file := config.Server.ActivityStore.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
 	}
 
 	log.Infof("Starting combined NetBird server")
@@ -487,9 +493,6 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*mgmtServer.BaseServer, error) {
 	mgmt := cfg.Management
 
-	dnsDomain := mgmt.DnsDomain
-	singleAccModeDomain := dnsDomain
-
 	// Extract port from listen address
 	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
 	if err != nil {
@@ -501,8 +504,9 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	mgmtSrv := mgmtServer.NewServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
-			DNSDomain:               dnsDomain,
-			MgmtSingleAccModeDomain: singleAccModeDomain,
+			DNSDomain:               "",
+			MgmtSingleAccModeDomain: "",
+			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,

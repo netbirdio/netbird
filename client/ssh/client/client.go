@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -268,7 +269,7 @@ func getDefaultDaemonAddr() string {
 	if runtime.GOOS == "windows" {
 		return DefaultDaemonAddrWindows
 	}
-	return DefaultDaemonAddr
+	return daemonaddr.ResolveUnixDaemonAddr(DefaultDaemonAddr)
 }
 
 // DialOptions contains options for SSH connections
