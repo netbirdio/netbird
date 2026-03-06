@@ -271,7 +271,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 	}
 
 	if existingService != nil && existingService.ID != excludeServiceID {
-		return status.Errorf(status.AlreadyExists, "service with domain %s already exists", domain)
+		return status.Errorf(status.AlreadyExists, "domain already taken")
 	}
 
 	return nil
