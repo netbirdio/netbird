@@ -3,6 +3,7 @@ package client
 import (
 	"container/list"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"reflect"
@@ -64,12 +65,13 @@ type Manager struct {
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 
-	mtu uint16
+	mtu        uint16
+	clientCert *tls.Certificate
 }
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
-func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16) *Manager {
+func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16, clientCert *tls.Certificate) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
 
 	m := &Manager{
@@ -77,11 +79,13 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		peerID:     peerID,
 		tokenStore: tokenStore,
 		mtu:        mtu,
+		clientCert: clientCert,
 		serverPicker: &ServerPicker{
 			TokenStore:        tokenStore,
 			PeerID:            peerID,
 			MTU:               mtu,
 			ConnectionTimeout: defaultConnectionTimeout,
+			ClientCert:        clientCert,
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
@@ -258,7 +262,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID, m.mtu)
+	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID, m.mtu, m.clientCert)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err

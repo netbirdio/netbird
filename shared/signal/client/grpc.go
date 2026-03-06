@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"sync"
@@ -53,12 +54,12 @@ type GrpcClient struct {
 }
 
 // NewClient creates a new Signal client
-func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, mgmtClientCert *tls.Certificate) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, mgmtClientCert)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
