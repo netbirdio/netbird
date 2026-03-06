@@ -239,15 +239,18 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 			continue
 		}
 
-		if len(jwks.Keys[k].X5c) != 0 {
-			cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
-			return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
-		}
-
+		// Check key type first
 		if jwks.Keys[k].Kty == "RSA" {
+			// For RSA, prefer x5c certificate if available
+			if len(jwks.Keys[k].X5c) != 0 {
+				cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
+				return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
+			}
 			return getPublicKeyFromRSA(jwks.Keys[k])
 		}
+		
 		if jwks.Keys[k].Kty == "EC" {
+			// For EC, always use x, y, crv fields (ignore x5c)
 			return getPublicKeyFromECDSA(jwks.Keys[k])
 		}
 	}
