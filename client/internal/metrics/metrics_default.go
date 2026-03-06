@@ -5,7 +5,7 @@ package metrics
 // NewClientMetrics creates a new ClientMetrics instance
 func NewClientMetrics(agentInfo AgentInfo) *ClientMetrics {
 	return &ClientMetrics{
-		impl:      newVictoriaMetrics(),
+		impl:      newInfluxDBMetrics(),
 		agentInfo: agentInfo,
 	}
 }

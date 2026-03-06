@@ -15,23 +15,36 @@ import (
 )
 
 const (
-	// DefaultPushInterval is the default interval for pushing metrics
-	DefaultPushInterval = 5 * time.Minute
+	// defaultPushInterval is the default interval for pushing metrics
+	defaultPushInterval = 5 * time.Minute
 )
 
-var (
-	DefaultPushConfig = PushConfig{
-		URL:      nil,
-		Interval: 0,
-	}
-)
+// defaultMetricsServerURL is used as fallback when NB_METRICS_FORCE_SENDING is true
+var defaultMetricsServerURL *url.URL
+
+func init() {
+	defaultMetricsServerURL, _ = url.Parse("https://ingest.stage.npeer.io")
+}
 
 // PushConfig holds configuration for metrics push
 type PushConfig struct {
-	// URL is the metrics server URL. If nil, uses env var or default
-	URL *url.URL
-	// Interval is how often to push metrics. If 0, uses env var or default (4h)
+	// ServerAddress is the metrics server URL. If nil, uses remote config server_url.
+	ServerAddress *url.URL
+	// Interval is how often to push metrics. If 0, uses remote config interval or defaultPushInterval.
 	Interval time.Duration
+	// ForceSending skips remote configuration fetch and version checks, pushing unconditionally.
+	ForceSending bool
+}
+
+// PushConfigFromEnv builds a PushConfig from environment variables.
+func PushConfigFromEnv() PushConfig {
+	config := PushConfig{}
+
+	config.ForceSending = isForceSending()
+	config.ServerAddress = getMetricsServerURL()
+	config.Interval = getMetricsInterval()
+
+	return config
 }
 
 // remoteConfigProvider abstracts remote push config fetching for testability
@@ -39,57 +52,75 @@ type remoteConfigProvider interface {
 	RefreshIfNeeded(ctx context.Context) *remoteconfig.Config
 }
 
-// Push handles periodic pushing of metrics to VictoriaMetrics
+// Push handles periodic pushing of metrics
 type Push struct {
-	metrics          metricsImplementation
-	pushURL          string
-	agentVersion     *goversion.Version
-	overrideInterval time.Duration // if set, bypass remote config and always push at this interval
-
+	metrics       metricsImplementation
 	configManager remoteConfigProvider
-	client        *http.Client
+	config        PushConfig
+	agentVersion  *goversion.Version
+
+	client      *http.Client
+	envInterval time.Duration
+	envAddress  *url.URL
 }
 
 // NewPush creates a new Push instance with configuration resolution
-func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, config PushConfig, agentVersion string) *Push {
-	// Resolve URL: config > env var (always returns valid URL)
-	var pushURL url.URL
-	if config.URL != nil {
-		pushURL = *config.URL
-	} else {
-		pushURL = getMetricsServerURL()
-	}
+func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, config PushConfig, agentVersion string) (*Push, error) {
+	var envInterval time.Duration
+	var envAddress *url.URL
 
-	// If interval is explicitly set (config param or env var), bypass remote config entirely
-	overrideInterval := config.Interval
-	if overrideInterval == 0 {
-		overrideInterval = getMetricsInterval() // 0 if env var not set
+	if config.ForceSending {
+		envInterval = config.Interval
+		if config.Interval <= 0 {
+			envInterval = defaultPushInterval
+		}
+
+		envAddress = config.ServerAddress
+		if envAddress == nil {
+			envAddress = defaultMetricsServerURL
+		}
+	} else {
+		envAddress = config.ServerAddress
+
+		if config.Interval < 0 {
+			log.Warnf("negative metrics push interval %s", config.Interval)
+		} else {
+			envInterval = config.Interval
+		}
 	}
 
 	parsedVersion, err := goversion.NewVersion(agentVersion)
 	if err != nil {
-		log.Warnf("failed to parse agent version %q: %v", agentVersion, err)
+		if !config.ForceSending {
+			return nil, fmt.Errorf("failed to parse agent version %q: %w", agentVersion, err)
+		}
 	}
 
 	return &Push{
-		metrics:          metrics,
-		pushURL:          pushURL.String(),
-		agentVersion:     parsedVersion,
-		overrideInterval: overrideInterval,
-		configManager:    configManager,
+		metrics:       metrics,
+		configManager: configManager,
+		config:        config,
+		agentVersion:  parsedVersion,
+		envInterval:   envInterval,
+		envAddress:    envAddress,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-	}
+	}, nil
 }
 
 // Start starts the periodic push loop.
 // If overrideInterval is set (via env var), pushes unconditionally at that interval.
 // Otherwise, fetches remote config to determine push period and version eligibility.
 func (p *Push) Start(ctx context.Context) {
-	if p.pushURL == "" {
-		log.Debug("metrics push URL not configured, skipping push")
-		return
+	// Log initial state
+	switch {
+	case p.config.ForceSending:
+		log.Infof("started metrics push with force sending to %s, interval %s", p.envAddress, p.envInterval)
+	case p.config.ServerAddress != nil:
+		log.Infof("started metrics push with server URL override: %s", p.config.ServerAddress.String())
+	default:
+		log.Infof("started metrics push, server URL will be resolved from remote config")
 	}
 
 	timer := time.NewTimer(0) // fire immediately on first iteration
@@ -103,52 +134,50 @@ func (p *Push) Start(ctx context.Context) {
 		case <-timer.C:
 		}
 
-		nextInterval := p.tick(ctx)
-		timer.Reset(nextInterval)
-	}
-}
-
-// tick performs a single push cycle and returns the duration to wait before the next one.
-func (p *Push) tick(ctx context.Context) time.Duration {
-	interval, shouldPush := p.resolveInterval(ctx)
-	if shouldPush {
-		if err := p.push(ctx); err != nil {
-			log.Errorf("failed to push metrics: %v", err)
+		pushURL, interval := p.resolve(ctx)
+		if pushURL != "" {
+			if err := p.push(ctx, pushURL); err != nil {
+				log.Errorf("failed to push metrics: %v", err)
+			}
 		}
+
+		timer.Reset(interval)
 	}
-	return interval
 }
 
-// resolveInterval determines the push interval and whether a push should happen.
-// If overrideInterval is set, it bypasses remote config and always pushes.
-// Otherwise, it fetches remote config and checks version eligibility.
-func (p *Push) resolveInterval(ctx context.Context) (time.Duration, bool) {
-	if p.overrideInterval > 0 {
-		return p.overrideInterval, true
+// resolve returns the push URL and interval for the next cycle.
+// Returns empty pushURL to skip this cycle.
+func (p *Push) resolve(ctx context.Context) (pushURL string, interval time.Duration) {
+	if p.config.ForceSending {
+		return p.resolveServerURL(nil), p.envInterval
 	}
 
 	config := p.configManager.RefreshIfNeeded(ctx)
 	if config == nil {
 		log.Debug("no metrics push config available, waiting to retry")
-		return DefaultPushInterval, false
+		return "", defaultPushInterval
 	}
 
-	if p.agentVersion == nil {
-		log.Debug("agent version not available, skipping metrics push")
-		return config.Period, false
+	interval = config.Interval
+	if p.envInterval > 0 {
+		interval = p.envInterval
 	}
 
 	if !isVersionInRange(p.agentVersion, config.VersionSince, config.VersionUntil) {
 		log.Debugf("agent version %s not in range [%s, %s), skipping metrics push",
 			p.agentVersion, config.VersionSince, config.VersionUntil)
-		return config.Period, false
+		return "", interval
 	}
 
-	return config.Period, true
+	pushURL = p.resolveServerURL(&config.ServerURL)
+	if pushURL == "" {
+		log.Warn("no metrics server URL available, skipping push")
+	}
+	return pushURL, interval
 }
 
-// push exports metrics and sends them to VictoriaMetrics
-func (p *Push) push(ctx context.Context) error {
+// push exports metrics and sends them to the metrics server
+func (p *Push) push(ctx context.Context, pushURL string) error {
 	// Export metrics to buffer
 	var buf bytes.Buffer
 	if err := p.metrics.Export(&buf); err != nil {
@@ -161,22 +190,12 @@ func (p *Push) push(ctx context.Context) error {
 		return nil
 	}
 
-	// Log what we're pushing (first 500 bytes)
-	preview := buf.String()
-	if len(preview) > 500 {
-		preview = preview[:500]
-	}
-	log.Tracef("pushing metrics (%d bytes): %s", buf.Len(), preview)
-
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", p.pushURL, &buf)
+	req, err := http.NewRequestWithContext(ctx, "POST", pushURL, &buf)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	if token := getMetricsToken(); token != "" {
-		req.Header.Set("Authorization", "Token "+token)
-	}
 
 	// Send request
 	resp, err := p.client.Do(req)
@@ -197,9 +216,26 @@ func (p *Push) push(ctx context.Context) error {
 		return fmt.Errorf("push failed with status %d", resp.StatusCode)
 	}
 
-	log.Debugf("successfully pushed metrics to %s", p.pushURL)
+	log.Debugf("successfully pushed metrics to %s", pushURL)
 	p.metrics.Reset()
 	return nil
+}
+
+// resolveServerURL determines the push URL.
+// Precedence: envAddress (env var) > remote config server_url
+func (p *Push) resolveServerURL(remoteServerURL *url.URL) string {
+	var baseURL *url.URL
+	if p.envAddress != nil {
+		baseURL = p.envAddress
+	} else {
+		baseURL = remoteServerURL
+	}
+
+	if baseURL == nil {
+		return ""
+	}
+
+	return baseURL.String()
 }
 
 // isVersionInRange checks if current falls within [since, until)

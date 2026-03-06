@@ -11,4 +11,4 @@ datasources:
       organization: netbird
       defaultBucket: metrics
     secureJsonData:
-      token: netbird-metrics-token
+      token: ${INFLUXDB_ADMIN_TOKEN}

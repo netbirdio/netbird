@@ -13,11 +13,6 @@ type MetricsStages struct {
 	mu                    sync.Mutex
 }
 
-func (s *MetricsStages) RecordCreated() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-}
-
 // RecordSignalingReceived records when the first signal is received from the remote peer.
 // Used as the base for all subsequent stage durations to avoid inflating metrics when
 // the remote peer was offline.

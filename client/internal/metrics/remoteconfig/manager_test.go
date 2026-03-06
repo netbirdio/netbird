@@ -17,6 +17,7 @@ const testMinRefresh = 100 * time.Millisecond
 
 func TestManager_FetchSuccess(t *testing.T) {
 	server := newConfigServer(t, rawConfig{
+		ServerURL:     "https://ingest.example.com",
 		VersionSince:  "1.0.0",
 		VersionUntil:  "2.0.0",
 		PeriodMinutes: 60,
@@ -27,9 +28,10 @@ func TestManager_FetchSuccess(t *testing.T) {
 	config := mgr.RefreshIfNeeded(context.Background())
 
 	require.NotNil(t, config)
+	assert.Equal(t, "https://ingest.example.com", config.ServerURL.String())
 	assert.Equal(t, "1.0.0", config.VersionSince.String())
 	assert.Equal(t, "2.0.0", config.VersionUntil.String())
-	assert.Equal(t, 60*time.Minute, config.Period)
+	assert.Equal(t, 60*time.Minute, config.Interval)
 }
 
 func TestManager_CachesConfig(t *testing.T) {
@@ -37,6 +39,7 @@ func TestManager_CachesConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount.Add(1)
 		err := json.NewEncoder(w).Encode(rawConfig{
+			ServerURL:     "https://ingest.example.com",
 			VersionSince:  "1.0.0",
 			VersionUntil:  "2.0.0",
 			PeriodMinutes: 60,
@@ -64,6 +67,7 @@ func TestManager_RefetchesWhenStale(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount.Add(1)
 		err := json.NewEncoder(w).Encode(rawConfig{
+			ServerURL:     "https://ingest.example.com",
 			VersionSince:  "1.0.0",
 			VersionUntil:  "2.0.0",
 			PeriodMinutes: 60,
@@ -107,6 +111,7 @@ func TestManager_FetchFailureReturnsCached(t *testing.T) {
 			return
 		}
 		err := json.NewEncoder(w).Encode(rawConfig{
+			ServerURL:     "https://ingest.example.com",
 			VersionSince:  "1.0.0",
 			VersionUntil:  "2.0.0",
 			PeriodMinutes: 60,
@@ -142,6 +147,7 @@ func TestManager_RejectsInvalidPeriod(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := newConfigServer(t, rawConfig{
+				ServerURL:     "https://ingest.example.com",
 				VersionSince:  "1.0.0",
 				VersionUntil:  "2.0.0",
 				PeriodMinutes: tt.period,
@@ -153,6 +159,20 @@ func TestManager_RejectsInvalidPeriod(t *testing.T) {
 			assert.Nil(t, config)
 		})
 	}
+}
+
+func TestManager_RejectsEmptyServerURL(t *testing.T) {
+	server := newConfigServer(t, rawConfig{
+		ServerURL:     "",
+		VersionSince:  "1.0.0",
+		VersionUntil:  "2.0.0",
+		PeriodMinutes: 60,
+	})
+	defer server.Close()
+
+	mgr := NewManager(server.URL, testMinRefresh)
+	config := mgr.RefreshIfNeeded(context.Background())
+	assert.Nil(t, config)
 }
 
 func TestManager_RejectsInvalidJSON(t *testing.T) {

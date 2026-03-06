@@ -32,6 +32,23 @@ Engine Layer (engine.go)
   └─ Records metrics via ClientMetrics methods
 ```
 
+### Ingest Server
+
+Clients do not talk to InfluxDB directly. An ingest server sits between clients and InfluxDB:
+
+```
+Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
+                  │
+                  ├─ Validates line protocol
+                  ├─ Whitelists measurements & fields
+                  ├─ Rejects out-of-bound values
+                  └─ Serves remote config at /config
+```
+
+- **No client-side auth required** — the ingest server holds the InfluxDB token server-side
+- **InfluxDB is not exposed** — only accessible within the docker network
+- Source: `ingest/main.go`
+
 ## Metrics Collected
 
 ### Connection Stage Timing
@@ -66,39 +83,52 @@ Tags:
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 
+## Buffer Limits
+
+The InfluxDB backend limits in-memory sample storage to prevent unbounded growth when pushes fail:
+- **Max age:** Samples older than 5 days are dropped
+- **Max size:** Estimated buffer size capped at 5 MB (~20k samples)
+
 ## Configuration
 
-### Environment Variables
+### Client Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NB_METRICS_ENABLED` | `false` | Enable metrics push |
-| `NB_METRICS_SERVER_URL` | `https://api.netbird.io:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns` | Metrics endpoint URL |
-| `NB_METRICS_INTERVAL` | | Push interval (e.g., "1m", "30m", "4h"). When set, bypasses remote config. |
-| `NB_METRICS_TOKEN` | | Optional auth token for the metrics server |
+| `NB_METRICS_SERVER_URL` | *(from remote config)* | Ingest server URL (e.g., `https://ingest.npeer.io`) |
+| `NB_METRICS_INTERVAL` | *(from remote config)* | Push interval (e.g., "1m", "30m", "4h") |
+| `NB_METRICS_FORCE_SENDING` | `false` | Skip remote config, push unconditionally |
 | `NB_METRICS_CONFIG_URL` | `https://api.netbird.io/client-metrics-config.json` | Remote push config URL |
 
-### Backend-specific URLs
+### Ingest Server Environment Variables
 
-| Backend | URL |
-|---------|-----|
-| **InfluxDB** | `http://<host>:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns` |
-| **VictoriaMetrics** | `http://<host>:8428/api/v1/import/prometheus` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INGEST_LISTEN_ADDR` | `:8087` | Listen address |
+| `INFLUXDB_URL` | `http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns` | InfluxDB write endpoint |
+| `INFLUXDB_TOKEN` | *(required)* | InfluxDB auth token (server-side only) |
+| `CONFIG_METRICS_SERVER_URL` | *(empty — disables /config)* | `server_url` in the remote config JSON (the URL clients push metrics to) |
+| `CONFIG_VERSION_SINCE` | `0.0.0` | Minimum client version to push metrics |
+| `CONFIG_VERSION_UNTIL` | `99.99.99` | Maximum client version to push metrics |
+| `CONFIG_PERIOD_MINUTES` | `5` | Push interval in minutes |
+
+The ingest server serves a remote config JSON at `GET /config` when `CONFIG_METRICS_SERVER_URL` is set. Clients can use `NB_METRICS_CONFIG_URL=http://<ingest>/config` to fetch it.
 
 ### Configuration Precedence
 
 For URL and Interval, the precedence is:
-1. **Config parameter** - Explicitly passed to `StartPush()`
-2. **Environment variable** - `NB_METRICS_SERVER_URL` / `NB_METRICS_INTERVAL`
-3. **Default value** - From `metrics.DefaultPushConfig`
+1. **Environment variable** - `NB_METRICS_SERVER_URL` / `NB_METRICS_INTERVAL`
+2. **Remote config** - fetched from `NB_METRICS_CONFIG_URL`
+3. **Default** - 5 minute interval, URL from remote config
 
 ## Push Behavior
 
 1. `StartPush()` spawns background goroutine with timer
 2. First push happens immediately on startup
-3. Periodically: `push()` → `Export()` → HTTP POST
+3. Periodically: `push()` → `Export()` → HTTP POST to ingest server
 4. On failure: log error, continue (non-blocking)
-5. On success: `Reset()` clears pushed samples, log debug message
+5. On success: `Reset()` clears pushed samples
 6. `StopPush()` cancels context and waits for goroutine
 
 **InfluxDB mode:** Samples are collected with exact timestamps, pushed once, then cleared. No data is resent.
@@ -107,62 +137,57 @@ For URL and Interval, the precedence is:
 
 ## Local Development Setup
 
-### 1. Start Services
+### 1. Configure and Start Services
 
 ```bash
-# From this directory
-docker compose -f docker-compose.victoria.yml up -d
+# From this directory (client/internal/metrics/infra)
+cp .env.example .env
+# Edit .env — set INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
+docker compose up -d
 ```
 
-**Access:**
-- Grafana: http://localhost:3001 (admin/admin)
-- InfluxDB: http://localhost:8086
-- VictoriaMetrics: http://localhost:8428
+This starts:
+- **Ingest server** on http://localhost:8087 — accepts client metrics (no auth needed)
+- **InfluxDB** — internal only, not exposed to host
+- **Grafana** on http://localhost:3001
+- **VictoriaMetrics** on http://localhost:8428
 
-### 2. Configure Client (InfluxDB)
-
-```bash
-export NB_METRICS_ENABLED=true
-export NB_METRICS_SERVER_URL='http://localhost:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns'
-export NB_METRICS_TOKEN=netbird-metrics-token
-export NB_METRICS_INTERVAL=1m
-```
-
-Make sure `metrics_default.go` uses `newInfluxDBMetrics()`.
-
-### 3. Configure Client (VictoriaMetrics)
+### 2. Configure Client
 
 ```bash
 export NB_METRICS_ENABLED=true
-export NB_METRICS_SERVER_URL=http://localhost:8428/api/v1/import/prometheus
+export NB_METRICS_FORCE_SENDING=true
+export NB_METRICS_SERVER_URL=http://localhost:8087
 export NB_METRICS_INTERVAL=1m
 ```
 
-Make sure `metrics_default.go` uses `newVictoriaMetrics()`.
-
-### 4. Run Client
+### 3. Run Client
 
 ```bash
 cd ../../../..
 go run ./client/ up
 ```
 
-### 5. View in Grafana
+### 4. View in Grafana
 
 - **InfluxDB dashboard:** http://localhost:3001/d/netbird-influxdb-metrics
 - **VictoriaMetrics dashboard:** http://localhost:3001/d/netbird-connection-metrics
 
-### 6. Verify Data
+### 5. Verify Data
 
 ```bash
-# InfluxDB - query data
-curl -H "Authorization: Token netbird-metrics-token" \
-  'http://localhost:8086/api/v2/query?org=netbird' \
-  --data-urlencode 'q=from(bucket:"metrics") |> range(start: -1h)'
+# Query via InfluxDB (using admin token from .env)
+docker compose exec influxdb influx query \
+  'from(bucket: "metrics") |> range(start: -1h)' \
+  --org netbird
+
+# Check ingest server health
+curl http://localhost:8087/health
 
 # VictoriaMetrics - list metrics
 curl http://localhost:8428/api/v1/label/__name__/values
 
 # VictoriaMetrics - delete all data
-curl -s http://localhost:8428/api/v1/admin/tsdb/delete_series --data-urlencode 'match[]={__name__=~".+"}'
+curl -s http://localhost:8428/api/v1/admin/tsdb/delete_series \
+  --data-urlencode 'match[]={__name__=~".+"}'
 ```

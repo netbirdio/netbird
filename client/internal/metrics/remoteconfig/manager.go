@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -19,13 +20,15 @@ const (
 
 // Config holds the parsed remote push configuration
 type Config struct {
+	ServerURL    url.URL
 	VersionSince *goversion.Version
 	VersionUntil *goversion.Version
-	Period       time.Duration
+	Interval     time.Duration
 }
 
 // rawConfig is the JSON wire format fetched from the remote server
 type rawConfig struct {
+	ServerURL     string `json:"server_url"`
 	VersionSince  string `json:"version-since"`
 	VersionUntil  string `json:"version-until"`
 	PeriodMinutes int    `json:"period_minutes"`
@@ -72,7 +75,7 @@ func (m *Manager) RefreshIfNeeded(ctx context.Context) *Config {
 	m.lastFetched = time.Now()
 
 	log.Tracef("fetched metrics remote config: version-since=%s version-until=%s period=%s",
-		fetchedConfig.VersionSince, fetchedConfig.VersionUntil, fetchedConfig.Period)
+		fetchedConfig.VersionSince, fetchedConfig.VersionUntil, fetchedConfig.Interval)
 
 	return fetchedConfig
 }
@@ -118,6 +121,15 @@ func (m *Manager) fetch(ctx context.Context) (*Config, error) {
 		return nil, fmt.Errorf("invalid period_minutes: %d", raw.PeriodMinutes)
 	}
 
+	if raw.ServerURL == "" {
+		return nil, fmt.Errorf("server_url is required")
+	}
+
+	serverURL, err := url.Parse(raw.ServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse server_url %q: %w", raw.ServerURL, err)
+	}
+
 	since, err := goversion.NewVersion(raw.VersionSince)
 	if err != nil {
 		return nil, fmt.Errorf("parse version-since %q: %w", raw.VersionSince, err)
@@ -129,8 +141,9 @@ func (m *Manager) fetch(ctx context.Context) (*Config, error) {
 	}
 
 	return &Config{
+		ServerURL:    *serverURL,
 		VersionSince: since,
 		VersionUntil: until,
-		Period:       time.Duration(raw.PeriodMinutes) * time.Minute,
+		Interval:     time.Duration(raw.PeriodMinutes) * time.Minute,
 	}, nil
 }

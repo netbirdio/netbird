@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,11 +25,28 @@ func mustVersion(s string) *goversion.Version {
 	return v
 }
 
-func testConfig(since, until string, period time.Duration) *remoteconfig.Config {
+func mustURL(s string) url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return *u
+}
+
+func parseURL(s string) *url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
+
+func testConfig(serverURL, since, until string, period time.Duration) *remoteconfig.Config {
 	return &remoteconfig.Config{
+		ServerURL:    mustURL(serverURL),
 		VersionSince: mustVersion(since),
 		VersionUntil: mustVersion(until),
-		Period:       period,
+		Interval:     period,
 	}
 }
 
@@ -63,7 +81,7 @@ func (m *mockMetrics) Export(w io.Writer) error {
 func (m *mockMetrics) Reset() {
 }
 
-func TestPush_OverrideIntervalAlwaysPushes(t *testing.T) {
+func TestPush_OverrideIntervalPushes(t *testing.T) {
 	var pushCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pushCount.Add(1)
@@ -72,16 +90,13 @@ func TestPush_OverrideIntervalAlwaysPushes(t *testing.T) {
 	defer server.Close()
 
 	metrics := &mockMetrics{exportData: "test_metric 1\n"}
-	configProvider := &mockConfigProvider{config: nil} // no remote config
+	configProvider := &mockConfigProvider{config: testConfig(server.URL, "1.0.0", "2.0.0", 60*time.Minute)}
 
-	push := &Push{
-		metrics:          metrics,
-		pushURL:          server.URL,
-		agentVersion:     mustVersion("1.0.0"),
-		overrideInterval: 50 * time.Millisecond,
-		configManager:    configProvider,
-		client:           &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		Interval:      50 * time.Millisecond,
+		ServerAddress: parseURL(server.URL),
+	}, "1.0.0")
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -90,7 +105,6 @@ func TestPush_OverrideIntervalAlwaysPushes(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for a few pushes
 	require.Eventually(t, func() bool {
 		return pushCount.Load() >= 3
 	}, 2*time.Second, 10*time.Millisecond)
@@ -100,44 +114,31 @@ func TestPush_OverrideIntervalAlwaysPushes(t *testing.T) {
 }
 
 func TestPush_RemoteConfigVersionInRange(t *testing.T) {
-	var pushCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pushCount.Add(1)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	metrics := &mockMetrics{exportData: "test_metric 1\n"}
-	configProvider := &mockConfigProvider{config: testConfig("1.0.0", "2.0.0", 1*time.Minute)}
+	configProvider := &mockConfigProvider{config: testConfig(server.URL, "1.0.0", "2.0.0", 1*time.Minute)}
 
-	push := &Push{
-		metrics:       metrics,
-		pushURL:       server.URL,
-		agentVersion:  mustVersion("1.5.0"),
-		configManager: configProvider,
-		client:        &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{}, "1.5.0")
+	require.NoError(t, err)
 
-	interval, shouldPush := push.resolveInterval(context.Background())
-	assert.True(t, shouldPush)
+	pushURL, interval := push.resolve(context.Background())
+	assert.NotEmpty(t, pushURL)
 	assert.Equal(t, 1*time.Minute, interval)
-	assert.Equal(t, int32(0), pushCount.Load()) // resolveInterval doesn't push
 }
 
 func TestPush_RemoteConfigVersionOutOfRange(t *testing.T) {
 	metrics := &mockMetrics{exportData: "test_metric 1\n"}
-	configProvider := &mockConfigProvider{config: testConfig("1.0.0", "1.5.0", 1*time.Minute)}
+	configProvider := &mockConfigProvider{config: testConfig("http://localhost", "1.0.0", "1.5.0", 1*time.Minute)}
 
-	push := &Push{
-		metrics:       metrics,
-		pushURL:       "http://localhost",
-		agentVersion:  mustVersion("2.0.0"),
-		configManager: configProvider,
-		client:        &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{}, "2.0.0")
+	require.NoError(t, err)
 
-	interval, shouldPush := push.resolveInterval(context.Background())
-	assert.False(t, shouldPush)
+	pushURL, interval := push.resolve(context.Background())
+	assert.Empty(t, pushURL)
 	assert.Equal(t, 1*time.Minute, interval)
 }
 
@@ -145,35 +146,45 @@ func TestPush_NoConfigReturnsDefault(t *testing.T) {
 	metrics := &mockMetrics{}
 	configProvider := &mockConfigProvider{config: nil}
 
-	push := &Push{
-		metrics:       metrics,
-		pushURL:       "http://localhost",
-		agentVersion:  mustVersion("1.0.0"),
-		configManager: configProvider,
-		client:        &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{}, "1.0.0")
+	require.NoError(t, err)
 
-	interval, shouldPush := push.resolveInterval(context.Background())
-	assert.False(t, shouldPush)
-	assert.Equal(t, DefaultPushInterval, interval)
+	pushURL, interval := push.resolve(context.Background())
+	assert.Empty(t, pushURL)
+	assert.Equal(t, defaultPushInterval, interval)
 }
 
-func TestPush_OverrideIntervalBypassesRemoteConfig(t *testing.T) {
+func TestPush_OverrideIntervalRespectsVersionCheck(t *testing.T) {
 	metrics := &mockMetrics{}
-	// Remote config says version is out of range, but override should bypass it
-	configProvider := &mockConfigProvider{config: testConfig("3.0.0", "4.0.0", 60*time.Minute)}
+	configProvider := &mockConfigProvider{config: testConfig("http://localhost", "3.0.0", "4.0.0", 60*time.Minute)}
 
-	push := &Push{
-		metrics:          metrics,
-		pushURL:          "http://localhost",
-		agentVersion:     mustVersion("1.0.0"),
-		overrideInterval: 30 * time.Second,
-		configManager:    configProvider,
-		client:           &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		Interval:      30 * time.Second,
+		ServerAddress: parseURL("http://localhost"),
+	}, "1.0.0")
+	require.NoError(t, err)
 
-	interval, shouldPush := push.resolveInterval(context.Background())
-	assert.True(t, shouldPush)
+	pushURL, interval := push.resolve(context.Background())
+	assert.Empty(t, pushURL)                  // version out of range
+	assert.Equal(t, 30*time.Second, interval) // but uses override interval
+}
+
+func TestPush_OverrideIntervalUsedWhenVersionInRange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	metrics := &mockMetrics{}
+	configProvider := &mockConfigProvider{config: testConfig(server.URL, "1.0.0", "2.0.0", 60*time.Minute)}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		Interval: 30 * time.Second,
+	}, "1.5.0")
+	require.NoError(t, err)
+
+	pushURL, interval := push.resolve(context.Background())
+	assert.NotEmpty(t, pushURL)
 	assert.Equal(t, 30*time.Second, interval)
 }
 
@@ -186,39 +197,124 @@ func TestPush_NoMetricsSkipsPush(t *testing.T) {
 	defer server.Close()
 
 	metrics := &mockMetrics{exportData: ""} // no metrics to export
+	configProvider := &mockConfigProvider{config: nil}
 
-	push := &Push{
-		metrics: metrics,
-		pushURL: server.URL,
-		client:  &http.Client{Timeout: 5 * time.Second},
-	}
+	push, err := NewPush(metrics, configProvider, PushConfig{}, "1.0.0")
+	require.NoError(t, err)
 
-	err := push.push(context.Background())
+	err = push.push(context.Background(), server.URL)
 	assert.NoError(t, err)
-	assert.Equal(t, int32(0), pushCount.Load()) // no HTTP request made
+	assert.Equal(t, int32(0), pushCount.Load())
 }
 
-func TestPush_EmptyURLSkipsStart(t *testing.T) {
-	push := &Push{
-		pushURL: "",
-	}
+func TestPush_ServerURLFromRemoteConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
 
-	// Should return immediately without blocking
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: testConfig(server.URL, "1.0.0", "2.0.0", 1*time.Minute)}
 
-	done := make(chan struct{})
-	go func() {
-		push.Start(ctx)
-		close(done)
-	}()
+	push, err := NewPush(metrics, configProvider, PushConfig{}, "1.5.0")
+	require.NoError(t, err)
 
-	select {
-	case <-done:
-		// good, returned immediately
-	case <-ctx.Done():
-		t.Fatal("Start did not return for empty URL")
-	}
+	pushURL, interval := push.resolve(context.Background())
+	assert.Contains(t, pushURL, server.URL)
+	assert.Equal(t, 1*time.Minute, interval)
+}
+
+func TestPush_ServerAddressOverridesTakePrecedenceOverRemoteConfig(t *testing.T) {
+	overrideServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer overrideServer.Close()
+
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: testConfig("http://remote-config-server", "1.0.0", "2.0.0", 1*time.Minute)}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		ServerAddress: parseURL(overrideServer.URL),
+	}, "1.5.0")
+	require.NoError(t, err)
+
+	pushURL, _ := push.resolve(context.Background())
+	assert.Contains(t, pushURL, overrideServer.URL)
+	assert.NotContains(t, pushURL, "remote-config-server")
+}
+
+func TestPush_OverrideIntervalWithoutOverrideURL_UsesRemoteConfigURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: testConfig(server.URL, "1.0.0", "2.0.0", 60*time.Minute)}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		Interval: 30 * time.Second,
+	}, "1.0.0")
+	require.NoError(t, err)
+
+	pushURL, interval := push.resolve(context.Background())
+	assert.Contains(t, pushURL, server.URL)
+	assert.Equal(t, 30*time.Second, interval)
+}
+
+func TestPush_NoConfigSkipsPush(t *testing.T) {
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: nil}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		Interval: 30 * time.Second,
+	}, "1.0.0")
+	require.NoError(t, err)
+
+	pushURL, interval := push.resolve(context.Background())
+	assert.Empty(t, pushURL)
+	assert.Equal(t, defaultPushInterval, interval) // no config available, use default retry interval
+}
+
+func TestPush_ForceSendingSkipsRemoteConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: nil}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		ForceSending:  true,
+		Interval:      1 * time.Minute,
+		ServerAddress: parseURL(server.URL),
+	}, "1.0.0")
+	require.NoError(t, err)
+
+	pushURL, interval := push.resolve(context.Background())
+	assert.NotEmpty(t, pushURL)
+	assert.Equal(t, 1*time.Minute, interval)
+}
+
+func TestPush_ForceSendingUsesDefaultInterval(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	metrics := &mockMetrics{exportData: "test_metric 1\n"}
+	configProvider := &mockConfigProvider{config: nil}
+
+	push, err := NewPush(metrics, configProvider, PushConfig{
+		ForceSending:  true,
+		ServerAddress: parseURL(server.URL),
+	}, "1.0.0")
+	require.NoError(t, err)
+
+	pushURL, interval := push.resolve(context.Background())
+	assert.NotEmpty(t, pushURL)
+	assert.Equal(t, defaultPushInterval, interval)
 }
 
 func TestIsVersionInRange(t *testing.T) {

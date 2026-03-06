@@ -831,8 +831,12 @@ func (conn *Conn) recordConnectionMetrics() {
 	}
 
 	// Determine connection type based on current priority
+	conn.mu.Lock()
+	priority := conn.currentConnPriority
+	conn.mu.Unlock()
+
 	var connType metrics.ConnectionType
-	switch conn.currentConnPriority {
+	switch priority {
 	case conntype.Relay:
 		connType = metrics.ConnectionTypeRelay
 	default:

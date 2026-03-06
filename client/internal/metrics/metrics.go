@@ -82,7 +82,6 @@ func (c *ClientMetrics) RecordConnectionStages(
 	agentInfo := c.agentInfo
 	c.mu.RUnlock()
 
-	log.Infof("--- conn stages: %v, %v", connectionType, timestamps)
 	c.impl.RecordConnectionStages(ctx, agentInfo, connectionType, isReconnection, timestamps)
 }
 
@@ -119,7 +118,7 @@ func (c *ClientMetrics) Export(w io.Writer) error {
 }
 
 // StartPush starts periodic pushing of metrics with the given configuration
-// Precedence: config parameter > env var > DefaultPushConfig
+// Precedence: PushConfig.ServerAddress > remote config server_url
 func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	if c == nil {
 		return
@@ -133,27 +132,26 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	c.pushCancel = cancel
-
 	c.mu.RLock()
 	agentVersion := c.agentInfo.Version
 	c.mu.RUnlock()
 
 	configManager := remoteconfig.NewManager(getMetricsConfigURL(), remoteconfig.DefaultMinRefreshInterval)
-	push := NewPush(c.impl, configManager, config, agentVersion)
+	push, err := NewPush(c.impl, configManager, config, agentVersion)
+	if err != nil {
+		log.Errorf("failed to create metrics push: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	c.pushCancel = cancel
+
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		push.Start(ctx)
 	}()
 	c.push = push
-
-	if push.overrideInterval > 0 {
-		log.Infof("started metrics push to %s with override interval %s", push.pushURL, push.overrideInterval)
-	} else {
-		log.Infof("started metrics push to %s with remote config", push.pushURL)
-	}
 }
 
 func (c *ClientMetrics) StopPush() {
@@ -168,4 +166,5 @@ func (c *ClientMetrics) StopPush() {
 
 	c.pushCancel()
 	c.wg.Wait()
+	c.push = nil
 }

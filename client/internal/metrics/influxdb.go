@@ -10,6 +10,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	maxSampleAge  = 5 * 24 * time.Hour // drop samples older than 5 days
+	maxBufferSize = 5 * 1024 * 1024    // drop oldest samples when estimated size exceeds 5 MB
+	// estimatedSampleSize is a rough per-sample memory estimate (measurement + tags + fields + timestamp)
+	estimatedSampleSize = 256
+)
+
 // influxSample is a single InfluxDB line protocol entry.
 type influxSample struct {
 	measurement string
@@ -28,7 +35,6 @@ type influxDBMetrics struct {
 func newInfluxDBMetrics() metricsImplementation {
 	return &influxDBMetrics{}
 }
-
 func (m *influxDBMetrics) RecordConnectionStages(
 	_ context.Context,
 	agentInfo AgentInfo,
@@ -79,6 +85,7 @@ func (m *influxDBMetrics) RecordConnectionStages(
 		},
 		timestamp: now,
 	})
+	m.trimLocked()
 
 	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→wg_handshake: %.3fs, total: %.3fs",
 		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToWgHandshake, totalDuration)
@@ -102,6 +109,7 @@ func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentI
 		},
 		timestamp: time.Now(),
 	})
+	m.trimLocked()
 }
 
 // Export writes pending samples in InfluxDB line protocol format.
@@ -142,4 +150,30 @@ func (m *influxDBMetrics) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.samples = m.samples[:0]
+}
+
+// trimLocked removes samples that exceed age or size limits.
+// Must be called with m.mu held.
+func (m *influxDBMetrics) trimLocked() {
+	now := time.Now()
+
+	// drop samples older than maxSampleAge
+	cutoff := 0
+	for cutoff < len(m.samples) && now.Sub(m.samples[cutoff].timestamp) > maxSampleAge {
+		cutoff++
+	}
+	if cutoff > 0 {
+		copy(m.samples, m.samples[cutoff:])
+		m.samples = m.samples[:len(m.samples)-cutoff]
+		log.Warnf("influxdb metrics: dropped %d samples older than %s", cutoff, maxSampleAge)
+	}
+
+	// drop oldest samples if estimated size exceeds maxBufferSize
+	maxSamples := maxBufferSize / estimatedSampleSize
+	if len(m.samples) > maxSamples {
+		drop := len(m.samples) - maxSamples
+		copy(m.samples, m.samples[drop:])
+		m.samples = m.samples[:maxSamples]
+		log.Warnf("influxdb metrics: dropped %d oldest samples to stay under %d MB size limit", drop, maxBufferSize/(1024*1024))
+	}
 }

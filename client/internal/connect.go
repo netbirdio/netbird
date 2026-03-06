@@ -157,7 +157,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		// Start metrics push if enabled (uses daemon context, persists across engine restarts)
 		if metrics.IsMetricsPushEnabled() {
-			c.clientMetrics.StartPush(c.ctx, metrics.DefaultPushConfig)
+			c.clientMetrics.StartPush(c.ctx, metrics.PushConfigFromEnv())
 		}
 	}
 
