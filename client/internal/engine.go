@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
@@ -219,6 +220,9 @@ type Engine struct {
 
 	probeStunTurn *relay.StunTurnProbe
 
+	// clientMetrics collects and pushes metrics
+	clientMetrics *metrics.ClientMetrics
+
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
 
@@ -247,6 +251,7 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
 	stateManager *statemanager.Manager,
+	clientMetrics *metrics.ClientMetrics,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -267,6 +272,7 @@ func NewEngine(
 		checks:         checks,
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
+		clientMetrics:  clientMetrics,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -800,7 +806,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 
 	disabled := autoUpdateSettings.Version == disableAutoUpdate
 
-	// stop and cleanup if disabled
+	// Stop and cleanup if disabled
 	if e.updateManager != nil && disabled {
 		log.Infof("auto-update is disabled, stopping update manager")
 		e.updateManager.Stop()
@@ -831,7 +837,9 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
-		log.Infof("sync finished in %s", time.Since(started))
+		duration := time.Since(started)
+		log.Infof("sync finished in %s", duration)
+		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
 	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -1078,6 +1086,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
@@ -1533,11 +1542,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder: e.statusRecorder,
-		Signaler:       e.signaler,
-		IFaceDiscover:  e.mobileDep.IFaceDiscover,
-		RelayManager:   e.relayManager,
-		SrWatcher:      e.srWatcher,
+		StatusRecorder:  e.statusRecorder,
+		Signaler:        e.signaler,
+		IFaceDiscover:   e.mobileDep.IFaceDiscover,
+		RelayManager:    e.relayManager,
+		SrWatcher:       e.srWatcher,
+		MetricsRecorder: e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1832,6 +1842,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
+}
+
+// GetClientMetrics returns the client metrics
+func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
+	return e.clientMetrics
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

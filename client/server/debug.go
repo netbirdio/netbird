@@ -26,6 +26,13 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		log.Warnf("failed to get latest sync response: %v", err)
 	}
 
+	var clientMetrics debug.MetricsExporter
+	if s.connectClient != nil {
+		if engine := s.connectClient.Engine(); engine != nil {
+			clientMetrics = engine.GetClientMetrics()
+		}
+	}
+
 	var cpuProfileData []byte
 	if s.cpuProfileBuf != nil && !s.cpuProfiling {
 		cpuProfileData = s.cpuProfileBuf.Bytes()
@@ -54,6 +61,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			LogPath:        s.logFile,
 			CPUProfile:     cpuProfileData,
 			RefreshStatus:  refreshStatus,
+			ClientMetrics:  clientMetrics,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
