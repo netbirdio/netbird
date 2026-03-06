@@ -463,9 +463,31 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
 	}
 
+	targets, err := targetsFromAPI(accountID, req.Targets)
+	if err != nil {
+		return err
+	}
+	s.Targets = targets
+	s.Enabled = req.Enabled
+
+	if req.PassHostHeader != nil {
+		s.PassHostHeader = *req.PassHostHeader
+	}
+	if req.RewriteRedirects != nil {
+		s.RewriteRedirects = *req.RewriteRedirects
+	}
+
+	if req.Auth != nil {
+		s.Auth = authFromAPI(req.Auth)
+	}
+
+	return nil
+}
+
+func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Target, error) {
 	var apiTargets []api.ServiceTarget
-	if req.Targets != nil {
-		apiTargets = *req.Targets
+	if apiTargetsPtr != nil {
+		apiTargets = *apiTargetsPtr
 	}
 
 	targets := make([]*Target, 0, len(apiTargets))
@@ -485,7 +507,7 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		if apiTarget.Options != nil {
 			opts, err := targetOptionsFromAPI(i, apiTarget.Options)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			target.Options = opts
 			if apiTarget.Options.ProxyProtocol != nil {
@@ -494,45 +516,33 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		}
 		targets = append(targets, target)
 	}
-	s.Targets = targets
+	return targets, nil
+}
 
-	s.Enabled = req.Enabled
-
-	if req.PassHostHeader != nil {
-		s.PassHostHeader = *req.PassHostHeader
-	}
-
-	if req.RewriteRedirects != nil {
-		s.RewriteRedirects = *req.RewriteRedirects
-	}
-
-	if req.Auth != nil {
-		if req.Auth.PasswordAuth != nil {
-			s.Auth.PasswordAuth = &PasswordAuthConfig{
-				Enabled:  req.Auth.PasswordAuth.Enabled,
-				Password: req.Auth.PasswordAuth.Password,
-			}
-		}
-
-		if req.Auth.PinAuth != nil {
-			s.Auth.PinAuth = &PINAuthConfig{
-				Enabled: req.Auth.PinAuth.Enabled,
-				Pin:     req.Auth.PinAuth.Pin,
-			}
-		}
-
-		if req.Auth.BearerAuth != nil {
-			bearerAuth := &BearerAuthConfig{
-				Enabled: req.Auth.BearerAuth.Enabled,
-			}
-			if req.Auth.BearerAuth.DistributionGroups != nil {
-				bearerAuth.DistributionGroups = *req.Auth.BearerAuth.DistributionGroups
-			}
-			s.Auth.BearerAuth = bearerAuth
+func authFromAPI(reqAuth *api.ServiceAuthConfig) AuthConfig {
+	var auth AuthConfig
+	if reqAuth.PasswordAuth != nil {
+		auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  reqAuth.PasswordAuth.Enabled,
+			Password: reqAuth.PasswordAuth.Password,
 		}
 	}
-
-	return nil
+	if reqAuth.PinAuth != nil {
+		auth.PinAuth = &PINAuthConfig{
+			Enabled: reqAuth.PinAuth.Enabled,
+			Pin:     reqAuth.PinAuth.Pin,
+		}
+	}
+	if reqAuth.BearerAuth != nil {
+		bearerAuth := &BearerAuthConfig{
+			Enabled: reqAuth.BearerAuth.Enabled,
+		}
+		if reqAuth.BearerAuth.DistributionGroups != nil {
+			bearerAuth.DistributionGroups = *reqAuth.BearerAuth.DistributionGroups
+		}
+		auth.BearerAuth = bearerAuth
+	}
+	return auth
 }
 
 func (s *Service) Validate() error {
@@ -549,38 +559,50 @@ func (s *Service) Validate() error {
 
 	switch s.Mode {
 	case "", ModeHTTP:
-		if s.Domain == "" {
-			return errors.New("service domain is required")
-		}
-		if s.ListenPort != 0 {
-			return errors.New("listen_port is not supported for HTTP services")
-		}
-		return s.validateHTTPTargets()
+		return s.validateHTTPMode()
 	case ModeTCP, ModeUDP:
-		if s.Domain == "" {
-			return errors.New("domain is required for TCP/UDP services (used for cluster derivation)")
-		}
-		if len(s.Targets) != 1 {
-			return errors.New("TCP/UDP services must have exactly one target")
-		}
-		if s.Mode == ModeUDP && s.Targets[0].ProxyProtocol {
-			return errors.New("proxy_protocol is not supported for UDP services")
-		}
-		return s.validateL4Target(s.Targets[0])
+		return s.validateTCPUDPMode()
 	case ModeTLS:
-		if s.Domain == "" {
-			return errors.New("domain is required for TLS services (used for SNI matching)")
-		}
-		if s.ListenPort == 0 {
-			return errors.New("listen_port is required for TLS services")
-		}
-		if len(s.Targets) != 1 {
-			return errors.New("TLS services must have exactly one target")
-		}
-		return s.validateL4Target(s.Targets[0])
+		return s.validateTLSMode()
 	default:
 		return fmt.Errorf("unsupported mode %q", s.Mode)
 	}
+}
+
+func (s *Service) validateHTTPMode() error {
+	if s.Domain == "" {
+		return errors.New("service domain is required")
+	}
+	if s.ListenPort != 0 {
+		return errors.New("listen_port is not supported for HTTP services")
+	}
+	return s.validateHTTPTargets()
+}
+
+func (s *Service) validateTCPUDPMode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for TCP/UDP services (used for cluster derivation)")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("TCP/UDP services must have exactly one target")
+	}
+	if s.Mode == ModeUDP && s.Targets[0].ProxyProtocol {
+		return errors.New("proxy_protocol is not supported for UDP services")
+	}
+	return s.validateL4Target(s.Targets[0])
+}
+
+func (s *Service) validateTLSMode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for TLS services (used for SNI matching)")
+	}
+	if s.ListenPort == 0 {
+		return errors.New("listen_port is required for TLS services")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("TLS services must have exactly one target")
+	}
+	return s.validateL4Target(s.Targets[0])
 }
 
 func (s *Service) validateHTTPTargets() error {
@@ -655,8 +677,8 @@ const (
 	maxRequestTimeout     = 5 * time.Minute
 	maxSessionIdleTimeout = 10 * time.Minute
 	maxCustomHeaders      = 16
-	maxHeaderKeyLen   = 128
-	maxHeaderValueLen = 4096
+	maxHeaderKeyLen       = 128
+	maxHeaderValueLen     = 4096
 )
 
 // httpHeaderNameRe matches valid HTTP header field names per RFC 7230 token definition.

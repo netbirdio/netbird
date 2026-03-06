@@ -229,30 +229,33 @@ func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServ
 		return fmt.Errorf("receive expose event: %w", err)
 	}
 
-	switch e := event.Event.(type) {
-	case *proto.ExposeServiceEvent_Ready:
-		cmd.Println("Service exposed successfully!")
-		cmd.Printf("  Name:     %s\n", e.Ready.ServiceName)
-		if e.Ready.ServiceUrl != "" {
-			cmd.Printf("  URL:      %s\n", e.Ready.ServiceUrl)
-		}
-		if e.Ready.Domain != "" && !isPortBasedProtocol(exposeProtocol) {
-			cmd.Printf("  Domain:   %s\n", e.Ready.Domain)
-		}
-		cmd.Printf("  Protocol: %s\n", exposeProtocol)
-		cmd.Printf("  Internal: %d\n", port)
-		if isClusterProtocol(exposeProtocol) {
-			cmd.Printf("  External: %s\n", extractPort(e.Ready.ServiceUrl, resolveExternalPort(port)))
-		}
-		if e.Ready.PortAutoAssigned && exposeExternalPort != 0 {
-			cmd.Printf("\n  Note: requested port %d was overridden (cluster does not support custom ports)\n", exposeExternalPort)
-		}
-		cmd.Println()
-		cmd.Println("Press Ctrl+C to stop exposing.")
-		return nil
-	default:
+	ready, ok := event.Event.(*proto.ExposeServiceEvent_Ready)
+	if !ok {
 		return fmt.Errorf("unexpected expose event: %T", event.Event)
 	}
+	printExposeReady(cmd, ready.Ready, port)
+	return nil
+}
+
+func printExposeReady(cmd *cobra.Command, r *proto.ExposeServiceReady, port uint64) {
+	cmd.Println("Service exposed successfully!")
+	cmd.Printf("  Name:     %s\n", r.ServiceName)
+	if r.ServiceUrl != "" {
+		cmd.Printf("  URL:      %s\n", r.ServiceUrl)
+	}
+	if r.Domain != "" && !isPortBasedProtocol(exposeProtocol) {
+		cmd.Printf("  Domain:   %s\n", r.Domain)
+	}
+	cmd.Printf("  Protocol: %s\n", exposeProtocol)
+	cmd.Printf("  Internal: %d\n", port)
+	if isClusterProtocol(exposeProtocol) {
+		cmd.Printf("  External: %s\n", extractPort(r.ServiceUrl, resolveExternalPort(port)))
+	}
+	if r.PortAutoAssigned && exposeExternalPort != 0 {
+		cmd.Printf("\n  Note: requested port %d was overridden (cluster does not support custom ports)\n", exposeExternalPort)
+	}
+	cmd.Println()
+	cmd.Println("Press Ctrl+C to stop exposing.")
 }
 
 func waitForExposeEvents(cmd *cobra.Command, ctx context.Context, stream proto.DaemonService_ExposeServiceClient) error {

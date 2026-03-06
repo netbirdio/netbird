@@ -350,38 +350,8 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// Lock the peer row to serialize concurrent creates for the same peer.
-		// Without this, when no ephemeral rows exist yet, FOR UPDATE on the services
-		// table returns no rows and acquires no locks, allowing concurrent inserts
-		// to bypass the per-peer limit.
-		if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID); err != nil {
-			return fmt.Errorf("lock peer row: %w", err)
-		}
-
-		// For HTTP, check domain uniqueness per peer (one expose per domain).
-		// L4 services share the bare cluster domain, so uniqueness is enforced by checkPortConflict instead.
-		if !service.IsL4Protocol(svc.Mode) {
-			exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
-			if err != nil {
-				return fmt.Errorf("check existing expose: %w", err)
-			}
-			if exists {
-				return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
-			}
-		}
-
-		count, err := transaction.CountEphemeralServicesByPeer(ctx, store.LockingStrengthUpdate, accountID, peerID)
-		if err != nil {
-			return fmt.Errorf("count peer exposes: %w", err)
-		}
-		if count >= int64(maxExposesPerPeer) {
-			return status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
-		}
-
-		if !service.IsL4Protocol(svc.Mode) {
-			if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
-				return err
-			}
+		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
+			return err
 		}
 
 		if err := m.ensureL4Port(ctx, transaction, svc); err != nil {
@@ -402,6 +372,39 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 
 		return nil
 	})
+}
+
+func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transaction store.Store, accountID, peerID string, svc *service.Service) error {
+	// Lock the peer row to serialize concurrent creates for the same peer.
+	if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID); err != nil {
+		return fmt.Errorf("lock peer row: %w", err)
+	}
+
+	// For HTTP, check domain uniqueness per peer (one expose per domain).
+	// L4 services share the bare cluster domain, so uniqueness is enforced by checkPortConflict instead.
+	if !service.IsL4Protocol(svc.Mode) {
+		exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
+		if err != nil {
+			return fmt.Errorf("check existing expose: %w", err)
+		}
+		if exists {
+			return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
+		}
+
+		if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
+			return err
+		}
+	}
+
+	count, err := transaction.CountEphemeralServicesByPeer(ctx, store.LockingStrengthUpdate, accountID, peerID)
+	if err != nil {
+		return fmt.Errorf("count peer exposes: %w", err)
+	}
+	if count >= int64(maxExposesPerPeer) {
+		return status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
+	}
+
+	return nil
 }
 
 // checkDomainAvailable checks that no other HTTP service already uses this domain.
@@ -484,25 +487,18 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 
 		m.preserveExistingAuthSecrets(service, existingService)
 		m.preserveServiceMetadata(service, existingService)
+		m.preserveListenPort(service, existingService)
 		updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
-
-		if existingService.ListenPort > 0 && service.ListenPort == 0 {
-			service.ListenPort = existingService.ListenPort
-			service.PortAutoAssigned = existingService.PortAutoAssigned
-		}
 
 		if err := m.ensureL4Port(ctx, transaction, service); err != nil {
 			return err
 		}
-
 		if err := m.checkPortConflict(ctx, transaction, service); err != nil {
 			return err
 		}
-
 		if err := validateTargetReferences(ctx, transaction, accountID, service.Targets); err != nil {
 			return err
 		}
-
 		if err := transaction.UpdateService(ctx, service); err != nil {
 			return fmt.Errorf("update service: %w", err)
 		}
@@ -566,6 +562,13 @@ func (m *Manager) preserveServiceMetadata(service, existingService *service.Serv
 	service.Meta = existingService.Meta
 	service.SessionPrivateKey = existingService.SessionPrivateKey
 	service.SessionPublicKey = existingService.SessionPublicKey
+}
+
+func (m *Manager) preserveListenPort(svc, existing *service.Service) {
+	if existing.ListenPort > 0 && svc.ListenPort == 0 {
+		svc.ListenPort = existing.ListenPort
+		svc.PortAutoAssigned = existing.PortAutoAssigned
+	}
 }
 
 func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID string, s *service.Service, updateInfo *serviceUpdateInfo) {
@@ -855,6 +858,15 @@ func (m *Manager) validateExposePermission(ctx context.Context, accountID, peerI
 	return status.Errorf(status.PermissionDenied, "peer is not in an allowed expose group")
 }
 
+func (m *Manager) resolveDefaultDomain(mode, serviceName string) (string, error) {
+	switch mode {
+	case service.ModeTCP, service.ModeUDP:
+		return m.getDefaultClusterDomain()
+	default:
+		return m.buildRandomDomain(serviceName)
+	}
+}
+
 // CreateServiceFromPeer creates a service initiated by a peer expose request.
 // It validates the request, checks expose permissions, enforces the per-peer limit,
 // creates the service, and tracks it for TTL-based reaping.
@@ -876,22 +888,11 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 	svc.Source = service.SourceEphemeral
 
 	if svc.Domain == "" {
-		switch svc.Mode {
-		case "tcp", "udp":
-			// TCP/UDP use bare cluster domain (no subdomain).
-			domain, err := m.getDefaultClusterDomain()
-			if err != nil {
-				return nil, fmt.Errorf("get cluster domain for service %s: %w", svc.Name, err)
-			}
-			svc.Domain = domain
-		default:
-			// HTTP/HTTPS/TLS get auto-generated subdomain.
-			domain, err := m.buildRandomDomain(svc.Name)
-			if err != nil {
-				return nil, fmt.Errorf("build random domain for service %s: %w", svc.Name, err)
-			}
-			svc.Domain = domain
+		domain, err := m.resolveDefaultDomain(svc.Mode, svc.Name)
+		if err != nil {
+			return nil, err
 		}
+		svc.Domain = domain
 	}
 
 	if svc.Auth.BearerAuth != nil && svc.Auth.BearerAuth.Enabled {

@@ -90,21 +90,26 @@ func (s *session) idleDuration() time.Duration {
 	return time.Since(time.Unix(0, s.lastSeen.Load()))
 }
 
+// RelayConfig holds the configuration for a UDP relay.
+type RelayConfig struct {
+	Logger      *log.Entry
+	Listener    net.PacketConn
+	Target      string
+	AccountID   types.AccountID
+	DialFunc    types.DialContextFunc
+	DialTimeout time.Duration
+	SessionTTL  time.Duration
+	MaxSessions int
+}
+
 // New creates a UDP relay for the given listener and backend target.
-// maxSessions caps the number of concurrent sessions; use 0 for DefaultMaxSessions.
-// dialTimeout controls how long to wait for backend connections; use 0 for default.
-// sessionTTL is the idle timeout before a session is reaped; use 0 for DefaultSessionTTL.
-func New(
-	parentCtx context.Context,
-	logger *log.Entry,
-	listener net.PacketConn,
-	target string,
-	accountID types.AccountID,
-	dialFunc types.DialContextFunc,
-	dialTimeout time.Duration,
-	sessionTTL time.Duration,
-	maxSessions int,
-) *Relay {
+// MaxSessions caps the number of concurrent sessions; use 0 for DefaultMaxSessions.
+// DialTimeout controls how long to wait for backend connections; use 0 for default.
+// SessionTTL is the idle timeout before a session is reaped; use 0 for DefaultSessionTTL.
+func New(parentCtx context.Context, cfg RelayConfig) *Relay {
+	maxSessions := cfg.MaxSessions
+	dialTimeout := cfg.DialTimeout
+	sessionTTL := cfg.SessionTTL
 	if maxSessions <= 0 {
 		maxSessions = DefaultMaxSessions
 	}
@@ -116,11 +121,11 @@ func New(
 	}
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &Relay{
-		logger:      logger,
-		listener:    listener,
-		target:      target,
-		accountID:   accountID,
-		dialFunc:    dialFunc,
+		logger:      cfg.Logger,
+		listener:    cfg.Listener,
+		target:      cfg.Target,
+		accountID:   cfg.AccountID,
+		dialFunc:    cfg.DialFunc,
 		dialTimeout: dialTimeout,
 		sessionTTL:  sessionTTL,
 		maxSessions: maxSessions,

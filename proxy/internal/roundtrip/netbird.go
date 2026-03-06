@@ -375,61 +375,51 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 
 	delete(entry.services, key)
 
-	// If there are still services using this client, keep it running
-	if len(entry.services) > 0 {
-		n.clientsMux.Unlock()
-
+	stopClient := len(entry.services) == 0
+	var client *embed.Client
+	var transport, insecureTransport *http.Transport
+	if stopClient {
+		n.logger.WithField("account_id", accountID).Info("stopping client, no more services")
+		client = entry.client
+		transport = entry.transport
+		insecureTransport = entry.insecureTransport
+		delete(n.clients, accountID)
+	} else {
 		n.logger.WithFields(log.Fields{
 			"account_id":         accountID,
 			"service_key":        key,
 			"remaining_services": len(entry.services),
 		}).Debug("unregistered service, client still in use")
-
-		if n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), si.serviceID, false); err != nil {
-				if s, ok := grpcstatus.FromError(err); ok && s.Code() == codes.NotFound {
-					n.logger.WithField("service_key", key).Debug("service already removed, skipping disconnect notification")
-				} else {
-					n.logger.WithFields(log.Fields{
-						"account_id":  accountID,
-						"service_key": key,
-					}).WithError(err).Warn("failed to notify tunnel disconnection status")
-				}
-			}
-		}
-		return nil
 	}
-
-	// No more services using this client, stop it
-	n.logger.WithField("account_id", accountID).Info("stopping client, no more services")
-
-	client := entry.client
-	transport := entry.transport
-	insecureTransport := entry.insecureTransport
-	delete(n.clients, accountID)
 	n.clientsMux.Unlock()
 
-	if n.statusNotifier != nil {
-		if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), si.serviceID, false); err != nil {
-			if s, ok := grpcstatus.FromError(err); ok && s.Code() == codes.NotFound {
-				n.logger.WithField("service_key", key).Debug("service already removed, skipping disconnect notification")
-			} else {
-				n.logger.WithFields(log.Fields{
-					"account_id":  accountID,
-					"service_key": key,
-				}).WithError(err).Warn("failed to notify tunnel disconnection status")
-			}
+	n.notifyDisconnect(ctx, accountID, key, si.serviceID)
+
+	if stopClient {
+		transport.CloseIdleConnections()
+		insecureTransport.CloseIdleConnections()
+		if err := client.Stop(ctx); err != nil {
+			n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to stop netbird client")
 		}
-	}
-
-	transport.CloseIdleConnections()
-	insecureTransport.CloseIdleConnections()
-
-	if err := client.Stop(ctx); err != nil {
-		n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to stop netbird client")
 	}
 
 	return nil
+}
+
+func (n *NetBird) notifyDisconnect(ctx context.Context, accountID types.AccountID, key ServiceKey, serviceID string) {
+	if n.statusNotifier == nil {
+		return
+	}
+	if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), serviceID, false); err != nil {
+		if s, ok := grpcstatus.FromError(err); ok && s.Code() == codes.NotFound {
+			n.logger.WithField("service_key", key).Debug("service already removed, skipping disconnect notification")
+		} else {
+			n.logger.WithFields(log.Fields{
+				"account_id":  accountID,
+				"service_key": key,
+			}).WithError(err).Warn("failed to notify tunnel disconnection status")
+		}
+	}
 }
 
 // RoundTrip implements http.RoundTripper. It looks up the client for the account

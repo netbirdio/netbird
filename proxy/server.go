@@ -1188,7 +1188,15 @@ func (s *Server) addUDPRelay(ctx context.Context, accountID types.AccountID, svc
 		"service_id":  svcID,
 	})
 
-	relay := udprelay.New(ctx, entry, listener, targetAddress, accountID, dialFn, dialTimeout, sessionTTL, 0)
+	relay := udprelay.New(ctx, udprelay.RelayConfig{
+		Logger:      entry,
+		Listener:    listener,
+		Target:      targetAddress,
+		AccountID:   accountID,
+		DialFunc:    dialFn,
+		DialTimeout: dialTimeout,
+		SessionTTL:  sessionTTL,
+	})
 	relay.SetObserver(s.meter)
 
 	s.udpMu.Lock()

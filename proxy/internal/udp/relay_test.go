@@ -47,7 +47,7 @@ func TestRelay_BasicPacketExchange(t *testing.T) {
 		return net.Dial(network, address)
 	}
 
-	relay := New(ctx, logger, listener, backendAddr, "", dialFunc, 0, 0, 0)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backendAddr, DialFunc: dialFunc})
 	go relay.Serve()
 	defer relay.Close()
 
@@ -98,7 +98,7 @@ func TestRelay_MultipleClients(t *testing.T) {
 		return net.Dial(network, address)
 	}
 
-	relay := New(ctx, logger, listener, backend.LocalAddr().String(), "", dialFunc, 0, 0, 0)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backend.LocalAddr().String(), DialFunc: dialFunc})
 	go relay.Serve()
 	defer relay.Close()
 
@@ -139,7 +139,7 @@ func TestRelay_Close(t *testing.T) {
 		return net.Dial(network, address)
 	}
 
-	relay := New(ctx, logger, listener, "127.0.0.1:9999", "", dialFunc, 0, 0, 0)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: "127.0.0.1:9999", DialFunc: dialFunc})
 
 	done := make(chan struct{})
 	go func() {
@@ -184,7 +184,7 @@ func TestRelay_SessionCleanup(t *testing.T) {
 		return net.Dial(network, address)
 	}
 
-	relay := New(ctx, logger, listener, backend.LocalAddr().String(), "", dialFunc, 0, 0, 0)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backend.LocalAddr().String(), DialFunc: dialFunc})
 	go relay.Serve()
 	defer relay.Close()
 
@@ -252,7 +252,7 @@ func TestRelay_CloseAndRecreate(t *testing.T) {
 	ln1, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	relay1 := New(ctx, logger, ln1, backend.LocalAddr().String(), "", dialFunc, 0, 0, 0)
+	relay1 := New(ctx, RelayConfig{Logger: logger, Listener: ln1, Target: backend.LocalAddr().String(), DialFunc: dialFunc})
 	go relay1.Serve()
 
 	client1, err := net.Dial("udp", ln1.LocalAddr().String())
@@ -274,7 +274,7 @@ func TestRelay_CloseAndRecreate(t *testing.T) {
 	ln2, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
 	require.NoError(t, err)
 
-	relay2 := New(ctx, logger, ln2, backend.LocalAddr().String(), "", dialFunc, 0, 0, 0)
+	relay2 := New(ctx, RelayConfig{Logger: logger, Listener: ln2, Target: backend.LocalAddr().String(), DialFunc: dialFunc})
 	go relay2.Serve()
 	defer relay2.Close()
 
@@ -318,7 +318,7 @@ func TestRelay_SessionLimit(t *testing.T) {
 	}
 
 	// Create a relay with a max of 2 sessions.
-	relay := New(ctx, logger, listener, backend.LocalAddr().String(), "", dialFunc, 0, 0, 2)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backend.LocalAddr().String(), DialFunc: dialFunc, MaxSessions: 2})
 	go relay.Serve()
 	defer relay.Close()
 
@@ -370,7 +370,7 @@ type testObserver struct {
 	bytes    int
 }
 
-func (o *testObserver) UDPSessionStarted(string)  { o.mu.Lock(); o.started++; o.mu.Unlock() }
+func (o *testObserver) UDPSessionStarted(string)   { o.mu.Lock(); o.started++; o.mu.Unlock() }
 func (o *testObserver) UDPSessionEnded(string)     { o.mu.Lock(); o.ended++; o.mu.Unlock() }
 func (o *testObserver) UDPSessionDialError(string) { o.mu.Lock(); o.dialErr++; o.mu.Unlock() }
 func (o *testObserver) UDPSessionRejected(string)  { o.mu.Lock(); o.rejected++; o.mu.Unlock() }
@@ -410,7 +410,7 @@ func TestRelay_CloseFiresObserverEnded(t *testing.T) {
 	}
 
 	obs := &testObserver{}
-	relay := New(ctx, logger, listener, backend.LocalAddr().String(), "test-acct", dialFunc, 0, 0, 0)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backend.LocalAddr().String(), AccountID: "test-acct", DialFunc: dialFunc})
 	relay.SetObserver(obs)
 	go relay.Serve()
 
@@ -473,7 +473,7 @@ func TestRelay_SessionRateLimit(t *testing.T) {
 	// High max sessions (1000) but the relay uses a rate limiter internally
 	// (default: 50/s burst 100). We exhaust the burst by creating sessions
 	// rapidly, then verify that subsequent creates are rejected.
-	relay := New(ctx, logger, listener, backend.LocalAddr().String(), "test-acct", dialFunc, 0, 0, 1000)
+	relay := New(ctx, RelayConfig{Logger: logger, Listener: listener, Target: backend.LocalAddr().String(), AccountID: "test-acct", DialFunc: dialFunc, MaxSessions: 1000})
 	relay.SetObserver(obs)
 	go relay.Serve()
 	defer relay.Close()
