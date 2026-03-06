@@ -13,9 +13,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -29,7 +26,7 @@ const (
 	testDNSDomain = "netbird.selfhosted"
 )
 
-func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccountManager, *permissions.MockManager, *gomock.Controller, func()) {
+func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccountManager, *gomock.Controller, func()) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -49,23 +46,17 @@ func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccoun
 
 	ctrl := gomock.NewController(t)
 	mockAccountManager := &mock_server.MockAccountManager{}
-	mockPermissionsManager := permissions.NewMockManager(ctrl)
 
-	manager := &managerImpl{
-		store:              testStore,
-		accountManager:     mockAccountManager,
-		permissionsManager: mockPermissionsManager,
-		dnsDomain:          testDNSDomain,
-	}
+	manager := NewManager(testStore, mockAccountManager, testDNSDomain).(*managerImpl)
 
-	return manager, testStore, mockAccountManager, mockPermissionsManager, ctrl, cleanup
+	return manager, testStore, mockAccountManager, ctrl, cleanup
 }
 
 func TestManagerImpl_GetAllZones(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -77,10 +68,6 @@ func TestManagerImpl_GetAllZones(t *testing.T) {
 		err = testStore.CreateZone(ctx, zone2)
 		require.NoError(t, err)
 
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
-
 		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
@@ -88,53 +75,19 @@ func TestManagerImpl_GetAllZones(t *testing.T) {
 		assert.Equal(t, zone2.ID, result[1].ID)
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
-
-		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
-		require.Error(t, err)
-		assert.Nil(t, result)
-		s, ok := status.FromError(err)
-		assert.True(t, ok)
-		assert.Equal(t, status.PermissionDenied, s.Type())
-	})
-
-	t.Run("permission validation error", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, status.Errorf(status.Internal, "permission check failed"))
-
-		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
-		require.Error(t, err)
-		assert.Nil(t, result)
-	})
 }
 
 func TestManagerImpl_GetZone(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
 		zone := zones.NewZone(testAccountID, "Test Zone", "test.example.com", true, true, []string{testGroupID})
 		err := testStore.CreateZone(ctx, zone)
 		require.NoError(t, err)
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
 
 		result, err := manager.GetZone(ctx, testAccountID, testUserID, zone.ID)
 		require.NoError(t, err)
@@ -143,29 +96,13 @@ func TestManagerImpl_GetZone(t *testing.T) {
 		assert.Equal(t, zone.Domain, result.Domain)
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
-
-		result, err := manager.GetZone(ctx, testAccountID, testUserID, testZoneID)
-		require.Error(t, err)
-		assert.Nil(t, result)
-		s, ok := status.FromError(err)
-		assert.True(t, ok)
-		assert.Equal(t, status.PermissionDenied, s.Type())
-	})
 }
 
 func TestManagerImpl_CreateZone(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		manager, _, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, _, mockAccountManager, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -176,10 +113,6 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			EnableSearchDomain: true,
 			DistributionGroups: []string{testGroupID},
 		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -199,31 +132,8 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		assert.Equal(t, inputZone.DistributionGroups, result.DistributionGroups)
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		inputZone := &zones.Zone{
-			Name:               "New Zone",
-			Domain:             "new.example.com",
-			DistributionGroups: []string{testGroupID},
-		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(false, nil)
-
-		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
-		require.Error(t, err)
-		assert.Nil(t, result)
-		s, ok := status.FromError(err)
-		assert.True(t, ok)
-		assert.Equal(t, status.PermissionDenied, s.Type())
-	})
-
 	t.Run("invalid group", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, _, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -233,17 +143,13 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			DistributionGroups: []string{"invalid-group"},
 		}
 
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
-
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
 		assert.Nil(t, result)
 	})
 
 	t.Run("duplicate domain", func(t *testing.T) {
-		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -259,10 +165,6 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			DistributionGroups: []string{testGroupID},
 		}
 
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
-
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -273,7 +175,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 	})
 
 	t.Run("peer DNS domain conflict", func(t *testing.T) {
-		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -291,10 +193,6 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			DistributionGroups: []string{testGroupID},
 		}
 
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
-
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -305,7 +203,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 	})
 
 	t.Run("default DNS domain conflict", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, _, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -316,10 +214,6 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			EnableSearchDomain: false,
 			DistributionGroups: []string{testGroupID},
 		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -335,7 +229,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		manager, testStore, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, mockAccountManager, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -351,10 +245,6 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 			EnableSearchDomain: true,
 			DistributionGroups: []string{testGroupID},
 		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -375,7 +265,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 	})
 
 	t.Run("domain change not allowed", func(t *testing.T) {
-		manager, testStore, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -392,10 +282,6 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 			DistributionGroups: []string{testGroupID},
 		}
 
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
-
 		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -405,31 +291,8 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 		assert.Equal(t, status.InvalidArgument, s.Type())
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		updatedZone := &zones.Zone{
-			ID:     testZoneID,
-			Name:   "Updated Name",
-			Domain: "example.com",
-		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(false, nil)
-
-		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
-		require.Error(t, err)
-		assert.Nil(t, result)
-		s, ok := status.FromError(err)
-		assert.True(t, ok)
-		assert.Equal(t, status.PermissionDenied, s.Type())
-	})
-
 	t.Run("zone not found", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, _, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -438,10 +301,6 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 			Name:   "Updated Name",
 			Domain: "example.com",
 		}
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
 
 		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
 		require.Error(t, err)
@@ -453,7 +312,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success with records", func(t *testing.T) {
-		manager, testStore, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, mockAccountManager, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
@@ -468,10 +327,6 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 		record2 := records.NewRecord(testAccountID, zone.ID, "www.example.com", records.RecordTypeA, "192.168.1.2", 300)
 		err = testStore.CreateDNSRecord(ctx, record2)
 		require.NoError(t, err)
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
 
 		storeEventCallCount := 0
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -493,17 +348,13 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 	})
 
 	t.Run("success without records", func(t *testing.T) {
-		manager, testStore, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, testStore, mockAccountManager, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
 
 		zone := zones.NewZone(testAccountID, "Test Zone", "example.com", true, true, []string{testGroupID})
 		err := testStore.CreateZone(ctx, zone)
 		require.NoError(t, err)
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -522,30 +373,10 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
-		defer cleanup()
-		defer ctrl.Finish()
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(false, nil)
-
-		err := manager.DeleteZone(ctx, testAccountID, testUserID, testZoneID)
-		require.Error(t, err)
-		s, ok := status.FromError(err)
-		assert.True(t, ok)
-		assert.Equal(t, status.PermissionDenied, s.Type())
-	})
-
 	t.Run("zone not found", func(t *testing.T) {
-		manager, _, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		manager, _, _, ctrl, cleanup := setupTest(t)
 		defer cleanup()
 		defer ctrl.Finish()
-
-		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
 
 		err := manager.DeleteZone(ctx, testAccountID, testUserID, "non-existent-zone")
 		require.Error(t, err)

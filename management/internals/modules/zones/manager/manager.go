@@ -7,62 +7,34 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type managerImpl struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	dnsDomain          string
+	store          store.Store
+	accountManager account.Manager
+	dnsDomain      string
 }
 
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, dnsDomain string) zones.Manager {
+func NewManager(store store.Store, accountManager account.Manager, dnsDomain string) zones.Manager {
 	return &managerImpl{
-		store:              store,
-		accountManager:     accountManager,
-		permissionsManager: permissionsManager,
-		dnsDomain:          dnsDomain,
+		store:          store,
+		accountManager: accountManager,
+		dnsDomain:      dnsDomain,
 	}
 }
 
 func (m *managerImpl) GetAllZones(ctx context.Context, accountID, userID string) ([]*zones.Zone, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetAccountZones(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetZone(ctx context.Context, accountID, userID, zoneID string) (*zones.Zone, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetZoneByID(ctx, store.LockingStrengthNone, accountID, zoneID)
 }
 
 func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, zone *zones.Zone) (*zones.Zone, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
+	var err error
 	if err = m.validateZoneDomainConflict(ctx, accountID, zone.Domain); err != nil {
 		return nil, err
 	}
@@ -102,14 +74,6 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 }
 
 func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, updatedZone *zones.Zone) (*zones.Zone, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	zone, err := m.store.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, updatedZone.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get zone: %w", err)
@@ -150,14 +114,6 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 }
 
 func (m *managerImpl) DeleteZone(ctx context.Context, accountID, userID, zoneID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	zone, err := m.store.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
 	if err != nil {
 		return fmt.Errorf("failed to get zone: %w", err)

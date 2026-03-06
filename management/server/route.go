@@ -10,8 +10,6 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -21,14 +19,6 @@ import (
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetRouteByID(ctx, store.LockingStrengthNone, accountID, string(routeID))
 }
 
@@ -134,20 +124,13 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 
 // CreateRoute creates and saves a new route
 func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if len(domains) > 0 && prefix.IsValid() {
 		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
 	}
 
 	var newRoute *route.Route
 	var updateAccountPeers bool
+	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		newRoute = &route.Route{
@@ -199,15 +182,8 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 // SaveRoute saves route
 func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userID string, routeToSave *route.Route) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Update)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var oldRoute *route.Route
+	var err error
 	var oldRouteAffectsPeers bool
 	var newRouteAffectsPeers bool
 
@@ -253,16 +229,9 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 // DeleteRoute deletes route with routeID
 func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var route *route.Route
 	var updateAccountPeers bool
+	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		route, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
@@ -296,14 +265,6 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
 }
 

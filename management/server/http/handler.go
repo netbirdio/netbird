@@ -13,6 +13,7 @@ import (
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -34,10 +35,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/permissions"
-
 	"github.com/netbirdio/netbird/management/server/http/handlers/proxy"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 
 	nbpeers "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/auth"

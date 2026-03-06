@@ -9,64 +9,36 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type managerImpl struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
+	store          store.Store
+	accountManager account.Manager
 }
 
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager) records.Manager {
+func NewManager(store store.Store, accountManager account.Manager) records.Manager {
 	return &managerImpl{
-		store:              store,
-		accountManager:     accountManager,
-		permissionsManager: permissionsManager,
+		store:          store,
+		accountManager: accountManager,
 	}
 }
 
 func (m *managerImpl) GetAllRecords(ctx context.Context, accountID, userID, zoneID string) ([]*records.Record, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetZoneDNSRecords(ctx, store.LockingStrengthNone, accountID, zoneID)
 }
 
 func (m *managerImpl) GetRecord(ctx context.Context, accountID, userID, zoneID, recordID string) (*records.Record, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetDNSRecordByID(ctx, store.LockingStrengthNone, accountID, zoneID, recordID)
 }
 
 func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneID string, record *records.Record) (*records.Record, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var zone *zones.Zone
 
 	record = records.NewRecord(accountID, zoneID, record.Name, record.Type, record.Content, record.TTL)
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
 		if err != nil {
 			return fmt.Errorf("failed to get zone: %w", err)
@@ -101,18 +73,11 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 }
 
 func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneID string, updatedRecord *records.Record) (*records.Record, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var zone *zones.Zone
 	var record *records.Record
 
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
 		if err != nil {
 			return fmt.Errorf("failed to get zone: %w", err)
@@ -160,18 +125,11 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 }
 
 func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneID, recordID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	var record *records.Record
 	var zone *zones.Zone
 
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
 		if err != nil {
 			return fmt.Errorf("failed to get zone: %w", err)

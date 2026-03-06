@@ -6,14 +6,13 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
@@ -65,6 +64,7 @@ func (h *handler) createService(w http.ResponseWriter, r *http.Request, userAuth
 	}
 
 	service := new(rpservice.Service)
+	var err error
 	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
@@ -115,6 +115,7 @@ func (h *handler) updateService(w http.ResponseWriter, r *http.Request, userAuth
 
 	service := new(rpservice.Service)
 	service.ID = serviceID
+	var err error
 	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return

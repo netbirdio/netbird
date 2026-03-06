@@ -7,13 +7,11 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -46,26 +44,10 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, accou
 }
 
 func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetNetworkRoutersByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, userID string) (map[string][]*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	routers, err := m.store.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network routers: %w", err)
@@ -80,16 +62,9 @@ func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, use
 }
 
 func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, modules.Networks, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var network *networkTypes.Network
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
@@ -125,14 +100,6 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 }
 
 func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	router, err := m.store.GetNetworkRouterByID(ctx, store.LockingStrengthNone, accountID, routerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network router: %w", err)
@@ -146,16 +113,9 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 }
 
 func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, modules.Networks, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var network *networkTypes.Network
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
@@ -189,16 +149,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	var event func()
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, routerID)
 		if err != nil {
 			return fmt.Errorf("failed to delete network router: %w", err)

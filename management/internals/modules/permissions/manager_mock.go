@@ -5,17 +5,18 @@
 package permissions
 
 import (
-	context "context"
-	http "net/http"
-	reflect "reflect"
+	"context"
+	"net/http"
+	"reflect"
 
-	gomock "github.com/golang/mock/gomock"
-	account "github.com/netbirdio/netbird/management/server/account"
-	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
-	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
-	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
-	types "github.com/netbirdio/netbird/management/server/types"
-	auth "github.com/netbirdio/netbird/shared/auth"
+	"github.com/golang/mock/gomock"
+
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 // MockManager is a mock of Manager interface.

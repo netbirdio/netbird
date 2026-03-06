@@ -16,9 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -38,17 +35,15 @@ type Manager interface {
 
 type managerImpl struct {
 	store                   store.Store
-	permissionsManager      permissions.Manager
 	integratedPeerValidator integrated_validator.IntegratedValidator
 	accountManager          account.Manager
 
 	networkMapController network_map.Controller
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
+func NewManager(store store.Store) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
+		store: store,
 	}
 }
 
@@ -65,28 +60,10 @@ func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
 }
 
 func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error) {
-	allowed, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
-	allowed, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	}
-
 	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 }
 

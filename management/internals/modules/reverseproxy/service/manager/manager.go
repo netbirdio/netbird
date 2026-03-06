@@ -16,9 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -32,22 +29,20 @@ type ClusterDeriver interface {
 }
 
 type Manager struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	proxyController    proxy.Controller
-	clusterDeriver     ClusterDeriver
-	exposeReaper       *exposeReaper
+	store           store.Store
+	accountManager  account.Manager
+	proxyController proxy.Controller
+	clusterDeriver  ClusterDeriver
+	exposeReaper    *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
-		store:              store,
-		accountManager:     accountManager,
-		permissionsManager: permissionsManager,
-		proxyController:    proxyController,
-		clusterDeriver:     clusterDeriver,
+		store:           store,
+		accountManager:  accountManager,
+		proxyController: proxyController,
+		clusterDeriver:  clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
@@ -59,14 +54,6 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	services, err := m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services: %w", err)
@@ -119,14 +106,6 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	service, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service: %w", err)
@@ -140,14 +119,6 @@ func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID s
 }
 
 func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s *service.Service) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if err := m.initializeServiceForCreate(ctx, accountID, s); err != nil {
 		return nil, err
 	}
@@ -158,7 +129,7 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 
 	m.accountManager.StoreEvent(ctx, userID, s.ID, accountID, activity.ServiceCreated, s.EventMeta())
 
-	err = m.replaceHostByLookup(ctx, accountID, s)
+	err := m.replaceHostByLookup(ctx, accountID, s)
 	if err != nil {
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
@@ -278,14 +249,6 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if err := service.Auth.HashSecrets(); err != nil {
 		return nil, fmt.Errorf("hash secrets: %w", err)
 	}
@@ -428,16 +391,8 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 }
 
 func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	var s *service.Service
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
 		s, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
 		if err != nil {
@@ -468,16 +423,8 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 }
 
 func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	var services []*service.Service
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
 		services, err = transaction.GetAccountServices(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {

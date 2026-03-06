@@ -6,16 +6,13 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -48,29 +45,13 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, resou
 }
 
 func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID string) ([]*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetAccountNetworks(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, modules.Networks, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	network.ID = xid.New().String()
 
-	err = m.store.SaveNetwork(ctx, network)
+	err := m.store.SaveNetwork(ctx, network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save network: %w", err)
 	}
@@ -81,27 +62,11 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 }
 
 func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, networkID string) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetNetworkByID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, network.AccountID, userID, modules.Networks, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
-	_, err = m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+	_, err := m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network: %w", err)
 	}
@@ -112,14 +77,6 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	network, err := m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 	if err != nil {
 		return fmt.Errorf("failed to get network: %w", err)

@@ -11,13 +11,13 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -333,19 +333,16 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
-	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Read)
-	if err != nil {
-		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
-		return
-	}
-
 	account, err := h.accountManager.GetAccountByID(r.Context(), userAuth.AccountId, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	if !allowed && !userAuth.IsChild {
+	// Check if user is an admin/service user through their role
+	isAdmin := user.Role == types.UserRoleAdmin || user.Role == types.UserRoleOwner
+
+	if !isAdmin && !userAuth.IsChild {
 		if account.Settings.RegularUsersViewBlocked {
 			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return
