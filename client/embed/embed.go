@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -81,6 +82,8 @@ type Options struct {
 	BlockInbound bool
 	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
 	WireguardPort *int
+	// DNSLabels defines additional DNS labels configured in the peer.
+	DNSLabels []string
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -140,6 +143,15 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
+	var parsedLabels domain.List
+	for _, label := range opts.DNSLabels {
+		d, err := domain.FromString(label)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dns label %s: %w", label, err)
+		}
+		parsedLabels = append(parsedLabels, d)
+	}
+
 	t := true
 	var config *profilemanager.Config
 	var err error
@@ -151,6 +163,7 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 		BlockInbound:        &opts.BlockInbound,
 		WireguardPort:       opts.WireguardPort,
+		DNSLabels:           parsedLabels,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
