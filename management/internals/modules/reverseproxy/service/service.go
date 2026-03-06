@@ -134,7 +134,7 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"uniqueIndex"`
+	Domain            string    `gorm:"type:varchar(255);uniqueIndex"`
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
