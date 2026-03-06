@@ -14,6 +14,13 @@ import (
 
 const anonTLD = ".domain"
 
+var (
+	domainKeyRegex = regexp.MustCompile(`\bdomain=([^\s,:"]+)`)
+	ipv4Regex      = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
+	ipv6Regex      = regexp.MustCompile(`\b([0-9a-fA-F:]+:+[0-9a-fA-F]{0,4})(?:%[0-9a-zA-Z]+)?(?:\/[0-9]{1,3})?(?::[0-9]{1,5})?\b`)
+	schemeURIRegex = regexp.MustCompile(`(?i)\b(wss?://|rels?://|stuns?:|turns?:|https?://)\S+\b`)
+)
+
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
@@ -21,8 +28,6 @@ type Anonymizer struct {
 	currentAnonIPv6  netip.Addr
 	startAnonIPv4    netip.Addr
 	startAnonIPv6    netip.Addr
-
-	domainKeyRegex *regexp.Regexp
 }
 
 func DefaultAddresses() (netip.Addr, netip.Addr) {
@@ -38,8 +43,6 @@ func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {
 		currentAnonIPv6:  startIPv6,
 		startAnonIPv4:    startIPv4,
 		startAnonIPv6:    startIPv6,
-
-		domainKeyRegex: regexp.MustCompile(`\bdomain=([^\s,:"]+)`),
 	}
 }
 
@@ -168,9 +171,6 @@ func (a *Anonymizer) AnonymizeURI(uri string) string {
 }
 
 func (a *Anonymizer) AnonymizeString(str string) string {
-	ipv4Regex := regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
-	ipv6Regex := regexp.MustCompile(`\b([0-9a-fA-F:]+:+[0-9a-fA-F]{0,4})(?:%[0-9a-zA-Z]+)?(?:\/[0-9]{1,3})?(?::[0-9]{1,5})?\b`)
-
 	str = ipv4Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 	str = ipv6Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 
@@ -186,13 +186,11 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 
 // AnonymizeSchemeURI finds and anonymizes URIs with ws, wss, rel, rels, stun, stuns, turn, and turns schemes.
 func (a *Anonymizer) AnonymizeSchemeURI(text string) string {
-	re := regexp.MustCompile(`(?i)\b(wss?://|rels?://|stuns?:|turns?:|https?://)\S+\b`)
-
-	return re.ReplaceAllStringFunc(text, a.AnonymizeURI)
+	return schemeURIRegex.ReplaceAllStringFunc(text, a.AnonymizeURI)
 }
 
 func (a *Anonymizer) AnonymizeDNSLogLine(logEntry string) string {
-	return a.domainKeyRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
+	return domainKeyRegex.ReplaceAllStringFunc(logEntry, func(match string) string {
 		parts := strings.SplitN(match, "=", 2)
 		if len(parts) >= 2 {
 			domain := parts[1]
