@@ -193,6 +193,9 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	usersManager := users.NewManager(testStore)
 
 	oidcConfig := nbgrpc.ProxyOIDCConfig{
@@ -206,6 +209,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
+		pkceStore,
 		oidcConfig,
 		nil,
 		usersManager,

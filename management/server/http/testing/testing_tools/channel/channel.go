@@ -98,12 +98,16 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	if err != nil {
 		t.Fatalf("Failed to create proxy token store: %v", err)
 	}
+	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create PKCE verifier store: %v", err)
+	}
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
-	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
 	domainManager := manager.NewManager(store, proxyMgr, permissionsManager)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
