@@ -1,7 +1,7 @@
 package users
 
 import (
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 

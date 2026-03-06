@@ -12,10 +12,13 @@ import (
 
 	goversion "github.com/hashicorp/go-version"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -40,11 +43,11 @@ type handler struct {
 	settingsManager settings.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, settingsManager settings.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	accountsHandler := newHandler(accountManager, settingsManager)
-	router.HandleFunc("/accounts/{accountId}", accountsHandler.updateAccount).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/accounts/{accountId}", accountsHandler.deleteAccount).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/accounts", accountsHandler.getAllAccounts).Methods("GET", "OPTIONS")
+	router.HandleFunc("/accounts/{accountId}", permissionsManager.WithPermission(modules.Accounts, operations.Update, accountsHandler.updateAccount)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/accounts/{accountId}", permissionsManager.WithPermission(modules.Accounts, operations.Delete, accountsHandler.deleteAccount)).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/accounts", permissionsManager.WithPermission(modules.Accounts, operations.Read, accountsHandler.getAllAccounts)).Methods("GET", "OPTIONS")
 }
 
 // newHandler creates a new handler HTTP handler
@@ -136,34 +139,26 @@ func calculateRequiredAddresses(peerCount int) int64 {
 }
 
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
-func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
+	meta, err := h.accountManager.GetAccountMeta(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	meta, err := h.accountManager.GetAccountMeta(r.Context(), accountID, userID)
+	settings, err := h.settingsManager.GetSettings(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	settings, err := h.settingsManager.GetSettings(r.Context(), accountID, userID)
+	onboarding, err := h.accountManager.GetAccountOnboarding(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	onboarding, err := h.accountManager.GetAccountOnboarding(r.Context(), accountID, userID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	resp := toAccountResponse(accountID, settings, meta, onboarding)
+	resp := toAccountResponse(userAuth.AccountId, settings, meta, onboarding)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
@@ -230,15 +225,7 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 }
 
 // updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
-func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	_, userID := userAuth.AccountId, userAuth.UserId
-
+func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	accountID := vars["accountId"]
 	if len(accountID) == 0 {
@@ -247,7 +234,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PutApiAccountsAccountIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -264,7 +251,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err), w)
 			return
 		}
-		if err := h.validateNetworkRange(r.Context(), accountID, userID, prefix); err != nil {
+		if err := h.validateNetworkRange(r.Context(), accountID, userAuth.UserId, prefix); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
@@ -279,19 +266,19 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	updatedOnboarding, err := h.accountManager.UpdateAccountOnboarding(r.Context(), accountID, userID, onboarding)
+	updatedOnboarding, err := h.accountManager.UpdateAccountOnboarding(r.Context(), accountID, userAuth.UserId, onboarding)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
+	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userAuth.UserId, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	meta, err := h.accountManager.GetAccountMeta(r.Context(), accountID, userID)
+	meta, err := h.accountManager.GetAccountMeta(r.Context(), accountID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -303,13 +290,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteAccount is a HTTP DELETE handler to delete an account
-func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	targetAccountID := vars["accountId"]
 	if len(targetAccountID) == 0 {
@@ -317,7 +298,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteAccount(r.Context(), targetAccountID, userAuth.UserId)
+	err := h.accountManager.DeleteAccount(r.Context(), targetAccountID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

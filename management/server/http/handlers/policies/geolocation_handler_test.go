@@ -14,12 +14,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -62,6 +62,18 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 		},
 		geolocationManager: geo,
 		permissionsManager: permissionsManagerMock,
+	}
+}
+
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
 	}
 }
 
@@ -121,7 +133,7 @@ func TestGetCitiesByCountry(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries/{country}/cities", geolocationHandler.getCitiesByCountry).Methods("GET")
+			router.HandleFunc("/api/locations/countries/{country}/cities", wrapHandler(geolocationHandler.getCitiesByCountry)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -214,7 +226,7 @@ func TestGetAllCountries(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/locations/countries", geolocationHandler.getAllCountries).Methods("GET")
+			router.HandleFunc("/api/locations/countries", wrapHandler(geolocationHandler.getAllCountries)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

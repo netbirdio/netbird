@@ -6,15 +6,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -35,16 +30,14 @@ type managerImpl struct {
 	store                store.Store
 	extraSettingsManager extra_settings.Manager
 	userManager          users.Manager
-	permissionsManager   permissions.Manager
 	idpConfig            IdpConfig
 }
 
-func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager, permissionsManager permissions.Manager, idpConfig IdpConfig) Manager {
+func NewManager(store store.Store, userManager users.Manager, extraSettingsManager extra_settings.Manager, idpConfig IdpConfig) Manager {
 	return &managerImpl{
 		store:                store,
 		extraSettingsManager: extraSettingsManager,
 		userManager:          userManager,
-		permissionsManager:   permissionsManager,
 		idpConfig:            idpConfig,
 	}
 }
@@ -54,16 +47,6 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 }
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	if userID != activity.SystemInitiator {
-		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
-		if err != nil {
-			return nil, status.NewPermissionValidationError(err)
-		}
-		if !ok {
-			return nil, status.NewPermissionDeniedError()
-		}
-	}
-
 	extraSettings, err := m.extraSettingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get extra settings: %w", err)

@@ -19,11 +19,11 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -33,6 +33,18 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
+
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
 
 const (
 	testPeerID                = "test_peer"
@@ -307,9 +319,9 @@ func TestGetPeers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/peers/", p.GetAllPeers).Methods("GET")
-			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("GET")
-			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("PUT")
+			router.HandleFunc("/api/peers/", wrapHandler(p.GetAllPeers)).Methods("GET")
+			router.HandleFunc("/api/peers/{peerId}", wrapHandler(p.GetPeer)).Methods("GET")
+			router.HandleFunc("/api/peers/{peerId}", wrapHandler(p.UpdatePeer)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -498,7 +510,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/peers/{peerId}/accessible-peers", p.GetAccessiblePeers).Methods("GET")
+			router.HandleFunc("/api/peers/{peerId}/accessible-peers", wrapHandler(p.GetAccessiblePeers)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -582,7 +594,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 			router := mux.NewRouter()
-			router.HandleFunc("/peers/{peerId}", p.HandlePeer).Methods("PUT")
+			router.HandleFunc("/peers/{peerId}", wrapHandler(p.UpdatePeer)).Methods("PUT")
 
 			router.ServeHTTP(rr, req)
 

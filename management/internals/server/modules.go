@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -26,7 +27,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/users"
 )
@@ -81,13 +81,13 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 			idpConfig.LocalAuthDisabled = s.Config.EmbeddedIdP.LocalAuthDisabled
 		}
 
-		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager(), idpConfig)
+		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, idpConfig)
 	})
 }
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			manager.SetNetworkMapController(s.NetworkMapController())
 			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
@@ -158,7 +158,7 @@ func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
 
 func (s *BaseServer) GroupsManager() groups.Manager {
 	return Create(s, func() groups.Manager {
-		return groups.NewManager(s.Store(), s.PermissionsManager(), s.AccountManager())
+		return groups.NewManager(s.Store(), s.AccountManager())
 	})
 }
 
@@ -182,19 +182,19 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
-		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
+		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.DNSDomain())
 	})
 }
 
 func (s *BaseServer) RecordsManager() records.Manager {
 	return Create(s, func() records.Manager {
-		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+		return recordsManager.NewManager(s.Store(), s.AccountManager())
 	})
 }
 
 func (s *BaseServer) ServiceManager() service.Manager {
 	return Create(s, func() service.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ReverseProxyDomainManager())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.ServiceProxyController(), s.ReverseProxyDomainManager())
 	})
 }
 
@@ -210,7 +210,7 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
-		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager())
+		m := manager.NewManager(s.Store(), s.ProxyManager())
 		return &m
 	})
 }

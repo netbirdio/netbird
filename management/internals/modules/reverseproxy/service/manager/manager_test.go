@@ -12,6 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	permissions2 "github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -20,9 +23,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -693,8 +693,6 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	err = testStore.AddPeerToGroup(ctx, testAccountID, testPeerID, testGroupID)
 	require.NoError(t, err)
 
-	permsMgr := permissions.NewManager(testStore)
-
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
@@ -712,10 +710,9 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	require.NoError(t, err)
 
 	mgr := &Manager{
-		store:              testStore,
-		accountManager:     accountMgr,
-		permissionsManager: permsMgr,
-		proxyController:    proxyController,
+		store:           testStore,
+		accountManager:  accountMgr,
+		proxyController: proxyController,
 		clusterDeriver: &testClusterDeriver{
 			domains: []string{"test.netbird.io"},
 		},
@@ -1131,7 +1128,6 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockPerms := permissions.NewMockManager(ctrl)
 	mockAcct := account.NewMockManager(ctrl)
 
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
@@ -1143,10 +1139,9 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	require.NoError(t, err)
 
 	mgr := &Manager{
-		store:              sqlStore,
-		permissionsManager: mockPerms,
-		accountManager:     mockAcct,
-		proxyController:    proxyController,
+		store:           sqlStore,
+		accountManager:  mockAcct,
+		proxyController: proxyController,
 	}
 
 	service := &rpservice.Service{
@@ -1169,9 +1164,6 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, retrievedService.Targets, 3, "Service should have 3 targets before deletion")
 
-	mockPerms.EXPECT().
-		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
-		Return(true, nil)
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().

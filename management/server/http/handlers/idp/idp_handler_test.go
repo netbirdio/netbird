@@ -87,6 +87,18 @@ func initIDPTestData(existingIDP *types.IdentityProvider) *handler {
 	}
 }
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func TestGetAllIdentityProviders(t *testing.T) {
 	existingIDP := &types.IdentityProvider{
 		ID:       existingIDPID,
@@ -120,7 +132,7 @@ func TestGetAllIdentityProviders(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers", h.getAllIdentityProviders).Methods("GET")
+			router.HandleFunc("/api/identity-providers", wrapHandler(h.getAllIdentityProviders)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -180,7 +192,7 @@ func TestGetIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.getIdentityProvider).Methods("GET")
+			router.HandleFunc("/api/identity-providers/{idpId}", wrapHandler(h.getIdentityProvider)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -242,7 +254,7 @@ func TestCreateIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers", h.createIdentityProvider).Methods("POST")
+			router.HandleFunc("/api/identity-providers", wrapHandler(h.createIdentityProvider)).Methods("POST")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -328,7 +340,7 @@ func TestUpdateIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.updateIdentityProvider).Methods("PUT")
+			router.HandleFunc("/api/identity-providers/{idpId}", wrapHandler(h.updateIdentityProvider)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -388,7 +400,7 @@ func TestDeleteIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.deleteIdentityProvider).Methods("DELETE")
+			router.HandleFunc("/api/identity-providers/{idpId}", wrapHandler(h.deleteIdentityProvider)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

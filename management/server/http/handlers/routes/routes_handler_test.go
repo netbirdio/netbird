@@ -25,6 +25,18 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 const (
 	existingRouteID         = "existingRouteID"
 	existingRouteID2        = "existingRouteID2" // for peer_groups test
@@ -501,10 +513,10 @@ func TestRoutesHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{routeId}", p.getRoute).Methods("GET")
-			router.HandleFunc("/api/routes/{routeId}", p.deleteRoute).Methods("DELETE")
-			router.HandleFunc("/api/routes", p.createRoute).Methods("POST")
-			router.HandleFunc("/api/routes/{routeId}", p.updateRoute).Methods("PUT")
+			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.getRoute)).Methods("GET")
+			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.deleteRoute)).Methods("DELETE")
+			router.HandleFunc("/api/routes", wrapHandler(p.createRoute)).Methods("POST")
+			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.updateRoute)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

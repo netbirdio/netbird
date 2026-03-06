@@ -72,6 +72,18 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 	}
 }
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 func TestAccounts_AccountsHandler(t *testing.T) {
 	accountID := "test_account"
 	adminUser := types.NewAdminUser("test_user")
@@ -284,8 +296,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/accounts", handler.getAllAccounts).Methods("GET")
-			router.HandleFunc("/api/accounts/{accountId}", handler.updateAccount).Methods("PUT")
+			router.HandleFunc("/api/accounts", wrapHandler(handler.getAllAccounts)).Methods("GET")
+			router.HandleFunc("/api/accounts/{accountId}", wrapHandler(handler.updateAccount)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

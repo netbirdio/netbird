@@ -296,7 +296,7 @@ func TestSetup_ManagerError(t *testing.T) {
 func TestGetVersionInfo_Success(t *testing.T) {
 	manager := &mockInstanceManager{}
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router)
+	AddVersionEndpoint(manager, router, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
 	rec := httptest.NewRecorder()
@@ -324,7 +324,7 @@ func TestGetVersionInfo_Error(t *testing.T) {
 		},
 	}
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router)
+	AddVersionEndpoint(manager, router, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
 	rec := httptest.NewRecorder()

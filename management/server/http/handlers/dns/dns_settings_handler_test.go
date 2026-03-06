@@ -23,6 +23,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 const (
 	testDNSSettingsAccountID     = "test_id"
 	testDNSSettingsExistingGroup = "test_group"
@@ -115,8 +127,8 @@ func TestDNSSettingsHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/settings", p.getDNSSettings).Methods("GET")
-			router.HandleFunc("/api/dns/settings", p.updateDNSSettings).Methods("PUT")
+			router.HandleFunc("/api/dns/settings", wrapHandler(p.getDNSSettings)).Methods("GET")
+			router.HandleFunc("/api/dns/settings", wrapHandler(p.updateDNSSettings)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

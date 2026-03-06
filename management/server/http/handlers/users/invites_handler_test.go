@@ -110,7 +110,11 @@ func TestListInvites(t *testing.T) {
 			})
 
 			rr := httptest.NewRecorder()
-			handler.listInvites(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    testUserID,
+				AccountId: testAccountID,
+			}
+			handler.listInvites(rr, req, userAuth)
 
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
@@ -235,7 +239,11 @@ func TestCreateInvite(t *testing.T) {
 			})
 
 			rr := httptest.NewRecorder()
-			handler.createInvite(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    testUserID,
+				AccountId: testAccountID,
+			}
+			handler.createInvite(rr, req, userAuth)
 
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
@@ -573,7 +581,11 @@ func TestRegenerateInvite(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			handler.regenerateInvite(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    testUserID,
+				AccountId: testAccountID,
+			}
+			handler.regenerateInvite(rr, req, userAuth)
 
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 
@@ -651,7 +663,11 @@ func TestDeleteInvite(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			handler.deleteInvite(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    testUserID,
+				AccountId: testAccountID,
+			}
+			handler.deleteInvite(rr, req, userAuth)
 
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 		})

@@ -8,8 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -56,19 +54,12 @@ type SetupKeyUpdateOperation struct {
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error) {
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var setupKey *types.SetupKey
 	var plainKey string
 	var eventsToStore []func()
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, autoGroups); err != nil {
 			return status.Errorf(status.InvalidArgument, "invalid auto groups: %v", err)
 		}
@@ -105,19 +96,12 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var oldKey *types.SetupKey
 	var newKey *types.SetupKey
 	var eventsToStore []func()
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		if err = validateSetupKeyAutoGroups(ctx, transaction, accountID, keyToSave.AutoGroups); err != nil {
 			return status.Errorf(status.InvalidArgument, "invalid auto groups: %v", err)
 		}
@@ -162,27 +146,11 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccountSetupKeys(ctx, store.LockingStrengthNone, accountID)
 }
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	setupKey, err := am.Store.GetSetupKeyByID(ctx, store.LockingStrengthNone, accountID, keyID)
 	if err != nil {
 		return nil, err
@@ -198,17 +166,10 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 
 // DeleteSetupKey removes the setup key from the account
 func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var deletedSetupKey *types.SetupKey
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		deletedSetupKey, err = transaction.GetSetupKeyByID(ctx, store.LockingStrengthUpdate, accountID, keyID)
 		if err != nil {
 			return err

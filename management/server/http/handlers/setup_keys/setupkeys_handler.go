@@ -8,9 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -21,13 +24,13 @@ type handler struct {
 	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	keysHandler := newHandler(accountManager)
-	router.HandleFunc("/setup-keys", keysHandler.getAllSetupKeys).Methods("GET", "OPTIONS")
-	router.HandleFunc("/setup-keys", keysHandler.createSetupKey).Methods("POST", "OPTIONS")
-	router.HandleFunc("/setup-keys/{keyId}", keysHandler.getSetupKey).Methods("GET", "OPTIONS")
-	router.HandleFunc("/setup-keys/{keyId}", keysHandler.updateSetupKey).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/setup-keys/{keyId}", keysHandler.deleteSetupKey).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/setup-keys", permissionsManager.WithPermission(modules.SetupKeys, operations.Read, keysHandler.getAllSetupKeys)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/setup-keys", permissionsManager.WithPermission(modules.SetupKeys, operations.Create, keysHandler.createSetupKey)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", permissionsManager.WithPermission(modules.SetupKeys, operations.Read, keysHandler.getSetupKey)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", permissionsManager.WithPermission(modules.SetupKeys, operations.Update, keysHandler.updateSetupKey)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/setup-keys/{keyId}", permissionsManager.WithPermission(modules.SetupKeys, operations.Delete, keysHandler.deleteSetupKey)).Methods("DELETE", "OPTIONS")
 }
 
 // newHandler creates a new setup key handler
@@ -38,16 +41,9 @@ func newHandler(accountManager account.Manager) *handler {
 }
 
 // createSetupKey is a POST requests that creates a new SetupKey
-func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
+func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	req := &api.PostApiSetupKeysJSONRequestBody{}
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -85,8 +81,8 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		allowExtraDNSLabels = *req.AllowExtraDnsLabels
 	}
 
-	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), accountID, req.Name, types.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups, req.UsageLimit, userID, ephemeral, allowExtraDNSLabels)
+	setupKey, err := h.accountManager.CreateSetupKey(r.Context(), userAuth.AccountId, req.Name, types.SetupKeyType(req.Type), expiresIn,
+		req.AutoGroups, req.UsageLimit, userAuth.UserId, ephemeral, allowExtraDNSLabels)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -100,14 +96,7 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // getSetupKey is a GET request to get a SetupKey by ID
-func (h *handler) getSetupKey(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
+func (h *handler) getSetupKey(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
@@ -115,7 +104,7 @@ func (h *handler) getSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(r.Context(), accountID, userID, keyID)
+	key, err := h.accountManager.GetSetupKey(r.Context(), userAuth.AccountId, userAuth.UserId, keyID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -125,14 +114,7 @@ func (h *handler) getSetupKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateSetupKey is a PUT request to update server.SetupKey
-func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
+func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
@@ -141,7 +123,7 @@ func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := &api.PutApiSetupKeysKeyIdJSONRequestBody{}
-	err = json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
@@ -157,7 +139,7 @@ func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
 	newKey.Revoked = req.Revoked
 	newKey.Id = keyID
 
-	newKey, err = h.accountManager.SaveSetupKey(r.Context(), accountID, newKey, userID)
+	newKey, err = h.accountManager.SaveSetupKey(r.Context(), userAuth.AccountId, newKey, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -166,15 +148,8 @@ func (h *handler) updateSetupKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // getAllSetupKeys is a GET request that returns a list of SetupKey
-func (h *handler) getAllSetupKeys(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), accountID, userID)
+func (h *handler) getAllSetupKeys(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
+	setupKeys, err := h.accountManager.ListSetupKeys(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -188,14 +163,7 @@ func (h *handler) getAllSetupKeys(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, apiSetupKeys)
 }
 
-func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
+func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	keyID := vars["keyId"]
 	if len(keyID) == 0 {
@@ -203,7 +171,7 @@ func (h *handler) deleteSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteSetupKey(r.Context(), accountID, userID, keyID)
+	err := h.accountManager.DeleteSetupKey(r.Context(), userAuth.AccountId, userAuth.UserId, keyID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

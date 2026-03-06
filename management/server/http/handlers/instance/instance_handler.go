@@ -7,7 +7,11 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
@@ -29,12 +33,12 @@ func AddEndpoints(instanceManager nbinstance.Manager, router *mux.Router) {
 }
 
 // AddVersionEndpoint registers the authenticated version endpoint.
-func AddVersionEndpoint(instanceManager nbinstance.Manager, router *mux.Router) {
+func AddVersionEndpoint(instanceManager nbinstance.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	h := &handler{
 		instanceManager: instanceManager,
 	}
 
-	router.HandleFunc("/instance/version", h.getVersionInfo).Methods("GET", "OPTIONS")
+	router.HandleFunc("/instance/version", permissionsManager.WithPermission(modules.Settings, operations.Read, h.getVersionInfo)).Methods("GET", "OPTIONS")
 }
 
 // getInstanceStatus returns the instance status including whether setup is required.
@@ -77,7 +81,7 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 
 // getVersionInfo returns version information for NetBird components.
 // This endpoint requires authentication.
-func (h *handler) getVersionInfo(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getVersionInfo(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	versionInfo, err := h.instanceManager.GetVersionInfo(r.Context())
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to get version info: %v", err)

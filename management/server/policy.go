@@ -6,8 +6,6 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -18,32 +16,13 @@ import (
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
-	operation := operations.Create
-	if !create {
-		operation = operations.Update
-	}
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var isUpdate = policy.ID != ""
+	var err error
 	var updateAccountPeers bool
 	var action = activity.PolicyAdded
 
@@ -84,16 +63,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var policy *types.Policy
 	var updateAccountPeers bool
+	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		policy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthUpdate, accountID, policyID)
@@ -127,14 +99,6 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store.
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
