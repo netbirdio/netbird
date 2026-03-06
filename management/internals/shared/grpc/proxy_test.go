@@ -71,18 +71,6 @@ func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string 
 	return result
 }
 
-type testProxyManager struct {
-	clusters []string
-}
-
-func (m *testProxyManager) Connect(_ context.Context, _, _, _ string) error { return nil }
-func (m *testProxyManager) Disconnect(_ context.Context, _ string) error    { return nil }
-func (m *testProxyManager) Heartbeat(_ context.Context, _ string) error     { return nil }
-func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
-	return m.clusters, nil
-}
-func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error { return nil }
-
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
 func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.GetMappingUpdateResponse {
