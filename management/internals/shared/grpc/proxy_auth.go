@@ -107,7 +107,7 @@ func NewProxyAuthInterceptors(tokenStore proxyTokenStore) (grpc.UnaryServerInter
 }
 
 func (i *proxyAuthInterceptor) validateProxyToken(ctx context.Context) (*types.ProxyAccessToken, error) {
-	clientIP := peerIPFromContext(ctx)
+	clientIP := PeerIPFromContext(ctx)
 
 	if clientIP != "" && i.failureLimiter.isLimited(clientIP) {
 		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts")
