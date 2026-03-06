@@ -257,7 +257,7 @@ type Store interface {
 	UpdateService(ctx context.Context, service *rpservice.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
-	GetServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error)
+	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 

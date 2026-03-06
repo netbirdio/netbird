@@ -36,11 +36,11 @@ func TestReapExpiredExposes(t *testing.T) {
 	mgr.exposeReaper.reapExpiredExposes(ctx)
 
 	// Expired service should be deleted
-	_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.Error(t, err, "expired service should be deleted")
 
 	// Non-expired service should remain
-	_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp2.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp2.Domain)
 	require.NoError(t, err, "active service should remain")
 }
 
@@ -191,14 +191,14 @@ func TestReapSkipsRenewedService(t *testing.T) {
 	// Reaper should skip it because the re-check sees a fresh timestamp
 	mgr.exposeReaper.reapExpiredExposes(ctx)
 
-	_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.NoError(t, err, "renewed service should survive reaping")
 }
 
 // expireEphemeralService backdates meta_last_renewed_at to force expiration.
 func expireEphemeralService(t *testing.T, s store.Store, accountID, domain string) {
 	t.Helper()
-	svc, err := s.GetServiceByDomain(context.Background(), accountID, domain)
+	svc, err := s.GetServiceByDomain(context.Background(), domain)
 	require.NoError(t, err)
 
 	expired := time.Now().Add(-2 * exposeTTL)
