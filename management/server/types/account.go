@@ -519,6 +519,11 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 			continue
 		}
 
+		if peer.IP == nil || peer.IP.To4() == nil || peer.IP.IsLoopback() || peer.IP.IsUnspecified() {
+			merr = multierror.Append(merr, fmt.Errorf("peer %s has invalid IP for A record: %v", peer.DNSLabel, peer.IP))
+			continue
+		}
+
 		sb.Grow(len(peer.DNSLabel) + len(domainSuffix))
 		sb.WriteString(peer.DNSLabel)
 		sb.WriteString(domainSuffix)

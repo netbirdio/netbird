@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -210,6 +211,35 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	var jsonStr string
 	db.Model(&nbpeer.Peer{}).Select("location_connection_ip").First(&jsonStr)
 	assert.JSONEq(t, `"10.0.0.1"`, jsonStr, "Data should be unchanged")
+}
+
+func TestMigrateNetIPFieldFromBlobToJSON_WithInvalidBlobData(t *testing.T) {
+	// Use an isolated temp file database to avoid shared state with other tests
+	dbFile := filepath.Join(t.TempDir(), "invalid_ip_test.db")
+	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
+	require.NoError(t, err, "Failed to open isolated database")
+
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			sqlDB.Close()
+		}
+	})
+
+	err = db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&types.Account{Id: "123"}).Error
+	require.NoError(t, err, "Failed to insert account")
+
+	// Insert a peer with deliberately invalid/corrupt blob IP data
+	err = db.Exec(`INSERT INTO peers (id, account_id, ip, "key") VALUES (?, ?, ?, ?)`,
+		"peer-invalid", "123", "corrupt-not-an-ip", "testkey").Error
+	require.NoError(t, err, "Failed to insert peer with invalid IP")
+
+	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "ip", "idx_peers_account_id_ip")
+	require.Error(t, err, "Migration should fail for invalid IP blob data instead of silently using a fallback")
+	assert.Contains(t, err.Error(), "failed to parse blob value as valid IP")
 }
 
 func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
