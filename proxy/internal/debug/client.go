@@ -152,7 +152,7 @@ func (c *Client) printClients(data map[string]any) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(c.out, "%-38s %-12s %-40s %s\n", "ACCOUNT ID", "AGE", "DOMAINS", "HAS CLIENT")
+	_, _ = fmt.Fprintf(c.out, "%-38s %-12s %-40s %s\n", "ACCOUNT ID", "AGE", "SERVICES", "HAS CLIENT")
 	_, _ = fmt.Fprintln(c.out, strings.Repeat("-", 110))
 
 	for _, item := range clients {

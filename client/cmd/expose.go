@@ -76,8 +76,12 @@ func isPortBasedProtocol(protocol string) bool {
 // extractPort returns the port portion of a URL like "tcp://host:12345", or
 // falls back to the given default formatted as a string.
 func extractPort(serviceURL string, fallback uint16) string {
-	if i := strings.LastIndex(serviceURL, ":"); i != -1 {
-		if p := serviceURL[i+1:]; p != "" {
+	u := serviceURL
+	if idx := strings.Index(u, "://"); idx != -1 {
+		u = u[idx+3:]
+	}
+	if i := strings.LastIndex(u, ":"); i != -1 {
+		if p := u[i+1:]; p != "" {
 			return p
 		}
 	}

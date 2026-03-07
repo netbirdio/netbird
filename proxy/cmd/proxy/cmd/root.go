@@ -204,18 +204,6 @@ func envStringOrDefault(key string, def string) string {
 	return v
 }
 
-func envIntOrDefault(key string, def int) int {
-	v, exists := os.LookupEnv(key)
-	if !exists {
-		return def
-	}
-	parsed, err := strconv.Atoi(v)
-	if err != nil {
-		return def
-	}
-	return parsed
-}
-
 func envUint16OrDefault(key string, def uint16) uint16 {
 	v, exists := os.LookupEnv(key)
 	if !exists {

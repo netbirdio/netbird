@@ -103,9 +103,9 @@ message ProxyMapping {
   // the backend address with the public-facing domain.
   bool rewrite_redirects = 9;
   // Service mode: "http", "tcp", "udp", or "tls".
-  string mode = 11;
+  string mode = 10;
   // For L4/TLS: the port the proxy listens on.
-  int32 listen_port = 12;
+  int32 listen_port = 11;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
