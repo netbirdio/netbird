@@ -1,13 +1,17 @@
 package metrics_test
 
 import (
+	"context"
 	"net/http"
 	"net/url"
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
+
 	"github.com/netbirdio/netbird/proxy/internal/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 type testRoundTripper struct {
@@ -47,7 +51,19 @@ func TestMetrics_RoundTripper(t *testing.T) {
 		},
 	}
 
-	m := metrics.New(prometheus.NewRegistry())
+	exporter, err := prometheus.New()
+	if err != nil {
+		t.Fatalf("create prometheus exporter: %v", err)
+	}
+
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(metrics.Metrics{}).PkgPath()
+	meter := provider.Meter(pkg)
+
+	m, err := metrics.New(context.Background(), meter)
+	if err != nil {
+		t.Fatalf("create metrics: %v", err)
+	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
