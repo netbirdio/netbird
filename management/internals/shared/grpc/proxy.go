@@ -18,7 +18,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -173,11 +172,7 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest, stream proto.ProxyService_GetMappingUpdateServer) error {
 	ctx := stream.Context()
 
-	peerInfo := ""
-	if p, ok := peer.FromContext(ctx); ok {
-		peerInfo = p.Addr.String()
-	}
-
+	peerInfo := PeerIPFromContext(ctx)
 	log.Infof("New proxy connection from %s", peerInfo)
 
 	proxyID := req.GetProxyId()

@@ -212,7 +212,7 @@ func (s *Server) resolveServiceID(ctx context.Context, accountID, serviceID, dom
 		return "", status.Errorf(codes.InvalidArgument, "service_id or domain is required")
 	}
 
-	svc, err := s.accountManager.GetStore().GetHTTPServiceByDomain(ctx, accountID, domain)
+	svc, err := s.accountManager.GetStore().GetHTTPServiceByDomain(ctx, domain)
 	if err != nil {
 		return "", err
 	}

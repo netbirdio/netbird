@@ -242,7 +242,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" && !service.IsL4Protocol(svc.Mode) {
-			if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
+			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
 			}
 		}
@@ -397,7 +397,7 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 			return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
 		}
 
-		if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
+		if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 			return err
 		}
 	}
@@ -415,8 +415,8 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 
 // checkDomainAvailable checks that no other HTTP service already uses this domain.
 // L4 services share the cluster domain and are excluded from this check.
-func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, accountID, domain, excludeServiceID string) error {
-	existingService, err := transaction.GetHTTPServiceByDomain(ctx, accountID, domain)
+func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, domain, excludeServiceID string) error {
+	existingService, err := transaction.GetHTTPServiceByDomain(ctx, domain)
 	if err != nil {
 		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
 			return fmt.Errorf("failed to check existing service: %w", err)
@@ -425,7 +425,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 	}
 
 	if existingService != nil && existingService.ID != excludeServiceID {
-		return status.Errorf(status.AlreadyExists, "service with domain %s already exists", domain)
+		return status.Errorf(status.AlreadyExists, "domain already taken")
 	}
 
 	return nil
@@ -517,7 +517,7 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 
 func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, svc *service.Service) error {
 	if svc.Mode == "" || svc.Mode == service.ModeHTTP {
-		if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, svc.ID); err != nil {
+		if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
 			return err
 		}
 	}

@@ -28,9 +28,13 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// ManagementLegacyPort is the port that was used before by the Management gRPC server.
-// It is used for backward compatibility now.
-const ManagementLegacyPort = 33073
+const (
+	// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+	// It is used for backward compatibility now.
+	ManagementLegacyPort = 33073
+	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
+	DefaultSelfHostedDomain = "netbird.selfhosted"
+)
 
 type Server interface {
 	Start(ctx context.Context) error
@@ -58,6 +62,7 @@ type BaseServer struct {
 	mgmtMetricsPort             int
 	mgmtPort                    int
 	disableLegacyManagementPort bool
+	autoResolveDomains          bool
 
 	proxyAuthClose func()
 
@@ -81,6 +86,7 @@ type Config struct {
 	DisableMetrics              bool
 	DisableGeoliteUpdate        bool
 	UserDeleteFromIDPEnabled    bool
+	AutoResolveDomains          bool
 }
 
 // NewServer initializes and configures a new Server instance
@@ -96,6 +102,7 @@ func NewServer(cfg *Config) *BaseServer {
 		mgmtPort:                    cfg.MgmtPort,
 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
+		autoResolveDomains:          cfg.AutoResolveDomains,
 	}
 }
 
@@ -108,6 +115,10 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
+
+	if s.autoResolveDomains {
+		s.resolveDomains(srvCtx)
+	}
 
 	s.PeersManager()
 	s.GeoLocationManager()
@@ -379,6 +390,60 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		default:
 		}
 	}()
+}
+
+// resolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
+// Fresh installs use the default self-hosted domain, while existing installs reuse the
+// persisted account domain to keep addressing stable across config changes.
+func (s *BaseServer) resolveDomains(ctx context.Context) {
+	st := s.Store()
+
+	setDefault := func(logMsg string, args ...any) {
+		if logMsg != "" {
+			log.WithContext(ctx).Warnf(logMsg, args...)
+		}
+		s.dnsDomain = DefaultSelfHostedDomain
+		s.mgmtSingleAccModeDomain = DefaultSelfHostedDomain
+	}
+
+	accountsCount, err := st.GetAccountsCounter(ctx)
+	if err != nil {
+		setDefault("resolve domains: failed to read accounts counter: %v; using default domain %q", err, DefaultSelfHostedDomain)
+		return
+	}
+
+	if accountsCount == 0 {
+		s.dnsDomain = DefaultSelfHostedDomain
+		s.mgmtSingleAccModeDomain = DefaultSelfHostedDomain
+		log.WithContext(ctx).Infof("resolve domains: fresh install detected, using default domain %q", DefaultSelfHostedDomain)
+		return
+	}
+
+	accountID, err := st.GetAnyAccountID(ctx)
+	if err != nil {
+		setDefault("resolve domains: failed to get existing account ID: %v; using default domain %q", err, DefaultSelfHostedDomain)
+		return
+	}
+
+	if accountID == "" {
+		setDefault("resolve domains: empty account ID returned for existing accounts; using default domain %q", DefaultSelfHostedDomain)
+		return
+	}
+
+	domain, _, err := st.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		setDefault("resolve domains: failed to get account domain for account %q: %v; using default domain %q", accountID, err, DefaultSelfHostedDomain)
+		return
+	}
+
+	if domain == "" {
+		setDefault("resolve domains: account %q has empty domain; using default domain %q", accountID, DefaultSelfHostedDomain)
+		return
+	}
+
+	s.dnsDomain = domain
+	s.mgmtSingleAccModeDomain = domain
+	log.WithContext(ctx).Infof("resolve domains: using persisted account domain %q", domain)
 }
 
 func getInstallationID(ctx context.Context, store store.Store) (string, error) {

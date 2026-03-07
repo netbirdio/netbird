@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -3965,4 +3966,117 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 	case <-time.After(10 * time.Second):
 		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
 	}
+}
+
+func TestUpdateUserAuthWithSingleMode(t *testing.T) {
+	t.Run("sets defaults and overrides domain from store", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("account-1", nil)
+		mockStore.EXPECT().
+			GetAccountDomainAndCategory(gomock.Any(), store.LockingStrengthNone, "account-1").
+			Return("real-domain.com", "private", nil)
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "real-domain.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("falls back to singleAccountModeDomain when account ID is empty", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", nil)
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "fallback.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("falls back to singleAccountModeDomain on NotFound error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", status.Errorf(status.NotFound, "no accounts"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "fallback.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("propagates non-NotFound error from GetAnyAccountID", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", status.Errorf(status.Internal, "db down"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "db down")
+		// Defaults should still be set before error path
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("propagates error from GetAccountDomainAndCategory", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("account-1", nil)
+		mockStore.EXPECT().
+			GetAccountDomainAndCategory(gomock.Any(), store.LockingStrengthNone, "account-1").
+			Return("", "", status.Errorf(status.Internal, "query failed"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "query failed")
+	})
 }

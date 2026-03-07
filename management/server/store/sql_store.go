@@ -4978,9 +4978,9 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	return service, nil
 }
 
-func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
 	var service *rpservice.Service
-	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
+	result := s.db.Preload("Targets").Where("domain = ?", domain).First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
@@ -4999,10 +4999,10 @@ func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain str
 
 // GetHTTPServiceByDomain returns the HTTP/HTTPS service for the given domain, excluding L4 services
 // that share the cluster domain.
-func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
 	var service *rpservice.Service
 	result := s.db.Preload("Targets").
-		Where("account_id = ? AND domain = ? AND (mode = '' OR mode = ?)", accountID, domain, "http").
+		Where("domain = ? AND (mode = '' OR mode = ?)", domain, "http").
 		First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
