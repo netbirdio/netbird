@@ -142,14 +142,13 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.requestsTotal.Inc()
 		m.activeRequests.Inc()
+		defer m.activeRequests.Dec()
 
 		interceptor := &responseInterceptor{PassthroughWriter: responsewriter.New(w)}
 
 		start := time.Now()
 		next.ServeHTTP(interceptor, r)
 		duration := time.Since(start)
-
-		m.activeRequests.Dec()
 		m.requestDuration.With(prometheus.Labels{
 			"status": strconv.Itoa(interceptor.status),
 			"size":   strconv.Itoa(interceptor.size),
