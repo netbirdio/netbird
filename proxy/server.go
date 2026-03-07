@@ -201,7 +201,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		}
 	}()
 	s.mgmtClient = proto.NewProxyServiceClient(mgmtConn)
-	go s.newManagementMappingWorker(ctx, s.mgmtClient)
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
@@ -276,7 +278,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	routerErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debugf("starting SNI router on %s", addr)
-		routerErr <- s.mainRouter.Serve(ctx, ln)
+		routerErr <- s.mainRouter.Serve(runCtx, ln)
 	}()
 
 	select {
