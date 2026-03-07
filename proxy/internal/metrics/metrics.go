@@ -1,64 +1,90 @@
 package metrics
 
 import (
+	"context"
 	"net/http"
-	"strconv"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 )
 
 type Metrics struct {
-	requestsTotal     prometheus.Counter
-	activeRequests    prometheus.Gauge
-	configuredDomains prometheus.Gauge
-	pathsPerDomain    *prometheus.GaugeVec
-	requestDuration   *prometheus.HistogramVec
-	backendDuration   *prometheus.HistogramVec
+	ctx               context.Context
+	requestsTotal     metric.Int64Counter
+	activeRequests    metric.Int64UpDownCounter
+	configuredDomains metric.Int64UpDownCounter
+	totalPaths        metric.Int64UpDownCounter
+	requestDuration   metric.Int64Histogram
+	backendDuration   metric.Int64Histogram
 }
 
-func New(reg prometheus.Registerer) *Metrics {
-	promFactory := promauto.With(reg)
-	return &Metrics{
-		requestsTotal: promFactory.NewCounter(prometheus.CounterOpts{
-			Name: "netbird_proxy_requests_total",
-			Help: "Total number of requests made to the netbird proxy",
-		}),
-		activeRequests: promFactory.NewGauge(prometheus.GaugeOpts{
-			Name: "netbird_proxy_active_requests_count",
-			Help: "Current in-flight requests handled by the netbird proxy",
-		}),
-		configuredDomains: promFactory.NewGauge(prometheus.GaugeOpts{
-			Name: "netbird_proxy_domains_count",
-			Help: "Current number of domains configured on the netbird proxy",
-		}),
-		pathsPerDomain: promFactory.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: "netbird_proxy_paths_count",
-				Help: "Current number of paths configured on the netbird proxy labelled by domain",
-			},
-			[]string{"domain"},
-		),
-		requestDuration: promFactory.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "netbird_proxy_request_duration_seconds",
-				Help:    "Duration of requests made to the netbird proxy",
-				Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-			},
-			[]string{"status", "size", "method", "host", "path"},
-		),
-		backendDuration: promFactory.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "netbird_proxy_backend_duration_seconds",
-			Help:    "Duration of peer round trip time from the netbird proxy",
-			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-		},
-			[]string{"status", "size", "method", "host", "path"},
-		),
+func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
+	requestsTotal, err := meter.Int64Counter(
+		"proxy.http.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total number of requests made to the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	activeRequests, err := meter.Int64UpDownCounter(
+		"proxy.http.active_requests",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current in-flight requests handled by the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	configuredDomains, err := meter.Int64UpDownCounter(
+		"proxy.domains.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of domains configured on the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPaths, err := meter.Int64UpDownCounter(
+		"proxy.paths.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total number of paths configured on the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	requestDuration, err := meter.Int64Histogram(
+		"proxy.http.request.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of requests made to the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	backendDuration, err := meter.Int64Histogram(
+		"proxy.backend.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of peer round trip time from the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Metrics{
+		ctx:               ctx,
+		requestsTotal:     requestsTotal,
+		activeRequests:    activeRequests,
+		configuredDomains: configuredDomains,
+		totalPaths:        totalPaths,
+		requestDuration:   requestDuration,
+		backendDuration:   backendDuration,
+	}, nil
 }
 
 type responseInterceptor struct {
@@ -80,8 +106,8 @@ func (w *responseInterceptor) Write(b []byte) (int, error) {
 
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.requestsTotal.Inc()
-		m.activeRequests.Inc()
+		m.requestsTotal.Add(m.ctx, 1)
+		m.activeRequests.Add(m.ctx, 1)
 
 		interceptor := &responseInterceptor{PassthroughWriter: responsewriter.New(w)}
 
@@ -89,14 +115,8 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(interceptor, r)
 		duration := time.Since(start)
 
-		m.activeRequests.Desc()
-		m.requestDuration.With(prometheus.Labels{
-			"status": strconv.Itoa(interceptor.status),
-			"size":   strconv.Itoa(interceptor.size),
-			"method": r.Method,
-			"host":   r.Host,
-			"path":   r.URL.Path,
-		}).Observe(duration.Seconds())
+		m.activeRequests.Add(m.ctx, -1)
+		m.requestDuration.Record(m.ctx, duration.Milliseconds())
 	})
 }
 
@@ -108,44 +128,22 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 	return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		labels := prometheus.Labels{
-			"method": req.Method,
-			"host":   req.Host,
-			// Fill potentially empty labels with default values to avoid cardinality issues.
-			"path":   "/",
-			"status": "0",
-			"size":   "0",
-		}
-		if req.URL != nil {
-			labels["path"] = req.URL.Path
-		}
-
 		start := time.Now()
 		res, err := next.RoundTrip(req)
 		duration := time.Since(start)
 
-		// Not all labels will be available if there was an error.
-		if res != nil {
-			labels["status"] = strconv.Itoa(res.StatusCode)
-			labels["size"] = strconv.Itoa(int(res.ContentLength))
-		}
-
-		m.backendDuration.With(labels).Observe(duration.Seconds())
+		m.backendDuration.Record(m.ctx, duration.Milliseconds())
 
 		return res, err
 	})
 }
 
 func (m *Metrics) AddMapping(mapping proxy.Mapping) {
-	m.configuredDomains.Inc()
-	m.pathsPerDomain.With(prometheus.Labels{
-		"domain": mapping.Host,
-	}).Set(float64(len(mapping.Paths)))
+	m.configuredDomains.Add(m.ctx, 1)
+	m.totalPaths.Add(m.ctx, int64(len(mapping.Paths)))
 }
 
 func (m *Metrics) RemoveMapping(mapping proxy.Mapping) {
-	m.configuredDomains.Dec()
-	m.pathsPerDomain.With(prometheus.Labels{
-		"domain": mapping.Host,
-	}).Set(0)
+	m.configuredDomains.Add(m.ctx, -1)
+	m.totalPaths.Add(m.ctx, -int64(len(mapping.Paths)))
 }
