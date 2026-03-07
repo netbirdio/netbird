@@ -557,8 +557,12 @@ func (s *Service) Validate() error {
 		return errors.New("at least one target is required")
 	}
 
+	if s.Mode == "" {
+		s.Mode = ModeHTTP
+	}
+
 	switch s.Mode {
-	case "", ModeHTTP:
+	case ModeHTTP:
 		return s.validateHTTPMode()
 	case ModeTCP, ModeUDP:
 		return s.validateTCPUDPMode()
@@ -583,6 +587,9 @@ func (s *Service) validateTCPUDPMode() error {
 	if s.Domain == "" {
 		return errors.New("domain is required for TCP/UDP services (used for cluster derivation)")
 	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for TCP/UDP services")
+	}
 	if len(s.Targets) != 1 {
 		return errors.New("TCP/UDP services must have exactly one target")
 	}
@@ -595,6 +602,9 @@ func (s *Service) validateTCPUDPMode() error {
 func (s *Service) validateTLSMode() error {
 	if s.Domain == "" {
 		return errors.New("domain is required for TLS services (used for SNI matching)")
+	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for TLS services")
 	}
 	if s.ListenPort == 0 {
 		return errors.New("listen_port is required for TLS services")

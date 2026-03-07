@@ -256,7 +256,7 @@ func printExposeReady(cmd *cobra.Command, r *proto.ExposeServiceReady, port uint
 		cmd.Printf("  External: %s\n", extractPort(r.ServiceUrl, resolveExternalPort(port)))
 	}
 	if r.PortAutoAssigned && exposeExternalPort != 0 {
-		cmd.Printf("\n  Note: requested port %d was overridden (cluster does not support custom ports)\n", exposeExternalPort)
+		cmd.Printf("\n  Note: requested port %d was reassigned\n", exposeExternalPort)
 	}
 	cmd.Println()
 	cmd.Println("Press Ctrl+C to stop exposing.")

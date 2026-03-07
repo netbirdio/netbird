@@ -48,6 +48,7 @@ func TestManager_Renew_Success(t *testing.T) {
 	mock := &mgm.MockClient{
 		RenewExposeFunc: func(ctx context.Context, domain, serviceID string) error {
 			assert.Equal(t, "my-service.example.com", domain, "domain should be passed through")
+			assert.Equal(t, "service-123", serviceID, "serviceID should be passed through")
 			return nil
 		},
 	}

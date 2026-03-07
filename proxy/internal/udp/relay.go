@@ -200,7 +200,7 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	r.mu.RLock()
 	sess, ok := r.sessions[key]
 	r.mu.RUnlock()
-	if ok {
+	if ok && sess != nil {
 		return sess, nil
 	}
 
@@ -212,13 +212,19 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
-	if sess, ok = r.sessions[key]; ok {
+	if sess, ok = r.sessions[key]; ok && sess != nil {
+		r.mu.Unlock()
 		return sess, nil
+	}
+	if ok {
+		// Another goroutine is dialing for this key, skip.
+		r.mu.Unlock()
+		return nil, fmt.Errorf("session dial in progress for %s", key)
 	}
 
 	if len(r.sessions) >= r.maxSessions {
+		r.mu.Unlock()
 		if r.observer != nil {
 			r.observer.UDPSessionRejected(string(r.accountID))
 		}
@@ -226,16 +232,25 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	}
 
 	if !r.sessLimiter.Allow() {
+		r.mu.Unlock()
 		if r.observer != nil {
 			r.observer.UDPSessionRejected(string(r.accountID))
 		}
 		return nil, fmt.Errorf("session creation rate limited")
 	}
 
+	// Reserve the slot with a nil session so concurrent callers for the same
+	// key see it exists and wait. Release the lock before dialing.
+	r.sessions[key] = nil
+	r.mu.Unlock()
+
 	dialCtx, dialCancel := context.WithTimeout(r.ctx, r.dialTimeout)
 	backend, err := r.dialFunc(dialCtx, "udp", r.target)
 	dialCancel()
 	if err != nil {
+		r.mu.Lock()
+		delete(r.sessions, key)
+		r.mu.Unlock()
 		if r.observer != nil {
 			r.observer.UDPSessionDialError(string(r.accountID))
 		}
@@ -249,7 +264,10 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 		cancel:  sessCancel,
 	}
 	sess.updateLastSeen()
+
+	r.mu.Lock()
 	r.sessions[key] = sess
+	r.mu.Unlock()
 
 	if r.observer != nil {
 		r.observer.UDPSessionStarted(string(r.accountID))

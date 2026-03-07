@@ -9668,6 +9668,8 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/services/{serviceId}:
@@ -9737,6 +9739,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
