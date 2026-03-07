@@ -35,7 +35,7 @@ func init() {
 	sshExecCmd.Flags().UintSliceVar(&sshExecGroups, "groups", nil, "Supplementary group IDs (can be repeated)")
 	sshExecCmd.Flags().StringVar(&sshExecWorkingDir, "working-dir", "", "Working directory")
 	sshExecCmd.Flags().StringVar(&sshExecShell, "shell", "/bin/sh", "Shell to execute")
-	sshExecCmd.Flags().BoolVar(&sshExecPTY, "pty", false, "Request PTY (will fail as executor doesn't support PTY)")
+	sshExecCmd.Flags().BoolVar(&sshExecPTY, "pty", false, "Request PTY")
 	sshExecCmd.Flags().StringVar(&sshExecCommand, "cmd", "", "Command to execute")
 
 	if err := sshExecCmd.MarkFlagRequired("uid"); err != nil {
