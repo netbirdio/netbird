@@ -823,7 +823,9 @@ func (s *Service) EventMeta() map[string]any {
 }
 
 func (s *Service) isAuthEnabled() bool {
-	return s.Auth.PasswordAuth != nil || s.Auth.PinAuth != nil || s.Auth.BearerAuth != nil
+	return (s.Auth.PasswordAuth != nil && s.Auth.PasswordAuth.Enabled) ||
+		(s.Auth.PinAuth != nil && s.Auth.PinAuth.Enabled) ||
+		(s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled)
 }
 
 func (s *Service) Copy() *Service {

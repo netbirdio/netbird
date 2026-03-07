@@ -93,15 +93,6 @@ func registerFakeProxyWithCaps(s *ProxyServiceServer, proxyID, clusterAddr strin
 	return ch
 }
 
-func drainChannel(ch chan *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
-	select {
-	case resp := <-ch:
-		return resp
-	case <-time.After(time.Second):
-		return nil
-	}
-}
-
 // drainMapping drains a single ProxyMapping from the channel.
 func drainMapping(ch chan *proto.GetMappingUpdateResponse) *proto.ProxyMapping {
 	select {

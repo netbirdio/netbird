@@ -361,6 +361,9 @@ func (r *Relay) cleanupIdleSessions() {
 
 	r.mu.Lock()
 	for key, sess := range r.sessions {
+		if sess == nil {
+			continue
+		}
 		idle := sess.idleDuration()
 		if idle > r.sessionTTL {
 			r.logger.Debugf("UDP session %s idle for %s, closing (client→backend: %d bytes, backend→client: %d bytes)",
@@ -420,6 +423,10 @@ func (r *Relay) Close() {
 	var closed int
 	r.mu.Lock()
 	for key, sess := range r.sessions {
+		if sess == nil {
+			delete(r.sessions, key)
+			continue
+		}
 		r.logger.Debugf("UDP session %s closed (client→backend: %d bytes, backend→client: %d bytes)",
 			sess.addr, sess.bytesIn.Load(), sess.bytesOut.Load())
 		sess.cancel()

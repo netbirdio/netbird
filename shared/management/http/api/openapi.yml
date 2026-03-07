@@ -2945,6 +2945,8 @@ components:
           default: http
         listen_port:
           type: integer
+          minimum: 0
+          maximum: 65535
           description: Port the proxy listens on (L4/TLS only)
         port_auto_assigned:
           type: boolean
@@ -3022,6 +3024,8 @@ components:
           default: http
         listen_port:
           type: integer
+          minimum: 0
+          maximum: 65535
           description: Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
         targets:
           type: array
@@ -3094,6 +3098,8 @@ components:
           description: Backend ip or domain for this target
         port:
           type: integer
+          minimum: 1
+          maximum: 65535
           description: Backend port for this target
         enabled:
           type: boolean
@@ -4274,7 +4280,10 @@ components:
       content: { }
     conflict:
       description: Conflict
-      content: { }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   securitySchemes:
     BearerAuth:
       type: http

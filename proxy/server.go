@@ -920,6 +920,7 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	}
 
 	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
+		s.cleanupMappingRoutes(mapping)
 		if peerErr := s.netbird.RemovePeer(ctx, accountID, svcKey); peerErr != nil {
 			s.Logger.WithError(peerErr).WithField("service_id", svcID).Warn("failed to remove peer after setup failure")
 		}
