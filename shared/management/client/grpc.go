@@ -56,12 +56,15 @@ type ExposeRequest struct {
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 type ExposeResponse struct {
-	ServiceName string
-	Domain      string
-	ServiceURL  string
+	ServiceName      string
+	ServiceID        string
+	Domain           string
+	ServiceURL       string
+	PortAutoAssigned bool
 }
 
 // NewClient creates a new client to Management service
@@ -743,13 +746,13 @@ func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*Expo
 }
 
 // RenewExpose extends the TTL of an active expose session on the management server.
-func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain, serviceID string) error {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		return err
 	}
 
-	req := &proto.RenewExposeRequest{Domain: domain}
+	req := &proto.RenewExposeRequest{Domain: domain, ServiceId: serviceID}
 	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
 	if err != nil {
 		return fmt.Errorf("encrypt renew expose request: %w", err)
@@ -766,13 +769,13 @@ func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
 }
 
 // StopExpose terminates an active expose session on the management server.
-func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
+func (c *GrpcClient) StopExpose(ctx context.Context, domain, serviceID string) error {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		return err
 	}
 
-	req := &proto.StopExposeRequest{Domain: domain}
+	req := &proto.StopExposeRequest{Domain: domain, ServiceId: serviceID}
 	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
 	if err != nil {
 		return fmt.Errorf("encrypt stop expose request: %w", err)
@@ -790,9 +793,11 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
-		ServiceName: resp.ServiceName,
-		Domain:      resp.Domain,
-		ServiceURL:  resp.ServiceUrl,
+		ServiceName:      resp.ServiceName,
+		ServiceID:        resp.ServiceId,
+		Domain:           resp.Domain,
+		ServiceURL:       resp.ServiceUrl,
+		PortAutoAssigned: resp.PortAutoAssigned,
 	}
 }
 
@@ -808,6 +813,8 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		protocol = proto.ExposeProtocol_EXPOSE_TCP
 	case int(proto.ExposeProtocol_EXPOSE_UDP):
 		protocol = proto.ExposeProtocol_EXPOSE_UDP
+	case int(proto.ExposeProtocol_EXPOSE_TLS):
+		protocol = proto.ExposeProtocol_EXPOSE_TLS
 	default:
 		return nil, fmt.Errorf("invalid expose protocol: %d", req.Protocol)
 	}
@@ -820,6 +827,7 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
+		ListenPort: uint32(req.ListenPort),
 	}, nil
 }
 

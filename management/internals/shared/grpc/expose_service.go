@@ -39,23 +39,33 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
+	if exposeReq.Port > 65535 {
+		return nil, status.Errorf(codes.InvalidArgument, "port out of range: %d", exposeReq.Port)
+	}
+	if exposeReq.ListenPort > 65535 {
+		return nil, status.Errorf(codes.InvalidArgument, "listen_port out of range: %d", exposeReq.ListenPort)
+	}
+
 	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &rpservice.ExposeServiceRequest{
 		NamePrefix: exposeReq.NamePrefix,
-		Port:       int(exposeReq.Port),
-		Protocol:   exposeProtocolToString(exposeReq.Protocol),
+		Port:       uint16(exposeReq.Port),       //nolint:gosec // validated above
+		Mode:       exposeProtocolToString(exposeReq.Protocol),
 		Domain:     exposeReq.Domain,
 		Pin:        exposeReq.Pin,
 		Password:   exposeReq.Password,
 		UserGroups: exposeReq.UserGroups,
+		ListenPort: uint16(exposeReq.ListenPort), //nolint:gosec // validated above
 	})
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
 
 	return s.encryptResponse(peerKey, &proto.ExposeServiceResponse{
-		ServiceName: created.ServiceName,
-		ServiceUrl:  created.ServiceURL,
-		Domain:      created.Domain,
+		ServiceName:      created.ServiceName,
+		ServiceUrl:       created.ServiceURL,
+		Domain:           created.Domain,
+		ServiceId:        created.ServiceID,
+		PortAutoAssigned: created.PortAutoAssigned,
 	})
 }
 
@@ -77,7 +87,12 @@ func (s *Server) RenewExpose(ctx context.Context, req *proto.EncryptedMessage) (
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	if err := reverseProxyMgr.RenewServiceFromPeer(ctx, accountID, peer.ID, renewReq.Domain); err != nil {
+	serviceID, err := s.resolveServiceID(ctx, accountID, renewReq.ServiceId, renewReq.Domain)
+	if err != nil {
+		return nil, mapExposeError(ctx, err)
+	}
+
+	if err := reverseProxyMgr.RenewServiceFromPeer(ctx, accountID, peer.ID, serviceID); err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
 
@@ -102,7 +117,12 @@ func (s *Server) StopExpose(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	if err := reverseProxyMgr.StopServiceFromPeer(ctx, accountID, peer.ID, stopReq.Domain); err != nil {
+	serviceID, err := s.resolveServiceID(ctx, accountID, stopReq.ServiceId, stopReq.Domain)
+	if err != nil {
+		return nil, mapExposeError(ctx, err)
+	}
+
+	if err := reverseProxyMgr.StopServiceFromPeer(ctx, accountID, peer.ID, serviceID); err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
 
@@ -180,13 +200,39 @@ func (s *Server) SetReverseProxyManager(mgr rpservice.Manager) {
 	s.reverseProxyManager = mgr
 }
 
+// resolveServiceID returns serviceID directly if non-empty, otherwise falls back
+// to looking up the HTTP service by domain. This provides backward compatibility
+// with old clients that don't send service_id in renew/stop requests.
+func (s *Server) resolveServiceID(ctx context.Context, accountID, serviceID, domain string) (string, error) {
+	if serviceID != "" {
+		return serviceID, nil
+	}
+
+	if domain == "" {
+		return "", status.Errorf(codes.InvalidArgument, "service_id or domain is required")
+	}
+
+	svc, err := s.accountManager.GetStore().GetHTTPServiceByDomain(ctx, domain)
+	if err != nil {
+		return "", err
+	}
+	return svc.ID, nil
+}
+
 func exposeProtocolToString(p proto.ExposeProtocol) string {
 	switch p {
 	case proto.ExposeProtocol_EXPOSE_HTTP:
 		return "http"
 	case proto.ExposeProtocol_EXPOSE_HTTPS:
-		return "https"
+		return "http"
+	case proto.ExposeProtocol_EXPOSE_TCP:
+		return "tcp"
+	case proto.ExposeProtocol_EXPOSE_UDP:
+		return "udp"
+	case proto.ExposeProtocol_EXPOSE_TLS:
+		return "tls"
 	default:
+		log.Warnf("unknown expose protocol %v, defaulting to http", p)
 		return "http"
 	}
 }

@@ -72,6 +72,11 @@ func (c *GRPCController) UnregisterProxyFromCluster(ctx context.Context, cluster
 	return nil
 }
 
+// ClusterSupportsCustomPorts returns true if any proxy in the cluster supports custom ports.
+func (c *GRPCController) ClusterSupportsCustomPorts(clusterAddr string) bool {
+	return c.proxyGRPCServer.ClusterSupportsCustomPorts(clusterAddr)
+}
+
 // GetProxiesForCluster returns all proxy IDs registered for a specific cluster.
 func (c *GRPCController) GetProxiesForCluster(clusterAddr string) []string {
 	proxySet, ok := c.clusterProxies.Load(clusterAddr)

@@ -5,10 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"sync"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +53,10 @@ func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clus
 	return nil
 }
 
+func (c *testProxyController) ClusterSupportsCustomPorts(_ string) bool {
+	return true
+}
+
 func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -71,11 +74,17 @@ func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string 
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
 func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.GetMappingUpdateResponse {
+	return registerFakeProxyWithCaps(s, proxyID, clusterAddr, nil)
+}
+
+// registerFakeProxyWithCaps adds a fake proxy connection with explicit capabilities.
+func registerFakeProxyWithCaps(s *ProxyServiceServer, proxyID, clusterAddr string, caps *proto.ProxyCapabilities) chan *proto.GetMappingUpdateResponse {
 	ch := make(chan *proto.GetMappingUpdateResponse, 10)
 	conn := &proxyConnection{
-		proxyID:  proxyID,
-		address:  clusterAddr,
-		sendChan: ch,
+		proxyID:      proxyID,
+		address:      clusterAddr,
+		capabilities: caps,
+		sendChan:     ch,
 	}
 	s.connectedProxies.Store(proxyID, conn)
 
@@ -84,12 +93,26 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 	return ch
 }
 
-func drainChannel(ch chan *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
+// drainMapping drains a single ProxyMapping from the channel.
+func drainMapping(ch chan *proto.GetMappingUpdateResponse) *proto.ProxyMapping {
 	select {
-	case msg := <-ch:
-		return msg
+	case resp := <-ch:
+		if len(resp.Mapping) > 0 {
+			return resp.Mapping[0]
+		}
+		return nil
 	case <-time.After(time.Second):
 		return nil
+	}
+}
+
+// drainEmpty checks if a channel has no message within timeout.
+func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
+	select {
+	case <-ch:
+		return false
+	case <-time.After(100 * time.Millisecond):
+		return true
 	}
 }
 
@@ -125,10 +148,8 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
-		resp := drainChannel(ch)
-		require.NotNil(t, resp, "proxy %d should receive a message", i)
-		require.Len(t, resp.Mapping, 1, "proxy %d should receive exactly one mapping", i)
-		msg := resp.Mapping[0]
+		msg := drainMapping(ch)
+		require.NotNil(t, msg, "proxy %d should receive a message", i)
 		assert.Equal(t, mapping.Domain, msg.Domain)
 		assert.Equal(t, mapping.Id, msg.Id)
 		assert.NotEmpty(t, msg.AuthToken, "proxy %d should have a non-empty token", i)
@@ -172,16 +193,14 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
-	resp1 := drainChannel(ch1)
-	resp2 := drainChannel(ch2)
-	require.NotNil(t, resp1)
-	require.NotNil(t, resp2)
-	require.Len(t, resp1.Mapping, 1)
-	require.Len(t, resp2.Mapping, 1)
+	msg1 := drainMapping(ch1)
+	msg2 := drainMapping(ch2)
+	require.NotNil(t, msg1)
+	require.NotNil(t, msg2)
 
 	// Delete operations should not generate tokens
-	assert.Empty(t, resp1.Mapping[0].AuthToken)
-	assert.Empty(t, resp2.Mapping[0].AuthToken)
+	assert.Empty(t, msg1.AuthToken)
+	assert.Empty(t, msg2.AuthToken)
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
@@ -210,15 +229,10 @@ func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 
 	s.SendServiceUpdate(update)
 
-	resp1 := drainChannel(ch1)
-	resp2 := drainChannel(ch2)
-	require.NotNil(t, resp1)
-	require.NotNil(t, resp2)
-	require.Len(t, resp1.Mapping, 1)
-	require.Len(t, resp2.Mapping, 1)
-
-	msg1 := resp1.Mapping[0]
-	msg2 := resp2.Mapping[0]
+	msg1 := drainMapping(ch1)
+	msg2 := drainMapping(ch2)
+	require.NotNil(t, msg1)
+	require.NotNil(t, msg2)
 
 	assert.NotEmpty(t, msg1.AuthToken)
 	assert.NotEmpty(t, msg2.AuthToken)
@@ -292,4 +306,315 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	_, _, err := s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
+}
+
+func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	s := &ProxyServiceServer{
+		tokenStore: tokenStore,
+	}
+	s.SetProxyController(newTestProxyController())
+
+	const cluster = "proxy.example.com"
+
+	// Proxy A supports custom ports.
+	chA := registerFakeProxyWithCaps(s, "proxy-a", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: true})
+	// Proxy B does NOT support custom ports (shared cloud proxy).
+	chB := registerFakeProxyWithCaps(s, "proxy-b", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+
+	ctx := context.Background()
+
+	// TLS passthrough works on all proxies regardless of custom port support.
+	tlsMapping := &proto.ProxyMapping{
+		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:         "service-tls",
+		AccountId:  "account-1",
+		Domain:     "db.example.com",
+		Mode:       "tls",
+		ListenPort: 8443,
+		Path:       []*proto.PathMapping{{Target: "10.0.0.5:5432"}},
+	}
+
+	s.SendServiceUpdateToCluster(ctx, tlsMapping, cluster)
+
+	msgA := drainMapping(chA)
+	msgB := drainMapping(chB)
+	assert.NotNil(t, msgA, "proxy-a should receive TLS mapping")
+	assert.NotNil(t, msgB, "proxy-b should receive TLS mapping (passthrough works on all proxies)")
+
+	// Send an HTTP mapping: both should receive it.
+	httpMapping := &proto.ProxyMapping{
+		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:        "service-http",
+		AccountId: "account-1",
+		Domain:    "app.example.com",
+		Path:      []*proto.PathMapping{{Path: "/", Target: "http://10.0.0.1:80"}},
+	}
+
+	s.SendServiceUpdateToCluster(ctx, httpMapping, cluster)
+
+	msgA = drainMapping(chA)
+	msgB = drainMapping(chB)
+	assert.NotNil(t, msgA, "proxy-a should receive HTTP mapping")
+	assert.NotNil(t, msgB, "proxy-b should receive HTTP mapping")
+}
+
+func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	s := &ProxyServiceServer{
+		tokenStore: tokenStore,
+	}
+	s.SetProxyController(newTestProxyController())
+
+	const cluster = "proxy.example.com"
+
+	chShared := registerFakeProxyWithCaps(s, "proxy-shared", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+
+	tlsMapping := &proto.ProxyMapping{
+		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:        "service-tls",
+		AccountId: "account-1",
+		Domain:    "db.example.com",
+		Mode:      "tls",
+		Path:      []*proto.PathMapping{{Target: "10.0.0.5:5432"}},
+	}
+
+	s.SendServiceUpdateToCluster(context.Background(), tlsMapping, cluster)
+
+	msg := drainMapping(chShared)
+	assert.NotNil(t, msg, "shared proxy should receive TLS mapping even without custom port support")
+}
+
+// TestServiceModifyNotifications exercises every possible modification
+// scenario for an existing service, verifying the correct update types
+// reach the correct clusters.
+func TestServiceModifyNotifications(t *testing.T) {
+	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	newServer := func() (*ProxyServiceServer, map[string]chan *proto.GetMappingUpdateResponse) {
+		s := &ProxyServiceServer{
+			tokenStore: tokenStore,
+		}
+		s.SetProxyController(newTestProxyController())
+		chs := map[string]chan *proto.GetMappingUpdateResponse{
+			"cluster-a": registerFakeProxyWithCaps(s, "proxy-a", "cluster-a", &proto.ProxyCapabilities{SupportsCustomPorts: true}),
+			"cluster-b": registerFakeProxyWithCaps(s, "proxy-b", "cluster-b", &proto.ProxyCapabilities{SupportsCustomPorts: true}),
+		}
+		return s, chs
+	}
+
+	httpMapping := func(updateType proto.ProxyMappingUpdateType) *proto.ProxyMapping {
+		return &proto.ProxyMapping{
+			Type:      updateType,
+			Id:        "svc-1",
+			AccountId: "acct-1",
+			Domain:    "app.example.com",
+			Path:      []*proto.PathMapping{{Path: "/", Target: "http://10.0.0.1:8080"}},
+		}
+	}
+
+	tlsOnlyMapping := func(updateType proto.ProxyMappingUpdateType) *proto.ProxyMapping {
+		return &proto.ProxyMapping{
+			Type:       updateType,
+			Id:         "svc-1",
+			AccountId:  "acct-1",
+			Domain:     "app.example.com",
+			Mode:       "tls",
+			ListenPort: 8443,
+			Path:       []*proto.PathMapping{{Target: "10.0.0.1:443"}},
+		}
+	}
+
+	ctx := context.Background()
+
+	t.Run("targets changed sends MODIFIED to same cluster", func(t *testing.T) {
+		s, chs := newServer()
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg, "cluster-a should receive update")
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED, msg.Type)
+		assert.NotEmpty(t, msg.AuthToken, "MODIFIED should include token")
+		assert.True(t, drainEmpty(chs["cluster-b"]), "cluster-b should not receive update")
+	})
+
+	t.Run("auth config changed sends MODIFIED", func(t *testing.T) {
+		s, chs := newServer()
+		mapping := httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+		mapping.Auth = &proto.Authentication{Password: true, Pin: true}
+		s.SendServiceUpdateToCluster(ctx, mapping, "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED, msg.Type)
+		assert.True(t, msg.Auth.Password)
+		assert.True(t, msg.Auth.Pin)
+	})
+
+	t.Run("HTTP to TLS transition sends MODIFIED with TLS config", func(t *testing.T) {
+		s, chs := newServer()
+		s.SendServiceUpdateToCluster(ctx, tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED, msg.Type)
+		assert.Equal(t, "tls", msg.Mode, "mode should be tls")
+		assert.Equal(t, int32(8443), msg.ListenPort)
+		assert.Len(t, msg.Path, 1, "should have one path entry with target address")
+		assert.Equal(t, "10.0.0.1:443", msg.Path[0].Target)
+	})
+
+	t.Run("TLS to HTTP transition sends MODIFIED without TLS", func(t *testing.T) {
+		s, chs := newServer()
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED, msg.Type)
+		assert.Empty(t, msg.Mode, "mode should be empty for HTTP")
+		assert.True(t, len(msg.Path) > 0)
+	})
+
+	t.Run("TLS port changed sends MODIFIED with new port", func(t *testing.T) {
+		s, chs := newServer()
+		mapping := tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+		mapping.ListenPort = 9443
+		s.SendServiceUpdateToCluster(ctx, mapping, "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, int32(9443), msg.ListenPort)
+	})
+
+	t.Run("disable sends REMOVED to cluster", func(t *testing.T) {
+		s, chs := newServer()
+		// Manager sends Delete when service is disabled
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED), "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, msg.Type)
+		assert.Empty(t, msg.AuthToken, "DELETE should not have token")
+	})
+
+	t.Run("enable sends CREATED to cluster", func(t *testing.T) {
+		s, chs := newServer()
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED), "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, msg.Type)
+		assert.NotEmpty(t, msg.AuthToken)
+	})
+
+	t.Run("domain change with cluster change sends DELETE to old CREATE to new", func(t *testing.T) {
+		s, chs := newServer()
+		// This is the pattern the manager produces:
+		// 1. DELETE on old cluster
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED), "cluster-a")
+		// 2. CREATE on new cluster
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED), "cluster-b")
+
+		msgA := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msgA, "old cluster should receive DELETE")
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, msgA.Type)
+
+		msgB := drainMapping(chs["cluster-b"])
+		require.NotNil(t, msgB, "new cluster should receive CREATE")
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, msgB.Type)
+		assert.NotEmpty(t, msgB.AuthToken)
+	})
+
+	t.Run("domain change same cluster sends DELETE then CREATE", func(t *testing.T) {
+		s, chs := newServer()
+		// Domain changes within same cluster: manager sends DELETE (old domain) + CREATE (new domain).
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED), "cluster-a")
+		s.SendServiceUpdateToCluster(ctx, httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED), "cluster-a")
+
+		msgDel := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msgDel, "same cluster should receive DELETE")
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED, msgDel.Type)
+
+		msgCreate := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msgCreate, "same cluster should receive CREATE")
+		assert.Equal(t, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED, msgCreate.Type)
+		assert.NotEmpty(t, msgCreate.AuthToken)
+	})
+
+	t.Run("TLS passthrough sent to all proxies", func(t *testing.T) {
+		s := &ProxyServiceServer{
+			tokenStore: tokenStore,
+		}
+		s.SetProxyController(newTestProxyController())
+		const cluster = "proxy.example.com"
+		chModern := registerFakeProxyWithCaps(s, "modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: true})
+		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+
+		// TLS passthrough works on all proxies regardless of custom port support
+		s.SendServiceUpdateToCluster(ctx, tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), cluster)
+
+		msgModern := drainMapping(chModern)
+		require.NotNil(t, msgModern, "modern proxy receives TLS update")
+		assert.Equal(t, "tls", msgModern.Mode)
+
+		msgLegacy := drainMapping(chLegacy)
+		assert.NotNil(t, msgLegacy, "legacy proxy should also receive TLS passthrough")
+	})
+
+	t.Run("TLS on default port NOT filtered for legacy proxy", func(t *testing.T) {
+		s := &ProxyServiceServer{
+			tokenStore: tokenStore,
+		}
+		s.SetProxyController(newTestProxyController())
+		const cluster = "proxy.example.com"
+		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+
+		mapping := tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+		mapping.ListenPort = 0 // default port
+		s.SendServiceUpdateToCluster(ctx, mapping, cluster)
+
+		msgLegacy := drainMapping(chLegacy)
+		assert.NotNil(t, msgLegacy, "legacy proxy should receive TLS on default port")
+	})
+
+	t.Run("passthrough and rewrite flags propagated", func(t *testing.T) {
+		s, chs := newServer()
+		mapping := httpMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+		mapping.PassHostHeader = true
+		mapping.RewriteRedirects = true
+		s.SendServiceUpdateToCluster(ctx, mapping, "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		assert.True(t, msg.PassHostHeader)
+		assert.True(t, msg.RewriteRedirects)
+	})
+
+	t.Run("multiple paths propagated in MODIFIED", func(t *testing.T) {
+		s, chs := newServer()
+		mapping := &proto.ProxyMapping{
+			Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED,
+			Id:        "svc-multi",
+			AccountId: "acct-1",
+			Domain:    "multi.example.com",
+			Path: []*proto.PathMapping{
+				{Path: "/", Target: "http://10.0.0.1:8080"},
+				{Path: "/api", Target: "http://10.0.0.2:9090"},
+				{Path: "/ws", Target: "http://10.0.0.3:3000"},
+			},
+		}
+		s.SendServiceUpdateToCluster(ctx, mapping, "cluster-a")
+
+		msg := drainMapping(chs["cluster-a"])
+		require.NotNil(t, msg)
+		require.Len(t, msg.Path, 3, "all paths should be present")
+		assert.Equal(t, "/", msg.Path[0].Path)
+		assert.Equal(t, "/api", msg.Path[1].Path)
+		assert.Equal(t, "/ws", msg.Path[2].Path)
+	})
 }

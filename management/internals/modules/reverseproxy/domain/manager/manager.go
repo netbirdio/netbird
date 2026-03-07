@@ -31,11 +31,16 @@ type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
 }
 
+type clusterCapabilities interface {
+	ClusterSupportsCustomPorts(clusterAddr string) bool
+}
+
 type Manager struct {
-	store              store
-	validator          domain.Validator
-	proxyManager       proxyManager
-	permissionsManager permissions.Manager
+	store               store
+	validator           domain.Validator
+	proxyManager        proxyManager
+	clusterCapabilities clusterCapabilities
+	permissionsManager  permissions.Manager
 }
 
 func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager) Manager {
@@ -47,6 +52,11 @@ func NewManager(store store, proxyMgr proxyManager, permissionsManager permissio
 		},
 		permissionsManager: permissionsManager,
 	}
+}
+
+// SetClusterCapabilities sets the cluster capabilities provider for domain queries.
+func (m *Manager) SetClusterCapabilities(caps clusterCapabilities) {
+	m.clusterCapabilities = caps
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
@@ -78,24 +88,32 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	}).Debug("getting domains with proxy allow list")
 
 	for _, cluster := range allowList {
-		ret = append(ret, &domain.Domain{
+		d := &domain.Domain{
 			Domain:    cluster,
 			AccountID: accountID,
 			Type:      domain.TypeFree,
 			Validated: true,
-		})
+		}
+		if m.clusterCapabilities != nil {
+			d.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(cluster)
+		}
+		ret = append(ret, d)
 	}
 
 	// Add custom domains.
 	for _, d := range domains {
-		ret = append(ret, &domain.Domain{
+		cd := &domain.Domain{
 			ID:            d.ID,
 			Domain:        d.Domain,
 			AccountID:     accountID,
 			TargetCluster: d.TargetCluster,
 			Type:          domain.TypeCustom,
 			Validated:     d.Validated,
-		})
+		}
+		if m.clusterCapabilities != nil && d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(d.TargetCluster)
+		}
+		ret = append(ret, cd)
 	}
 
 	return ret, nil
@@ -283,7 +301,7 @@ func extractClusterFromCustomDomains(domain string, customDomains []*domain.Doma
 // It matches the domain suffix against available clusters and returns the matching cluster.
 func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
 	for _, cluster := range availableClusters {
-		if strings.HasSuffix(domain, "."+cluster) {
+		if domain == cluster || strings.HasSuffix(domain, "."+cluster) {
 			return cluster, true
 		}
 	}

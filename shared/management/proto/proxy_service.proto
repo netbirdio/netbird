@@ -27,12 +27,19 @@ service ProxyService {
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
 }
 
+// ProxyCapabilities describes what a proxy can handle.
+message ProxyCapabilities {
+  // Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
+  bool supports_custom_ports = 1;
+}
+
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
 message GetMappingUpdateRequest {
   string proxy_id = 1;
   string version = 2;
   google.protobuf.Timestamp started_at = 3;
   string address = 4;
+  ProxyCapabilities capabilities = 5;
 }
 
 // GetMappingUpdateResponse contains zero or more ProxyMappings.
@@ -61,6 +68,10 @@ message PathTargetOptions {
   google.protobuf.Duration request_timeout = 2;
   PathRewriteMode path_rewrite = 3;
   map<string, string> custom_headers = 4;
+  // Send PROXY protocol v2 header to this backend.
+  bool proxy_protocol = 5;
+  // Idle timeout before a UDP session is reaped.
+  google.protobuf.Duration session_idle_timeout = 6;
 }
 
 message PathMapping {
@@ -91,6 +102,10 @@ message ProxyMapping {
   // When true, Location headers in backend responses are rewritten to replace
   // the backend address with the public-facing domain.
   bool rewrite_redirects = 9;
+  // Service mode: "http", "tcp", "udp", or "tls".
+  string mode = 10;
+  // For L4/TLS: the port the proxy listens on.
+  int32 listen_port = 11;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

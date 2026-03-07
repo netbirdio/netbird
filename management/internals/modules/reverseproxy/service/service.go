@@ -34,6 +34,7 @@ const (
 )
 
 type Status string
+type TargetType string
 
 const (
 	StatusPending            Status = "pending"
@@ -43,34 +44,36 @@ const (
 	StatusCertificateFailed  Status = "certificate_failed"
 	StatusError              Status = "error"
 
-	TargetTypePeer   = "peer"
-	TargetTypeHost   = "host"
-	TargetTypeDomain = "domain"
-	TargetTypeSubnet = "subnet"
+	TargetTypePeer   TargetType = "peer"
+	TargetTypeHost   TargetType = "host"
+	TargetTypeDomain TargetType = "domain"
+	TargetTypeSubnet TargetType = "subnet"
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
 )
 
 type TargetOptions struct {
-	SkipTLSVerify  bool              `json:"skip_tls_verify"`
-	RequestTimeout time.Duration     `json:"request_timeout,omitempty"`
-	PathRewrite    PathRewriteMode   `json:"path_rewrite,omitempty"`
-	CustomHeaders  map[string]string `gorm:"serializer:json" json:"custom_headers,omitempty"`
+	SkipTLSVerify      bool              `json:"skip_tls_verify"`
+	RequestTimeout     time.Duration     `json:"request_timeout,omitempty"`
+	SessionIdleTimeout time.Duration     `json:"session_idle_timeout,omitempty"`
+	PathRewrite        PathRewriteMode   `json:"path_rewrite,omitempty"`
+	CustomHeaders      map[string]string `gorm:"serializer:json" json:"custom_headers,omitempty"`
 }
 
 type Target struct {
-	ID         uint          `gorm:"primaryKey" json:"-"`
-	AccountID  string        `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID  string        `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path       *string       `json:"path,omitempty"`
-	Host       string        `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
-	Port       int           `gorm:"index:idx_target_port" json:"port"`
-	Protocol   string        `gorm:"index:idx_target_protocol" json:"protocol"`
-	TargetId   string        `gorm:"index:idx_target_id" json:"target_id"`
-	TargetType string        `gorm:"index:idx_target_type" json:"target_type"`
-	Enabled    bool          `gorm:"index:idx_target_enabled" json:"enabled"`
-	Options    TargetOptions `gorm:"embedded" json:"options"`
+	ID            uint          `gorm:"primaryKey" json:"-"`
+	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path          *string       `json:"path,omitempty"`
+	Host          string        `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
+	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
+	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
+	TargetId      string        `gorm:"index:idx_target_id" json:"target_id"`
+	TargetType    TargetType    `gorm:"index:idx_target_type" json:"target_type"`
+	Enabled       bool          `gorm:"index:idx_target_enabled" json:"enabled"`
+	Options       TargetOptions `gorm:"embedded" json:"options"`
+	ProxyProtocol bool          `json:"proxy_protocol"`
 }
 
 type PasswordAuthConfig struct {
@@ -134,7 +137,7 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"type:varchar(255);uniqueIndex"`
+	Domain            string    `gorm:"index"`
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
@@ -146,23 +149,10 @@ type Service struct {
 	SessionPublicKey  string     `gorm:"column:session_public_key"`
 	Source            string     `gorm:"default:'permanent';index:idx_service_source_peer"`
 	SourcePeer        string     `gorm:"index:idx_service_source_peer"`
-}
-
-func NewService(accountID, name, domain, proxyCluster string, targets []*Target, enabled bool) *Service {
-	for _, target := range targets {
-		target.AccountID = accountID
-	}
-
-	s := &Service{
-		AccountID:    accountID,
-		Name:         name,
-		Domain:       domain,
-		ProxyCluster: proxyCluster,
-		Targets:      targets,
-		Enabled:      enabled,
-	}
-	s.InitNewRecord()
-	return s
+	// Mode determines the service type: "http", "tcp", "udp", or "tls".
+	Mode             string `gorm:"default:'http'"`
+	ListenPort       uint16
+	PortAutoAssigned bool
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -208,13 +198,18 @@ func (s *Service) ToAPIResponse() *api.Service {
 		st := api.ServiceTarget{
 			Path:       target.Path,
 			Host:       &target.Host,
-			Port:       target.Port,
+			Port:       int(target.Port),
 			Protocol:   api.ServiceTargetProtocol(target.Protocol),
 			TargetId:   target.TargetId,
 			TargetType: api.ServiceTargetTargetType(target.TargetType),
 			Enabled:    target.Enabled,
 		}
-		st.Options = targetOptionsToAPI(target.Options)
+		opts := targetOptionsToAPI(target.Options)
+		if opts == nil {
+			opts = &api.ServiceTargetOptions{}
+		}
+		opts.ProxyProtocol = &target.ProxyProtocol
+		st.Options = opts
 		apiTargets = append(apiTargets, st)
 	}
 
@@ -227,16 +222,22 @@ func (s *Service) ToAPIResponse() *api.Service {
 		meta.CertificateIssuedAt = s.Meta.CertificateIssuedAt
 	}
 
+	mode := api.ServiceMode(s.Mode)
+	listenPort := int(s.ListenPort)
+
 	resp := &api.Service{
 		Id:               s.ID,
 		Name:             s.Name,
-		Domain:           s.Domain,
+		Domain:           &s.Domain,
 		Targets:          apiTargets,
 		Enabled:          s.Enabled,
 		PassHostHeader:   &s.PassHostHeader,
 		RewriteRedirects: &s.RewriteRedirects,
 		Auth:             authConfig,
 		Meta:             meta,
+		Mode:             &mode,
+		ListenPort:       &listenPort,
+		PortAutoAssigned: &s.PortAutoAssigned,
 	}
 
 	if s.ProxyCluster != "" {
@@ -247,37 +248,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 }
 
 func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
-	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
-	for _, target := range s.Targets {
-		if !target.Enabled {
-			continue
-		}
-
-		// TODO: Make path prefix stripping configurable per-target.
-		// Currently the matching prefix is baked into the target URL path,
-		// so the proxy strips-then-re-adds it (effectively a no-op).
-		targetURL := url.URL{
-			Scheme: target.Protocol,
-			Host:   target.Host,
-			Path:   "/", // TODO: support service path
-		}
-		if target.Port > 0 && !isDefaultPort(target.Protocol, target.Port) {
-			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.Itoa(target.Port))
-		}
-
-		path := "/"
-		if target.Path != nil {
-			path = *target.Path
-		}
-
-		pm := &proto.PathMapping{
-			Path:   path,
-			Target: targetURL.String(),
-		}
-
-		pm.Options = targetOptionsToProto(target.Options)
-		pathMappings = append(pathMappings, pm)
-	}
+	pathMappings := s.buildPathMappings()
 
 	auth := &proto.Authentication{
 		SessionKey:           s.SessionPublicKey,
@@ -306,7 +277,56 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		AccountId:        s.AccountID,
 		PassHostHeader:   s.PassHostHeader,
 		RewriteRedirects: s.RewriteRedirects,
+		Mode:             s.Mode,
+		ListenPort:       int32(s.ListenPort), //nolint:gosec
 	}
+}
+
+// buildPathMappings constructs PathMapping entries from targets.
+// For HTTP/HTTPS, each target becomes a path-based route with a full URL.
+// For L4/TLS, a single target maps to a host:port address.
+func (s *Service) buildPathMappings() []*proto.PathMapping {
+	pathMappings := make([]*proto.PathMapping, 0, len(s.Targets))
+	for _, target := range s.Targets {
+		if !target.Enabled {
+			continue
+		}
+
+		if IsL4Protocol(s.Mode) {
+			pm := &proto.PathMapping{
+				Target: net.JoinHostPort(target.Host, strconv.FormatUint(uint64(target.Port), 10)),
+			}
+			opts := l4TargetOptionsToProto(target)
+			if opts != nil {
+				pm.Options = opts
+			}
+			pathMappings = append(pathMappings, pm)
+			continue
+		}
+
+		// HTTP/HTTPS: build full URL
+		targetURL := url.URL{
+			Scheme: target.Protocol,
+			Host:   target.Host,
+			Path:   "/",
+		}
+		if target.Port > 0 && !isDefaultPort(target.Protocol, target.Port) {
+			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.FormatUint(uint64(target.Port), 10))
+		}
+
+		path := "/"
+		if target.Path != nil {
+			path = *target.Path
+		}
+
+		pm := &proto.PathMapping{
+			Path:   path,
+			Target: targetURL.String(),
+		}
+		pm.Options = targetOptionsToProto(target.Options)
+		pathMappings = append(pathMappings, pm)
+	}
+	return pathMappings
 }
 
 func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
@@ -325,7 +345,7 @@ func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
 
 // isDefaultPort reports whether port is the standard default for the given scheme
 // (443 for https, 80 for http).
-func isDefaultPort(scheme string, port int) bool {
+func isDefaultPort(scheme string, port uint16) bool {
 	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
 }
 
@@ -346,7 +366,7 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 }
 
 func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
-	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 {
+	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 && opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 {
 		return nil
 	}
 	apiOpts := &api.ServiceTargetOptions{}
@@ -356,6 +376,10 @@ func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
 	if opts.RequestTimeout != 0 {
 		s := opts.RequestTimeout.String()
 		apiOpts.RequestTimeout = &s
+	}
+	if opts.SessionIdleTimeout != 0 {
+		s := opts.SessionIdleTimeout.String()
+		apiOpts.SessionIdleTimeout = &s
 	}
 	if opts.PathRewrite != "" {
 		pr := api.ServiceTargetOptionsPathRewrite(opts.PathRewrite)
@@ -382,6 +406,23 @@ func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
 	return popts
 }
 
+// l4TargetOptionsToProto converts L4-relevant target options to proto.
+func l4TargetOptionsToProto(target *Target) *proto.PathTargetOptions {
+	if !target.ProxyProtocol && target.Options.RequestTimeout == 0 && target.Options.SessionIdleTimeout == 0 {
+		return nil
+	}
+	opts := &proto.PathTargetOptions{
+		ProxyProtocol: target.ProxyProtocol,
+	}
+	if target.Options.RequestTimeout > 0 {
+		opts.RequestTimeout = durationpb.New(target.Options.RequestTimeout)
+	}
+	if target.Options.SessionIdleTimeout > 0 {
+		opts.SessionIdleTimeout = durationpb.New(target.Options.SessionIdleTimeout)
+	}
+	return opts
+}
+
 func targetOptionsFromAPI(idx int, o *api.ServiceTargetOptions) (TargetOptions, error) {
 	var opts TargetOptions
 	if o.SkipTlsVerify != nil {
@@ -393,6 +434,13 @@ func targetOptionsFromAPI(idx int, o *api.ServiceTargetOptions) (TargetOptions, 
 			return opts, fmt.Errorf("target %d: parse request_timeout %q: %w", idx, *o.RequestTimeout, err)
 		}
 		opts.RequestTimeout = d
+	}
+	if o.SessionIdleTimeout != nil {
+		d, err := time.ParseDuration(*o.SessionIdleTimeout)
+		if err != nil {
+			return opts, fmt.Errorf("target %d: parse session_idle_timeout %q: %w", idx, *o.SessionIdleTimeout, err)
+		}
+		opts.SessionIdleTimeout = d
 	}
 	if o.PathRewrite != nil {
 		opts.PathRewrite = PathRewriteMode(*o.PathRewrite)
@@ -408,15 +456,49 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 	s.Domain = req.Domain
 	s.AccountID = accountID
 
-	targets := make([]*Target, 0, len(req.Targets))
-	for i, apiTarget := range req.Targets {
+	if req.Mode != nil {
+		s.Mode = string(*req.Mode)
+	}
+	if req.ListenPort != nil {
+		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
+	}
+
+	targets, err := targetsFromAPI(accountID, req.Targets)
+	if err != nil {
+		return err
+	}
+	s.Targets = targets
+	s.Enabled = req.Enabled
+
+	if req.PassHostHeader != nil {
+		s.PassHostHeader = *req.PassHostHeader
+	}
+	if req.RewriteRedirects != nil {
+		s.RewriteRedirects = *req.RewriteRedirects
+	}
+
+	if req.Auth != nil {
+		s.Auth = authFromAPI(req.Auth)
+	}
+
+	return nil
+}
+
+func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Target, error) {
+	var apiTargets []api.ServiceTarget
+	if apiTargetsPtr != nil {
+		apiTargets = *apiTargetsPtr
+	}
+
+	targets := make([]*Target, 0, len(apiTargets))
+	for i, apiTarget := range apiTargets {
 		target := &Target{
 			AccountID:  accountID,
 			Path:       apiTarget.Path,
-			Port:       apiTarget.Port,
+			Port:       uint16(apiTarget.Port), //nolint:gosec // validated by API layer
 			Protocol:   string(apiTarget.Protocol),
 			TargetId:   apiTarget.TargetId,
-			TargetType: string(apiTarget.TargetType),
+			TargetType: TargetType(apiTarget.TargetType),
 			Enabled:    apiTarget.Enabled,
 		}
 		if apiTarget.Host != nil {
@@ -425,49 +507,42 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		if apiTarget.Options != nil {
 			opts, err := targetOptionsFromAPI(i, apiTarget.Options)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			target.Options = opts
+			if apiTarget.Options.ProxyProtocol != nil {
+				target.ProxyProtocol = *apiTarget.Options.ProxyProtocol
+			}
 		}
 		targets = append(targets, target)
 	}
-	s.Targets = targets
+	return targets, nil
+}
 
-	s.Enabled = req.Enabled
-
-	if req.PassHostHeader != nil {
-		s.PassHostHeader = *req.PassHostHeader
-	}
-
-	if req.RewriteRedirects != nil {
-		s.RewriteRedirects = *req.RewriteRedirects
-	}
-
-	if req.Auth.PasswordAuth != nil {
-		s.Auth.PasswordAuth = &PasswordAuthConfig{
-			Enabled:  req.Auth.PasswordAuth.Enabled,
-			Password: req.Auth.PasswordAuth.Password,
+func authFromAPI(reqAuth *api.ServiceAuthConfig) AuthConfig {
+	var auth AuthConfig
+	if reqAuth.PasswordAuth != nil {
+		auth.PasswordAuth = &PasswordAuthConfig{
+			Enabled:  reqAuth.PasswordAuth.Enabled,
+			Password: reqAuth.PasswordAuth.Password,
 		}
 	}
-
-	if req.Auth.PinAuth != nil {
-		s.Auth.PinAuth = &PINAuthConfig{
-			Enabled: req.Auth.PinAuth.Enabled,
-			Pin:     req.Auth.PinAuth.Pin,
+	if reqAuth.PinAuth != nil {
+		auth.PinAuth = &PINAuthConfig{
+			Enabled: reqAuth.PinAuth.Enabled,
+			Pin:     reqAuth.PinAuth.Pin,
 		}
 	}
-
-	if req.Auth.BearerAuth != nil {
+	if reqAuth.BearerAuth != nil {
 		bearerAuth := &BearerAuthConfig{
-			Enabled: req.Auth.BearerAuth.Enabled,
+			Enabled: reqAuth.BearerAuth.Enabled,
 		}
-		if req.Auth.BearerAuth.DistributionGroups != nil {
-			bearerAuth.DistributionGroups = *req.Auth.BearerAuth.DistributionGroups
+		if reqAuth.BearerAuth.DistributionGroups != nil {
+			bearerAuth.DistributionGroups = *reqAuth.BearerAuth.DistributionGroups
 		}
-		s.Auth.BearerAuth = bearerAuth
+		auth.BearerAuth = bearerAuth
 	}
-
-	return nil
+	return auth
 }
 
 func (s *Service) Validate() error {
@@ -478,14 +553,69 @@ func (s *Service) Validate() error {
 		return errors.New("service name exceeds maximum length of 255 characters")
 	}
 
-	if s.Domain == "" {
-		return errors.New("service domain is required")
-	}
-
 	if len(s.Targets) == 0 {
 		return errors.New("at least one target is required")
 	}
 
+	if s.Mode == "" {
+		s.Mode = ModeHTTP
+	}
+
+	switch s.Mode {
+	case ModeHTTP:
+		return s.validateHTTPMode()
+	case ModeTCP, ModeUDP:
+		return s.validateTCPUDPMode()
+	case ModeTLS:
+		return s.validateTLSMode()
+	default:
+		return fmt.Errorf("unsupported mode %q", s.Mode)
+	}
+}
+
+func (s *Service) validateHTTPMode() error {
+	if s.Domain == "" {
+		return errors.New("service domain is required")
+	}
+	if s.ListenPort != 0 {
+		return errors.New("listen_port is not supported for HTTP services")
+	}
+	return s.validateHTTPTargets()
+}
+
+func (s *Service) validateTCPUDPMode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for TCP/UDP services (used for cluster derivation)")
+	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for TCP/UDP services")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("TCP/UDP services must have exactly one target")
+	}
+	if s.Mode == ModeUDP && s.Targets[0].ProxyProtocol {
+		return errors.New("proxy_protocol is not supported for UDP services")
+	}
+	return s.validateL4Target(s.Targets[0])
+}
+
+func (s *Service) validateTLSMode() error {
+	if s.Domain == "" {
+		return errors.New("domain is required for TLS services (used for SNI matching)")
+	}
+	if s.isAuthEnabled() {
+		return errors.New("auth is not supported for TLS services")
+	}
+	if s.ListenPort == 0 {
+		return errors.New("listen_port is required for TLS services")
+	}
+	if len(s.Targets) != 1 {
+		return errors.New("TLS services must have exactly one target")
+	}
+	return s.validateL4Target(s.Targets[0])
+}
+
+func (s *Service) validateHTTPTargets() error {
 	for i, target := range s.Targets {
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
@@ -500,6 +630,9 @@ func (s *Service) Validate() error {
 		if target.TargetId == "" {
 			return fmt.Errorf("target %d has empty target_id", i)
 		}
+		if target.ProxyProtocol {
+			return fmt.Errorf("target %d: proxy_protocol is not supported for HTTP services", i)
+		}
 		if err := validateTargetOptions(i, &target.Options); err != nil {
 			return err
 		}
@@ -508,11 +641,54 @@ func (s *Service) Validate() error {
 	return nil
 }
 
+func (s *Service) validateL4Target(target *Target) error {
+	if target.Port == 0 {
+		return errors.New("target port is required for L4 services")
+	}
+	if target.TargetId == "" {
+		return errors.New("target_id is required for L4 services")
+	}
+	switch target.TargetType {
+	case TargetTypePeer, TargetTypeHost:
+		// OK
+	case TargetTypeSubnet:
+		if target.Host == "" {
+			return errors.New("target host is required for subnet targets")
+		}
+	default:
+		return fmt.Errorf("invalid target_type %q for L4 service", target.TargetType)
+	}
+	if target.Path != nil && *target.Path != "" && *target.Path != "/" {
+		return errors.New("path is not supported for L4 services")
+	}
+	return nil
+}
+
+// Service mode constants.
 const (
-	maxRequestTimeout = 5 * time.Minute
-	maxCustomHeaders  = 16
-	maxHeaderKeyLen   = 128
-	maxHeaderValueLen = 4096
+	ModeHTTP = "http"
+	ModeTCP  = "tcp"
+	ModeUDP  = "udp"
+	ModeTLS  = "tls"
+)
+
+// IsL4Protocol returns true if the mode requires port-based routing (TCP, UDP, or TLS).
+func IsL4Protocol(mode string) bool {
+	return mode == ModeTCP || mode == ModeUDP || mode == ModeTLS
+}
+
+// IsPortBasedProtocol returns true if the mode relies on dedicated port allocation.
+// TLS is excluded because it uses SNI routing and can share ports with other TLS services.
+func IsPortBasedProtocol(mode string) bool {
+	return mode == ModeTCP || mode == ModeUDP
+}
+
+const (
+	maxRequestTimeout     = 5 * time.Minute
+	maxSessionIdleTimeout = 10 * time.Minute
+	maxCustomHeaders      = 16
+	maxHeaderKeyLen       = 128
+	maxHeaderValueLen     = 4096
 )
 
 // httpHeaderNameRe matches valid HTTP header field names per RFC 7230 token definition.
@@ -557,6 +733,15 @@ func validateTargetOptions(idx int, opts *TargetOptions) error {
 		}
 		if opts.RequestTimeout > maxRequestTimeout {
 			return fmt.Errorf("target %d: request_timeout exceeds maximum of %s", idx, maxRequestTimeout)
+		}
+	}
+
+	if opts.SessionIdleTimeout != 0 {
+		if opts.SessionIdleTimeout <= 0 {
+			return fmt.Errorf("target %d: session_idle_timeout must be positive", idx)
+		}
+		if opts.SessionIdleTimeout > maxSessionIdleTimeout {
+			return fmt.Errorf("target %d: session_idle_timeout exceeds maximum of %s", idx, maxSessionIdleTimeout)
 		}
 	}
 
@@ -608,17 +793,49 @@ func containsCRLF(s string) bool {
 }
 
 func (s *Service) EventMeta() map[string]any {
-	return map[string]any{"name": s.Name, "domain": s.Domain, "proxy_cluster": s.ProxyCluster, "source": s.Source, "auth": s.isAuthEnabled()}
+	meta := map[string]any{
+		"name":          s.Name,
+		"domain":        s.Domain,
+		"proxy_cluster": s.ProxyCluster,
+		"source":        s.Source,
+		"auth":          s.isAuthEnabled(),
+		"mode":          s.Mode,
+	}
+
+	if s.ListenPort != 0 {
+		meta["listen_port"] = s.ListenPort
+	}
+
+	if len(s.Targets) > 0 {
+		t := s.Targets[0]
+		if t.ProxyProtocol {
+			meta["proxy_protocol"] = true
+		}
+		if t.Options.RequestTimeout != 0 {
+			meta["request_timeout"] = t.Options.RequestTimeout.String()
+		}
+		if t.Options.SessionIdleTimeout != 0 {
+			meta["session_idle_timeout"] = t.Options.SessionIdleTimeout.String()
+		}
+	}
+
+	return meta
 }
 
 func (s *Service) isAuthEnabled() bool {
-	return s.Auth.PasswordAuth != nil || s.Auth.PinAuth != nil || s.Auth.BearerAuth != nil
+	return (s.Auth.PasswordAuth != nil && s.Auth.PasswordAuth.Enabled) ||
+		(s.Auth.PinAuth != nil && s.Auth.PinAuth.Enabled) ||
+		(s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled)
 }
 
 func (s *Service) Copy() *Service {
 	targets := make([]*Target, len(s.Targets))
 	for i, target := range s.Targets {
 		targetCopy := *target
+		if target.Path != nil {
+			p := *target.Path
+			targetCopy.Path = &p
+		}
 		if len(target.Options.CustomHeaders) > 0 {
 			targetCopy.Options.CustomHeaders = make(map[string]string, len(target.Options.CustomHeaders))
 			for k, v := range target.Options.CustomHeaders {
@@ -626,6 +843,24 @@ func (s *Service) Copy() *Service {
 			}
 		}
 		targets[i] = &targetCopy
+	}
+
+	authCopy := s.Auth
+	if s.Auth.PasswordAuth != nil {
+		pa := *s.Auth.PasswordAuth
+		authCopy.PasswordAuth = &pa
+	}
+	if s.Auth.PinAuth != nil {
+		pa := *s.Auth.PinAuth
+		authCopy.PinAuth = &pa
+	}
+	if s.Auth.BearerAuth != nil {
+		ba := *s.Auth.BearerAuth
+		if len(s.Auth.BearerAuth.DistributionGroups) > 0 {
+			ba.DistributionGroups = make([]string, len(s.Auth.BearerAuth.DistributionGroups))
+			copy(ba.DistributionGroups, s.Auth.BearerAuth.DistributionGroups)
+		}
+		authCopy.BearerAuth = &ba
 	}
 
 	return &Service{
@@ -638,12 +873,15 @@ func (s *Service) Copy() *Service {
 		Enabled:           s.Enabled,
 		PassHostHeader:    s.PassHostHeader,
 		RewriteRedirects:  s.RewriteRedirects,
-		Auth:              s.Auth,
+		Auth:              authCopy,
 		Meta:              s.Meta,
 		SessionPrivateKey: s.SessionPrivateKey,
 		SessionPublicKey:  s.SessionPublicKey,
 		Source:            s.Source,
 		SourcePeer:        s.SourcePeer,
+		Mode:              s.Mode,
+		ListenPort:        s.ListenPort,
+		PortAutoAssigned:  s.PortAutoAssigned,
 	}
 }
 
@@ -688,12 +926,13 @@ var validNamePrefix = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 // ExposeServiceRequest contains the parameters for creating a peer-initiated expose service.
 type ExposeServiceRequest struct {
 	NamePrefix string
-	Port       int
-	Protocol   string
+	Port       uint16
+	Mode       string
 	Domain     string
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 // Validate checks all fields of the expose request.
@@ -702,12 +941,20 @@ func (r *ExposeServiceRequest) Validate() error {
 		return errors.New("request cannot be nil")
 	}
 
-	if r.Port < 1 || r.Port > 65535 {
+	if r.Port == 0 {
 		return fmt.Errorf("port must be between 1 and 65535, got %d", r.Port)
 	}
 
-	if r.Protocol != "http" && r.Protocol != "https" {
-		return fmt.Errorf("unsupported protocol %q: must be http or https", r.Protocol)
+	switch r.Mode {
+	case ModeHTTP, ModeTCP, ModeUDP, ModeTLS:
+	default:
+		return fmt.Errorf("unsupported mode %q", r.Mode)
+	}
+
+	if IsL4Protocol(r.Mode) {
+		if r.Pin != "" || r.Password != "" || len(r.UserGroups) > 0 {
+			return fmt.Errorf("authentication is not supported for %s mode", r.Mode)
+		}
 	}
 
 	if r.Pin != "" && !pinRegexp.MatchString(r.Pin) {
@@ -729,55 +976,78 @@ func (r *ExposeServiceRequest) Validate() error {
 
 // ToService builds a Service from the expose request.
 func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) *Service {
-	service := &Service{
+	svc := &Service{
 		AccountID: accountID,
 		Name:      serviceName,
+		Mode:      r.Mode,
 		Enabled:   true,
-		Targets: []*Target{
-			{
-				AccountID:  accountID,
-				Port:       r.Port,
-				Protocol:   r.Protocol,
-				TargetId:   peerID,
-				TargetType: TargetTypePeer,
-				Enabled:    true,
-			},
+	}
+
+	// Domain handling: for TCP/UDP the domain is the bare cluster domain.
+	// For TLS/HTTP a subdomain prefix is added.
+	// If domain is empty, CreateServiceFromPeer fills in defaults.
+	if r.Domain != "" {
+		switch r.Mode {
+		case ModeTCP, ModeUDP:
+			svc.Domain = r.Domain
+		default:
+			svc.Domain = serviceName + "." + r.Domain
+		}
+	}
+
+	if IsL4Protocol(r.Mode) {
+		svc.ListenPort = r.Port
+		if r.ListenPort > 0 {
+			svc.ListenPort = r.ListenPort
+		}
+	}
+
+	targetProto := ""
+	if !IsL4Protocol(r.Mode) {
+		targetProto = ModeHTTP
+	}
+	svc.Targets = []*Target{
+		{
+			AccountID:  accountID,
+			Port:       r.Port,
+			Protocol:   targetProto,
+			TargetId:   peerID,
+			TargetType: TargetTypePeer,
+			Enabled:    true,
 		},
 	}
 
-	if r.Domain != "" {
-		service.Domain = serviceName + "." + r.Domain
-	}
-
 	if r.Pin != "" {
-		service.Auth.PinAuth = &PINAuthConfig{
+		svc.Auth.PinAuth = &PINAuthConfig{
 			Enabled: true,
 			Pin:     r.Pin,
 		}
 	}
 
 	if r.Password != "" {
-		service.Auth.PasswordAuth = &PasswordAuthConfig{
+		svc.Auth.PasswordAuth = &PasswordAuthConfig{
 			Enabled:  true,
 			Password: r.Password,
 		}
 	}
 
 	if len(r.UserGroups) > 0 {
-		service.Auth.BearerAuth = &BearerAuthConfig{
+		svc.Auth.BearerAuth = &BearerAuthConfig{
 			Enabled:            true,
 			DistributionGroups: r.UserGroups,
 		}
 	}
 
-	return service
+	return svc
 }
 
 // ExposeServiceResponse contains the result of a successful peer expose creation.
 type ExposeServiceResponse struct {
-	ServiceName string
-	ServiceURL  string
-	Domain      string
+	ServiceName      string
+	ServiceID        string
+	ServiceURL       string
+	Domain           string
+	PortAutoAssigned bool
 }
 
 // GenerateExposeName generates a random service name for peer-exposed services.

@@ -26,6 +26,6 @@ type Client interface {
 	SyncMeta(sysInfo *system.Info) error
 	Logout() error
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
-	RenewExpose(ctx context.Context, domain string) error
-	StopExpose(ctx context.Context, domain string) error
+	RenewExpose(ctx context.Context, domain, serviceID string) error
+	StopExpose(ctx context.Context, domain, serviceID string) error
 }

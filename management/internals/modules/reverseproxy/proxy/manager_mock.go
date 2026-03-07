@@ -144,6 +144,20 @@ func (mr *MockControllerMockRecorder) GetOIDCValidationConfig() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOIDCValidationConfig", reflect.TypeOf((*MockController)(nil).GetOIDCValidationConfig))
 }
 
+// ClusterSupportsCustomPorts mocks base method.
+func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", clusterAddr)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ClusterSupportsCustomPorts indicates an expected call of ClusterSupportsCustomPorts.
+func (mr *MockControllerMockRecorder) ClusterSupportsCustomPorts(clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockController)(nil).ClusterSupportsCustomPorts), clusterAddr)
+}
+
 // GetProxiesForCluster mocks base method.
 func (m *MockController) GetProxiesForCluster(clusterAddr string) []string {
 	m.ctrl.T.Helper()

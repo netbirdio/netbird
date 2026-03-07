@@ -32,6 +32,7 @@ import (
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	nbstatus "github.com/netbirdio/netbird/shared/management/status"
 )
 
 type ProxyOIDCConfig struct {
@@ -43,12 +44,6 @@ type ProxyOIDCConfig struct {
 
 	Audience     string
 	KeysLocation string
-}
-
-// ClusterInfo contains information about a proxy cluster.
-type ClusterInfo struct {
-	Address          string
-	ConnectedProxies int
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
@@ -98,12 +93,13 @@ type pkceEntry struct {
 
 // proxyConnection represents a connected proxy
 type proxyConnection struct {
-	proxyID  string
-	address  string
-	stream   proto.ProxyService_GetMappingUpdateServer
-	sendChan chan *proto.GetMappingUpdateResponse
-	ctx      context.Context
-	cancel   context.CancelFunc
+	proxyID      string
+	address      string
+	capabilities *proto.ProxyCapabilities
+	stream       proto.ProxyService_GetMappingUpdateServer
+	sendChan     chan *proto.GetMappingUpdateResponse
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewProxyServiceServer creates a new proxy service server.
@@ -191,12 +187,13 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	connCtx, cancel := context.WithCancel(ctx)
 	conn := &proxyConnection{
-		proxyID:  proxyID,
-		address:  proxyAddress,
-		stream:   stream,
-		sendChan: make(chan *proto.GetMappingUpdateResponse, 100),
-		ctx:      connCtx,
-		cancel:   cancel,
+		proxyID:      proxyID,
+		address:      proxyAddress,
+		capabilities: req.GetCapabilities(),
+		stream:       stream,
+		sendChan:     make(chan *proto.GetMappingUpdateResponse, 100),
+		ctx:          connCtx,
+		cancel:       cancel,
 	}
 
 	s.connectedProxies.Store(proxyID, conn)
@@ -265,29 +262,18 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
 }
 
 // sendSnapshot sends the initial snapshot of services to the connecting proxy.
-// Only services matching the proxy's cluster address are sent.
+// Only entries matching the proxy's cluster address are sent.
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	services, err := s.serviceManager.GetGlobalServices(ctx)
-	if err != nil {
-		return fmt.Errorf("get services from store: %w", err)
-	}
-
 	if !isProxyAddressValid(conn.address) {
 		return fmt.Errorf("proxy address is invalid")
 	}
 
-	var filtered []*rpservice.Service
-	for _, service := range services {
-		if !service.Enabled {
-			continue
-		}
-		if service.ProxyCluster == "" || service.ProxyCluster != conn.address {
-			continue
-		}
-		filtered = append(filtered, service)
+	mappings, err := s.snapshotServiceMappings(ctx, conn)
+	if err != nil {
+		return err
 	}
 
-	if len(filtered) == 0 {
+	if len(mappings) == 0 {
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			InitialSyncComplete: true,
 		}); err != nil {
@@ -296,9 +282,30 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		return nil
 	}
 
-	for i, service := range filtered {
-		// Generate one-time authentication token for each service in the snapshot
-		// Tokens are not persistent on the proxy, so we need to generate new ones on reconnection
+	for i, m := range mappings {
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			Mapping:             []*proto.ProxyMapping{m},
+			InitialSyncComplete: i == len(mappings)-1,
+		}); err != nil {
+			return fmt.Errorf("send proxy mapping: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *proxyConnection) ([]*proto.ProxyMapping, error) {
+	services, err := s.serviceManager.GetGlobalServices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get services from store: %w", err)
+	}
+
+	var mappings []*proto.ProxyMapping
+	for _, service := range services {
+		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
+			continue
+		}
+
 		token, err := s.tokenStore.GenerateToken(service.AccountID, service.ID, 5*time.Minute)
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -308,25 +315,10 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
-		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
-			Mapping: []*proto.ProxyMapping{
-				service.ToProtoMapping(
-					rpservice.Create, // Initial snapshot, all records are "new" for the proxy.
-					token,
-					s.GetOIDCValidationConfig(),
-				),
-			},
-			InitialSyncComplete: i == len(filtered)-1,
-		}); err != nil {
-			log.WithFields(log.Fields{
-				"domain":  service.Domain,
-				"account": service.AccountID,
-			}).WithError(err).Error("failed to send proxy mapping")
-			return fmt.Errorf("send proxy mapping: %w", err)
-		}
+		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		mappings = append(mappings, m)
 	}
-
-	return nil
+	return mappings, nil
 }
 
 // isProxyAddressValid validates a proxy address
@@ -339,8 +331,8 @@ func isProxyAddressValid(addr string) bool {
 func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error) {
 	for {
 		select {
-		case msg := <-conn.sendChan:
-			if err := conn.stream.Send(msg); err != nil {
+		case resp := <-conn.sendChan:
+			if err := conn.stream.Send(resp); err != nil {
 				errChan <- err
 				return
 			}
@@ -395,12 +387,12 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateRes
 	log.Debugf("Broadcasting service update to all connected proxy servers")
 	s.connectedProxies.Range(func(key, value interface{}) bool {
 		conn := value.(*proxyConnection)
-		msg := s.perProxyMessage(update, conn.proxyID)
-		if msg == nil {
+		resp := s.perProxyMessage(update, conn.proxyID)
+		if resp == nil {
 			return true
 		}
 		select {
-		case conn.sendChan <- msg:
+		case conn.sendChan <- resp:
 			log.Debugf("Sent service update to proxy server %s", conn.proxyID)
 		default:
 			log.Warnf("Failed to send service update to proxy server %s (channel full)", conn.proxyID)
@@ -529,7 +521,27 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		Auth:             m.Auth,
 		PassHostHeader:   m.PassHostHeader,
 		RewriteRedirects: m.RewriteRedirects,
+		Mode:             m.Mode,
+		ListenPort:       m.ListenPort,
 	}
+}
+
+// ClusterSupportsCustomPorts returns true if any connected proxy in the given
+// cluster reports custom port support.
+func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) bool {
+	if s.proxyController == nil {
+		return false
+	}
+
+	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
+		if connVal, ok := s.connectedProxies.Load(pid); ok {
+			conn := connVal.(*proxyConnection)
+			if conn.capabilities != nil && conn.capabilities.SupportsCustomPorts {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
@@ -619,7 +631,7 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	return token, nil
 }
 
-// SendStatusUpdate handles status updates from proxy clients
+// SendStatusUpdate handles status updates from proxy clients.
 func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.SendStatusUpdateRequest) (*proto.SendStatusUpdateResponse, error) {
 	accountID := req.GetAccountId()
 	serviceID := req.GetServiceId()
@@ -638,6 +650,17 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 		return nil, status.Errorf(codes.InvalidArgument, "service_id and account_id are required")
 	}
 
+	internalStatus := protoStatusToInternal(protoStatus)
+
+	if err := s.serviceManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
+		sErr, isNbErr := nbstatus.FromError(err)
+		if isNbErr && sErr.Type() == nbstatus.NotFound {
+			return nil, status.Errorf(codes.NotFound, "service %s not found", serviceID)
+		}
+		log.WithContext(ctx).WithError(err).Error("failed to update service status")
+		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
+	}
+
 	if certificateIssued {
 		if err := s.serviceManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to set certificate issued timestamp")
@@ -649,13 +672,6 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 		}).Info("Certificate issued timestamp updated")
 	}
 
-	internalStatus := protoStatusToInternal(protoStatus)
-
-	if err := s.serviceManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
-		log.WithContext(ctx).WithError(err).Error("failed to update service status")
-		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
-	}
-
 	log.WithFields(log.Fields{
 		"service_id": serviceID,
 		"account_id": accountID,
@@ -665,7 +681,7 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	return &proto.SendStatusUpdateResponse{}, nil
 }
 
-// protoStatusToInternal maps proto status to internal status
+// protoStatusToInternal maps proto status to internal service status.
 func protoStatusToInternal(protoStatus proto.ProxyStatus) rpservice.Status {
 	switch protoStatus {
 	case proto.ProxyStatus_PROXY_STATUS_PENDING:

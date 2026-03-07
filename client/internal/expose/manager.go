@@ -12,9 +12,11 @@ const renewTimeout = 10 * time.Second
 
 // Response holds the response from exposing a service.
 type Response struct {
-	ServiceName string
-	ServiceURL  string
-	Domain      string
+	ServiceName      string
+	ServiceID        string
+	ServiceURL       string
+	Domain           string
+	PortAutoAssigned bool
 }
 
 type Request struct {
@@ -25,12 +27,13 @@ type Request struct {
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 type ManagementClient interface {
 	CreateExpose(ctx context.Context, req mgm.ExposeRequest) (*mgm.ExposeResponse, error)
-	RenewExpose(ctx context.Context, domain string) error
-	StopExpose(ctx context.Context, domain string) error
+	RenewExpose(ctx context.Context, domain, serviceID string) error
+	StopExpose(ctx context.Context, domain, serviceID string) error
 }
 
 // Manager handles expose session lifecycle via the management client.
@@ -57,10 +60,10 @@ func (m *Manager) Expose(ctx context.Context, req Request) (*Response, error) {
 	return fromClientExposeResponse(resp), nil
 }
 
-func (m *Manager) KeepAlive(ctx context.Context, domain string) error {
+func (m *Manager) KeepAlive(ctx context.Context, domain, serviceID string) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	defer m.stop(domain)
+	defer m.stop(domain, serviceID)
 
 	for {
 		select {
@@ -69,7 +72,7 @@ func (m *Manager) KeepAlive(ctx context.Context, domain string) error {
 
 			return nil
 		case <-ticker.C:
-			if err := m.renew(ctx, domain); err != nil {
+			if err := m.renew(ctx, domain, serviceID); err != nil {
 				log.Errorf("renewing expose session for %s: %v", domain, err)
 				return err
 			}
@@ -78,17 +81,17 @@ func (m *Manager) KeepAlive(ctx context.Context, domain string) error {
 }
 
 // renew extends the TTL of an active expose session.
-func (m *Manager) renew(ctx context.Context, domain string) error {
+func (m *Manager) renew(ctx context.Context, domain, serviceID string) error {
 	renewCtx, cancel := context.WithTimeout(ctx, renewTimeout)
 	defer cancel()
-	return m.mgmClient.RenewExpose(renewCtx, domain)
+	return m.mgmClient.RenewExpose(renewCtx, domain, serviceID)
 }
 
 // stop terminates an active expose session.
-func (m *Manager) stop(domain string) {
+func (m *Manager) stop(domain, serviceID string) {
 	stopCtx, cancel := context.WithTimeout(m.ctx, renewTimeout)
 	defer cancel()
-	err := m.mgmClient.StopExpose(stopCtx, domain)
+	err := m.mgmClient.StopExpose(stopCtx, domain, serviceID)
 	if err != nil {
 		log.Warnf("Failed stopping expose session for %s: %v", domain, err)
 	}

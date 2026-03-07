@@ -258,13 +258,16 @@ type Store interface {
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
 	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+	GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 
-	RenewEphemeralService(ctx context.Context, accountID, peerID, domain string) error
+	RenewEphemeralService(ctx context.Context, accountID, peerID, serviceID string) error
 	GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*rpservice.Service, error)
 	CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error)
 	EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error)
+	GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error)
+	GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
@@ -440,6 +443,12 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
+		// Drop the unique index on domain: L4 services share the cluster domain
+		// and are differentiated by port. Domain uniqueness for HTTP services
+		// is enforced at the application level by checkDomainAvailable.
+		func(db *gorm.DB) error {
+			return migration.DropIndex[rpservice.Service](ctx, db, "idx_services_domain")
 		},
 	}
 }
