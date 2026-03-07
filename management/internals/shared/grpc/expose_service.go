@@ -39,15 +39,22 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
+	if exposeReq.Port > 65535 {
+		return nil, status.Errorf(codes.InvalidArgument, "port out of range: %d", exposeReq.Port)
+	}
+	if exposeReq.ListenPort > 65535 {
+		return nil, status.Errorf(codes.InvalidArgument, "listen_port out of range: %d", exposeReq.ListenPort)
+	}
+
 	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &rpservice.ExposeServiceRequest{
 		NamePrefix: exposeReq.NamePrefix,
-		Port:       uint16(exposeReq.Port),
+		Port:       uint16(exposeReq.Port),       //nolint:gosec // validated above
 		Mode:       exposeProtocolToString(exposeReq.Protocol),
 		Domain:     exposeReq.Domain,
 		Pin:        exposeReq.Pin,
 		Password:   exposeReq.Password,
 		UserGroups: exposeReq.UserGroups,
-		ListenPort: uint16(exposeReq.ListenPort),
+		ListenPort: uint16(exposeReq.ListenPort), //nolint:gosec // validated above
 	})
 	if err != nil {
 		return nil, mapExposeError(ctx, err)

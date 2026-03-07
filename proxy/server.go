@@ -722,6 +722,9 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 	if err != nil {
 		return nil, fmt.Errorf("listen TCP on %s: %w", listenAddr, err)
 	}
+	if s.ProxyProtocol {
+		ln = s.wrapProxyProtocol(ln)
+	}
 
 	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
 	router.SetObserver(s.meter)
@@ -930,6 +933,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	if old := s.loadMapping(mapping.GetId()); old != nil {
 		s.cleanupMappingRoutes(old)
+		if mode := types.ServiceMode(old.GetMode()); mode.IsL4() {
+			s.meter.L4ServiceRemoved(mode)
+		}
 	} else {
 		s.cleanupMappingRoutes(mapping)
 	}
@@ -1251,6 +1257,9 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 
 	if old := s.deleteMapping(mapping.GetId()); old != nil {
 		s.cleanupMappingRoutes(old)
+		if mode := types.ServiceMode(old.GetMode()); mode.IsL4() {
+			s.meter.L4ServiceRemoved(mode)
+		}
 	} else {
 		s.cleanupMappingRoutes(mapping)
 	}
@@ -1301,10 +1310,6 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	// UDP relay cleanup (idempotent).
 	s.removeUDPRelay(svcID)
 
-	// Decrement L4 service gauge if this was an L4 mapping.
-	if mode := types.ServiceMode(mapping.GetMode()); mode.IsL4() {
-		s.meter.L4ServiceRemoved(mode)
-	}
 }
 
 // removeUDPRelay stops and removes a UDP relay by service ID.

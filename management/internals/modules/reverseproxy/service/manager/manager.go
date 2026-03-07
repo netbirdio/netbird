@@ -43,6 +43,12 @@ var (
 func init() {
 	autoAssignPortMin = portFromEnv(EnvAutoAssignPortMin, defaultAutoAssignPortMin)
 	autoAssignPortMax = portFromEnv(EnvAutoAssignPortMax, defaultAutoAssignPortMax)
+	if autoAssignPortMin > autoAssignPortMax {
+		log.Warnf("port range invalid: %s (%d) > %s (%d), using defaults",
+			EnvAutoAssignPortMin, autoAssignPortMin, EnvAutoAssignPortMax, autoAssignPortMax)
+		autoAssignPortMin = defaultAutoAssignPortMin
+		autoAssignPortMax = defaultAutoAssignPortMax
+	}
 }
 
 func portFromEnv(key string, fallback uint16) uint16 {

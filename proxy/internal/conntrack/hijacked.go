@@ -48,6 +48,7 @@ func (t *HijackTracker) CloseAll() int {
 // CloseByHost closes all tracked hijacked connections for the given host
 // and returns the number of connections closed.
 func (t *HijackTracker) CloseByHost(host string) int {
+	host = hostOnly(host)
 	t.mu.Lock()
 	var toClose []*trackedConn
 	for tc := range t.conns {

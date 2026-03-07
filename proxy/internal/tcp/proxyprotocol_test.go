@@ -22,7 +22,7 @@ func TestWriteProxyProtoV2_IPv4(t *testing.T) {
 		var err error
 		serverConn, err = ln.Accept()
 		if err != nil {
-			return
+			t.Error("accept failed:", err)
 		}
 		close(accepted)
 	}()
@@ -84,7 +84,7 @@ func TestWriteProxyProtoV2_IPv6(t *testing.T) {
 		var err error
 		serverConn, err = ln.Accept()
 		if err != nil {
-			return
+			t.Error("accept failed:", err)
 		}
 		close(accepted)
 	}()
