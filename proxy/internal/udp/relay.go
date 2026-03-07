@@ -182,6 +182,7 @@ func (r *Relay) Serve() {
 			if !netutil.IsExpectedError(err) {
 				r.logger.Debugf("UDP write to backend for %s: %v", addr, err)
 			}
+			r.removeSession(sess)
 			continue
 		}
 		sess.bytesIn.Add(int64(nw))

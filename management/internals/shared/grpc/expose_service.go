@@ -224,7 +224,7 @@ func exposeProtocolToString(p proto.ExposeProtocol) string {
 	case proto.ExposeProtocol_EXPOSE_HTTP:
 		return "http"
 	case proto.ExposeProtocol_EXPOSE_HTTPS:
-		return "https"
+		return "http"
 	case proto.ExposeProtocol_EXPOSE_TCP:
 		return "tcp"
 	case proto.ExposeProtocol_EXPOSE_UDP:
