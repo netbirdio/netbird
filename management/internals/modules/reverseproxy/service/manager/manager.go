@@ -199,7 +199,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, service *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := m.checkDomainAvailable(ctx, transaction, accountID, service.Domain, ""); err != nil {
+		if err := m.checkDomainAvailable(ctx, transaction, service.Domain, ""); err != nil {
 			return err
 		}
 
@@ -245,7 +245,7 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 			return status.Errorf(status.PreconditionFailed, "peer has reached the maximum number of active expose sessions (%d)", maxExposesPerPeer)
 		}
 
-		if err := m.checkDomainAvailable(ctx, transaction, accountID, svc.Domain, ""); err != nil {
+		if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 			return err
 		}
 
@@ -261,8 +261,8 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 	})
 }
 
-func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, accountID, domain, excludeServiceID string) error {
-	existingService, err := transaction.GetServiceByDomain(ctx, accountID, domain)
+func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, domain, excludeServiceID string) error {
+	existingService, err := transaction.GetServiceByDomain(ctx, domain)
 	if err != nil {
 		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
 			return fmt.Errorf("failed to check existing service: %w", err)
@@ -271,7 +271,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 	}
 
 	if existingService != nil && existingService.ID != excludeServiceID {
-		return status.Errorf(status.AlreadyExists, "service with domain %s already exists", domain)
+		return status.Errorf(status.AlreadyExists, "domain already taken")
 	}
 
 	return nil
@@ -352,7 +352,7 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 }
 
 func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, service *service.Service) error {
-	if err := m.checkDomainAvailable(ctx, transaction, accountID, service.Domain, service.ID); err != nil {
+	if err := m.checkDomainAvailable(ctx, transaction, service.Domain, service.ID); err != nil {
 		return err
 	}
 
@@ -805,7 +805,7 @@ func (m *Manager) deleteServiceFromPeer(ctx context.Context, accountID, peerID, 
 
 // lookupPeerService finds a peer-initiated service by domain and validates ownership.
 func (m *Manager) lookupPeerService(ctx context.Context, accountID, peerID, domain string) (*service.Service, error) {
-	svc, err := m.store.GetServiceByDomain(ctx, accountID, domain)
+	svc, err := m.store.GetServiceByDomain(ctx, domain)
 	if err != nil {
 		return nil, err
 	}
