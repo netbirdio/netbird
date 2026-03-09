@@ -1625,9 +1625,14 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, doInitialAutoUpdate bool, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
-	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
+	client := internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
+	client.SetSyncResponsePersistence(s.persistSyncResponse)
+
+	s.mutex.Lock()
+	s.connectClient = client
+	s.mutex.Unlock()
+
+	if err := client.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil
