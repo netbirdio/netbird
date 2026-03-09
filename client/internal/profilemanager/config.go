@@ -100,6 +100,7 @@ type Config struct {
 	WgPort                        int
 	NetworkMonitor                *bool
 	IFaceBlackList                []string
+	IFaceBlackListAppliedDefaults []string `json:",omitempty"`
 	DisableIPv6Discovery          bool
 	RosenpassEnabled              bool
 	RosenpassPermissive           bool
@@ -359,10 +360,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if len(config.IFaceBlackList) == 0 {
-		log.Infof("filling in interface blacklist with defaults: [ %s ]",
-			strings.Join(DefaultInterfaceBlacklist, " "))
-		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
+	if changed := config.mergeDefaultIFaceBlacklist(); changed {
 		updated = true
 	}
 
@@ -594,6 +592,37 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	return updated, nil
+}
+
+// mergeDefaultIFaceBlacklist ensures that new entries added to DefaultInterfaceBlacklist
+// are merged into an existing IFaceBlackList on upgrade, while respecting entries that
+// the user deliberately removed. It tracks which defaults have been offered via
+// IFaceBlackListAppliedDefaults so removals are not undone.
+func (config *Config) mergeDefaultIFaceBlacklist() (updated bool) {
+	if len(config.IFaceBlackList) == 0 {
+		log.Infof("filling in interface blacklist with defaults: [ %s ]",
+			strings.Join(DefaultInterfaceBlacklist, " "))
+		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
+		config.IFaceBlackListAppliedDefaults = append([]string{}, DefaultInterfaceBlacklist...)
+		return true
+	}
+
+	// Find defaults not yet tracked in AppliedDefaults — these are genuinely new.
+	// Entries already in AppliedDefaults were either kept or deliberately removed by the user.
+	newDefaults := util.SliceDiff(DefaultInterfaceBlacklist, config.IFaceBlackListAppliedDefaults)
+	if len(newDefaults) == 0 {
+		return false
+	}
+
+	// Only add entries not already present in the blacklist (avoid duplicates)
+	toAdd := util.SliceDiff(newDefaults, config.IFaceBlackList)
+	if len(toAdd) > 0 {
+		log.Infof("merging new default interface blacklist entries: [ %s ]",
+			strings.Join(toAdd, " "))
+		config.IFaceBlackList = append(config.IFaceBlackList, toAdd...)
+	}
+	config.IFaceBlackListAppliedDefaults = append(config.IFaceBlackListAppliedDefaults, newDefaults...)
+	return true
 }
 
 // parseURL parses and validates a service URL

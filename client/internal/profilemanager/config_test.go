@@ -108,6 +108,87 @@ func TestExtraIFaceBlackList(t *testing.T) {
 	assert.Contains(t, readConf.(*Config).IFaceBlackList, "eth1")
 }
 
+func TestIFaceBlackListMigratesNewDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Create a config that simulates an old install with a partial IFaceBlackList
+	// (missing the newer CNI entries like "cilium_", "cali", etc.)
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath: configPath,
+	})
+	require.NoError(t, err)
+
+	// Simulate an old config that predates AppliedDefaults tracking:
+	// it has only the original entries, no CNI prefixes, and no AppliedDefaults.
+	oldList := []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
+		"Tailscale", "tailscale", "docker", "veth", "br-", "lo"}
+	config.IFaceBlackList = oldList
+	config.IFaceBlackListAppliedDefaults = nil
+	err = WriteOutConfig(configPath, config)
+	require.NoError(t, err)
+
+	// Re-read the config — apply() should merge in missing defaults
+	reloaded, err := GetConfig(configPath)
+	require.NoError(t, err)
+
+	for _, entry := range DefaultInterfaceBlacklist {
+		assert.Contains(t, reloaded.IFaceBlackList, entry,
+			"IFaceBlackList should contain default entry %q after migration", entry)
+	}
+
+	// Verify no duplicates were introduced
+	seen := make(map[string]bool)
+	for _, entry := range reloaded.IFaceBlackList {
+		assert.False(t, seen[entry], "duplicate entry %q in IFaceBlackList", entry)
+		seen[entry] = true
+	}
+
+	// AppliedDefaults should now track all current defaults
+	for _, entry := range DefaultInterfaceBlacklist {
+		assert.Contains(t, reloaded.IFaceBlackListAppliedDefaults, entry,
+			"AppliedDefaults should track %q", entry)
+	}
+
+	// Re-read again — should not change (idempotent)
+	reloaded2, err := GetConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, reloaded.IFaceBlackList, reloaded2.IFaceBlackList,
+		"IFaceBlackList should be stable on subsequent reads")
+}
+
+func TestIFaceBlackListRespectsUserRemoval(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Create a fresh config (all defaults applied)
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath: configPath,
+	})
+	require.NoError(t, err)
+	require.Contains(t, config.IFaceBlackList, "cali")
+
+	// User deliberately removes "cali" from their blacklist
+	filtered := make([]string, 0, len(config.IFaceBlackList))
+	for _, entry := range config.IFaceBlackList {
+		if entry != "cali" {
+			filtered = append(filtered, entry)
+		}
+	}
+	config.IFaceBlackList = filtered
+	err = WriteOutConfig(configPath, config)
+	require.NoError(t, err)
+
+	// Re-read — "cali" should NOT be re-added because it's in AppliedDefaults
+	reloaded, err := GetConfig(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, reloaded.IFaceBlackList, "cali",
+		"user-removed entry should not be re-added")
+
+	// AppliedDefaults should still contain "cali" (it was offered)
+	assert.Contains(t, reloaded.IFaceBlackListAppliedDefaults, "cali")
+}
+
 func TestHiddenPreSharedKey(t *testing.T) {
 	hidden := "**********"
 	samplePreSharedKey := "mysecretpresharedkey"
