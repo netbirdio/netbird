@@ -129,22 +129,43 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
 // It acquires a distributed lock to prevent multiple replicas from issuing
-// duplicate ACME requests. The second replica will block until the first
-// finishes, then find the certificate in the cache.
+// duplicate ACME requests. If the certificate appears in the cache while waiting
+// for the lock, it cancels the wait and uses the cached certificate.
 func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	name := d.PunycodeString()
 
+	if mgr.certExistsInCache(ctx, name) {
+		mgr.logger.Infof("certificate for domain %q already exists in cache before lock attempt", name)
+		mgr.loadAndFinalizeCachedCert(ctx, d, name)
+		return
+	}
+
+	go mgr.pollCacheAndCancel(ctx, name, cancel)
+
+	// Acquire lock
 	mgr.logger.Infof("acquiring cert lock for domain %q", name)
 	lockStart := time.Now()
 	unlock, err := mgr.locker.Lock(ctx, name)
 	if err != nil {
-		mgr.logger.Warnf("acquire cert lock for domain %q, proceeding without lock: %v", name, err)
+		if mgr.certExistsInCache(context.Background(), name) {
+			mgr.logger.Infof("certificate for domain %q appeared in cache while waiting for lock", name)
+			mgr.loadAndFinalizeCachedCert(context.Background(), d, name)
+			return
+		}
+		mgr.logger.Warnf("acquire cert lock for domain %q: %v", name, err)
+		// Continue without lock
 	} else {
 		mgr.logger.Infof("acquired cert lock for domain %q in %s", name, time.Since(lockStart))
 		defer unlock()
+	}
+
+	if mgr.certExistsInCache(ctx, name) {
+		mgr.logger.Infof("certificate for domain %q already exists in cache after lock acquisition, skipping ACME request", name)
+		mgr.loadAndFinalizeCachedCert(ctx, d, name)
+		return
 	}
 
 	hello := &tls.ClientHelloInfo{
@@ -196,6 +217,78 @@ func (mgr *Manager) setDomainState(d domain.Domain, state domainState, errMsg st
 	if info, ok := mgr.domains[d]; ok {
 		info.state = state
 		info.err = errMsg
+	}
+}
+
+// certExistsInCache checks if a certificate exists on the shared disk for the given domain.
+func (mgr *Manager) certExistsInCache(ctx context.Context, domain string) bool {
+	if mgr.Cache == nil {
+		return false
+	}
+	_, err := mgr.Cache.Get(ctx, domain)
+	return err == nil
+}
+
+// pollCacheAndCancel periodically checks if a certificate appears in the cache.
+// If found, it cancels the context to abort the lock wait.
+func (mgr *Manager) pollCacheAndCancel(ctx context.Context, domain string, cancel context.CancelFunc) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if mgr.certExistsInCache(context.Background(), domain) {
+				mgr.logger.Debugf("cert detected in cache for domain %q, cancelling lock wait", domain)
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+// loadAndFinalizeCachedCert loads a certificate from cache and updates domain state.
+func (mgr *Manager) loadAndFinalizeCachedCert(ctx context.Context, d domain.Domain, name string) {
+	hello := &tls.ClientHelloInfo{
+		ServerName: name,
+		Conn:       &dummyConn{ctx: ctx},
+	}
+
+	cert, err := mgr.GetCertificate(hello)
+	if err != nil {
+		mgr.logger.Warnf("load cached certificate for domain %q: %v", name, err)
+		mgr.setDomainState(d, domainFailed, err.Error())
+		return
+	}
+
+	mgr.setDomainState(d, domainReady, "")
+
+	now := time.Now()
+	if cert != nil && cert.Leaf != nil {
+		leaf := cert.Leaf
+		mgr.logger.Infof("loaded cached certificate for domain %q: serial=%s SANs=%v notBefore=%s, notAfter=%s, now=%s",
+			name,
+			leaf.SerialNumber.Text(16),
+			leaf.DNSNames,
+			leaf.NotBefore.UTC().Format(time.RFC3339),
+			leaf.NotAfter.UTC().Format(time.RFC3339),
+			now.UTC().Format(time.RFC3339),
+		)
+		mgr.logCertificateDetails(name, leaf, now)
+	} else {
+		mgr.logger.Infof("loaded cached certificate for domain %q", name)
+	}
+
+	mgr.mu.RLock()
+	info := mgr.domains[d]
+	mgr.mu.RUnlock()
+
+	if info != nil && mgr.certNotifier != nil {
+		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name); err != nil {
+			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
+		}
 	}
 }
 
