@@ -167,21 +167,17 @@ func (s *Service) InitNewRecord() {
 }
 
 func (s *Service) ToAPIResponse() *api.Service {
-	s.Auth.ClearSecrets()
-
 	authConfig := api.ServiceAuthConfig{}
 
 	if s.Auth.PasswordAuth != nil {
 		authConfig.PasswordAuth = &api.PasswordAuthConfig{
-			Enabled:  s.Auth.PasswordAuth.Enabled,
-			Password: s.Auth.PasswordAuth.Password,
+			Enabled: s.Auth.PasswordAuth.Enabled,
 		}
 	}
 
 	if s.Auth.PinAuth != nil {
 		authConfig.PinAuth = &api.PINAuthConfig{
 			Enabled: s.Auth.PinAuth.Enabled,
-			Pin:     s.Auth.PinAuth.Pin,
 		}
 	}
 
@@ -346,7 +342,7 @@ func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {
 // isDefaultPort reports whether port is the standard default for the given scheme
 // (443 for https, 80 for http).
 func isDefaultPort(scheme string, port uint16) bool {
-	return (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+	return (scheme == TargetProtoHTTPS && port == 443) || (scheme == TargetProtoHTTP && port == 80)
 }
 
 // PathRewriteMode controls how the request path is rewritten before forwarding.
@@ -672,6 +668,12 @@ const (
 	ModeTLS  = "tls"
 )
 
+// Target protocol constants (URL scheme for backend connections).
+const (
+	TargetProtoHTTP  = "http"
+	TargetProtoHTTPS = "https"
+)
+
 // IsL4Protocol returns true if the mode requires port-based routing (TCP, UDP, or TLS).
 func IsL4Protocol(mode string) bool {
 	return mode == ModeTCP || mode == ModeUDP || mode == ModeTLS
@@ -928,11 +930,14 @@ type ExposeServiceRequest struct {
 	NamePrefix string
 	Port       uint16
 	Mode       string
-	Domain     string
-	Pin        string
-	Password   string
-	UserGroups []string
-	ListenPort uint16
+	// TargetProtocol is the scheme used to connect to the peer (e.g. "https").
+	// Defaults to "http" when empty.
+	TargetProtocol string
+	Domain         string
+	Pin            string
+	Password       string
+	UserGroups     []string
+	ListenPort     uint16
 }
 
 // Validate checks all fields of the expose request.
@@ -1004,7 +1009,10 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 
 	targetProto := ""
 	if !IsL4Protocol(r.Mode) {
-		targetProto = ModeHTTP
+		targetProto = TargetProtoHTTP
+		if r.TargetProtocol != "" {
+			targetProto = r.TargetProtocol
+		}
 	}
 	svc.Targets = []*Target{
 		{

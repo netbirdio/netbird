@@ -56,9 +56,9 @@ type ProxyServiceServer struct {
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
+	mu sync.RWMutex
 	// Manager for reverse proxy operations
 	serviceManager rpservice.Manager
-
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -160,11 +160,17 @@ func (s *ProxyServiceServer) Close() {
 	s.pkceCleanupCancel()
 }
 
+// SetServiceManager sets the service manager. Must be called before serving.
 func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.serviceManager = manager
 }
 
+// SetProxyController sets the proxy controller. Must be called before serving.
 func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.proxyController = proxyController
 }
 

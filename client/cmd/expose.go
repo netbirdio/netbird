@@ -37,7 +37,7 @@ var exposeCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Example: `  netbird expose --with-password safe-pass 8080
   netbird expose --protocol tcp 5432
-  netbird expose --protocol tcp --external-port 5433 5432
+  netbird expose --protocol tcp --with-external-port 5433 5432
   netbird expose --protocol tls --with-custom-domain tls.example.com 4443`,
 	RunE: exposeFn,
 }
@@ -49,7 +49,7 @@ func init() {
 	exposeCmd.Flags().StringVar(&exposeDomain, "with-custom-domain", "", "Custom domain for the exposed service (e.g. --with-custom-domain myapp.example.com)")
 	exposeCmd.Flags().StringVar(&exposeNamePrefix, "with-name-prefix", "", "Prefix for the generated service name (e.g. --with-name-prefix my-app)")
 	exposeCmd.Flags().StringVar(&exposeProtocol, "protocol", "http", "Protocol to use: http, https, tcp, udp, or tls (e.g. --protocol tcp)")
-	exposeCmd.Flags().Uint16Var(&exposeExternalPort, "external-port", 0, "Public-facing external port on the proxy cluster (defaults to the target port for L4)")
+	exposeCmd.Flags().Uint16Var(&exposeExternalPort, "with-external-port", 0, "Public-facing external port on the proxy cluster (defaults to the target port for L4)")
 }
 
 // isClusterProtocol returns true for L4/TLS protocols that reject HTTP-style auth flags.
@@ -113,8 +113,8 @@ func validateExposeFlags(cmd *cobra.Command, portStr string) (uint64, error) {
 		if exposePin != "" || exposePassword != "" || len(exposeUserGroups) > 0 {
 			return 0, fmt.Errorf("auth flags (--with-pin, --with-password, --with-user-groups) are not supported for %s protocol", exposeProtocol)
 		}
-	} else if cmd.Flags().Changed("external-port") {
-		return 0, fmt.Errorf("--external-port is not supported for %s protocol", exposeProtocol)
+	} else if cmd.Flags().Changed("with-external-port") {
+		return 0, fmt.Errorf("--with-external-port is not supported for %s protocol", exposeProtocol)
 	}
 
 	if exposePin != "" && !pinRegexp.MatchString(exposePin) {

@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	log "github.com/sirupsen/logrus"
@@ -46,15 +47,21 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		return nil, status.Errorf(codes.InvalidArgument, "listen_port out of range: %d", exposeReq.ListenPort)
 	}
 
+	mode, err := exposeProtocolToString(exposeReq.Protocol)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
 	created, err := reverseProxyMgr.CreateServiceFromPeer(ctx, accountID, peer.ID, &rpservice.ExposeServiceRequest{
-		NamePrefix: exposeReq.NamePrefix,
-		Port:       uint16(exposeReq.Port),       //nolint:gosec // validated above
-		Mode:       exposeProtocolToString(exposeReq.Protocol),
-		Domain:     exposeReq.Domain,
-		Pin:        exposeReq.Pin,
-		Password:   exposeReq.Password,
-		UserGroups: exposeReq.UserGroups,
-		ListenPort: uint16(exposeReq.ListenPort), //nolint:gosec // validated above
+		NamePrefix:     exposeReq.NamePrefix,
+		Port:           uint16(exposeReq.Port), //nolint:gosec // validated above
+		Mode:           mode,
+		TargetProtocol: exposeTargetProtocol(exposeReq.Protocol),
+		Domain:         exposeReq.Domain,
+		Pin:            exposeReq.Pin,
+		Password:       exposeReq.Password,
+		UserGroups:     exposeReq.UserGroups,
+		ListenPort:     uint16(exposeReq.ListenPort), //nolint:gosec // validated above
 	})
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
@@ -219,20 +226,26 @@ func (s *Server) resolveServiceID(ctx context.Context, accountID, serviceID, dom
 	return svc.ID, nil
 }
 
-func exposeProtocolToString(p proto.ExposeProtocol) string {
+func exposeProtocolToString(p proto.ExposeProtocol) (string, error) {
 	switch p {
-	case proto.ExposeProtocol_EXPOSE_HTTP:
-		return "http"
-	case proto.ExposeProtocol_EXPOSE_HTTPS:
-		return "http"
+	case proto.ExposeProtocol_EXPOSE_HTTP, proto.ExposeProtocol_EXPOSE_HTTPS:
+		return "http", nil
 	case proto.ExposeProtocol_EXPOSE_TCP:
-		return "tcp"
+		return "tcp", nil
 	case proto.ExposeProtocol_EXPOSE_UDP:
-		return "udp"
+		return "udp", nil
 	case proto.ExposeProtocol_EXPOSE_TLS:
-		return "tls"
+		return "tls", nil
 	default:
-		log.Warnf("unknown expose protocol %v, defaulting to http", p)
-		return "http"
+		return "", fmt.Errorf("unsupported expose protocol: %v", p)
 	}
+}
+
+// exposeTargetProtocol returns the target protocol for the given expose protocol.
+// EXPOSE_HTTPS uses HTTP mode but connects to the peer over HTTPS.
+func exposeTargetProtocol(p proto.ExposeProtocol) string {
+	if p == proto.ExposeProtocol_EXPOSE_HTTPS {
+		return rpservice.TargetProtoHTTPS
+	}
+	return rpservice.TargetProtoHTTP
 }
