@@ -33,11 +33,6 @@ const (
 
 type filter string
 
-type exitNodeState struct {
-	id       string
-	selected bool
-}
-
 func (s *serviceClient) showNetworksUI() {
 	s.wNetworks = s.app.NewWindow("Networks")
 	s.wNetworks.SetOnClosed(s.cancel)
