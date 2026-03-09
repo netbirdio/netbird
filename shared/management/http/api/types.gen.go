@@ -2713,7 +2713,7 @@ type Service struct {
 	Auth ServiceAuthConfig `json:"auth"`
 
 	// Domain Domain for the service
-	Domain *string `json:"domain,omitempty"`
+	Domain string `json:"domain"`
 
 	// Enabled Whether the service is enabled
 	Enabled bool `json:"enabled"`

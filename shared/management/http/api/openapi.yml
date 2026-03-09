@@ -2977,6 +2977,7 @@ components:
       required:
         - id
         - name
+        - domain
         - targets
         - enabled
         - auth
