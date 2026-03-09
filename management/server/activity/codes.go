@@ -221,11 +221,11 @@ const (
 	AccountPeerExposeDisabled Activity = 115
 
 	// DomainAdded indicates that a user added a custom domain
-	DomainAdded Activity = 119
+	DomainAdded Activity = 118
 	// DomainDeleted indicates that a user deleted a custom domain
-	DomainDeleted Activity = 120
+	DomainDeleted Activity = 119
 	// DomainValidated indicates that a custom domain was validated
-	DomainValidated Activity = 121
+	DomainValidated Activity = 120
 
 	AccountDeleted Activity = 99999
 )
