@@ -127,44 +127,8 @@ func validateLineProtocol(body []byte) ([]byte, error) {
 			continue
 		}
 
-		// line protocol: measurement,tag=val,tag=val field=val,field=val timestamp
-		parts := strings.SplitN(line, " ", 3)
-		if len(parts) < 2 {
-			return nil, fmt.Errorf("invalid line protocol: %q", truncate(line, 100))
-		}
-
-		measurementAndTags := parts[0]
-		measurement := measurementAndTags
-		if idx := strings.IndexByte(measurementAndTags, ','); idx >= 0 {
-			measurement = measurementAndTags[:idx]
-		}
-
-		allowedFields, ok := allowedMeasurements[measurement]
-		if !ok {
-			return nil, fmt.Errorf("unknown measurement: %q", measurement)
-		}
-
-		fieldPairs := strings.Split(parts[1], ",")
-		for _, pair := range fieldPairs {
-			kv := strings.SplitN(pair, "=", 2)
-			if len(kv) != 2 {
-				return nil, fmt.Errorf("invalid field: %q", pair)
-			}
-			fieldName := kv[0]
-			if !allowedFields[fieldName] {
-				return nil, fmt.Errorf("unknown field %q in measurement %q", fieldName, measurement)
-			}
-
-			val, err := strconv.ParseFloat(kv[1], 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid field value %q for %q", kv[1], fieldName)
-			}
-			if val < 0 {
-				return nil, fmt.Errorf("negative value for %q: %g", fieldName, val)
-			}
-			if fieldName == "total_seconds" && val > maxTotalSeconds {
-				return nil, fmt.Errorf("total_seconds too large: %g > %g", val, maxTotalSeconds)
-			}
+		if err := validateLine(line); err != nil {
+			return nil, err
 		}
 
 		valid = append(valid, line)
@@ -175,6 +139,57 @@ func validateLineProtocol(body []byte) ([]byte, error) {
 	}
 
 	return []byte(strings.Join(valid, "\n") + "\n"), nil
+}
+
+func validateLine(line string) error {
+	// line protocol: measurement,tag=val,tag=val field=val,field=val timestamp
+	parts := strings.SplitN(line, " ", 3)
+	if len(parts) < 2 {
+		return fmt.Errorf("invalid line protocol: %q", truncate(line, 100))
+	}
+
+	measurement := parts[0]
+	if idx := strings.IndexByte(measurement, ','); idx >= 0 {
+		measurement = measurement[:idx]
+	}
+
+	allowedFields, ok := allowedMeasurements[measurement]
+	if !ok {
+		return fmt.Errorf("unknown measurement: %q", measurement)
+	}
+
+	for _, pair := range strings.Split(parts[1], ",") {
+		if err := validateField(pair, measurement, allowedFields); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateField(pair, measurement string, allowedFields map[string]bool) error {
+	kv := strings.SplitN(pair, "=", 2)
+	if len(kv) != 2 {
+		return fmt.Errorf("invalid field: %q", pair)
+	}
+
+	fieldName := kv[0]
+	if !allowedFields[fieldName] {
+		return fmt.Errorf("unknown field %q in measurement %q", fieldName, measurement)
+	}
+
+	val, err := strconv.ParseFloat(kv[1], 64)
+	if err != nil {
+		return fmt.Errorf("invalid field value %q for %q", kv[1], fieldName)
+	}
+	if val < 0 {
+		return fmt.Errorf("negative value for %q: %g", fieldName, val)
+	}
+	if fieldName == "total_seconds" && val > maxTotalSeconds {
+		return fmt.Errorf("total_seconds too large: %g > %g", val, maxTotalSeconds)
+	}
+
+	return nil
 }
 
 // buildConfigJSON builds the remote config JSON from env vars.

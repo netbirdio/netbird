@@ -5,9 +5,9 @@
 BUCKET_ID=$(influx bucket list --org netbird --name metrics --json | grep -oP '"id"\s*:\s*"\K[^"]+' | head -1)
 ORG_ID=$(influx org list --name netbird --json | grep -oP '"id"\s*:\s*"\K[^"]+' | head -1)
 
-if [ -z "$BUCKET_ID" ] || [ -z "$ORG_ID" ]; then
-  echo "ERROR: Could not determine bucket or org ID"
-  echo "BUCKET_ID=$BUCKET_ID ORG_ID=$ORG_ID"
+if [[ -z "$BUCKET_ID" ]] || [[ -z "$ORG_ID" ]]; then
+  echo "ERROR: Could not determine bucket or org ID" >&2
+  echo "BUCKET_ID=$BUCKET_ID ORG_ID=$ORG_ID" >&2
   exit 1
 fi
 
