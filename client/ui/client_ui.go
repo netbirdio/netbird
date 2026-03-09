@@ -323,7 +323,7 @@ type serviceClient struct {
 
 	exitNodeMu           sync.Mutex
 	mExitNodeItems       []menuHandler
-	exitNodeStates       []exitNodeState
+	exitNodeRetryCancel  context.CancelFunc
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
@@ -924,7 +924,7 @@ func (s *serviceClient) updateStatus() error {
 			s.mDown.Enable()
 			s.mNetworks.Enable()
 			s.mExitNode.Enable()
-			go s.updateExitNodes()
+			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
@@ -985,6 +985,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mUp.Enable()
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
+	s.cancelExitNodeRetry()
 	go s.updateExitNodes()
 }
 
