@@ -32,6 +32,14 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			status:            http.StatusOK,
 		}
 
+		var bytesRead int64
+		if r.Body != nil {
+			r.Body = &bodyCounter{
+				ReadCloser: r.Body,
+				bytesRead:  &bytesRead,
+			}
+		}
+
 		// Resolve the source IP using trusted proxy configuration before passing
 		// the request on, as the proxy will modify forwarding headers.
 		sourceIp := extractSourceIP(r, l.trustedProxies)
@@ -53,10 +61,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			host = r.Host
 		}
 
-		bytesUpload := r.ContentLength
-		if bytesUpload < 0 {
-			bytesUpload = 0
-		}
+		bytesUpload := bytesRead
 		bytesDownload := sw.bytesWritten
 
 		entry := logEntry{
