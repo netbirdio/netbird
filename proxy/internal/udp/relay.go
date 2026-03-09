@@ -36,10 +36,10 @@ const (
 // SessionObserver receives callbacks for UDP session lifecycle events.
 // All methods must be safe for concurrent use.
 type SessionObserver interface {
-	UDPSessionStarted(accountID string)
-	UDPSessionEnded(accountID string)
-	UDPSessionDialError(accountID string)
-	UDPSessionRejected(accountID string)
+	UDPSessionStarted(accountID types.AccountID)
+	UDPSessionEnded(accountID types.AccountID)
+	UDPSessionDialError(accountID types.AccountID)
+	UDPSessionRejected(accountID types.AccountID)
 	UDPPacketRelayed(direction types.RelayDirection, bytes int)
 }
 
@@ -227,7 +227,7 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	if len(r.sessions) >= r.maxSessions {
 		r.mu.Unlock()
 		if r.observer != nil {
-			r.observer.UDPSessionRejected(string(r.accountID))
+			r.observer.UDPSessionRejected(r.accountID)
 		}
 		return nil, fmt.Errorf("session limit reached (%d)", r.maxSessions)
 	}
@@ -235,7 +235,7 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	if !r.sessLimiter.Allow() {
 		r.mu.Unlock()
 		if r.observer != nil {
-			r.observer.UDPSessionRejected(string(r.accountID))
+			r.observer.UDPSessionRejected(r.accountID)
 		}
 		return nil, fmt.Errorf("session creation rate limited")
 	}
@@ -253,7 +253,7 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 		delete(r.sessions, key)
 		r.mu.Unlock()
 		if r.observer != nil {
-			r.observer.UDPSessionDialError(string(r.accountID))
+			r.observer.UDPSessionDialError(r.accountID)
 		}
 		return nil, fmt.Errorf("dial backend %s: %w", r.target, err)
 	}
@@ -271,7 +271,7 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	r.mu.Unlock()
 
 	if r.observer != nil {
-		r.observer.UDPSessionStarted(string(r.accountID))
+		r.observer.UDPSessionStarted(r.accountID)
 	}
 
 	r.sessWg.Go(func() {
@@ -383,7 +383,7 @@ func (r *Relay) cleanupIdleSessions() {
 
 	if r.observer != nil {
 		for range cleaned {
-			r.observer.UDPSessionEnded(string(r.accountID))
+			r.observer.UDPSessionEnded(r.accountID)
 		}
 	}
 }
@@ -408,7 +408,7 @@ func (r *Relay) removeSession(sess *session) {
 		r.logger.Debugf("UDP session %s ended (client→backend: %d bytes, backend→client: %d bytes)",
 			sess.addr, sess.bytesIn.Load(), sess.bytesOut.Load())
 		if r.observer != nil {
-			r.observer.UDPSessionEnded(string(r.accountID))
+			r.observer.UDPSessionEnded(r.accountID)
 		}
 	}
 }
@@ -441,7 +441,7 @@ func (r *Relay) Close() {
 
 	if r.observer != nil {
 		for range closed {
-			r.observer.UDPSessionEnded(string(r.accountID))
+			r.observer.UDPSessionEnded(r.accountID)
 		}
 	}
 

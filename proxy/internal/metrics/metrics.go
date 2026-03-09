@@ -223,48 +223,51 @@ func (m *Metrics) L4ServiceRemoved(mode types.ServiceMode) {
 }
 
 // TCPRelayStarted records a new TCP relay connection starting.
-func (m *Metrics) TCPRelayStarted(accountID string) {
-	m.tcpActiveConns.With(prometheus.Labels{"account_id": accountID}).Inc()
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": accountID, "result": "success"}).Inc()
+func (m *Metrics) TCPRelayStarted(accountID types.AccountID) {
+	acct := string(accountID)
+	m.tcpActiveConns.With(prometheus.Labels{"account_id": acct}).Inc()
+	m.tcpConnsTotal.With(prometheus.Labels{"account_id": acct, "result": "success"}).Inc()
 }
 
 // TCPRelayEnded records a TCP relay connection ending and accumulates bytes and duration.
-func (m *Metrics) TCPRelayEnded(accountID string, duration time.Duration, srcToDst, dstToSrc int64) {
-	m.tcpActiveConns.With(prometheus.Labels{"account_id": accountID}).Dec()
-	m.tcpConnDuration.With(prometheus.Labels{"account_id": accountID}).Observe(duration.Seconds())
+func (m *Metrics) TCPRelayEnded(accountID types.AccountID, duration time.Duration, srcToDst, dstToSrc int64) {
+	acct := string(accountID)
+	m.tcpActiveConns.With(prometheus.Labels{"account_id": acct}).Dec()
+	m.tcpConnDuration.With(prometheus.Labels{"account_id": acct}).Observe(duration.Seconds())
 	m.tcpBytesTotal.With(prometheus.Labels{"direction": "client_to_backend"}).Add(float64(srcToDst))
 	m.tcpBytesTotal.With(prometheus.Labels{"direction": "backend_to_client"}).Add(float64(dstToSrc))
 }
 
 // TCPRelayDialError records a dial failure for a TCP relay.
-func (m *Metrics) TCPRelayDialError(accountID string) {
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": accountID, "result": "dial_error"}).Inc()
+func (m *Metrics) TCPRelayDialError(accountID types.AccountID) {
+	m.tcpConnsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "dial_error"}).Inc()
 }
 
 // TCPRelayRejected records a rejected TCP relay (semaphore full).
-func (m *Metrics) TCPRelayRejected(accountID string) {
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": accountID, "result": "rejected"}).Inc()
+func (m *Metrics) TCPRelayRejected(accountID types.AccountID) {
+	m.tcpConnsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "rejected"}).Inc()
 }
 
 // UDPSessionStarted records a new UDP session starting.
-func (m *Metrics) UDPSessionStarted(accountID string) {
-	m.udpActiveSess.With(prometheus.Labels{"account_id": accountID}).Inc()
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": accountID, "result": "success"}).Inc()
+func (m *Metrics) UDPSessionStarted(accountID types.AccountID) {
+	acct := string(accountID)
+	m.udpActiveSess.With(prometheus.Labels{"account_id": acct}).Inc()
+	m.udpSessionsTotal.With(prometheus.Labels{"account_id": acct, "result": "success"}).Inc()
 }
 
 // UDPSessionEnded records a UDP session ending.
-func (m *Metrics) UDPSessionEnded(accountID string) {
-	m.udpActiveSess.With(prometheus.Labels{"account_id": accountID}).Dec()
+func (m *Metrics) UDPSessionEnded(accountID types.AccountID) {
+	m.udpActiveSess.With(prometheus.Labels{"account_id": string(accountID)}).Dec()
 }
 
 // UDPSessionDialError records a dial failure for a UDP session.
-func (m *Metrics) UDPSessionDialError(accountID string) {
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": accountID, "result": "dial_error"}).Inc()
+func (m *Metrics) UDPSessionDialError(accountID types.AccountID) {
+	m.udpSessionsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "dial_error"}).Inc()
 }
 
 // UDPSessionRejected records a rejected UDP session (limit or rate limited).
-func (m *Metrics) UDPSessionRejected(accountID string) {
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": accountID, "result": "rejected"}).Inc()
+func (m *Metrics) UDPSessionRejected(accountID types.AccountID) {
+	m.udpSessionsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "rejected"}).Inc()
 }
 
 // UDPPacketRelayed records a packet relayed in the given direction with its size in bytes.

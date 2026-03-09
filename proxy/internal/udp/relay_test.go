@@ -370,10 +370,10 @@ type testObserver struct {
 	bytes    int
 }
 
-func (o *testObserver) UDPSessionStarted(string)   { o.mu.Lock(); o.started++; o.mu.Unlock() }
-func (o *testObserver) UDPSessionEnded(string)     { o.mu.Lock(); o.ended++; o.mu.Unlock() }
-func (o *testObserver) UDPSessionDialError(string) { o.mu.Lock(); o.dialErr++; o.mu.Unlock() }
-func (o *testObserver) UDPSessionRejected(string)  { o.mu.Lock(); o.rejected++; o.mu.Unlock() }
+func (o *testObserver) UDPSessionStarted(types.AccountID)   { o.mu.Lock(); o.started++; o.mu.Unlock() }
+func (o *testObserver) UDPSessionEnded(types.AccountID)     { o.mu.Lock(); o.ended++; o.mu.Unlock() }
+func (o *testObserver) UDPSessionDialError(types.AccountID) { o.mu.Lock(); o.dialErr++; o.mu.Unlock() }
+func (o *testObserver) UDPSessionRejected(types.AccountID)  { o.mu.Lock(); o.rejected++; o.mu.Unlock() }
 func (o *testObserver) UDPPacketRelayed(_ types.RelayDirection, b int) {
 	o.mu.Lock()
 	o.packets++

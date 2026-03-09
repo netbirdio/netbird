@@ -65,10 +65,10 @@ type Route struct {
 // RelayObserver receives callbacks for TCP relay lifecycle events.
 // All methods must be safe for concurrent use.
 type RelayObserver interface {
-	TCPRelayStarted(accountID string)
-	TCPRelayEnded(accountID string, duration time.Duration, srcToDst, dstToSrc int64)
-	TCPRelayDialError(accountID string)
-	TCPRelayRejected(accountID string)
+	TCPRelayStarted(accountID types.AccountID)
+	TCPRelayEnded(accountID types.AccountID, duration time.Duration, srcToDst, dstToSrc int64)
+	TCPRelayDialError(accountID types.AccountID)
+	TCPRelayRejected(accountID types.AccountID)
 }
 
 // Router accepts raw TCP connections on a shared listener, peeks at
@@ -418,7 +418,7 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 		r.activeRelays.Done()
 		r.logger.Warn("TCP relay connection limit reached, rejecting connection")
 		if obs != nil {
-			obs.TCPRelayRejected(string(route.AccountID))
+			obs.TCPRelayRejected(route.AccountID)
 		}
 		_ = conn.Close()
 		return
@@ -428,7 +428,7 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 		r.activeRelays.Done()
 	}()
 
-	acct := string(route.AccountID)
+	acct := route.AccountID
 	entry := r.logger.WithFields(log.Fields{
 		"sni":        sni,
 		"service_id": route.ServiceID,

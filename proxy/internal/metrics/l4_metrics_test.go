@@ -98,48 +98,50 @@ func TestTCPRelayMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := metrics.New(reg)
 
-	acct := "acct-1"
+	acct := types.AccountID("acct-1")
+	label := string(acct)
 
 	m.TCPRelayStarted(acct)
 	m.TCPRelayStarted(acct)
 
-	assert.Equal(t, float64(2), gatherGauge(t, reg, "netbird_proxy_tcp_active_connections", prometheus.Labels{"account_id": acct}))
-	assert.Equal(t, float64(2), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": acct, "result": "success"}))
+	assert.Equal(t, float64(2), gatherGauge(t, reg, "netbird_proxy_tcp_active_connections", prometheus.Labels{"account_id": label}))
+	assert.Equal(t, float64(2), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": label, "result": "success"}))
 
 	m.TCPRelayEnded(acct, 10*time.Second, 1000, 500)
 
-	assert.Equal(t, float64(1), gatherGauge(t, reg, "netbird_proxy_tcp_active_connections", prometheus.Labels{"account_id": acct}))
-	assert.Equal(t, uint64(1), gatherHistogramCount(t, reg, "netbird_proxy_tcp_connection_duration_seconds", prometheus.Labels{"account_id": acct}))
+	assert.Equal(t, float64(1), gatherGauge(t, reg, "netbird_proxy_tcp_active_connections", prometheus.Labels{"account_id": label}))
+	assert.Equal(t, uint64(1), gatherHistogramCount(t, reg, "netbird_proxy_tcp_connection_duration_seconds", prometheus.Labels{"account_id": label}))
 	assert.Equal(t, float64(1000), gatherCounter(t, reg, "netbird_proxy_tcp_bytes_total", prometheus.Labels{"direction": "client_to_backend"}))
 	assert.Equal(t, float64(500), gatherCounter(t, reg, "netbird_proxy_tcp_bytes_total", prometheus.Labels{"direction": "backend_to_client"}))
 
 	m.TCPRelayDialError(acct)
-	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": acct, "result": "dial_error"}))
+	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": label, "result": "dial_error"}))
 
 	m.TCPRelayRejected(acct)
-	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": acct, "result": "rejected"}))
+	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_tcp_connections_total", prometheus.Labels{"account_id": label, "result": "rejected"}))
 }
 
 func TestUDPSessionMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := metrics.New(reg)
 
-	acct := "acct-2"
+	acct := types.AccountID("acct-2")
+	label := string(acct)
 
 	m.UDPSessionStarted(acct)
 	m.UDPSessionStarted(acct)
 
-	assert.Equal(t, float64(2), gatherGauge(t, reg, "netbird_proxy_udp_active_sessions", prometheus.Labels{"account_id": acct}))
-	assert.Equal(t, float64(2), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": acct, "result": "success"}))
+	assert.Equal(t, float64(2), gatherGauge(t, reg, "netbird_proxy_udp_active_sessions", prometheus.Labels{"account_id": label}))
+	assert.Equal(t, float64(2), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": label, "result": "success"}))
 
 	m.UDPSessionEnded(acct)
-	assert.Equal(t, float64(1), gatherGauge(t, reg, "netbird_proxy_udp_active_sessions", prometheus.Labels{"account_id": acct}))
+	assert.Equal(t, float64(1), gatherGauge(t, reg, "netbird_proxy_udp_active_sessions", prometheus.Labels{"account_id": label}))
 
 	m.UDPSessionDialError(acct)
-	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": acct, "result": "dial_error"}))
+	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": label, "result": "dial_error"}))
 
 	m.UDPSessionRejected(acct)
-	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": acct, "result": "rejected"}))
+	assert.Equal(t, float64(1), gatherCounter(t, reg, "netbird_proxy_udp_sessions_total", prometheus.Labels{"account_id": label, "result": "rejected"}))
 
 	m.UDPPacketRelayed(types.RelayDirectionClientToBackend, 100)
 	m.UDPPacketRelayed(types.RelayDirectionClientToBackend, 200)
