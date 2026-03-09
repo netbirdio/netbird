@@ -84,6 +84,7 @@ type Router struct {
 	fallback     *Route
 	draining     bool
 	dialResolve  DialResolver
+	activeConns  sync.WaitGroup
 	activeRelays sync.WaitGroup
 	relaySem     chan struct{}
 	drainDone    chan struct{}
@@ -229,14 +230,18 @@ func (r *Router) Serve(ctx context.Context, ln net.Listener) error {
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				if ok := r.Drain(DefaultDrainTimeout); !ok {
-					r.logger.Warn("timed out waiting for relay connections to drain")
+					r.logger.Warn("timed out waiting for connections to drain")
 				}
 				return nil
 			}
 			r.logger.Debugf("SNI router accept: %v", err)
 			continue
 		}
-		go r.handleConn(ctx, conn)
+		r.activeConns.Add(1)
+		go func() {
+			defer r.activeConns.Done()
+			r.handleConn(ctx, conn)
+		}()
 	}
 }
 
@@ -356,14 +361,15 @@ func (r *Router) sendToHTTP(conn net.Conn) {
 }
 
 // Drain prevents new relay connections from starting and waits for all
-// active relays to finish, up to the given timeout. Returns true if all
-// relays completed, false on timeout.
+// in-flight connection handlers and active relays to finish, up to the
+// given timeout. Returns true if all completed, false on timeout.
 func (r *Router) Drain(timeout time.Duration) bool {
 	r.mu.Lock()
 	r.draining = true
 	if r.drainDone == nil {
 		done := make(chan struct{})
 		go func() {
+			r.activeConns.Wait()
 			r.activeRelays.Wait()
 			close(done)
 		}()
