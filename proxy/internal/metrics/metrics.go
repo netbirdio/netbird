@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -19,6 +20,9 @@ type Metrics struct {
 	totalPaths        metric.Int64UpDownCounter
 	requestDuration   metric.Int64Histogram
 	backendDuration   metric.Int64Histogram
+
+	mappingsMux  sync.Mutex
+	mappingPaths map[string]int
 }
 
 func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
@@ -84,6 +88,7 @@ func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		totalPaths:        totalPaths,
 		requestDuration:   requestDuration,
 		backendDuration:   backendDuration,
+		mappingPaths:      make(map[string]int),
 	}, nil
 }
 
@@ -112,11 +117,13 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		interceptor := &responseInterceptor{PassthroughWriter: responsewriter.New(w)}
 
 		start := time.Now()
-		next.ServeHTTP(interceptor, r)
-		duration := time.Since(start)
+		defer func() {
+			duration := time.Since(start)
+			m.activeRequests.Add(m.ctx, -1)
+			m.requestDuration.Record(m.ctx, duration.Milliseconds())
+		}()
 
-		m.activeRequests.Add(m.ctx, -1)
-		m.requestDuration.Record(m.ctx, duration.Milliseconds())
+		next.ServeHTTP(interceptor, r)
 	})
 }
 
@@ -139,11 +146,36 @@ func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 }
 
 func (m *Metrics) AddMapping(mapping proxy.Mapping) {
-	m.configuredDomains.Add(m.ctx, 1)
-	m.totalPaths.Add(m.ctx, int64(len(mapping.Paths)))
+	m.mappingsMux.Lock()
+	defer m.mappingsMux.Unlock()
+
+	newPathCount := len(mapping.Paths)
+	oldPathCount, exists := m.mappingPaths[mapping.Host]
+
+	if !exists {
+		m.configuredDomains.Add(m.ctx, 1)
+	}
+
+	pathDelta := newPathCount - oldPathCount
+	if pathDelta != 0 {
+		m.totalPaths.Add(m.ctx, int64(pathDelta))
+	}
+
+	m.mappingPaths[mapping.Host] = newPathCount
 }
 
 func (m *Metrics) RemoveMapping(mapping proxy.Mapping) {
+	m.mappingsMux.Lock()
+	defer m.mappingsMux.Unlock()
+
+	oldPathCount, exists := m.mappingPaths[mapping.Host]
+	if !exists {
+		// Nothing to remove
+		return
+	}
+
 	m.configuredDomains.Add(m.ctx, -1)
-	m.totalPaths.Add(m.ctx, -int64(len(mapping.Paths)))
+	m.totalPaths.Add(m.ctx, -int64(oldPathCount))
+
+	delete(m.mappingPaths, mapping.Host)
 }
