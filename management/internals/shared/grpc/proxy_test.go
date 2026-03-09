@@ -117,11 +117,16 @@ func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
 }
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore: tokenStore,
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -172,11 +177,16 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore: tokenStore,
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -204,11 +214,16 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore: tokenStore,
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
 	s.SetProxyController(newTestProxyController())
 
@@ -255,10 +270,15 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 }
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	redirectURL := "https://app.example.com/callback"
@@ -279,31 +299,43 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 }
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	s.pkceVerifiers.Store("base64url|hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+	err = s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	require.NoError(t, err)
 
-	_, _, err := s.ValidateState("base64url|hmac")
+	_, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
 }
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	// Store with tampered HMAC
-	s.pkceVerifiers.Store("dGVzdA==|nonce|wrong-hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+	err = s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	require.NoError(t, err)
 
-	_, _, err := s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
 }

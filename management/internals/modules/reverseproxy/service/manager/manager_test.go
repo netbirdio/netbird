@@ -423,8 +423,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		t.Helper()
 		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 1*time.Hour, 10*time.Minute, 100)
 		require.NoError(t, err)
-		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-		t.Cleanup(srv.Close)
+		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
+		require.NoError(t, err)
+		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 		return srv
 	}
 
@@ -703,8 +704,9 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
 	require.NoError(t, err)
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-	t.Cleanup(proxySrv.Close)
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -1127,8 +1129,9 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
 	require.NoError(t, err)
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-	t.Cleanup(proxySrv.Close)
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
