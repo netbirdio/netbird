@@ -79,6 +79,8 @@ type ProxyServiceServer struct {
 
 	// Store for PKCE verifiers
 	pkceVerifierStore *PKCEVerifierStore
+
+	cancel context.CancelFunc
 }
 
 const pkceVerifierTTL = 10 * time.Minute
@@ -96,7 +98,7 @@ type proxyConnection struct {
 
 // NewProxyServiceServer creates a new proxy service server.
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager) *ProxyServiceServer {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
@@ -105,6 +107,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		proxyManager:      proxyMgr,
+		cancel:            cancel,
 	}
 	go s.cleanupStaleProxies(ctx)
 	return s
@@ -128,7 +131,7 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 
 // Close stops background goroutines.
 func (s *ProxyServiceServer) Close() {
-	s.pkceCleanupCancel()
+	s.cancel()
 }
 
 // SetServiceManager sets the service manager. Must be called before serving.
