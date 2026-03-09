@@ -347,6 +347,10 @@ components:
           description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
           type: string
           example: "0.51.2"
+        auto_update_always:
+          description: When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
+          type: boolean
+          example: false
         embedded_idp_enabled:
           description: Indicates whether the embedded identity provider (Dex) is enabled for this account. This is a read-only field.
           type: boolean

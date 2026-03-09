@@ -51,6 +51,8 @@ const (
 	EventActivityCodeAccountSettingPeerLoginExpirationUpdate       EventActivityCode = "account.setting.peer.login.expiration.update"
 	EventActivityCodeAccountSettingRoutingPeerDnsResolutionDisable EventActivityCode = "account.setting.routing.peer.dns.resolution.disable"
 	EventActivityCodeAccountSettingRoutingPeerDnsResolutionEnable  EventActivityCode = "account.setting.routing.peer.dns.resolution.enable"
+	EventActivityCodeAccountSettingAutoUpdateAlwaysDisable         EventActivityCode = "account.setting.auto.update.always.disable"
+	EventActivityCodeAccountSettingAutoUpdateAlwaysEnable          EventActivityCode = "account.setting.auto.update.always.enable"
 	EventActivityCodeAccountSettingsAutoVersionUpdate              EventActivityCode = "account.settings.auto.version.update"
 	EventActivityCodeDashboardLogin                                EventActivityCode = "dashboard.login"
 	EventActivityCodeDnsSettingDisabledManagementGroupAdd          EventActivityCode = "dns.setting.disabled.management.group.add"
@@ -481,6 +483,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
+	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
+
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
