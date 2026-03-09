@@ -130,7 +130,7 @@ func TestPortConflict_TCPSamePortCluster(t *testing.T) {
 		AccountID:    testAccountID,
 		Name:         "conflicting-tcp",
 		Mode:         "tcp",
-		Domain:       testCluster,
+		Domain:       "conflicting-tcp." + testCluster,
 		ProxyCluster: testCluster,
 		ListenPort:   5432,
 		Enabled:      true,
@@ -156,7 +156,7 @@ func TestPortConflict_UDPSamePortCluster(t *testing.T) {
 		AccountID:    testAccountID,
 		Name:         "conflicting-udp",
 		Mode:         "udp",
-		Domain:       testCluster,
+		Domain:       "conflicting-udp." + testCluster,
 		ProxyCluster: testCluster,
 		ListenPort:   5432,
 		Enabled:      true,
@@ -219,8 +219,8 @@ func TestPortConflict_TLSSamePortSameDomain(t *testing.T) {
 	svc.InitNewRecord()
 
 	err := mgr.persistNewService(ctx, testAccountID, svc)
-	require.Error(t, err, "TLS+TLS on same port/domain/cluster should be rejected")
-	assert.Contains(t, err.Error(), "already in use")
+	require.Error(t, err, "TLS+TLS on same domain should be rejected")
+	assert.Contains(t, err.Error(), "domain already taken")
 }
 
 func TestPortConflict_TLSAndTCPSamePort(t *testing.T) {
@@ -388,7 +388,7 @@ func TestAutoAssign_AvoidsExistingPorts(t *testing.T) {
 		AccountID:    testAccountID,
 		Name:         "auto-tcp",
 		Mode:         "tcp",
-		Domain:       testCluster,
+		Domain:       "auto-tcp." + testCluster,
 		ProxyCluster: testCluster,
 		ListenPort:   0,
 		Enabled:      true,
@@ -491,10 +491,9 @@ func TestCreateServiceFromPeer_TCP(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, resp.ServiceName)
-	assert.NotEmpty(t, resp.ServiceID)
-	assert.Equal(t, "test.netbird.io", resp.Domain, "TCP uses bare cluster domain")
+	assert.Contains(t, resp.Domain, ".test.netbird.io", "TCP uses unique subdomain")
 	assert.True(t, resp.PortAutoAssigned, "port should be auto-assigned when cluster doesn't support custom ports")
-	assert.Contains(t, resp.ServiceURL, "tcp://test.netbird.io:")
+	assert.Contains(t, resp.ServiceURL, "tcp://")
 }
 
 func TestCreateServiceFromPeer_TCP_CustomPort(t *testing.T) {
@@ -509,7 +508,7 @@ func TestCreateServiceFromPeer_TCP_CustomPort(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, resp.PortAutoAssigned)
-	assert.Contains(t, resp.ServiceURL, "tcp://test.netbird.io:15432")
+	assert.Contains(t, resp.ServiceURL, ":15432")
 }
 
 func TestCreateServiceFromPeer_TCP_DefaultListenPort(t *testing.T) {
@@ -523,7 +522,7 @@ func TestCreateServiceFromPeer_TCP_DefaultListenPort(t *testing.T) {
 	require.NoError(t, err)
 
 	// When no explicit listen port, defaults to target port
-	assert.Contains(t, resp.ServiceURL, "tcp://test.netbird.io:5432")
+	assert.Contains(t, resp.ServiceURL, ":5432")
 	assert.False(t, resp.PortAutoAssigned)
 }
 
@@ -537,7 +536,6 @@ func TestCreateServiceFromPeer_TLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.NotEmpty(t, resp.ServiceID)
 	assert.Contains(t, resp.Domain, ".test.netbird.io", "TLS uses subdomain")
 	assert.Contains(t, resp.ServiceURL, "tls://")
 	assert.Contains(t, resp.ServiceURL, ":443")
@@ -546,7 +544,7 @@ func TestCreateServiceFromPeer_TLS(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TCP_StopAndRenew(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, true)
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -555,14 +553,16 @@ func TestCreateServiceFromPeer_TCP_StopAndRenew(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+	svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+
+	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 	require.NoError(t, err)
 
-	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 	require.NoError(t, err)
 
 	// Renew after stop should fail
-	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 	require.Error(t, err)
 }
 

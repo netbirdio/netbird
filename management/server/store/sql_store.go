@@ -4997,28 +4997,6 @@ func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpse
 	return service, nil
 }
 
-// GetHTTPServiceByDomain returns the HTTP/HTTPS service for the given domain, excluding L4 services
-// that share the cluster domain.
-func (s *SqlStore) GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	var service *rpservice.Service
-	result := s.db.Preload("Targets").
-		Where("domain = ? AND (mode = '' OR mode = ?)", domain, "http").
-		First(&service)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
-		}
-
-		log.WithContext(ctx).Errorf("failed to get HTTP service by domain from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get HTTP service by domain from store")
-	}
-
-	if err := service.DecryptSensitiveData(s.fieldEncrypt); err != nil {
-		return nil, fmt.Errorf("decrypt service data: %w", err)
-	}
-
-	return service, nil
-}
 
 func (s *SqlStore) GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error) {
 	tx := s.db.Preload("Targets")

@@ -87,7 +87,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetHTTPServiceByDomain(ctx, "available.com").
+					GetServiceByDomain(ctx, "available.com").
 					Return(nil, status.Errorf(status.NotFound, "not found"))
 			},
 			expectedError: false,
@@ -98,7 +98,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetHTTPServiceByDomain(ctx, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "existing-id", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
@@ -110,7 +110,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "service-123",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetHTTPServiceByDomain(ctx, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: false,
@@ -121,7 +121,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "service-456",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetHTTPServiceByDomain(ctx, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
@@ -133,7 +133,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetHTTPServiceByDomain(ctx, "error.com").
+					GetServiceByDomain(ctx, "error.com").
 					Return(nil, errors.New("database error"))
 			},
 			expectedError: true,
@@ -174,7 +174,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetHTTPServiceByDomain(ctx, "").
+			GetServiceByDomain(ctx, "").
 			Return(nil, status.Errorf(status.NotFound, "not found"))
 
 		mgr := &Manager{}
@@ -189,7 +189,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetHTTPServiceByDomain(ctx, "test.com").
+			GetServiceByDomain(ctx, "test.com").
 			Return(&rpservice.Service{ID: "some-id", Domain: "test.com"}, nil)
 
 		mgr := &Manager{}
@@ -207,7 +207,7 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetHTTPServiceByDomain(ctx, "nil.com").
+			GetServiceByDomain(ctx, "nil.com").
 			Return(nil, nil)
 
 		mgr := &Manager{}
@@ -239,7 +239,7 @@ func TestPersistNewService(t *testing.T) {
 				// Create another mock for the transaction
 				txMock := store.NewMockStore(ctrl)
 				txMock.EXPECT().
-					GetHTTPServiceByDomain(ctx, "new.com").
+					GetServiceByDomain(ctx, "new.com").
 					Return(nil, status.Errorf(status.NotFound, "not found"))
 				txMock.EXPECT().
 					CreateService(ctx, service).
@@ -270,7 +270,7 @@ func TestPersistNewService(t *testing.T) {
 			DoAndReturn(func(ctx context.Context, fn func(store.Store) error) error {
 				txMock := store.NewMockStore(ctrl)
 				txMock.EXPECT().
-					GetHTTPServiceByDomain(ctx, "existing.com").
+					GetServiceByDomain(ctx, "existing.com").
 					Return(&rpservice.Service{ID: "other-id", Domain: "existing.com"}, nil)
 
 				return fn(txMock)
@@ -812,7 +812,7 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		assert.NotEmpty(t, resp.ServiceURL, "service URL should be set")
 
 		// Verify service is persisted in store
-		persisted, err := testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+		persisted, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.NoError(t, err)
 		assert.Equal(t, resp.Domain, persisted.Domain)
 		assert.Equal(t, rpservice.SourceEphemeral, persisted.Source, "source should be ephemeral")
@@ -960,17 +960,17 @@ func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		// Delete by serviceID using unexported method
-		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID, false)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, svcID, false)
 		require.NoError(t, err)
 
 		// Verify service is deleted
-		_, err = testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+		_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.Error(t, err, "service should be deleted")
 	})
 
 	t.Run("expire uses correct activity", func(t *testing.T) {
-		mgr, _ := setupIntegrationTest(t)
+		mgr, testStore := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
 			Port: 8080,
@@ -979,7 +979,8 @@ func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID, true)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, svcID, true)
 		require.NoError(t, err)
 	})
 }
@@ -997,10 +998,11 @@ func TestStopServiceFromPeer(t *testing.T) {
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 		require.NoError(t, err)
 
-		_, err = testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+		_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.Error(t, err, "service should be deleted")
 	})
 }
@@ -1019,7 +1021,7 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count, "one ephemeral service should exist after create")
 
-	svc, err := testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.NoError(t, err)
 
 	err = mgr.DeleteService(ctx, testAccountID, testUserID, svc.ID)
@@ -1064,7 +1066,7 @@ func TestRenewServiceFromPeer(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("renews tracked expose", func(t *testing.T) {
-		mgr, _ := setupIntegrationTest(t)
+		mgr, testStore := setupIntegrationTest(t)
 
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
 			Port: 8080,
@@ -1072,7 +1074,8 @@ func TestRenewServiceFromPeer(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 		require.NoError(t, err)
 	})
 

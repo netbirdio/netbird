@@ -258,7 +258,6 @@ type Store interface {
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
 	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
-	GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 
@@ -443,12 +442,6 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
-		},
-		// Drop the unique index on domain: L4 services share the cluster domain
-		// and are differentiated by port. Domain uniqueness for HTTP services
-		// is enforced at the application level by checkDomainAvailable.
-		func(db *gorm.DB) error {
-			return migration.DropIndex[rpservice.Service](ctx, db, "idx_services_domain")
 		},
 	}
 }

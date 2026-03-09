@@ -46,15 +46,14 @@ func TestManager_Expose_Error(t *testing.T) {
 
 func TestManager_Renew_Success(t *testing.T) {
 	mock := &mgm.MockClient{
-		RenewExposeFunc: func(ctx context.Context, domain, serviceID string) error {
+		RenewExposeFunc: func(ctx context.Context, domain string) error {
 			assert.Equal(t, "my-service.example.com", domain, "domain should be passed through")
-			assert.Equal(t, "service-123", serviceID, "serviceID should be passed through")
 			return nil
 		},
 	}
 
 	m := NewManager(context.Background(), mock)
-	err := m.renew(context.Background(), "my-service.example.com", "service-123")
+	err := m.renew(context.Background(), "my-service.example.com")
 	require.NoError(t, err)
 }
 
@@ -63,13 +62,13 @@ func TestManager_Renew_Timeout(t *testing.T) {
 	cancel()
 
 	mock := &mgm.MockClient{
-		RenewExposeFunc: func(ctx context.Context, domain, serviceID string) error {
+		RenewExposeFunc: func(ctx context.Context, domain string) error {
 			return ctx.Err()
 		},
 	}
 
 	m := NewManager(ctx, mock)
-	err := m.renew(ctx, "my-service.example.com", "service-123")
+	err := m.renew(ctx, "my-service.example.com")
 	require.Error(t, err)
 }
 

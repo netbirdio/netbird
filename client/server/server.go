@@ -1371,7 +1371,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return err
 	}
 
-	err = mgr.KeepAlive(ctx, result.Domain, result.ServiceID)
+	err = mgr.KeepAlive(ctx, result.Domain)
 	if err != nil {
 		return err
 	}

@@ -670,20 +670,17 @@ message ExposeServiceResponse {
   string service_name = 1;
   string service_url = 2;
   string domain = 3;
-  string service_id = 4;
-  bool port_auto_assigned = 5;
+  bool port_auto_assigned = 4;
 }
 
 message RenewExposeRequest {
   string domain = 1;
-  string service_id = 2;
 }
 
 message RenewExposeResponse {}
 
 message StopExposeRequest {
   string domain = 1;
-  string service_id = 2;
 }
 
 message StopExposeResponse {}

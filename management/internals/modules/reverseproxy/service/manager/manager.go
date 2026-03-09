@@ -241,7 +241,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if svc.Domain != "" && !service.IsL4Protocol(svc.Mode) {
+		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
 			}
@@ -386,20 +386,16 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 		return fmt.Errorf("lock peer row: %w", err)
 	}
 
-	// For HTTP, check domain uniqueness per peer (one expose per domain).
-	// L4 services share the bare cluster domain, so uniqueness is enforced by checkPortConflict instead.
-	if !service.IsL4Protocol(svc.Mode) {
-		exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
-		if err != nil {
-			return fmt.Errorf("check existing expose: %w", err)
-		}
-		if exists {
-			return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
-		}
+	exists, err := transaction.EphemeralServiceExists(ctx, store.LockingStrengthUpdate, accountID, peerID, svc.Domain)
+	if err != nil {
+		return fmt.Errorf("check existing expose: %w", err)
+	}
+	if exists {
+		return status.Errorf(status.AlreadyExists, "peer already has an active expose session for this domain")
+	}
 
-		if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
-			return err
-		}
+	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
+		return err
 	}
 
 	count, err := transaction.CountEphemeralServicesByPeer(ctx, store.LockingStrengthUpdate, accountID, peerID)
@@ -413,13 +409,12 @@ func (m *Manager) validateEphemeralPreconditions(ctx context.Context, transactio
 	return nil
 }
 
-// checkDomainAvailable checks that no other HTTP service already uses this domain.
-// L4 services share the cluster domain and are excluded from this check.
+// checkDomainAvailable checks that no other service already uses this domain.
 func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.Store, domain, excludeServiceID string) error {
-	existingService, err := transaction.GetHTTPServiceByDomain(ctx, domain)
+	existingService, err := transaction.GetServiceByDomain(ctx, domain)
 	if err != nil {
 		if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
-			return fmt.Errorf("failed to check existing service: %w", err)
+			return fmt.Errorf("check existing service: %w", err)
 		}
 		return nil
 	}
@@ -516,10 +511,8 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 }
 
 func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, svc *service.Service) error {
-	if svc.Mode == "" || svc.Mode == service.ModeHTTP {
-		if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
-			return err
-		}
+	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
+		return err
 	}
 
 	if m.clusterDeriver != nil {
@@ -864,13 +857,8 @@ func (m *Manager) validateExposePermission(ctx context.Context, accountID, peerI
 	return status.Errorf(status.PermissionDenied, "peer is not in an allowed expose group")
 }
 
-func (m *Manager) resolveDefaultDomain(mode, serviceName string) (string, error) {
-	switch mode {
-	case service.ModeTCP, service.ModeUDP:
-		return m.getDefaultClusterDomain()
-	default:
-		return m.buildRandomDomain(serviceName)
-	}
+func (m *Manager) resolveDefaultDomain(serviceName string) (string, error) {
+	return m.buildRandomDomain(serviceName)
 }
 
 // CreateServiceFromPeer creates a service initiated by a peer expose request.
@@ -894,7 +882,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 	svc.Source = service.SourceEphemeral
 
 	if svc.Domain == "" {
-		domain, err := m.resolveDefaultDomain(svc.Mode, svc.Name)
+		domain, err := m.resolveDefaultDomain(svc.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -944,7 +932,6 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 
 	return &service.ExposeServiceResponse{
 		ServiceName:      svc.Name,
-		ServiceID:        svc.ID,
 		ServiceURL:       serviceURL,
 		Domain:           svc.Domain,
 		PortAutoAssigned: svc.PortAutoAssigned,

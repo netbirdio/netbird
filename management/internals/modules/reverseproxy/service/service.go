@@ -137,7 +137,7 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"index"`
+	Domain            string    `gorm:"uniqueIndex"`
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
@@ -988,16 +988,10 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 		Enabled:   true,
 	}
 
-	// Domain handling: for TCP/UDP the domain is the bare cluster domain.
-	// For TLS/HTTP a subdomain prefix is added.
-	// If domain is empty, CreateServiceFromPeer fills in defaults.
+	// If domain is empty, CreateServiceFromPeer generates a unique subdomain.
+	// When explicitly provided, the service name is prepended as a subdomain.
 	if r.Domain != "" {
-		switch r.Mode {
-		case ModeTCP, ModeUDP:
-			svc.Domain = r.Domain
-		default:
-			svc.Domain = serviceName + "." + r.Domain
-		}
+		svc.Domain = serviceName + "." + r.Domain
 	}
 
 	if IsL4Protocol(r.Mode) {
@@ -1052,7 +1046,6 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 // ExposeServiceResponse contains the result of a successful peer expose creation.
 type ExposeServiceResponse struct {
 	ServiceName      string
-	ServiceID        string
 	ServiceURL       string
 	Domain           string
 	PortAutoAssigned bool

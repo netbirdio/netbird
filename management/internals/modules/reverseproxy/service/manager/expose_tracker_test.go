@@ -36,11 +36,11 @@ func TestReapExpiredExposes(t *testing.T) {
 	mgr.exposeReaper.reapExpiredExposes(ctx)
 
 	// Expired service should be deleted
-	_, err = testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.Error(t, err, "expired service should be deleted")
 
 	// Non-expired service should remain
-	_, err = testStore.GetHTTPServiceByDomain(ctx, resp2.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp2.Domain)
 	require.NoError(t, err, "active service should remain")
 }
 
@@ -57,7 +57,8 @@ func TestReapAlreadyDeletedService(t *testing.T) {
 	expireEphemeralService(t, testStore, testAccountID, resp.Domain)
 
 	// Delete the service before reaping
-	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+	svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+	err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 	require.NoError(t, err)
 
 	// Reaping should handle the already-deleted service gracefully
@@ -113,7 +114,9 @@ func TestRenewEphemeralService(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+		svc, lookupErr := mgr.store.GetServiceByDomain(ctx, resp.Domain)
+		require.NoError(t, lookupErr)
+		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svc.ID)
 		require.NoError(t, err)
 	})
 
@@ -185,20 +188,30 @@ func TestReapSkipsRenewedService(t *testing.T) {
 	expireEphemeralService(t, testStore, testAccountID, resp.Domain)
 
 	// Renew it before the reaper runs
-	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.ServiceID)
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
+	require.NoError(t, err)
+	err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svc.ID)
 	require.NoError(t, err)
 
 	// Reaper should skip it because the re-check sees a fresh timestamp
 	mgr.exposeReaper.reapExpiredExposes(ctx)
 
-	_, err = testStore.GetHTTPServiceByDomain(ctx, resp.Domain)
+	_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.NoError(t, err, "renewed service should survive reaping")
+}
+
+// resolveServiceIDByDomain looks up a service ID by domain in tests.
+func resolveServiceIDByDomain(t *testing.T, s store.Store, domain string) string {
+	t.Helper()
+	svc, err := s.GetServiceByDomain(context.Background(), domain)
+	require.NoError(t, err)
+	return svc.ID
 }
 
 // expireEphemeralService backdates meta_last_renewed_at to force expiration.
 func expireEphemeralService(t *testing.T, s store.Store, accountID, domain string) {
 	t.Helper()
-	svc, err := s.GetHTTPServiceByDomain(context.Background(), domain)
+	svc, err := s.GetServiceByDomain(context.Background(), domain)
 	require.NoError(t, err)
 
 	expired := time.Now().Add(-2 * exposeTTL)

@@ -23,8 +23,8 @@ type MockClient struct {
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
 	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
-	RenewExposeFunc                func(ctx context.Context, domain, serviceID string) error
-	StopExposeFunc                 func(ctx context.Context, domain, serviceID string) error
+	RenewExposeFunc                func(ctx context.Context, domain string) error
+	StopExposeFunc                 func(ctx context.Context, domain string) error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -113,16 +113,16 @@ func (m *MockClient) CreateExpose(ctx context.Context, req ExposeRequest) (*Expo
 	return m.CreateExposeFunc(ctx, req)
 }
 
-func (m *MockClient) RenewExpose(ctx context.Context, domain, serviceID string) error {
+func (m *MockClient) RenewExpose(ctx context.Context, domain string) error {
 	if m.RenewExposeFunc == nil {
 		return nil
 	}
-	return m.RenewExposeFunc(ctx, domain, serviceID)
+	return m.RenewExposeFunc(ctx, domain)
 }
 
-func (m *MockClient) StopExpose(ctx context.Context, domain, serviceID string) error {
+func (m *MockClient) StopExpose(ctx context.Context, domain string) error {
 	if m.StopExposeFunc == nil {
 		return nil
 	}
-	return m.StopExposeFunc(ctx, domain, serviceID)
+	return m.StopExposeFunc(ctx, domain)
 }

@@ -71,7 +71,6 @@ func (s *Server) CreateExpose(ctx context.Context, req *proto.EncryptedMessage) 
 		ServiceName:      created.ServiceName,
 		ServiceUrl:       created.ServiceURL,
 		Domain:           created.Domain,
-		ServiceId:        created.ServiceID,
 		PortAutoAssigned: created.PortAutoAssigned,
 	})
 }
@@ -94,7 +93,7 @@ func (s *Server) RenewExpose(ctx context.Context, req *proto.EncryptedMessage) (
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	serviceID, err := s.resolveServiceID(ctx, accountID, renewReq.ServiceId, renewReq.Domain)
+	serviceID, err := s.resolveServiceID(ctx, renewReq.Domain)
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
@@ -124,7 +123,7 @@ func (s *Server) StopExpose(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, status.Errorf(codes.Internal, "reverse proxy manager not available")
 	}
 
-	serviceID, err := s.resolveServiceID(ctx, accountID, stopReq.ServiceId, stopReq.Domain)
+	serviceID, err := s.resolveServiceID(ctx, stopReq.Domain)
 	if err != nil {
 		return nil, mapExposeError(ctx, err)
 	}
@@ -207,19 +206,13 @@ func (s *Server) SetReverseProxyManager(mgr rpservice.Manager) {
 	s.reverseProxyManager = mgr
 }
 
-// resolveServiceID returns serviceID directly if non-empty, otherwise falls back
-// to looking up the HTTP service by domain. This provides backward compatibility
-// with old clients that don't send service_id in renew/stop requests.
-func (s *Server) resolveServiceID(ctx context.Context, accountID, serviceID, domain string) (string, error) {
-	if serviceID != "" {
-		return serviceID, nil
-	}
-
+// resolveServiceID looks up the service by its globally unique domain.
+func (s *Server) resolveServiceID(ctx context.Context, domain string) (string, error) {
 	if domain == "" {
-		return "", status.Errorf(codes.InvalidArgument, "service_id or domain is required")
+		return "", status.Errorf(codes.InvalidArgument, "domain is required")
 	}
 
-	svc, err := s.accountManager.GetStore().GetHTTPServiceByDomain(ctx, domain)
+	svc, err := s.accountManager.GetStore().GetServiceByDomain(ctx, domain)
 	if err != nil {
 		return "", err
 	}

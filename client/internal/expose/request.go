@@ -35,7 +35,6 @@ func toClientExposeRequest(req Request) mgm.ExposeRequest {
 func fromClientExposeResponse(response *mgm.ExposeResponse) *Response {
 	return &Response{
 		ServiceName:      response.ServiceName,
-		ServiceID:        response.ServiceID,
 		Domain:           response.Domain,
 		ServiceURL:       response.ServiceURL,
 		PortAutoAssigned: response.PortAutoAssigned,

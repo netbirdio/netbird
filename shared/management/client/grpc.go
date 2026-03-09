@@ -61,7 +61,6 @@ type ExposeRequest struct {
 
 type ExposeResponse struct {
 	ServiceName      string
-	ServiceID        string
 	Domain           string
 	ServiceURL       string
 	PortAutoAssigned bool
@@ -746,13 +745,13 @@ func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*Expo
 }
 
 // RenewExpose extends the TTL of an active expose session on the management server.
-func (c *GrpcClient) RenewExpose(ctx context.Context, domain, serviceID string) error {
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		return err
 	}
 
-	req := &proto.RenewExposeRequest{Domain: domain, ServiceId: serviceID}
+	req := &proto.RenewExposeRequest{Domain: domain}
 	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
 	if err != nil {
 		return fmt.Errorf("encrypt renew expose request: %w", err)
@@ -769,13 +768,13 @@ func (c *GrpcClient) RenewExpose(ctx context.Context, domain, serviceID string) 
 }
 
 // StopExpose terminates an active expose session on the management server.
-func (c *GrpcClient) StopExpose(ctx context.Context, domain, serviceID string) error {
+func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		return err
 	}
 
-	req := &proto.StopExposeRequest{Domain: domain, ServiceId: serviceID}
+	req := &proto.StopExposeRequest{Domain: domain}
 	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
 	if err != nil {
 		return fmt.Errorf("encrypt stop expose request: %w", err)
@@ -794,7 +793,6 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain, serviceID string) e
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
 		ServiceName:      resp.ServiceName,
-		ServiceID:        resp.ServiceId,
 		Domain:           resp.Domain,
 		ServiceURL:       resp.ServiceUrl,
 		PortAutoAssigned: resp.PortAutoAssigned,
