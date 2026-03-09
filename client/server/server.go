@@ -849,14 +849,26 @@ func (s *Server) cleanupConnection() error {
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
+
+	// Capture the engine reference before cancelling the context.
+	// After actCancel(), the connectWithRetryRuns goroutine wakes up
+	// and sets connectClient.engine = nil, causing connectClient.Stop()
+	// to skip the engine shutdown entirely.
+	var engine *internal.Engine
+	if s.connectClient != nil {
+		engine = s.connectClient.Engine()
+	}
+
 	s.actCancel()
 
 	if s.connectClient == nil {
 		return nil
 	}
 
-	if err := s.connectClient.Stop(); err != nil {
-		return err
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return err
+		}
 	}
 
 	s.connectClient = nil
