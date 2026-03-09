@@ -24,6 +24,8 @@ type AccessLogEntry struct {
 	Reason         string
 	UserId         string `gorm:"index"`
 	AuthMethodUsed string `gorm:"index"`
+	BytesUpload    int64  `gorm:"index"`
+	BytesDownload  int64  `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -39,6 +41,8 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.UserId = serviceLog.GetUserId()
 	a.AuthMethodUsed = serviceLog.GetAuthMechanism()
 	a.AccountID = serviceLog.GetAccountId()
+	a.BytesUpload = serviceLog.GetBytesUpload()
+	a.BytesDownload = serviceLog.GetBytesDownload()
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
 		if ip, err := netip.ParseAddr(sourceIP); err == nil {
@@ -101,5 +105,7 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		AuthMethodUsed: authMethod,
 		CountryCode:    countryCode,
 		CityName:       cityName,
+		BytesUpload:    a.BytesUpload,
+		BytesDownload:  a.BytesDownload,
 	}
 }
