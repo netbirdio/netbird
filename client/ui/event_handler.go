@@ -100,8 +100,7 @@ func (h *eventHandler) handleConnectClick() {
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
-
-	h.client.exitNodeStates = []exitNodeState{}
+	h.client.cancelExitNodeRetry()
 
 	if h.client.connectCancel != nil {
 		log.Debugf("cancelling ongoing connect operation")

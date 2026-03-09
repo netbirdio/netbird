@@ -220,6 +220,13 @@ const (
 	// AccountPeerExposeDisabled indicates that a user disabled peer expose for the account
 	AccountPeerExposeDisabled Activity = 115
 
+	// DomainAdded indicates that a user added a custom domain
+	DomainAdded Activity = 118
+	// DomainDeleted indicates that a user deleted a custom domain
+	DomainDeleted Activity = 119
+	// DomainValidated indicates that a custom domain was validated
+	DomainValidated Activity = 120
+
 	AccountDeleted Activity = 99999
 )
 
@@ -364,6 +371,10 @@ var activityMap = map[Activity]Code{
 
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	DomainAdded:     {"Domain added", "domain.add"},
+	DomainDeleted:   {"Domain deleted", "domain.delete"},
+	DomainValidated: {"Domain validated", "domain.validate"},
 }
 
 // StringCode returns a string code of the activity
