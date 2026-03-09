@@ -42,6 +42,8 @@ const (
 var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
+	// Kubernetes CNI interfaces
+	"cilium_", "cilium", "lxc", "cali", "flannel", "cni", "weave",
 }
 
 // ConfigInput carries configuration changes to the client

@@ -22,6 +22,11 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
+// cgnatPrefix is the RFC 6598 Carrier-Grade NAT range (100.64.0.0/10).
+// Addresses in this range are used by CNI plugins (Cilium, Calico, etc.) for pod networking
+// and are not suitable for direct peer-to-peer connectivity between hosts.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
 // FilterFn is a function that filters out candidates based on the address.
 // If it returns true, the address is to be filtered. It also returns the prefix of matching route.
 type FilterFn func(address netip.Addr) (bool, netip.Prefix, error)
@@ -173,6 +178,15 @@ func (u *UDPConn) performFilterCheck(addr net.Addr) error {
 	if u.address.Network.Contains(a) {
 		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+	}
+
+	// Filter addresses in the RFC 6598 CGNAT range (100.64.0.0/10) that are not part of the
+	// NetBird WireGuard network. These addresses are commonly assigned by Kubernetes CNI plugins
+	// (Cilium, Calico, etc.) for pod networking and are not routable between hosts.
+	if cgnatPrefix.Contains(a) && !u.address.Network.Contains(a) {
+		u.addrCache.Store(addr.String(), true)
+		log.Infof("Address %s is in the CGNAT range (%s), likely a CNI pod address, refusing to write", addr, cgnatPrefix)
+		return fmt.Errorf("address %s is in the CGNAT range (%s), refusing to write", addr, cgnatPrefix)
 	}
 
 	if isRouted, prefix, err := u.filterFn(a); err != nil {

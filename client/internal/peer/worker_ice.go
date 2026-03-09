@@ -165,6 +165,10 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 		return
 	}
 
+	if candidateInCGNAT(candidate, w.config.WgConfig.WgInterface.Address().Network) {
+		return
+	}
+
 	if err := w.agent.AddRemoteCandidate(candidate); err != nil {
 		w.log.Errorf("error while handling remote candidate")
 		return
@@ -362,6 +366,10 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 		return
 	}
 
+	if candidateInCGNAT(candidate, w.config.WgConfig.WgInterface.Address().Network) {
+		return
+	}
+
 	// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
 	w.log.Debugf("discovered local candidate %s", candidate.String())
 	go func() {
@@ -496,6 +504,11 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 	return ec, nil
 }
 
+// cgnatPrefix is the RFC 6598 Carrier-Grade NAT range (100.64.0.0/10).
+// Addresses in this range are used by CNI plugins (Cilium, Calico, etc.) for pod networking
+// and are not suitable for direct peer-to-peer connectivity between hosts.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
 	addr, err := netip.ParseAddr(candidate.Address())
 	if err != nil {
@@ -522,6 +535,32 @@ func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool 
 		}
 	}
 	return false
+}
+
+// candidateInCGNAT checks if a candidate address falls within the RFC 6598 CGNAT range (100.64.0.0/10).
+// These addresses are commonly used by Kubernetes CNI plugins (Cilium, Calico) for pod networking
+// and are not routable between hosts, making them unsuitable as ICE candidates.
+// The wgNetwork parameter is the NetBird WireGuard network prefix — if the candidate address is within
+// this network, it is not filtered here (it's handled separately by the NetBird network check).
+func candidateInCGNAT(candidate ice.Candidate, wgNetwork netip.Prefix) bool {
+	addr, err := netip.ParseAddr(candidate.Address())
+	if err != nil {
+		return false
+	}
+
+	if !cgnatPrefix.Contains(addr) {
+		return false
+	}
+
+	// Don't filter if the address is within the WireGuard network itself —
+	// that's handled by the NetBird network membership check elsewhere.
+	if wgNetwork.IsValid() && wgNetwork.Contains(addr) {
+		return false
+	}
+
+	log.Debugf("Ignoring candidate [%s], its address %s is in the CGNAT range (%s) likely assigned by a CNI plugin",
+		candidate.String(), addr, cgnatPrefix)
+	return true
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {
