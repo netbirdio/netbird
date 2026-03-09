@@ -9,25 +9,19 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type managerImpl struct {
-	store              store.Store
-	permissionsManager permissions.Manager
-	geo                geolocation.Geolocation
-	cleanupCancel      context.CancelFunc
+	store         store.Store
+	geo           geolocation.Geolocation
+	cleanupCancel context.CancelFunc
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
+func NewManager(store store.Store, geo geolocation.Geolocation) accesslogs.Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		geo:                geo,
+		store: store,
+		geo:   geo,
 	}
 }
 
@@ -60,14 +54,6 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering
 func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, 0, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, 0, status.NewPermissionDeniedError()
-	}
-
 	if err := m.resolveUserFilters(ctx, accountID, filter); err != nil {
 		log.WithContext(ctx).Warnf("failed to resolve user filters: %v", err)
 	}

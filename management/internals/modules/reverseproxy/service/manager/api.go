@@ -6,11 +6,14 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -21,30 +24,24 @@ type handler struct {
 }
 
 // RegisterEndpoints registers all service HTTP endpoints.
-func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
+func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, permissionsManager permissions.Manager, router *mux.Router) {
 	h := &handler{
 		manager: manager,
 	}
 
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
-	domainmanager.RegisterEndpoints(domainRouter, domainManager)
+	domainmanager.RegisterEndpoints(domainRouter, domainManager, permissionsManager)
 
-	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
+	accesslogsmanager.RegisterEndpoints(router, accessLogsManager, permissionsManager)
 
-	router.HandleFunc("/reverse-proxies/services", h.getAllServices).Methods("GET", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/services", h.createService).Methods("POST", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.updateService).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.deleteService).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services", permissionsManager.WithPermission(modules.Services, operations.Read, h.getAllServices)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services", permissionsManager.WithPermission(modules.Services, operations.Create, h.createService)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", permissionsManager.WithPermission(modules.Services, operations.Read, h.getService)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", permissionsManager.WithPermission(modules.Services, operations.Update, h.updateService)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/services/{serviceId}", permissionsManager.WithPermission(modules.Services, operations.Delete, h.deleteService)).Methods("DELETE", "OPTIONS")
 }
 
-func (h *handler) getAllServices(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getAllServices(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	allServices, err := h.manager.GetAllServices(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -59,13 +56,7 @@ func (h *handler) getAllServices(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, apiServices)
 }
 
-func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) createService(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	var req api.ServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -73,12 +64,13 @@ func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	service := new(rpservice.Service)
+	var err error
 	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
-	if err = service.Validate(); err != nil {
+	if err := service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
@@ -92,13 +84,7 @@ func (h *handler) createService(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, createdService.ToAPIResponse())
 }
 
-func (h *handler) getService(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) getService(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	serviceID := mux.Vars(r)["serviceId"]
 	if serviceID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)
@@ -114,13 +100,7 @@ func (h *handler) getService(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, service.ToAPIResponse())
 }
 
-func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) updateService(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	serviceID := mux.Vars(r)["serviceId"]
 	if serviceID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)
@@ -135,12 +115,13 @@ func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
 
 	service := new(rpservice.Service)
 	service.ID = serviceID
+	var err error
 	if err = service.FromAPIRequest(&req, userAuth.AccountId); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
-	if err = service.Validate(); err != nil {
+	if err := service.Validate(); err != nil {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
@@ -154,13 +135,7 @@ func (h *handler) updateService(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, updatedService.ToAPIResponse())
 }
 
-func (h *handler) deleteService(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
+func (h *handler) deleteService(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	serviceID := mux.Vars(r)["serviceId"]
 	if serviceID == "" {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "service ID is required"), w)

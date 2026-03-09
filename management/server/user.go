@@ -18,8 +18,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -29,14 +27,6 @@ import (
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role types.UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*types.UserInfo, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if role == types.UserRoleOwner {
 		return nil, status.NewServiceUserRoleInvalidError()
 	}
@@ -46,7 +36,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
-	if err = am.Store.SaveUser(ctx, newUser); err != nil {
+	if err := am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
@@ -82,14 +72,6 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	if err := validateUserInvite(invite); err != nil {
 		return nil, err
-	}
-
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Users, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
 	}
 
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
@@ -305,14 +287,6 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
@@ -355,14 +329,6 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	// check if the user is already registered with this ID
 	user, err := am.lookupUserInCache(ctx, targetUserID, accountID)
 	if err != nil {
@@ -399,14 +365,6 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -439,14 +397,6 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
@@ -478,14 +428,6 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 
 // GetPAT returns a specific PAT from a user
 func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) (*types.PersonalAccessToken, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -505,14 +447,6 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 
 // GetAllPATs returns all PATs for a user
 func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) ([]*types.PersonalAccessToken, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
@@ -558,13 +492,6 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, nil //nolint:nilnil
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create) // TODO: split by Create and Update
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
@@ -955,12 +882,8 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, initiatorUserID string) (map[string]*types.UserInfo, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-
 	var user *types.User
+	var err error
 	if initiatorUserID != activity.SystemInitiator {
 		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 		if err != nil {
@@ -969,9 +892,16 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		user = result
 	}
 
+	// Permission checks are now handled by the HTTP middleware via WithPermission wrapper
+	// This internal method is called from authenticated/authorized handlers
 	accountUsers := []*types.User{}
+
+	// Determine if user has full access based on their role
+	// Service users and regular users have limited visibility
+	hasFullAccess := user.HasAdminPower()
+
 	switch {
-	case allowed:
+	case hasFullAccess:
 		start := time.Now()
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
@@ -1172,14 +1102,6 @@ func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUs
 // If an error occurs while deleting the user, the function skips it and continues deleting other users.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
@@ -1370,9 +1292,8 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
-		return nil, err
-	}
+	// Permission checks are now handled by the HTTP middleware via WithPermission wrapper
+	// User account association is already validated above by GetUserByUserID
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -1399,14 +1320,6 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 
 // ApproveUser approves a user that is pending approval
 func (am *DefaultAccountManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
@@ -1440,14 +1353,6 @@ func (am *DefaultAccountManager) ApproveUser(ctx context.Context, accountID, ini
 
 // RejectUser rejects a user that is pending approval by deleting them
 func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
@@ -1484,14 +1389,6 @@ func (am *DefaultAccountManager) CreateUserInvite(ctx context.Context, accountID
 
 	if err := validateUserInvite(invite); err != nil {
 		return nil, err
-	}
-
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
 	}
 
 	// Check if user already exists in NetBird DB
@@ -1604,14 +1501,6 @@ func (am *DefaultAccountManager) ListUserInvites(ctx context.Context, accountID,
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	records, err := am.Store.GetAccountUserInvites(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
@@ -1718,14 +1607,6 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 		return nil, status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	// Get existing invite
 	existingInvite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)
 	if err != nil {
@@ -1778,14 +1659,6 @@ func (am *DefaultAccountManager) RegenerateUserInvite(ctx context.Context, accou
 func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string) error {
 	if !IsEmbeddedIdp(am.idpManager) {
 		return status.Errorf(status.PreconditionFailed, "invite links are only available with embedded identity provider")
-	}
-
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
 	}
 
 	invite, err := am.Store.GetUserInviteByID(ctx, store.LockingStrengthUpdate, accountID, inviteID)

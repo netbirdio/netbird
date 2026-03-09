@@ -6,9 +6,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -25,31 +22,21 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store              store.Store
-	permissionsManager permissions.Manager
-	accountManager     account.Manager
+	store          store.Store
+	accountManager account.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
+func NewManager(store store.Store, accountManager account.Manager) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		accountManager:     accountManager,
+		store:          store,
+		accountManager: accountManager,
 	}
 }
 
 func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, err
-	}
-
 	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
@@ -73,14 +60,6 @@ func (m *managerImpl) GetAllGroupsMap(ctx context.Context, accountID, userID str
 }
 
 func (m *managerImpl) AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resource *types.Resource) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return err
-	}
-
 	event, err := m.AddResourceToGroupInTransaction(ctx, m.store, accountID, userID, groupID, resource)
 	if err != nil {
 		return fmt.Errorf("error adding resource to group: %w", err)

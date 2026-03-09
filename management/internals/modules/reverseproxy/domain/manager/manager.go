@@ -9,11 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type store interface {
@@ -32,32 +28,22 @@ type proxyManager interface {
 }
 
 type Manager struct {
-	store              store
-	validator          domain.Validator
-	proxyManager       proxyManager
-	permissionsManager permissions.Manager
+	store        store
+	validator    domain.Validator
+	proxyManager proxyManager
 }
 
-func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager) Manager {
+func NewManager(store store, proxyMgr proxyManager) Manager {
 	return Manager{
 		store:        store,
 		proxyManager: proxyMgr,
 		validator: domain.Validator{
 			Resolver: net.DefaultResolver,
 		},
-		permissionsManager: permissionsManager,
 	}
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
@@ -102,14 +88,6 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 }
 
 func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	// Verify the target cluster is in the available clusters
 	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
 	if err != nil {
@@ -140,14 +118,6 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
 		// TODO: check for "no records" type error. Because that is a success condition.
 		return fmt.Errorf("delete domain from store: %w", err)
@@ -156,21 +126,6 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 }
 
 func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
-		return
-	}
-	if !ok {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
-	}
-
 	log.WithFields(log.Fields{
 		"accountID": accountID,
 		"domainID":  domainID,

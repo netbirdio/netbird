@@ -22,6 +22,18 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 const (
 	existingSetupKeyID  = "existingSetupKeyID"
 	newSetupKeyName     = "New Setup Key"
@@ -171,11 +183,11 @@ func TestSetupKeysHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/setup-keys", handler.getAllSetupKeys).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys", handler.createSetupKey).Methods("POST", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.getSetupKey).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.updateSetupKey).Methods("PUT", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", handler.deleteSetupKey).Methods("DELETE", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", wrapHandler(handler.getAllSetupKeys)).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", wrapHandler(handler.createSetupKey)).Methods("POST", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.getSetupKey)).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.updateSetupKey)).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.deleteSetupKey)).Methods("DELETE", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

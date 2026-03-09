@@ -8,8 +8,6 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -22,14 +20,6 @@ const (
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 }
 
@@ -39,18 +29,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Update)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var updateAccountPeers bool
 	var eventsToStore []func()
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		if err = validateDNSSettings(ctx, transaction, accountID, dnsSettingsToSave); err != nil {
 			return err
 		}

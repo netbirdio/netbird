@@ -13,10 +13,10 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	roles2 "github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -1639,7 +1639,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Owner),
+				Permissions: mergeRolePermissions(roles2.Owner),
 			},
 		},
 		{
@@ -1658,7 +1658,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 			},
 		},
 		{
@@ -1677,7 +1677,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Admin),
+				Permissions: mergeRolePermissions(roles2.Admin),
 			},
 		},
 		{
@@ -1696,7 +1696,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 				Restricted:  true,
 			},
 		},
@@ -1717,7 +1717,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 				Restricted:  false,
 			},
 		},
@@ -1738,7 +1738,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Owner),
+				Permissions: mergeRolePermissions(roles2.Owner),
 			},
 		},
 	}
@@ -1758,8 +1758,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 }
 
-func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
-	permissions := roles.Permissions{}
+func mergeRolePermissions(role roles2.RolePermissions) roles2.Permissions {
+	permissions := roles2.Permissions{}
 
 	for k := range modules.All {
 		if rolePermissions, ok := role.Permissions[k]; ok {

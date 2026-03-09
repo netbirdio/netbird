@@ -18,8 +18,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -41,19 +39,9 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-
 	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	if err != nil {
 		return nil, err
-	}
-
-	// @note if the user has permission to read peers it shows all account peers
-	if allowed {
-		return accountPeers, nil
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -198,15 +186,8 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var peer *nbpeer.Peer
+	var err error
 	var settings *types.Settings
 	var peerGroupList []string
 	var peerLabelChanged bool
@@ -343,14 +324,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	p, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return err
@@ -418,15 +391,6 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 }
 
 func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
-	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return nil, err
@@ -445,14 +409,6 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 }
 
 func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return nil, err
@@ -472,14 +428,6 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return err
@@ -610,15 +558,7 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 		return status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 	}
 
-	if temporary {
-		allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
-		if err != nil {
-			return status.NewPermissionValidationError(err)
-		}
-		if !allowed {
-			return status.NewPermissionDeniedError()
-		}
-	} else {
+	if !temporary {
 		config.AccountID = user.AccountID
 		config.GroupsToAdd = user.AutoGroups
 	}
@@ -1233,14 +1173,6 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return nil, err
-	}
-
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if allowed {
-		return peer, nil
 	}
 
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)

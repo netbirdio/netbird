@@ -1,14 +1,14 @@
 package roles
 
 import (
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-var Auditor = RolePermissions{
-	Role: types.UserRoleAuditor,
+var User = RolePermissions{
+	Role: types.UserRoleUser,
 	AutoAllowNew: map[operations.Operation]bool{
-		operations.Read:   true,
+		operations.Read:   false,
 		operations.Create: false,
 		operations.Update: false,
 		operations.Delete: false,

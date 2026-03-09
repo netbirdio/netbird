@@ -24,6 +24,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
+// wrapHandler wraps a handler function that requires userAuth parameter
+func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		h(w, r, userAuth)
+	}
+}
+
 const (
 	existingNSGroupID    = "existingNSGroupID"
 	notFoundNSGroupID    = "notFoundNSGroupID"
@@ -201,10 +213,10 @@ func TestNameserversHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.getNameserverGroup).Methods("GET")
-			router.HandleFunc("/api/dns/nameservers", p.createNameserverGroup).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.deleteNameserverGroup).Methods("DELETE")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.updateNameserverGroup).Methods("PUT")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.getNameserverGroup)).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers", wrapHandler(p.createNameserverGroup)).Methods("POST")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.deleteNameserverGroup)).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.updateNameserverGroup)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

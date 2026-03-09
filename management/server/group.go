@@ -12,8 +12,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -32,13 +30,24 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
+	// Permission checks are now handled by the HTTP middleware via WithPermission wrapper
+	// This method is called from authenticated/authorized handlers, so we just validate
+	// that the user exists and is part of the account
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return err
 	}
 
-	if !allowed {
-		return status.NewPermissionDeniedError()
+	if user == nil {
+		return status.NewUserNotFoundError(userID)
+	}
+
+	if user.AccountID != accountID {
+		return status.NewUserNotPartOfAccountError()
+	}
+
+	if user.IsBlocked() {
+		return status.NewUserBlockedError()
 	}
 
 	return nil
@@ -67,18 +76,11 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 
 // CreateGroup object of the peers
 func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var eventsToStore []func()
 	var updateAccountPeers bool
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
 		}
@@ -122,19 +124,11 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 
 // UpdateGroup object of the peers
 func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var eventsToStore []func()
 	var updateAccountPeers bool
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
 		}
 
@@ -193,33 +187,24 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var eventsToStore []func()
 	var updateAccountPeers bool
 
 	var globalErr error
 	groupIDs := make([]string, 0, len(groups))
 	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+		err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
 			}
 
 			newGroup.AccountID = accountID
 
-			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
+			if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 				return err
 			}
 
-			err = transaction.IncrementNetworkSerial(ctx, accountID)
-			if err != nil {
+			if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return err
 			}
 
@@ -240,6 +225,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		}
 	}
 
+	var err error
 	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
 	if err != nil {
 		return err
@@ -261,21 +247,14 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var eventsToStore []func()
 	var updateAccountPeers bool
 
 	var globalErr error
 	groupIDs := make([]string, 0, len(groups))
 	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			var err error
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
 			}
@@ -308,6 +287,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		}
 	}
 
+	var err error
 	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
 	if err != nil {
 		return err
@@ -413,14 +393,6 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	var allErrors error
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group

@@ -7,10 +7,13 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -21,13 +24,13 @@ type handler struct {
 	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router, permissionsManager permissions.Manager) {
 	policiesHandler := newHandler(accountManager)
-	router.HandleFunc("/policies", policiesHandler.getAllPolicies).Methods("GET", "OPTIONS")
-	router.HandleFunc("/policies", policiesHandler.createPolicy).Methods("POST", "OPTIONS")
-	router.HandleFunc("/policies/{policyId}", policiesHandler.updatePolicy).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/policies/{policyId}", policiesHandler.getPolicy).Methods("GET", "OPTIONS")
-	router.HandleFunc("/policies/{policyId}", policiesHandler.deletePolicy).Methods("DELETE", "OPTIONS")
+	router.HandleFunc("/policies", permissionsManager.WithPermission(modules.Policies, operations.Read, policiesHandler.getAllPolicies)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/policies", permissionsManager.WithPermission(modules.Policies, operations.Create, policiesHandler.createPolicy)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", permissionsManager.WithPermission(modules.Policies, operations.Update, policiesHandler.updatePolicy)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", permissionsManager.WithPermission(modules.Policies, operations.Read, policiesHandler.getPolicy)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/policies/{policyId}", permissionsManager.WithPermission(modules.Policies, operations.Delete, policiesHandler.deletePolicy)).Methods("DELETE", "OPTIONS")
 }
 
 // newHandler creates a new policies handler
@@ -38,22 +41,14 @@ func newHandler(accountManager account.Manager) *handler {
 }
 
 // getAllPolicies list for the account
-func (h *handler) getAllPolicies(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+func (h *handler) getAllPolicies(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
+	listPolicies, err := h.accountManager.ListPolicies(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	listPolicies, err := h.accountManager.ListPolicies(r.Context(), accountID, userID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	allGroups, err := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	allGroups, err := h.accountManager.GetAllGroups(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -73,15 +68,7 @@ func (h *handler) getAllPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 // updatePolicy handles update to a policy identified by a given ID
-func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
+func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
 	if len(policyID) == 0 {
@@ -89,26 +76,18 @@ func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetPolicy(r.Context(), accountID, policyID, userID)
+	_, err := h.accountManager.GetPolicy(r.Context(), userAuth.AccountId, policyID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	h.savePolicy(w, r, accountID, userID, policyID, false)
+	h.savePolicy(w, r, userAuth.AccountId, userAuth.UserId, policyID, false)
 }
 
 // createPolicy handles policy creation request
-func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	h.savePolicy(w, r, accountID, userID, "", true)
+func (h *handler) createPolicy(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
+	h.savePolicy(w, r, userAuth.AccountId, userAuth.UserId, "", true)
 }
 
 // savePolicy handles policy creation and update
@@ -303,14 +282,7 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 }
 
 // deletePolicy handles policy deletion request
-func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
+func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
 	if len(policyID) == 0 {
@@ -318,7 +290,7 @@ func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = h.accountManager.DeletePolicy(r.Context(), accountID, policyID, userID); err != nil {
+	if err := h.accountManager.DeletePolicy(r.Context(), userAuth.AccountId, policyID, userAuth.UserId); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -327,15 +299,7 @@ func (h *handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 // getPolicy handles a group Get request identified by ID
-func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
+func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	policyID := vars["policyId"]
 	if len(policyID) == 0 {
@@ -343,13 +307,13 @@ func (h *handler) getPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.accountManager.GetPolicy(r.Context(), accountID, policyID, userID)
+	policy, err := h.accountManager.GetPolicy(r.Context(), userAuth.AccountId, policyID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	allGroups, err := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
+	allGroups, err := h.accountManager.GetAllGroups(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
