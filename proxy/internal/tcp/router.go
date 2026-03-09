@@ -187,7 +187,16 @@ func (r *Router) RemoveFallback(serviceID string) {
 
 // SetObserver sets the relay lifecycle observer. Must be called before Serve.
 func (r *Router) SetObserver(obs RelayObserver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.observer = obs
+}
+
+// getObserver returns the current relay observer under the read lock.
+func (r *Router) getObserver() RelayObserver {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.observer
 }
 
 // IsEmpty returns true when the router has no SNI routes and no fallback.
@@ -395,13 +404,15 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 	svcCtx := r.getOrCreateServiceCtxLocked(ctx, route.ServiceID)
 	r.mu.Unlock()
 
+	obs := r.getObserver()
+
 	select {
 	case r.relaySem <- struct{}{}:
 	default:
 		r.activeRelays.Done()
 		r.logger.Warn("TCP relay connection limit reached, rejecting connection")
-		if r.observer != nil {
-			r.observer.TCPRelayRejected(string(route.AccountID))
+		if obs != nil {
+			obs.TCPRelayRejected(string(route.AccountID))
 		}
 		_ = conn.Close()
 		return
@@ -434,8 +445,8 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 	dialCancel()
 	if err != nil {
 		entry.Warnf("failed to dial backend: %v", err)
-		if r.observer != nil {
-			r.observer.TCPRelayDialError(acct)
+		if obs != nil {
+			obs.TCPRelayDialError(acct)
 		}
 		_ = conn.Close()
 		return
@@ -450,15 +461,15 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 		}
 	}
 
-	if r.observer != nil {
-		r.observer.TCPRelayStarted(acct)
+	if obs != nil {
+		obs.TCPRelayStarted(acct)
 	}
 	entry.Debug("TCP relay started")
 	start := time.Now()
 	s2d, d2s := Relay(svcCtx, entry, conn, backend, DefaultIdleTimeout)
 	elapsed := time.Since(start)
-	if r.observer != nil {
-		r.observer.TCPRelayEnded(acct, elapsed, s2d, d2s)
+	if obs != nil {
+		obs.TCPRelayEnded(acct, elapsed, s2d, d2s)
 	}
 	entry.Debugf("TCP relay ended (client→backend: %d bytes, backend→client: %d bytes)", s2d, d2s)
 }
