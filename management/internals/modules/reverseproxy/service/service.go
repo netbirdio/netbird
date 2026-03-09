@@ -672,6 +672,8 @@ const (
 const (
 	TargetProtoHTTP  = "http"
 	TargetProtoHTTPS = "https"
+	TargetProtoTCP   = "tcp"
+	TargetProtoUDP   = "udp"
 )
 
 // IsL4Protocol returns true if the mode requires port-based routing (TCP, UDP, or TLS).
@@ -930,8 +932,8 @@ type ExposeServiceRequest struct {
 	NamePrefix string
 	Port       uint16
 	Mode       string
-	// TargetProtocol is the scheme used to connect to the peer (e.g. "https").
-	// Defaults to "http" when empty.
+	// TargetProtocol is the protocol used to connect to the peer backend.
+	// For HTTP mode: "http" (default) or "https". For L4 modes: "tcp" or "udp".
 	TargetProtocol string
 	Domain         string
 	Pin            string
@@ -1001,12 +1003,17 @@ func (r *ExposeServiceRequest) ToService(accountID, peerID, serviceName string) 
 		}
 	}
 
-	targetProto := ""
-	if !IsL4Protocol(r.Mode) {
+	var targetProto string
+	switch {
+	case !IsL4Protocol(r.Mode):
 		targetProto = TargetProtoHTTP
 		if r.TargetProtocol != "" {
 			targetProto = r.TargetProtocol
 		}
+	case r.Mode == ModeUDP:
+		targetProto = TargetProtoUDP
+	default:
+		targetProto = TargetProtoTCP
 	}
 	svc.Targets = []*Target{
 		{

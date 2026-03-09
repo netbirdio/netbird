@@ -334,6 +334,8 @@ const (
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
 	ServiceTargetProtocolHttps ServiceTargetProtocol = "https"
+	ServiceTargetProtocolTcp   ServiceTargetProtocol = "tcp"
+	ServiceTargetProtocolUdp   ServiceTargetProtocol = "udp"
 )
 
 // Defines values for ServiceTargetTargetType.

@@ -3092,7 +3092,7 @@ components:
         protocol:
           type: string
           description: Protocol to use when connecting to the backend
-          enum: [http, https]
+          enum: [http, https, tcp, udp]
         host:
           type: string
           description: Backend ip or domain for this target

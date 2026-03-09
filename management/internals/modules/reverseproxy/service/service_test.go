@@ -738,7 +738,7 @@ func TestValidate_TLSOnly(t *testing.T) {
 		Domain:     "example.com",
 		ListenPort: 8443,
 		Targets: []*Target{
-			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tls", Port: 443, Enabled: true},
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
 		},
 	}
 	require.NoError(t, rp.Validate())
@@ -751,7 +751,7 @@ func TestValidate_TLSMissingListenPort(t *testing.T) {
 		Domain:     "example.com",
 		ListenPort: 0,
 		Targets: []*Target{
-			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tls", Port: 443, Enabled: true},
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
 		},
 	}
 	assert.ErrorContains(t, rp.Validate(), "listen_port is required")
@@ -763,7 +763,7 @@ func TestValidate_TLSMissingDomain(t *testing.T) {
 		Mode:       "tls",
 		ListenPort: 8443,
 		Targets: []*Target{
-			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tls", Port: 443, Enabled: true},
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
 		},
 	}
 	assert.ErrorContains(t, rp.Validate(), "domain is required")
@@ -828,7 +828,7 @@ func TestValidate_TLSInvalidTargetType(t *testing.T) {
 		Domain:     "example.com",
 		ListenPort: 443,
 		Targets: []*Target{
-			{TargetId: "peer-1", TargetType: "invalid", Protocol: "tls", Port: 443, Enabled: true},
+			{TargetId: "peer-1", TargetType: "invalid", Protocol: "tcp", Port: 443, Enabled: true},
 		},
 	}
 	assert.Error(t, rp.Validate())
@@ -841,7 +841,7 @@ func TestValidate_TLSSubnetValid(t *testing.T) {
 		Domain:     "example.com",
 		ListenPort: 8443,
 		Targets: []*Target{
-			{TargetId: "subnet-1", TargetType: TargetTypeSubnet, Protocol: "tls", Port: 443, Host: "10.0.0.5", Enabled: true},
+			{TargetId: "subnet-1", TargetType: TargetTypeSubnet, Protocol: "tcp", Port: 443, Host: "10.0.0.5", Enabled: true},
 		},
 	}
 	require.NoError(t, rp.Validate())

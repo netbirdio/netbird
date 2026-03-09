@@ -235,10 +235,17 @@ func exposeProtocolToString(p proto.ExposeProtocol) (string, error) {
 }
 
 // exposeTargetProtocol returns the target protocol for the given expose protocol.
-// EXPOSE_HTTPS uses HTTP mode but connects to the peer over HTTPS.
+// For HTTP mode, this is http or https (the scheme used to connect to the backend).
+// For L4 modes, this is tcp or udp (the transport used to connect to the backend).
 func exposeTargetProtocol(p proto.ExposeProtocol) string {
-	if p == proto.ExposeProtocol_EXPOSE_HTTPS {
+	switch p {
+	case proto.ExposeProtocol_EXPOSE_HTTPS:
 		return rpservice.TargetProtoHTTPS
+	case proto.ExposeProtocol_EXPOSE_TCP, proto.ExposeProtocol_EXPOSE_TLS:
+		return rpservice.TargetProtoTCP
+	case proto.ExposeProtocol_EXPOSE_UDP:
+		return rpservice.TargetProtoUDP
+	default:
+		return rpservice.TargetProtoHTTP
 	}
-	return rpservice.TargetProtoHTTP
 }

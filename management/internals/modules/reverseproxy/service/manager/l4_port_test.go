@@ -188,7 +188,7 @@ func TestPortConflict_TLSSamePortDifferentDomain(t *testing.T) {
 		Enabled:      true,
 		Source:       "permanent",
 		Targets: []*rpservice.Target{
-			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tls", Port: 8443, Enabled: true},
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 8443, Enabled: true},
 		},
 	}
 	svc.InitNewRecord()
@@ -213,7 +213,7 @@ func TestPortConflict_TLSSamePortSameDomain(t *testing.T) {
 		Enabled:      true,
 		Source:       "permanent",
 		Targets: []*rpservice.Target{
-			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tls", Port: 8443, Enabled: true},
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 8443, Enabled: true},
 		},
 	}
 	svc.InitNewRecord()
@@ -312,7 +312,7 @@ func TestAutoAssign_TLSCustomPortAlwaysAllowed(t *testing.T) {
 		Enabled:      true,
 		Source:       "permanent",
 		Targets: []*rpservice.Target{
-			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tls", Port: 8443, Enabled: true},
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 8443, Enabled: true},
 		},
 	}
 	svc.InitNewRecord()
@@ -366,7 +366,7 @@ func TestAutoAssign_EphemeralTLSKeepsCustomPort(t *testing.T) {
 		Source:       "ephemeral",
 		SourcePeer:   testPeerID,
 		Targets: []*rpservice.Target{
-			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tls", Port: 8443, Enabled: true},
+			{AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer, Protocol: "tcp", Port: 8443, Enabled: true},
 		},
 	}
 	svc.InitNewRecord()
