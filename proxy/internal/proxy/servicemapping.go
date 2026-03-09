@@ -38,6 +38,11 @@ type Mapping struct {
 	Paths            map[string]*PathTarget
 	PassHostHeader   bool
 	RewriteRedirects bool
+	// StripAuthHeaders are header names used for header-based auth.
+	// These headers are stripped from requests before forwarding.
+	StripAuthHeaders []string
+	// sortedPaths caches the paths sorted by length (longest first).
+	sortedPaths []string
 }
 
 type targetResult struct {
@@ -47,6 +52,7 @@ type targetResult struct {
 	accountID        types.AccountID
 	passHostHeader   bool
 	rewriteRedirects bool
+	stripAuthHeaders []string
 }
 
 func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bool) {
@@ -65,16 +71,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 		return targetResult{}, false
 	}
 
-	// Sort paths by length (longest first) in a naive attempt to match the most specific route first.
-	paths := make([]string, 0, len(m.Paths))
-	for path := range m.Paths {
-		paths = append(paths, path)
-	}
-	sort.Slice(paths, func(i, j int) bool {
-		return len(paths[i]) > len(paths[j])
-	})
-
-	for _, path := range paths {
+	for _, path := range m.sortedPaths {
 		if strings.HasPrefix(req.URL.Path, path) {
 			pt := m.Paths[path]
 			if pt == nil || pt.URL == nil {
@@ -89,6 +86,7 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 				accountID:        m.AccountID,
 				passHostHeader:   m.PassHostHeader,
 				rewriteRedirects: m.RewriteRedirects,
+				stripAuthHeaders: m.StripAuthHeaders,
 			}, true
 		}
 	}
@@ -96,7 +94,18 @@ func (p *ReverseProxy) findTargetForRequest(req *http.Request) (targetResult, bo
 	return targetResult{}, false
 }
 
+// AddMapping registers a host-to-backend mapping for the reverse proxy.
 func (p *ReverseProxy) AddMapping(m Mapping) {
+	// Sort paths longest-first to match the most specific route first.
+	paths := make([]string, 0, len(m.Paths))
+	for path := range m.Paths {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		return len(paths[i]) > len(paths[j])
+	})
+	m.sortedPaths = paths
+
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()
 	p.mappings[m.Host] = m

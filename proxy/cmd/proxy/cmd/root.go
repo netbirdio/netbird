@@ -36,31 +36,33 @@ var (
 
 var (
 	logLevel            string
-	debugLogs           bool
-	mgmtAddr            string
-	addr                string
-	proxyDomain         string
-	defaultDialTimeout  time.Duration
-	certDir             string
-	acmeCerts           bool
-	acmeAddr            string
-	acmeDir             string
-	acmeEABKID          string
-	acmeEABHMACKey      string
-	acmeChallengeType   string
-	debugEndpoint       bool
-	debugEndpointAddr   string
-	healthAddr          string
-	forwardedProto      string
-	trustedProxies      string
-	certFile            string
-	certKeyFile         string
-	certLockMethod      string
-	wildcardCertDir     string
-	wgPort              uint16
-	proxyProtocol       bool
-	preSharedKey        string
-	supportsCustomPorts bool
+	debugLogs             bool
+	mgmtAddr              string
+	addr                  string
+	proxyDomain           string
+	defaultDialTimeout    time.Duration
+	maxSessionIdleTimeout time.Duration
+	certDir               string
+	acmeCerts             bool
+	acmeAddr              string
+	acmeDir               string
+	acmeEABKID            string
+	acmeEABHMACKey        string
+	acmeChallengeType     string
+	debugEndpoint         bool
+	debugEndpointAddr     string
+	healthAddr            string
+	forwardedProto        string
+	trustedProxies        string
+	certFile              string
+	certKeyFile           string
+	certLockMethod        string
+	wildcardCertDir       string
+	wgPort                uint16
+	proxyProtocol         bool
+	preSharedKey          string
+	supportsCustomPorts   bool
+	geoDataDir            string
 )
 
 var rootCmd = &cobra.Command{
@@ -100,6 +102,8 @@ func init() {
 	rootCmd.Flags().StringVar(&preSharedKey, "preshared-key", envStringOrDefault("NB_PROXY_PRESHARED_KEY", ""), "Define a pre-shared key for the tunnel between proxy and peers")
 	rootCmd.Flags().BoolVar(&supportsCustomPorts, "supports-custom-ports", envBoolOrDefault("NB_PROXY_SUPPORTS_CUSTOM_PORTS", true), "Whether the proxy can bind arbitrary ports for UDP/TCP passthrough")
 	rootCmd.Flags().DurationVar(&defaultDialTimeout, "default-dial-timeout", envDurationOrDefault("NB_PROXY_DEFAULT_DIAL_TIMEOUT", 0), "Default backend dial timeout when no per-service timeout is set (e.g. 30s)")
+	rootCmd.Flags().DurationVar(&maxSessionIdleTimeout, "max-session-idle-timeout", envDurationOrDefault("NB_PROXY_MAX_SESSION_IDLE_TIMEOUT", 0), "Cap per-service session idle timeout (0 = no cap)")
+	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
 }
 
 // Execute runs the root command.
@@ -178,16 +182,14 @@ func runServer(cmd *cobra.Command, args []string) error {
 		PreSharedKey:             preSharedKey,
 		SupportsCustomPorts:      supportsCustomPorts,
 		DefaultDialTimeout:       defaultDialTimeout,
+		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
+		GeoDataDir:               geoDataDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	if err := srv.ListenAndServe(ctx, addr); err != nil {
-		logger.Error(err)
-		return err
-	}
-	return nil
+	return srv.ListenAndServe(ctx, addr)
 }
 
 func envBoolOrDefault(key string, def bool) bool {
@@ -197,6 +199,7 @@ func envBoolOrDefault(key string, def bool) bool {
 	}
 	parsed, err := strconv.ParseBool(v)
 	if err != nil {
+		log.Warnf("parse %s=%q: %v, using default %v", key, v, err, def)
 		return def
 	}
 	return parsed
@@ -217,6 +220,7 @@ func envUint16OrDefault(key string, def uint16) uint16 {
 	}
 	parsed, err := strconv.ParseUint(v, 10, 16)
 	if err != nil {
+		log.Warnf("parse %s=%q: %v, using default %d", key, v, err, def)
 		return def
 	}
 	return uint16(parsed)

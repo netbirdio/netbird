@@ -22,6 +22,16 @@ const (
 	usageCleanupPeriod  = 1 * time.Hour      // Clean up stale counters every hour
 	usageInactiveWindow = 24 * time.Hour     // Consider domain inactive if no traffic for 24 hours
 	logSendTimeout      = 10 * time.Second
+
+	// denyCooldown is the min interval between deny log entries per service+reason
+	// to prevent flooding from denied connections (e.g. UDP packets from blocked IPs).
+	denyCooldown = 10 * time.Second
+
+	// maxDenyBuckets caps tracked deny rate-limit entries to bound memory under DDoS.
+	maxDenyBuckets = 10000
+
+	// maxLogWorkers caps concurrent gRPC send goroutines.
+	maxLogWorkers = 4096
 )
 
 type domainUsage struct {
@@ -38,6 +48,18 @@ type gRPCClient interface {
 	SendAccessLog(ctx context.Context, in *proto.SendAccessLogRequest, opts ...grpc.CallOption) (*proto.SendAccessLogResponse, error)
 }
 
+// denyBucketKey identifies a rate-limited deny log stream.
+type denyBucketKey struct {
+	ServiceID types.ServiceID
+	Reason    string
+}
+
+// denyBucket tracks rate-limited deny log entries.
+type denyBucket struct {
+	lastLogged time.Time
+	suppressed int64
+}
+
 // Logger sends access log entries to the management server via gRPC.
 type Logger struct {
 	client         gRPCClient
@@ -47,6 +69,10 @@ type Logger struct {
 	usageMux    sync.Mutex
 	domainUsage map[string]*domainUsage
 
+	denyMu      sync.Mutex
+	denyBuckets map[denyBucketKey]*denyBucket
+
+	logSem        chan struct{}
 	cleanupCancel context.CancelFunc
 }
 
@@ -64,6 +90,8 @@ func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Pre
 		logger:         logger,
 		trustedProxies: trustedProxies,
 		domainUsage:    make(map[string]*domainUsage),
+		denyBuckets:    make(map[denyBucketKey]*denyBucket),
+		logSem:         make(chan struct{}, maxLogWorkers),
 		cleanupCancel:  cancel,
 	}
 
@@ -83,7 +111,7 @@ func (l *Logger) Close() {
 type logEntry struct {
 	ID            string
 	AccountID     types.AccountID
-	ServiceId     types.ServiceID
+	ServiceID     types.ServiceID
 	Host          string
 	Path          string
 	DurationMs    int64
@@ -91,7 +119,7 @@ type logEntry struct {
 	ResponseCode  int32
 	SourceIP      netip.Addr
 	AuthMechanism string
-	UserId        string
+	UserID        string
 	AuthSuccess   bool
 	BytesUpload   int64
 	BytesDownload int64
@@ -118,6 +146,10 @@ type L4Entry struct {
 	DurationMs    int64
 	BytesUpload   int64
 	BytesDownload int64
+	// DenyReason, when non-empty, indicates the connection was denied.
+	// Values match the HTTP auth mechanism strings: "ip_restricted",
+	// "country_restricted", "geo_unavailable".
+	DenyReason string
 }
 
 // LogL4 sends an access log entry for a layer-4 connection (TCP or UDP).
@@ -126,7 +158,7 @@ func (l *Logger) LogL4(entry L4Entry) {
 	le := logEntry{
 		ID:            xid.New().String(),
 		AccountID:     entry.AccountID,
-		ServiceId:     entry.ServiceID,
+		ServiceID:     entry.ServiceID,
 		Protocol:      entry.Protocol,
 		Host:          entry.Host,
 		SourceIP:      entry.SourceIP,
@@ -134,8 +166,45 @@ func (l *Logger) LogL4(entry L4Entry) {
 		BytesUpload:   entry.BytesUpload,
 		BytesDownload: entry.BytesDownload,
 	}
+	if entry.DenyReason != "" {
+		if !l.allowDenyLog(entry.ServiceID, entry.DenyReason) {
+			return
+		}
+		le.AuthMechanism = entry.DenyReason
+		le.AuthSuccess = false
+	}
 	l.log(le)
 	l.trackUsage(entry.Host, entry.BytesUpload+entry.BytesDownload)
+}
+
+// allowDenyLog rate-limits deny log entries per service+reason combination.
+func (l *Logger) allowDenyLog(serviceID types.ServiceID, reason string) bool {
+	key := denyBucketKey{ServiceID: serviceID, Reason: reason}
+	now := time.Now()
+
+	l.denyMu.Lock()
+	defer l.denyMu.Unlock()
+
+	b, ok := l.denyBuckets[key]
+	if !ok {
+		if len(l.denyBuckets) >= maxDenyBuckets {
+			return false
+		}
+		l.denyBuckets[key] = &denyBucket{lastLogged: now}
+		return true
+	}
+
+	if now.Sub(b.lastLogged) >= denyCooldown {
+		if b.suppressed > 0 {
+			l.logger.Debugf("access restriction: suppressed %d deny log entries for %s (%s)", b.suppressed, serviceID, reason)
+		}
+		b.lastLogged = now
+		b.suppressed = 0
+		return true
+	}
+
+	b.suppressed++
+	return false
 }
 
 func (l *Logger) log(entry logEntry) {
@@ -147,12 +216,20 @@ func (l *Logger) log(entry logEntry) {
 	// There is also a chance that log messages will arrive at
 	// the server out of order; however, the timestamp should
 	// allow for resolving that on the server.
-	now := timestamppb.Now() // Grab the timestamp before launching the goroutine to try to prevent weird timing issues. This is probably unnecessary.
+	now := timestamppb.Now()
+	select {
+	case l.logSem <- struct{}{}:
+	default:
+		l.logger.Debug("access log send dropped: worker limit reached")
+		return
+	}
 	go func() {
+		defer func() { <-l.logSem }()
 		logCtx, cancel := context.WithTimeout(context.Background(), logSendTimeout)
 		defer cancel()
+		// Only OIDC sessions have a meaningful user identity.
 		if entry.AuthMechanism != auth.MethodOIDC.String() {
-			entry.UserId = ""
+			entry.UserID = ""
 		}
 
 		var sourceIP string
@@ -165,7 +242,7 @@ func (l *Logger) log(entry logEntry) {
 				LogId:         entry.ID,
 				AccountId:     string(entry.AccountID),
 				Timestamp:     now,
-				ServiceId:     string(entry.ServiceId),
+				ServiceId:     string(entry.ServiceID),
 				Host:          entry.Host,
 				Path:          entry.Path,
 				DurationMs:    entry.DurationMs,
@@ -173,7 +250,7 @@ func (l *Logger) log(entry logEntry) {
 				ResponseCode:  entry.ResponseCode,
 				SourceIp:      sourceIP,
 				AuthMechanism: entry.AuthMechanism,
-				UserId:        entry.UserId,
+				UserId:        entry.UserID,
 				AuthSuccess:   entry.AuthSuccess,
 				BytesUpload:   entry.BytesUpload,
 				BytesDownload: entry.BytesDownload,
@@ -181,7 +258,7 @@ func (l *Logger) log(entry logEntry) {
 			},
 		}); err != nil {
 			l.logger.WithFields(log.Fields{
-				"service_id":     entry.ServiceId,
+				"service_id":     entry.ServiceID,
 				"host":           entry.Host,
 				"path":           entry.Path,
 				"duration":       entry.DurationMs,
@@ -189,7 +266,7 @@ func (l *Logger) log(entry logEntry) {
 				"response_code":  entry.ResponseCode,
 				"source_ip":      sourceIP,
 				"auth_mechanism": entry.AuthMechanism,
-				"user_id":        entry.UserId,
+				"user_id":        entry.UserID,
 				"auth_success":   entry.AuthSuccess,
 				"error":          err,
 			}).Error("Error sending access log on gRPC connection")
@@ -248,7 +325,7 @@ func (l *Logger) trackUsage(domain string, bytesTransferred int64) {
 	}
 }
 
-// cleanupStaleUsage removes usage entries for domains that have been inactive.
+// cleanupStaleUsage removes usage and deny-rate-limit entries that have been inactive.
 func (l *Logger) cleanupStaleUsage(ctx context.Context) {
 	ticker := time.NewTicker(usageCleanupPeriod)
 	defer ticker.Stop()
@@ -258,20 +335,41 @@ func (l *Logger) cleanupStaleUsage(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			l.usageMux.Lock()
 			now := time.Now()
-			removed := 0
-			for domain, usage := range l.domainUsage {
-				if now.Sub(usage.lastActivity) > usageInactiveWindow {
-					delete(l.domainUsage, domain)
-					removed++
-				}
-			}
-			l.usageMux.Unlock()
-
-			if removed > 0 {
-				l.logger.Debugf("cleaned up %d stale domain usage entries", removed)
-			}
+			l.cleanupDomainUsage(now)
+			l.cleanupDenyBuckets(now)
 		}
+	}
+}
+
+func (l *Logger) cleanupDomainUsage(now time.Time) {
+	l.usageMux.Lock()
+	defer l.usageMux.Unlock()
+
+	removed := 0
+	for domain, usage := range l.domainUsage {
+		if now.Sub(usage.lastActivity) > usageInactiveWindow {
+			delete(l.domainUsage, domain)
+			removed++
+		}
+	}
+	if removed > 0 {
+		l.logger.Debugf("cleaned up %d stale domain usage entries", removed)
+	}
+}
+
+func (l *Logger) cleanupDenyBuckets(now time.Time) {
+	l.denyMu.Lock()
+	defer l.denyMu.Unlock()
+
+	removed := 0
+	for key, bucket := range l.denyBuckets {
+		if now.Sub(bucket.lastLogged) > usageInactiveWindow {
+			delete(l.denyBuckets, key)
+			removed++
+		}
+	}
+	if removed > 0 {
+		l.logger.Debugf("cleaned up %d stale deny rate-limit entries", removed)
 	}
 }

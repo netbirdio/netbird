@@ -229,6 +229,12 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		return fmt.Errorf("hash secrets: %w", err)
 	}
 
+	for i, h := range service.Auth.HeaderAuths {
+		if h != nil && h.Enabled && h.Value == "" {
+			return status.Errorf(status.InvalidArgument, "header_auths[%d]: value is required", i)
+		}
+	}
+
 	keyPair, err := sessionkey.GenerateKeyPair()
 	if err != nil {
 		return fmt.Errorf("generate session keys: %w", err)
@@ -488,6 +494,9 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 		}
 
 		m.preserveExistingAuthSecrets(service, existingService)
+		if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
+			return err
+		}
 		m.preserveServiceMetadata(service, existingService)
 		m.preserveListenPort(service, existingService)
 		updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
@@ -556,6 +565,34 @@ func (m *Manager) preserveExistingAuthSecrets(service, existingService *service.
 		service.Auth.PinAuth.Pin == "" {
 		service.Auth.PinAuth = existingService.Auth.PinAuth
 	}
+
+	// Preserve existing header auth hashes when the value is empty (not re-entered).
+	if len(service.Auth.HeaderAuths) > 0 && len(existingService.Auth.HeaderAuths) > 0 {
+		existingByHeader := make(map[string]string, len(existingService.Auth.HeaderAuths))
+		for _, h := range existingService.Auth.HeaderAuths {
+			if h != nil && h.Value != "" {
+				existingByHeader[h.Header] = h.Value
+			}
+		}
+		for _, h := range service.Auth.HeaderAuths {
+			if h != nil && h.Enabled && h.Value == "" {
+				if hash, ok := existingByHeader[h.Header]; ok {
+					h.Value = hash
+				}
+			}
+		}
+	}
+}
+
+// validateHeaderAuthValues checks that all enabled header auths have a value
+// (either freshly provided or preserved from the existing service).
+func validateHeaderAuthValues(headers []*service.HeaderAuthConfig) error {
+	for i, h := range headers {
+		if h != nil && h.Enabled && h.Value == "" {
+			return status.Errorf(status.InvalidArgument, "header_auths[%d]: value is required", i)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) preserveServiceMetadata(service, existingService *service.Service) {
@@ -605,6 +642,8 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 				}
 				return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
 			}
+		default:
+			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
 	}
 	return nil

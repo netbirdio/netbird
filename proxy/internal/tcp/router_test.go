@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -1667,4 +1668,74 @@ func startEchoPlain(t *testing.T) net.Listener {
 	}()
 
 	return ln
+}
+
+// fakeAddr implements net.Addr with a custom string representation.
+type fakeAddr string
+
+func (f fakeAddr) Network() string { return "tcp" }
+func (f fakeAddr) String() string  { return string(f) }
+
+// fakeConn is a minimal net.Conn with a controllable RemoteAddr.
+type fakeConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (f *fakeConn) RemoteAddr() net.Addr { return f.remote }
+
+func TestCheckRestrictions_UnparseableAddress(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	route := Route{Filter: filter}
+
+	conn := &fakeConn{remote: fakeAddr("not-an-ip")}
+	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(conn, route), "unparseable address must be denied")
+}
+
+func TestCheckRestrictions_NilRemoteAddr(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	route := Route{Filter: filter}
+
+	conn := &fakeConn{remote: nil}
+	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(conn, route), "nil remote address must be denied")
+}
+
+func TestCheckRestrictions_AllowedAndDenied(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	route := Route{Filter: filter}
+
+	allowed := &fakeConn{remote: &net.TCPAddr{IP: net.IPv4(10, 1, 2, 3), Port: 1234}}
+	assert.Equal(t, restrict.Allow, router.checkRestrictions(allowed, route), "10.1.2.3 in allowlist")
+
+	denied := &fakeConn{remote: &net.TCPAddr{IP: net.IPv4(192, 168, 1, 1), Port: 1234}}
+	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(denied, route), "192.168.1.1 not in allowlist")
+}
+
+func TestCheckRestrictions_NilFilter(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	route := Route{Filter: nil}
+
+	conn := &fakeConn{remote: fakeAddr("not-an-ip")}
+	assert.Equal(t, restrict.Allow, router.checkRestrictions(conn, route), "nil filter should allow everything")
+}
+
+func TestCheckRestrictions_IPv4MappedIPv6(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	route := Route{Filter: filter}
+
+	// net.IPv4() returns a 16-byte v4-in-v6 representation internally.
+	// The restriction check must Unmap it to match the v4 CIDR.
+	conn := &fakeConn{remote: &net.TCPAddr{IP: net.IPv4(10, 1, 2, 3), Port: 5678}}
+	assert.Equal(t, restrict.Allow, router.checkRestrictions(conn, route), "v4-in-v6 TCPAddr must match v4 CIDR")
+
+	// Explicitly v4-mapped-v6 address string.
+	conn6 := &fakeConn{remote: fakeAddr("[::ffff:10.1.2.3]:5678")}
+	assert.Equal(t, restrict.Allow, router.checkRestrictions(conn6, route), "::ffff:10.1.2.3 must match v4 CIDR")
+
+	connOutside := &fakeConn{remote: fakeAddr("[::ffff:192.168.1.1]:5678")}
+	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(connOutside, route), "::ffff:192.168.1.1 not in v4 CIDR")
 }

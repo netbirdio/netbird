@@ -2826,6 +2826,10 @@ components:
           type: string
           description: "City name from geolocation"
           example: "San Francisco"
+        subdivision_code:
+          type: string
+          description: "First-level administrative subdivision ISO code (e.g. state/province)"
+          example: "CA"
         bytes_upload:
           type: integer
           format: int64
@@ -2992,6 +2996,8 @@ components:
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
           $ref: '#/components/schemas/ServiceAuthConfig'
+        access_restrictions:
+          $ref: '#/components/schemas/AccessRestrictions'
         meta:
           $ref: '#/components/schemas/ServiceMeta'
       required:
@@ -3065,6 +3071,8 @@ components:
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
         auth:
           $ref: '#/components/schemas/ServiceAuthConfig'
+        access_restrictions:
+          $ref: '#/components/schemas/AccessRestrictions'
       required:
         - name
         - domain
@@ -3144,6 +3152,51 @@ components:
           $ref: '#/components/schemas/BearerAuthConfig'
         link_auth:
           $ref: '#/components/schemas/LinkAuthConfig'
+        header_auths:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeaderAuthConfig'
+    HeaderAuthConfig:
+      type: object
+      description: Static header-value authentication. The proxy checks that the named header matches the configured value.
+      properties:
+        enabled:
+          type: boolean
+          description: Whether header auth is enabled
+        header:
+          type: string
+          description: HTTP header name to check (e.g. "Authorization", "X-API-Key")
+        value:
+          type: string
+          description: Expected header value. For Basic auth use "Basic base64(user:pass)". For Bearer use "Bearer token". Cleared in responses.
+      required:
+        - enabled
+        - header
+        - value
+    AccessRestrictions:
+      type: object
+      description: Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+      properties:
+        allowed_cidrs:
+          type: array
+          items:
+            type: string
+          description: CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
+        blocked_cidrs:
+          type: array
+          items:
+            type: string
+          description: CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
+        allowed_countries:
+          type: array
+          items:
+            type: string
+          description: ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
+        blocked_countries:
+          type: array
+          items:
+            type: string
+          description: ISO 3166-1 alpha-2 country codes to block.
     PasswordAuthConfig:
       type: object
       properties:

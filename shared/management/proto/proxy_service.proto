@@ -80,12 +80,27 @@ message PathMapping {
   PathTargetOptions options = 3;
 }
 
+message HeaderAuth {
+  // Header name to check, e.g. "Authorization", "X-API-Key".
+  string header = 1;
+  // argon2id hash of the expected full header value.
+  string hashed_value = 2;
+}
+
 message Authentication {
   string session_key = 1;
   int64 max_session_age_seconds = 2;
   bool password = 3;
   bool pin = 4;
   bool oidc = 5;
+  repeated HeaderAuth header_auths = 6;
+}
+
+message AccessRestrictions {
+  repeated string allowed_cidrs = 1;
+  repeated string blocked_cidrs = 2;
+  repeated string allowed_countries = 3;
+  repeated string blocked_countries = 4;
 }
 
 message ProxyMapping {
@@ -106,6 +121,7 @@ message ProxyMapping {
   string mode = 10;
   // For L4/TLS: the port the proxy listens on.
   int32 listen_port = 11;
+  AccessRestrictions access_restrictions = 12;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -141,7 +157,12 @@ message AuthenticateRequest {
   oneof request {
     PasswordRequest password = 3;
     PinRequest pin = 4;
+    HeaderAuthRequest header_auth = 5;
   }
+}
+
+message HeaderAuthRequest {
+  string header_value = 1;
 }
 
 message PasswordRequest {
