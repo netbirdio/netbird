@@ -13,13 +13,14 @@ import (
 )
 
 type Metrics struct {
-	ctx               context.Context
-	requestsTotal     metric.Int64Counter
-	activeRequests    metric.Int64UpDownCounter
-	configuredDomains metric.Int64UpDownCounter
-	totalPaths        metric.Int64UpDownCounter
-	requestDuration   metric.Int64Histogram
-	backendDuration   metric.Int64Histogram
+	ctx                      context.Context
+	requestsTotal            metric.Int64Counter
+	activeRequests           metric.Int64UpDownCounter
+	configuredDomains        metric.Int64UpDownCounter
+	totalPaths               metric.Int64UpDownCounter
+	requestDuration          metric.Int64Histogram
+	backendDuration          metric.Int64Histogram
+	certificateIssueDuration metric.Int64Histogram
 
 	mappingsMux  sync.Mutex
 	mappingPaths map[string]int
@@ -80,15 +81,25 @@ func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	certificateIssueDuration, err := meter.Int64Histogram(
+		"proxy.certificate.issue.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of ACME certificate issuance"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Metrics{
-		ctx:               ctx,
-		requestsTotal:     requestsTotal,
-		activeRequests:    activeRequests,
-		configuredDomains: configuredDomains,
-		totalPaths:        totalPaths,
-		requestDuration:   requestDuration,
-		backendDuration:   backendDuration,
-		mappingPaths:      make(map[string]int),
+		ctx:                      ctx,
+		requestsTotal:            requestsTotal,
+		activeRequests:           activeRequests,
+		configuredDomains:        configuredDomains,
+		totalPaths:               totalPaths,
+		requestDuration:          requestDuration,
+		backendDuration:          backendDuration,
+		certificateIssueDuration: certificateIssueDuration,
+		mappingPaths:             make(map[string]int),
 	}, nil
 }
 
@@ -178,4 +189,9 @@ func (m *Metrics) RemoveMapping(mapping proxy.Mapping) {
 	m.totalPaths.Add(m.ctx, -int64(oldPathCount))
 
 	delete(m.mappingPaths, mapping.Host)
+}
+
+// RecordCertificateIssuance records the duration of a certificate issuance.
+func (m *Metrics) RecordCertificateIssuance(duration time.Duration) {
+	m.certificateIssueDuration.Record(m.ctx, duration.Milliseconds())
 }

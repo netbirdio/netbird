@@ -437,7 +437,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
