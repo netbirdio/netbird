@@ -340,10 +340,10 @@ const (
 
 // Defines values for ServiceTargetTargetType.
 const (
-	ServiceTargetTargetTypeHost     ServiceTargetTargetType = "host"
-	ServiceTargetTargetTypePeer     ServiceTargetTargetType = "peer"
-	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
-	ServiceTargetTargetTypeSubnet   ServiceTargetTargetType = "subnet"
+	ServiceTargetTargetTypeDomain ServiceTargetTargetType = "domain"
+	ServiceTargetTargetTypeHost   ServiceTargetTargetType = "host"
+	ServiceTargetTargetTypePeer   ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeSubnet ServiceTargetTargetType = "subnet"
 )
 
 // Defines values for ServiceTargetOptionsPathRewrite.
@@ -2497,7 +2497,7 @@ type ProxyAccessLogsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
-// ProxyCluster defines model for ProxyCluster.
+// ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
@@ -3376,6 +3376,9 @@ type ZoneRequest struct {
 	// Name Zone name identifier
 	Name string `json:"name"`
 }
+
+// Conflict Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
+type Conflict = ErrorResponse
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {

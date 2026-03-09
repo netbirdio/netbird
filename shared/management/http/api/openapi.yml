@@ -3085,7 +3085,7 @@ components:
         target_type:
           type: string
           description: Target type
-          enum: [peer, resource, host, subnet]
+          enum: [peer, host, domain, subnet]
         path:
           type: string
           description: URL path prefix for this target (HTTP only)
