@@ -420,14 +420,6 @@ func (s *serviceClient) updateExitNodes() bool {
 }
 
 func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
-	var exitNodeIDs []exitNodeState
-	for _, node := range exitNodes {
-		exitNodeIDs = append(exitNodeIDs, exitNodeState{
-			id:       node.ID,
-			selected: node.Selected,
-		})
-	}
-
 	for _, node := range s.mExitNodeItems {
 		node.cancel()
 		node.Hide()
