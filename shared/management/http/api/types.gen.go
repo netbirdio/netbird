@@ -2495,6 +2495,15 @@ type ProxyAccessLogsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
+// ProxyCluster defines model for ProxyCluster.
+type ProxyCluster struct {
+	// Address Cluster address used for CNAME targets
+	Address string `json:"address"`
+
+	// ConnectedProxies Number of proxy nodes connected in this cluster
+	ConnectedProxies int `json:"connected_proxies"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource

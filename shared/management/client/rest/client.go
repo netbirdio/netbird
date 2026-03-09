@@ -129,6 +129,9 @@ type Client struct {
 	// ReverseProxyServices NetBird reverse proxy services APIs
 	ReverseProxyServices *ReverseProxyServicesAPI
 
+	// ReverseProxyClusters NetBird reverse proxy clusters APIs
+	ReverseProxyClusters *ReverseProxyClustersAPI
+
 	// ReverseProxyDomains NetBird reverse proxy domains APIs
 	ReverseProxyDomains *ReverseProxyDomainsAPI
 }
@@ -187,6 +190,7 @@ func (c *Client) initialize() {
 	c.Ingress = &IngressAPI{c}
 	c.Instance = &InstanceAPI{c}
 	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
+	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
 	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
 }
 
