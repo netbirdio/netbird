@@ -115,6 +115,8 @@ message AccessLog {
   string auth_mechanism = 11;
   string user_id = 12;
   bool auth_success = 13;
+  int64 bytes_upload = 14;
+  int64 bytes_download = 15;
 }
 
 message AuthenticateRequest {

@@ -32,6 +32,14 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			status:            http.StatusOK,
 		}
 
+		var bytesRead int64
+		if r.Body != nil {
+			r.Body = &bodyCounter{
+				ReadCloser: r.Body,
+				bytesRead:  &bytesRead,
+			}
+		}
+
 		// Resolve the source IP using trusted proxy configuration before passing
 		// the request on, as the proxy will modify forwarding headers.
 		sourceIp := extractSourceIP(r, l.trustedProxies)
@@ -53,6 +61,9 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			host = r.Host
 		}
 
+		bytesUpload := bytesRead
+		bytesDownload := sw.bytesWritten
+
 		entry := logEntry{
 			ID:            requestID,
 			ServiceId:     capturedData.GetServiceId(),
@@ -66,10 +77,15 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			AuthMechanism: capturedData.GetAuthMethod(),
 			UserId:        capturedData.GetUserID(),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
+			BytesUpload:   bytesUpload,
+			BytesDownload: bytesDownload,
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
 			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceId(), capturedData.GetAccountId())
 
 		l.log(r.Context(), entry)
+
+		// Track usage for cost monitoring (upload + download) by domain
+		l.trackUsage(host, bytesUpload+bytesDownload)
 	})
 }
