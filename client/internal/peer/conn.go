@@ -31,6 +31,7 @@ import (
 type MetricsRecorder interface {
 	RecordConnectionStages(
 		ctx context.Context,
+		remotePubKey string,
 		connectionType metrics.ConnectionType,
 		isReconnection bool,
 		timestamps metrics.ConnectionStageTimestamps,
@@ -846,6 +847,7 @@ func (conn *Conn) recordConnectionMetrics() {
 	// Record metrics with timestamps - duration calculation happens in metrics package
 	conn.metricsRecorder.RecordConnectionStages(
 		context.Background(),
+		conn.config.Key,
 		connType,
 		conn.metricsStages.IsReconnection(),
 		conn.metricsStages.GetTimestamps(),

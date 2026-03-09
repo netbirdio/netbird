@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"sync"
@@ -17,6 +19,25 @@ type AgentInfo struct {
 	DeploymentType DeploymentType
 	Version        string
 	OS             string // runtime.GOOS (linux, darwin, windows, etc.)
+	peerID         string // anonymised peer identifier (SHA-256 of WireGuard public key)
+}
+
+// peerIDFromPublicKey returns a truncated SHA-256 hash (8 bytes / 16 hex chars) of the given WireGuard public key.
+func peerIDFromPublicKey(pubKey string) string {
+	hash := sha256.Sum256([]byte(pubKey))
+	return hex.EncodeToString(hash[:8])
+}
+
+// connectionPairID returns a deterministic identifier for a connection between two peers.
+// It sorts the two peer IDs before hashing so the same pair always produces the same ID
+// regardless of which side computes it.
+func connectionPairID(peerID1, peerID2 string) string {
+	a, b := peerID1, peerID2
+	if a > b {
+		a, b = b, a
+	}
+	hash := sha256.Sum256([]byte(a + b))
+	return hex.EncodeToString(hash[:8])
 }
 
 // metricsImplementation defines the internal interface for metrics implementations
@@ -25,6 +46,7 @@ type metricsImplementation interface {
 	RecordConnectionStages(
 		ctx context.Context,
 		agentInfo AgentInfo,
+		connectionPairID string,
 		connectionType ConnectionType,
 		isReconnection bool,
 		timestamps ConnectionStageTimestamps,
@@ -68,9 +90,11 @@ func (c ConnectionStageTimestamps) String() string {
 	)
 }
 
-// RecordConnectionStages calculates stage durations from timestamps and records them
+// RecordConnectionStages calculates stage durations from timestamps and records them.
+// remotePubKey is the remote peer's WireGuard public key; it will be hashed for anonymisation.
 func (c *ClientMetrics) RecordConnectionStages(
 	ctx context.Context,
+	remotePubKey string,
 	connectionType ConnectionType,
 	isReconnection bool,
 	timestamps ConnectionStageTimestamps,
@@ -82,7 +106,9 @@ func (c *ClientMetrics) RecordConnectionStages(
 	agentInfo := c.agentInfo
 	c.mu.RUnlock()
 
-	c.impl.RecordConnectionStages(ctx, agentInfo, connectionType, isReconnection, timestamps)
+	remotePeerID := peerIDFromPublicKey(remotePubKey)
+	pairID := connectionPairID(agentInfo.peerID, remotePeerID)
+	c.impl.RecordConnectionStages(ctx, agentInfo, pairID, connectionType, isReconnection, timestamps)
 }
 
 // RecordSyncDuration records the duration of sync message processing
@@ -97,11 +123,14 @@ func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Du
 	c.impl.RecordSyncDuration(ctx, agentInfo, duration)
 }
 
-// UpdateAgentInfo updates the agent information (e.g., when switching profiles)
-func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo) {
+// UpdateAgentInfo updates the agent information (e.g., when switching profiles).
+// publicKey is the WireGuard public key; it will be hashed for anonymisation.
+func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo, publicKey string) {
 	if c == nil {
 		return
 	}
+
+	agentInfo.peerID = peerIDFromPublicKey(publicKey)
 
 	c.mu.Lock()
 	c.agentInfo = agentInfo

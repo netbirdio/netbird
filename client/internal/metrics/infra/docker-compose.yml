@@ -11,7 +11,7 @@ services:
     command:
       - "--storageDataPath=/victoria-metrics-data"
       - "--httpListenAddr=:8428"
-      - "--retentionPeriod=12" # Keep data for 12 months
+      - "--retentionPeriod=3"
       - "--search.maxStalenessInterval=1m" # Stop forward-filling after 1 minute of no new data
     restart: unless-stopped
     networks:
@@ -58,7 +58,7 @@ services:
 
   grafana:
     container_name: grafana
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.6.0
     ports:
       - "3001:3000"
     environment:

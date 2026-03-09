@@ -38,6 +38,7 @@ func newInfluxDBMetrics() metricsImplementation {
 func (m *influxDBMetrics) RecordConnectionStages(
 	_ context.Context,
 	agentInfo AgentInfo,
+	connectionPairID string,
 	connectionType ConnectionType,
 	isReconnection bool,
 	timestamps ConnectionStageTimestamps,
@@ -62,12 +63,14 @@ func (m *influxDBMetrics) RecordConnectionStages(
 	}
 
 	connTypeStr := connectionType.String()
-	tags := fmt.Sprintf("deployment_type=%s,connection_type=%s,attempt_type=%s,version=%s,os=%s",
+	tags := fmt.Sprintf("deployment_type=%s,connection_type=%s,attempt_type=%s,version=%s,os=%s,peer_id=%s,connection_pair_id=%s",
 		agentInfo.DeploymentType.String(),
 		connTypeStr,
 		attemptType,
 		agentInfo.Version,
 		agentInfo.OS,
+		agentInfo.peerID,
+		connectionPairID,
 	)
 
 	now := time.Now()
@@ -92,10 +95,11 @@ func (m *influxDBMetrics) RecordConnectionStages(
 }
 
 func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration) {
-	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s",
+	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,peer_id=%s",
 		agentInfo.DeploymentType.String(),
 		agentInfo.Version,
 		agentInfo.OS,
+		agentInfo.peerID,
 	)
 
 	m.mu.Lock()

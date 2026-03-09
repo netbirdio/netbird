@@ -255,7 +255,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			Version:        version.NetbirdVersion(),
 			OS:             runtime.GOOS,
 		}
-		c.clientMetrics.UpdateAgentInfo(agentInfo)
+		c.clientMetrics.UpdateAgentInfo(agentInfo, myPrivateKey.PublicKey().String())
 
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {

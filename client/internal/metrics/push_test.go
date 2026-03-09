@@ -64,7 +64,7 @@ type mockMetrics struct {
 	exportData string
 }
 
-func (m *mockMetrics) RecordConnectionStages(_ context.Context, _ AgentInfo, _ ConnectionType, _ bool, _ ConnectionStageTimestamps) {
+func (m *mockMetrics) RecordConnectionStages(_ context.Context, _ AgentInfo, _ string, _ ConnectionType, _ bool, _ ConnectionStageTimestamps) {
 }
 
 func (m *mockMetrics) RecordSyncDuration(_ context.Context, _ AgentInfo, _ time.Duration) {
