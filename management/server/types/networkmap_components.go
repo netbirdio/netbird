@@ -19,8 +19,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-const EnvNewNetworkMapCompacted = "NB_NETWORK_MAP_COMPACTED"
-
 type NetworkMapComponents struct {
 	PeerID string
 

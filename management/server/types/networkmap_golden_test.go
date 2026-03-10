@@ -71,10 +71,10 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
-	normalizeAndSortNetworkMap(legacyNetworkMap)
-	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
-	require.NoError(t, err, "error marshaling legacy network map to JSON")
+	componentsNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(componentsNetworkMap)
+	componentsJSON, err := json.MarshalIndent(toNetworkMapJSON(componentsNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling components network map to JSON")
 
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 	newNetworkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, nil, validatedPeersMap, nil)
@@ -82,22 +82,22 @@ func TestGetPeerNetworkMap_Golden(t *testing.T) {
 	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	if string(legacyJSON) != string(newJSON) {
-		legacyFilePath := filepath.Join("testdata", "networkmap_golden.json")
+	if string(componentsJSON) != string(newJSON) {
+		componentsFilePath := filepath.Join("testdata", "networkmap_golden.json")
 		newFilePath := filepath.Join("testdata", "networkmap_golden_new.json")
 
-		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		err = os.MkdirAll(filepath.Dir(componentsFilePath), 0755)
 		require.NoError(t, err)
 
-		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		err = os.WriteFile(componentsFilePath, componentsJSON, 0644)
 		require.NoError(t, err)
-		t.Logf("Saved legacy network map to %s", legacyFilePath)
+		t.Logf("Saved components network map to %s", componentsFilePath)
 
 		err = os.WriteFile(newFilePath, newJSON, 0644)
 		require.NoError(t, err)
 		t.Logf("Saved new network map to %s", newFilePath)
 
-		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps from legacy and new builder do not match")
+		require.JSONEq(t, string(componentsJSON), string(newJSON), "network maps from components and new builder do not match")
 	}
 }
 
@@ -112,11 +112,14 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 		peerIDs = append(peerIDs, peerID)
 	}
 
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+
 	b.ResetTimer()
-	b.Run("old builder", func(b *testing.B) {
+	b.Run("components builder", func(b *testing.B) {
 		for range b.N {
 			for _, peerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -178,10 +181,10 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
-	normalizeAndSortNetworkMap(legacyNetworkMap)
-	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
-	require.NoError(t, err, "error marshaling legacy network map to JSON")
+	componentsNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(componentsNetworkMap)
+	componentsJSON, err := json.MarshalIndent(toNetworkMapJSON(componentsNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling components network map to JSON")
 
 	err = builder.OnPeerAddedIncremental(account, newPeerID)
 	require.NoError(t, err, "error adding peer to cache")
@@ -191,22 +194,22 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	if string(legacyJSON) != string(newJSON) {
-		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_new_peer.json")
+	if string(componentsJSON) != string(newJSON) {
+		componentsFilePath := filepath.Join("testdata", "networkmap_golden_with_new_peer.json")
 		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded.json")
 
-		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		err = os.MkdirAll(filepath.Dir(componentsFilePath), 0755)
 		require.NoError(t, err)
 
-		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		err = os.WriteFile(componentsFilePath, componentsJSON, 0644)
 		require.NoError(t, err)
-		t.Logf("Saved legacy network map to %s", legacyFilePath)
+		t.Logf("Saved components network map to %s", componentsFilePath)
 
 		err = os.WriteFile(newFilePath, newJSON, 0644)
 		require.NoError(t, err)
 		t.Logf("Saved new network map to %s", newFilePath)
 
-		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with new peer from legacy and new builder do not match")
+		require.JSONEq(t, string(componentsJSON), string(newJSON), "network maps with new peer from components and new builder do not match")
 	}
 }
 
@@ -237,11 +240,14 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	account.Groups[allGroupID].Peers = append(account.Groups[allGroupID].Peers, newPeerID)
 	validatedPeersMap[newPeerID] = struct{}{}
 
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+
 	b.ResetTimer()
-	b.Run("old builder after add", func(b *testing.B) {
+	b.Run("components builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -318,10 +324,10 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
-	normalizeAndSortNetworkMap(legacyNetworkMap)
-	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
-	require.NoError(t, err, "error marshaling legacy network map to JSON")
+	componentsNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(componentsNetworkMap)
+	componentsJSON, err := json.MarshalIndent(toNetworkMapJSON(componentsNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling components network map to JSON")
 
 	err = builder.OnPeerAddedIncremental(account, newRouterID)
 	require.NoError(t, err, "error adding router to cache")
@@ -331,22 +337,22 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	if string(legacyJSON) != string(newJSON) {
-		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_new_router.json")
+	if string(componentsJSON) != string(newJSON) {
+		componentsFilePath := filepath.Join("testdata", "networkmap_golden_with_new_router.json")
 		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeeradded_router.json")
 
-		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		err = os.MkdirAll(filepath.Dir(componentsFilePath), 0755)
 		require.NoError(t, err)
 
-		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		err = os.WriteFile(componentsFilePath, componentsJSON, 0644)
 		require.NoError(t, err)
-		t.Logf("Saved legacy network map to %s", legacyFilePath)
+		t.Logf("Saved components network map to %s", componentsFilePath)
 
 		err = os.WriteFile(newFilePath, newJSON, 0644)
 		require.NoError(t, err)
 		t.Logf("Saved new network map to %s", newFilePath)
 
-		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with new router from legacy and new builder do not match")
+		require.JSONEq(t, string(componentsJSON), string(newJSON), "network maps with new router from components and new builder do not match")
 	}
 }
 
@@ -399,11 +405,14 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 
 	validatedPeersMap[newRouterID] = struct{}{}
 
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+
 	b.ResetTimer()
-	b.Run("old builder after add", func(b *testing.B) {
+	b.Run("components builder after add", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
@@ -459,10 +468,10 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
-	normalizeAndSortNetworkMap(legacyNetworkMap)
-	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
-	require.NoError(t, err, "error marshaling legacy network map to JSON")
+	componentsNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(componentsNetworkMap)
+	componentsJSON, err := json.MarshalIndent(toNetworkMapJSON(componentsNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling components network map to JSON")
 
 	err = builder.OnPeerDeleted(account, deletedPeerID)
 	require.NoError(t, err, "error deleting peer from cache")
@@ -472,22 +481,22 @@ func TestGetPeerNetworkMap_Golden_WithDeletedPeer(t *testing.T) {
 	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	if string(legacyJSON) != string(newJSON) {
-		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_peer.json")
+	if string(componentsJSON) != string(newJSON) {
+		componentsFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_peer.json")
 		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_onpeerdeleted.json")
 
-		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		err = os.MkdirAll(filepath.Dir(componentsFilePath), 0755)
 		require.NoError(t, err)
 
-		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		err = os.WriteFile(componentsFilePath, componentsJSON, 0644)
 		require.NoError(t, err)
-		t.Logf("Saved legacy network map to %s", legacyFilePath)
+		t.Logf("Saved components network map to %s", componentsFilePath)
 
 		err = os.WriteFile(newFilePath, newJSON, 0644)
 		require.NoError(t, err)
 		t.Logf("Saved new network map to %s", newFilePath)
 
-		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with deleted peer from legacy and new builder do not match")
+		require.JSONEq(t, string(componentsJSON), string(newJSON), "network maps with deleted peer from components and new builder do not match")
 	}
 }
 
@@ -538,10 +547,10 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	legacyNetworkMap := account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
-	normalizeAndSortNetworkMap(legacyNetworkMap)
-	legacyJSON, err := json.MarshalIndent(toNetworkMapJSON(legacyNetworkMap), "", "  ")
-	require.NoError(t, err, "error marshaling legacy network map to JSON")
+	componentsNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
+	normalizeAndSortNetworkMap(componentsNetworkMap)
+	componentsJSON, err := json.MarshalIndent(toNetworkMapJSON(componentsNetworkMap), "", "  ")
+	require.NoError(t, err, "error marshaling components network map to JSON")
 
 	err = builder.OnPeerDeleted(account, deletedRouterID)
 	require.NoError(t, err, "error deleting routing peer from cache")
@@ -551,22 +560,22 @@ func TestGetPeerNetworkMap_Golden_WithDeletedRouterPeer(t *testing.T) {
 	newJSON, err := json.MarshalIndent(toNetworkMapJSON(newNetworkMap), "", "  ")
 	require.NoError(t, err, "error marshaling new network map to JSON")
 
-	if string(legacyJSON) != string(newJSON) {
-		legacyFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_router_peer.json")
+	if string(componentsJSON) != string(newJSON) {
+		componentsFilePath := filepath.Join("testdata", "networkmap_golden_with_deleted_router_peer.json")
 		newFilePath := filepath.Join("testdata", "networkmap_golden_new_with_deleted_router.json")
 
-		err = os.MkdirAll(filepath.Dir(legacyFilePath), 0755)
+		err = os.MkdirAll(filepath.Dir(componentsFilePath), 0755)
 		require.NoError(t, err)
 
-		err = os.WriteFile(legacyFilePath, legacyJSON, 0644)
+		err = os.WriteFile(componentsFilePath, componentsJSON, 0644)
 		require.NoError(t, err)
-		t.Logf("Saved legacy network map to %s", legacyFilePath)
+		t.Logf("Saved components network map to %s", componentsFilePath)
 
 		err = os.WriteFile(newFilePath, newJSON, 0644)
 		require.NoError(t, err)
 		t.Logf("Saved new network map to %s", newFilePath)
 
-		require.JSONEq(t, string(legacyJSON), string(newJSON), "network maps with deleted router from legacy and new builder do not match")
+		require.JSONEq(t, string(componentsJSON), string(newJSON), "network maps with deleted router from components and new builder do not match")
 	}
 }
 
@@ -593,12 +602,14 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	delete(validatedPeersMap, deletedPeerID)
 
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
 
 	b.ResetTimer()
-	b.Run("old builder after delete", func(b *testing.B) {
+	b.Run("components builder after delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			for _, testingPeerID := range peerIDs {
-				_ = account.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, nil, nil, nil, account.GetActiveGroupUsers())
+				_ = account.GetPeerNetworkMapFromComponents(ctx, testingPeerID, dns.CustomZone{}, []*zones.Zone{}, validatedPeersMap, resourcePolicies, routers, nil, account.GetActiveGroupUsers())
 			}
 		}
 	})
