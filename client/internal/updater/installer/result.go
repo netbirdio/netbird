@@ -203,7 +203,10 @@ func (rh *ResultHandler) write(result Result) error {
 
 func (rh *ResultHandler) cleanup() error {
 	err := os.Remove(rh.resultFile)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	log.Debugf("delete installer result file: %s", rh.resultFile)

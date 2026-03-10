@@ -311,6 +311,7 @@ type serviceClient struct {
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
 	isEnforcedUpdate     bool
+	lastNotifiedVersion  string
 	settingsEnabled      bool
 	profilesEnabled      bool
 	showNetworks         bool
@@ -1516,6 +1517,7 @@ func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 	if enforced {
 		s.mUpdate.SetTitle("Install version " + newVersion)
 	} else {
+		s.lastNotifiedVersion = ""
 		s.mUpdate.SetTitle("Download latest version")
 	}
 
@@ -1526,6 +1528,11 @@ func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
 	} else {
 		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+	}
+
+	if enforced && s.lastNotifiedVersion != newVersion {
+		s.lastNotifiedVersion = newVersion
+		s.app.SendNotification(fyne.NewNotification("Update available", "A new version "+newVersion+" is ready to install"))
 	}
 }
 
