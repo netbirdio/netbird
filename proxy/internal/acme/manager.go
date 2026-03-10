@@ -54,12 +54,10 @@ type metricsRecorder interface {
 type Manager struct {
 	*autocert.Manager
 
-	certDir   string
-	proxyURL  string
-	proxyCert *tls.Certificate // cached proxy cert for pending-domain TLS handshakes
-	locker    certLocker
-	mu        sync.RWMutex
-	domains   map[domain.Domain]*domainInfo
+	certDir string
+	locker  certLocker
+	mu      sync.RWMutex
+	domains map[domain.Domain]*domainInfo
 
 	certNotifier certificateNotifier
 	logger       *log.Logger
@@ -67,21 +65,17 @@ type Manager struct {
 }
 
 // NewManager creates a new ACME certificate manager. The certDir is used
-// for caching certificates. The proxyURL is the proxy's own hostname and is
-// used to serve the proxy's own certificate for domains that are still being
-// provisioned, allowing TLS handshakes to complete so the HTTP layer can
-// redirect the browser. The lockMethod controls cross-replica coordination
+// for caching certificates. The lockMethod controls cross-replica coordination
 // strategy (see CertLockMethod constants).
 // eabKID and eabHMACKey are optional External Account Binding credentials
 // required for some CAs like ZeroSSL. The eabHMACKey should be the base64
 // URL-encoded string provided by the CA.
-func NewManager(certDir, acmeURL, eabKID, eabHMACKey, proxyURL string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder) *Manager {
+func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder) *Manager {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
 		certDir:      certDir,
-		proxyURL:     proxyURL,
 		locker:       newCertLocker(lockMethod, certDir, logger),
 		domains:      make(map[domain.Domain]*domainInfo),
 		certNotifier: notifier,
@@ -128,80 +122,6 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 	return nil
 }
 
-// GetCertificate implements tls.Config.GetCertificate. For domains whose
-// certificate is still being provisioned it returns the proxy's own
-// certificate so that the TLS handshake can complete and the HTTP layer can
-// redirect the browser to the proxy URL. All other requests are handled by
-// the embedded autocert.Manager.
-func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	// Never intercept ACME TLS-ALPN-01 challenge requests.
-	if len(hello.SupportedProtos) == 1 && hello.SupportedProtos[0] == acme.ALPNProto {
-		return mgr.Manager.GetCertificate(hello)
-	}
-
-	if mgr.IsCertPending(hello.ServerName) && mgr.proxyURL != "" {
-		if cert := mgr.getProxyCert(); cert != nil {
-			return cert, nil
-		}
-		// Proxy cert not on disk yet — fall through to autocert which will
-		// block until the proxy cert is ready. This only happens during the
-		// very first startup before the proxy's own cert has been issued.
-		proxyHello := *hello
-		proxyHello.ServerName = mgr.proxyURL
-		return mgr.Manager.GetCertificate(&proxyHello)
-	}
-
-	return mgr.Manager.GetCertificate(hello)
-}
-
-// getProxyCert returns the cached proxy certificate, refreshing from disk if
-// the cached copy is missing or within 24 hours of expiry. Returns nil if the
-// cert is not yet on disk.
-func (mgr *Manager) getProxyCert() *tls.Certificate {
-	mgr.mu.RLock()
-	cert := mgr.proxyCert
-	mgr.mu.RUnlock()
-
-	if cert != nil && cert.Leaf != nil && time.Until(cert.Leaf.NotAfter) > 24*time.Hour {
-		return cert
-	}
-
-	fresh, err := mgr.readCertFromDisk(context.Background(), mgr.proxyURL)
-	if err != nil {
-		return nil
-	}
-
-	mgr.mu.Lock()
-	mgr.proxyCert = fresh
-	mgr.mu.Unlock()
-
-	return fresh
-}
-
-// IsCertPending reports whether the certificate for the given host is still
-// being provisioned.
-func (mgr *Manager) IsCertPending(host string) bool {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	mgr.mu.RLock()
-	info := mgr.domains[domain.Domain(host)]
-	mgr.mu.RUnlock()
-	return info != nil && info.state == domainPending
-}
-
-// IsKnownDomain reports whether the given host is registered with this manager,
-// regardless of certificate state.
-func (mgr *Manager) IsKnownDomain(host string) bool {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	mgr.mu.RLock()
-	_, ok := mgr.domains[domain.Domain(host)]
-	mgr.mu.RUnlock()
-	return ok
-}
-
 // AddDomain registers a domain for ACME certificate prefetching.
 func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 	mgr.mu.Lock()
@@ -210,20 +130,6 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 		serviceID: serviceID,
 		state:     domainPending,
 	}
-	mgr.mu.Unlock()
-
-	go mgr.prefetchCertificate(d)
-}
-
-// AddProxyDomain prefetches the certificate for the proxy's own domain.
-// Unlike AddDomain it does not set the domain to domainPending, so
-// IsCertPending never fires for it and certPendingMiddleware cannot redirect
-// into a loop. The domain is registered in the hostPolicy map so autocert
-// will accept it.
-func (mgr *Manager) AddProxyDomain(d domain.Domain) {
-	mgr.mu.Lock()
-	// Register with domainReady so IsCertPending returns false.
-	mgr.domains[d] = &domainInfo{state: domainReady}
 	mgr.mu.Unlock()
 
 	go mgr.prefetchCertificate(d)

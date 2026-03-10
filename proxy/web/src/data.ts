@@ -2,7 +2,7 @@
 export type AuthMethod = 'pin' | 'password' | 'oidc' | "link"
 
 // Page types
-export type PageType = 'auth' | 'error' | 'cert-pending'
+export type PageType = 'auth' | 'error'
 
 // Error data structure
 export interface ErrorData {
@@ -16,17 +16,11 @@ export interface ErrorData {
   retryUrl?: string
 }
 
-// Cert pending data structure
-export interface CertPendingData {
-  retryUrl: string
-}
-
 // Data injected by Go templates
 export interface Data {
   page?: PageType
   methods?: Partial<Record<AuthMethod, string>>
   error?: ErrorData
-  certPending?: CertPendingData
 }
 
 declare global {

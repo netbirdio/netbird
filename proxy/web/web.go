@@ -177,18 +177,6 @@ func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, tit
 	}, code)
 }
 
-// ServeCertPendingPage renders a page informing the user that the SSL certificate
-// for their domain is still being provisioned, with an automatic redirect once ready.
-func ServeCertPendingPage(w http.ResponseWriter, r *http.Request, retryURL string) {
-	w.Header().Set("Cache-Control", "no-store")
-	ServeHTTP(w, r, map[string]any{
-		"page": "cert-pending",
-		"certPending": map[string]any{
-			"retryUrl": retryURL,
-		},
-	}, http.StatusServiceUnavailable)
-}
-
 // stripAuthParams returns the request URI with auth-related query parameters removed.
 func stripAuthParams(u *url.URL) string {
 	q := u.Query()
