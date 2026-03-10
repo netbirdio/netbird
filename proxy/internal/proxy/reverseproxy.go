@@ -80,13 +80,30 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		capturedData.SetAccountId(result.accountID)
 	}
 
+	pt := result.target
+
+	if pt.SkipTLSVerify {
+		ctx = roundtrip.WithSkipTLSVerify(ctx)
+	}
+	if pt.RequestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, pt.RequestTimeout)
+		defer cancel()
+	}
+
+	rewriteMatchedPath := result.matchedPath
+	if pt.PathRewrite == PathRewritePreserve {
+		rewriteMatchedPath = ""
+	}
+
 	rp := &httputil.ReverseProxy{
-		Rewrite:      p.rewriteFunc(result.url, result.matchedPath, result.passHostHeader),
-		Transport:    p.transport,
-		ErrorHandler: proxyErrorHandler,
+		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders),
+		Transport:     p.transport,
+		FlushInterval: -1,
+		ErrorHandler:  proxyErrorHandler,
 	}
 	if result.rewriteRedirects {
-		rp.ModifyResponse = p.rewriteLocationFunc(result.url, result.matchedPath, r) //nolint:bodyclose
+		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
 }
@@ -96,16 +113,22 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // forwarding headers and stripping proxy authentication credentials.
 // When passHostHeader is true, the original client Host header is preserved
 // instead of being rewritten to the backend's address.
-func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool) func(r *httputil.ProxyRequest) {
+// The pathRewrite parameter controls how the request path is transformed.
+func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool, pathRewrite PathRewriteMode, customHeaders map[string]string) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
-		// Strip the matched path prefix from the incoming request path before
-		// SetURL joins it with the target's base path, avoiding path duplication.
-		if matchedPath != "" && matchedPath != "/" {
-			r.Out.URL.Path = strings.TrimPrefix(r.Out.URL.Path, matchedPath)
-			if r.Out.URL.Path == "" {
-				r.Out.URL.Path = "/"
+		switch pathRewrite {
+		case PathRewritePreserve:
+			// Keep the full original request path as-is.
+		default:
+			if matchedPath != "" && matchedPath != "/" {
+				// Strip the matched path prefix from the incoming request path before
+				// SetURL joins it with the target's base path, avoiding path duplication.
+				r.Out.URL.Path = strings.TrimPrefix(r.Out.URL.Path, matchedPath)
+				if r.Out.URL.Path == "" {
+					r.Out.URL.Path = "/"
+				}
+				r.Out.URL.RawPath = ""
 			}
-			r.Out.URL.RawPath = ""
 		}
 
 		r.SetURL(target)
@@ -113,6 +136,10 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 			r.Out.Host = r.In.Host
 		} else {
 			r.Out.Host = target.Host
+		}
+
+		for k, v := range customHeaders {
+			r.Out.Header.Set(k, v)
 		}
 
 		clientIP := extractClientIP(r.In.RemoteAddr)

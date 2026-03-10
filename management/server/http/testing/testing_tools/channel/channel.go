@@ -9,10 +9,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 
+	"go.opentelemetry.io/otel/metric/noop"
+
 	"github.com/netbirdio/management-integrations/integrations"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
-	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
@@ -91,12 +94,28 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	}
 
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
-	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(1 * time.Minute)
-	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager)
-	domainManager := manager.NewManager(store, proxyServiceServer, permissionsManager)
-	reverseProxyManager := reverseproxymanager.NewManager(store, am, permissionsManager, settingsManager, proxyServiceServer, domainManager)
-	proxyServiceServer.SetProxyManager(reverseProxyManager)
-	am.SetServiceManager(reverseProxyManager)
+	proxyTokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create proxy token store: %v", err)
+	}
+	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create PKCE verifier store: %v", err)
+	}
+	noopMeter := noop.NewMeterProvider().Meter("")
+	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
+	if err != nil {
+		t.Fatalf("Failed to create proxy manager: %v", err)
+	}
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
+	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
+	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
+	if err != nil {
+		t.Fatalf("Failed to create proxy controller: %v", err)
+	}
+	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, domainManager)
+	proxyServiceServer.SetServiceManager(serviceManager)
+	am.SetServiceManager(serviceManager)
 
 	// @note this is required so that PAT's validate from store, but JWT's are mocked
 	authManager := serverauth.NewManager(store, "", "", "", "", []string{}, false)
@@ -114,7 +133,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
-	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, reverseProxyManager, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

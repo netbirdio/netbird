@@ -263,8 +263,14 @@ func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, pe
 		case <-closer:
 			return
 		case routerStates := <-subscription.Events():
-			peerStateUpdate <- routerStates
-			log.Debugf("triggered route state update for Peer: %s", peerKey)
+			select {
+			case peerStateUpdate <- routerStates:
+				log.Debugf("triggered route state update for Peer: %s", peerKey)
+			case <-ctx.Done():
+				return
+			case <-closer:
+				return
+			}
 		}
 	}
 }

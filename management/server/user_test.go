@@ -2032,27 +2032,6 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	})
 }
 
-func TestValidateUserUpdate_RejectsNonAdminInitiator(t *testing.T) {
-	groupsMap := map[string]*types.Group{}
-
-	initiator := &types.User{
-		Id:   "initiator",
-		Role: types.UserRoleUser,
-	}
-	oldUser := &types.User{
-		Id:   "target",
-		Role: types.UserRoleUser,
-	}
-	update := &types.User{
-		Id:   "target",
-		Role: types.UserRoleOwner,
-	}
-
-	err := validateUserUpdate(groupsMap, initiator, oldUser, update)
-	require.Error(t, err, "regular user should not be able to promote to owner")
-	assert.Contains(t, err.Error(), "only admins and owners can update users")
-}
-
 func TestProcessUserUpdate_RejectsStaleInitiatorRole(t *testing.T) {
 	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	require.NoError(t, err)
@@ -2109,7 +2088,7 @@ func TestProcessUserUpdate_RejectsStaleInitiatorRole(t *testing.T) {
 	})
 
 	require.Error(t, err, "processUserUpdate should reject stale initiator whose role was demoted")
-	assert.Contains(t, err.Error(), "only admins and owners can update users")
+	assert.Contains(t, err.Error(), "initiator role was changed during request processing")
 
 	targetUser, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetID)
 	require.NoError(t, err)

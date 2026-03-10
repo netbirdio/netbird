@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -41,6 +42,10 @@ type domainInfo struct {
 	err       string
 }
 
+type metricsRecorder interface {
+	RecordCertificateIssuance(duration time.Duration)
+}
+
 // Manager wraps autocert.Manager with domain tracking and cross-replica
 // coordination via a pluggable locking strategy. The locker prevents
 // duplicate ACME requests when multiple replicas share a certificate cache.
@@ -54,12 +59,16 @@ type Manager struct {
 
 	certNotifier certificateNotifier
 	logger       *log.Logger
+	metrics      metricsRecorder
 }
 
 // NewManager creates a new ACME certificate manager. The certDir is used
 // for caching certificates. The lockMethod controls cross-replica
 // coordination strategy (see CertLockMethod constants).
-func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod) *Manager {
+// eabKID and eabHMACKey are optional External Account Binding credentials
+// required for some CAs like ZeroSSL. The eabHMACKey should be the base64
+// URL-encoded string provided by the CA.
+func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder) *Manager {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -69,11 +78,28 @@ func NewManager(certDir, acmeURL string, notifier certificateNotifier, logger *l
 		domains:      make(map[domain.Domain]*domainInfo),
 		certNotifier: notifier,
 		logger:       logger,
+		metrics:      metrics,
 	}
+
+	var eab *acme.ExternalAccountBinding
+	if eabKID != "" && eabHMACKey != "" {
+		decodedKey, err := base64.RawURLEncoding.DecodeString(eabHMACKey)
+		if err != nil {
+			logger.Errorf("failed to decode EAB HMAC key: %v", err)
+		} else {
+			eab = &acme.ExternalAccountBinding{
+				KID: eabKID,
+				Key: decodedKey,
+			}
+			logger.Infof("configured External Account Binding with KID: %s", eabKID)
+		}
+	}
+
 	mgr.Manager = &autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: mgr.hostPolicy,
-		Cache:      autocert.DirCache(certDir),
+		Prompt:                 autocert.AcceptTOS,
+		HostPolicy:             mgr.hostPolicy,
+		Cache:                  autocert.DirCache(certDir),
+		ExternalAccountBinding: eab,
 		Client: &acme.Client{
 			DirectoryURL: acmeURL,
 		},
@@ -136,9 +162,13 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	cert, err := mgr.GetCertificate(hello)
 	elapsed := time.Since(start)
 	if err != nil {
-		mgr.logger.Warnf("prefetch certificate for domain %q: %v", name, err)
+		mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed.String(), err)
 		mgr.setDomainState(d, domainFailed, err.Error())
 		return
+	}
+
+	if mgr.metrics != nil {
+		mgr.metrics.RecordCertificateIssuance(elapsed)
 	}
 
 	mgr.setDomainState(d, domainReady, "")

@@ -18,8 +18,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -37,7 +38,7 @@ type integrationTestSetup struct {
 	grpcServer   *grpc.Server
 	grpcAddr     string
 	cleanup      func()
-	services     []*reverseproxy.Service
+	services     []*service.Service
 }
 
 func setupIntegrationTest(t *testing.T) *integrationTestSetup {
@@ -66,13 +67,13 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
 	// Create test services in the store
-	services := []*reverseproxy.Service{
+	services := []*service.Service{
 		{
 			ID:        "rp-1",
 			AccountID: "test-account-1",
 			Name:      "Test App 1",
 			Domain:    "app1.test.proxy.io",
-			Targets: []*reverseproxy.Target{{
+			Targets: []*service.Target{{
 				Path:       strPtr("/"),
 				Host:       "10.0.0.1",
 				Port:       8080,
@@ -91,7 +92,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 			AccountID: "test-account-1",
 			Name:      "Test App 2",
 			Domain:    "app2.test.proxy.io",
-			Targets: []*reverseproxy.Target{{
+			Targets: []*service.Target{{
 				Path:       strPtr("/"),
 				Host:       "10.0.0.2",
 				Port:       8080,
@@ -112,7 +113,11 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	}
 
 	// Create real token store
-	tokenStore := nbgrpc.NewOneTimeTokenStore(5 * time.Minute)
+	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)
@@ -124,17 +129,24 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		HMACKey:  []byte("test-hmac-key"),
 	}
 
+	proxyManager := &testProxyManager{}
+
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
+		pkceStore,
 		oidcConfig,
 		nil,
 		usersManager,
+		proxyManager,
 	)
 
 	// Use store-backed service manager
 	svcMgr := &storeBackedServiceManager{store: testStore, tokenStore: tokenStore}
-	proxyService.SetProxyManager(svcMgr)
+	proxyService.SetServiceManager(svcMgr)
+
+	proxyController := &testProxyController{}
+	proxyService.SetProxyController(proxyController)
 
 	// Start real gRPC server
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -185,6 +197,52 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 	return nil, 0, nil
 }
 
+// testProxyManager is a mock implementation of proxy.Manager for testing.
+type testProxyManager struct{}
+
+func (m *testProxyManager) Connect(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testProxyManager) Disconnect(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *testProxyManager) Heartbeat(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+// testProxyController is a mock implementation of rpservice.ProxyController for testing.
+type testProxyController struct{}
+
+func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
+	// noop
+}
+
+func (c *testProxyController) GetOIDCValidationConfig() nbproxy.OIDCValidationConfig {
+	return nbproxy.OIDCValidationConfig{}
+}
+
+func (c *testProxyController) RegisterProxyToCluster(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (c *testProxyController) GetProxiesForCluster(_ string) []string {
+	return nil
+}
+
 // storeBackedServiceManager reads directly from the real store.
 type storeBackedServiceManager struct {
 	store      store.Store
@@ -195,19 +253,19 @@ func (m *storeBackedServiceManager) DeleteAllServices(ctx context.Context, accou
 	return nil
 }
 
-func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
-func (m *storeBackedServiceManager) GetService(ctx context.Context, accountID, userID, serviceID string) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 }
 
-func (m *storeBackedServiceManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -219,7 +277,7 @@ func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, 
 	return nil
 }
 
-func (m *storeBackedServiceManager) SetStatus(ctx context.Context, accountID, serviceID string, status reverseproxy.ProxyStatus) error {
+func (m *storeBackedServiceManager) SetStatus(ctx context.Context, accountID, serviceID string, status service.Status) error {
 	return nil
 }
 
@@ -231,15 +289,15 @@ func (m *storeBackedServiceManager) ReloadService(ctx context.Context, accountID
 	return nil
 }
 
-func (m *storeBackedServiceManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, "test-account-1")
 }
 
-func (m *storeBackedServiceManager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetServiceByID(ctx context.Context, accountID, serviceID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 }
 
-func (m *storeBackedServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+func (m *storeBackedServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
@@ -247,21 +305,19 @@ func (m *storeBackedServiceManager) GetServiceIDByTargetID(ctx context.Context, 
 	return "", nil
 }
 
-func (m *storeBackedServiceManager) ValidateExposePermission(_ context.Context, _, _ string) error {
+func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
+	return &service.ExposeServiceResponse{}, nil
+}
+
+func (m *storeBackedServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *storeBackedServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
-	return &reverseproxy.Service{}, nil
-}
-
-func (m *storeBackedServiceManager) DeleteServiceFromPeer(_ context.Context, _, _, _ string) error {
+func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (m *storeBackedServiceManager) ExpireServiceFromPeer(_ context.Context, _, _, _ string) error {
-	return nil
-}
+func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
 
 func strPtr(s string) *string {
 	return &s

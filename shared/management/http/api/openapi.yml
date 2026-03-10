@@ -2822,6 +2822,16 @@ components:
           type: string
           description: "City name from geolocation"
           example: "San Francisco"
+        bytes_upload:
+          type: integer
+          format: int64
+          description: "Bytes uploaded (request body size)"
+          example: 1024
+        bytes_download:
+          type: integer
+          format: int64
+          description: "Bytes downloaded (response body size)"
+          example: 8192
       required:
         - id
         - service_id
@@ -2831,6 +2841,8 @@ components:
         - path
         - duration_ms
         - status_code
+        - bytes_upload
+        - bytes_download
     ProxyAccessLogsResponse:
       type: object
       properties:
@@ -3027,6 +3039,28 @@ components:
         - targets
         - auth
         - enabled
+    ServiceTargetOptions:
+      type: object
+      properties:
+        skip_tls_verify:
+          type: boolean
+          description: Skip TLS certificate verification for this backend
+        request_timeout:
+          type: string
+          description: Per-target response timeout as a Go duration string (e.g. "30s", "2m")
+        path_rewrite:
+          type: string
+          description: Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
+          enum: [preserve]
+        custom_headers:
+          type: object
+          description: Extra headers sent to the backend. Hop-by-hop and proxy-managed headers (Host, Connection, Transfer-Encoding, etc.) are rejected.
+          propertyNames:
+            type: string
+            pattern: '^[!#$%&''*+.^_`|~0-9A-Za-z-]+$'
+          additionalProperties:
+            type: string
+            pattern: '^[^\r\n]*$'
     ServiceTarget:
       type: object
       properties:
@@ -3053,6 +3087,8 @@ components:
         enabled:
           type: boolean
           description: Whether this target is enabled
+        options:
+          $ref: '#/components/schemas/ServiceTargetOptions'
       required:
         - target_id
         - target_type

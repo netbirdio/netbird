@@ -18,14 +18,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -58,14 +58,17 @@ type ProxyServiceServer struct {
 	// Map of connected proxies: proxy_id -> proxy connection
 	connectedProxies sync.Map
 
-	// Map of cluster address -> set of proxy IDs
-	clusterProxies sync.Map
-
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
 	// Manager for reverse proxy operations
-	reverseProxyManager reverseproxy.Manager
+	serviceManager rpservice.Manager
+
+	// ProxyController for service updates and cluster management
+	proxyController proxy.Controller
+
+	// Manager for proxy connections
+	proxyManager proxy.Manager
 
 	// Manager for peers
 	peersManager peers.Manager
@@ -79,19 +82,11 @@ type ProxyServiceServer struct {
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
 
-	// TODO: use database to store these instead?
-	// pkceVerifiers stores PKCE code verifiers keyed by OAuth state.
-	// Entries expire after pkceVerifierTTL to prevent unbounded growth.
-	pkceVerifiers     sync.Map
-	pkceCleanupCancel context.CancelFunc
+	// Store for PKCE verifiers
+	pkceVerifierStore *PKCEVerifierStore
 }
 
 const pkceVerifierTTL = 10 * time.Minute
-
-type pkceEntry struct {
-	verifier  string
-	createdAt time.Time
-}
 
 // proxyConnection represents a connected proxy
 type proxyConnection struct {
@@ -104,58 +99,50 @@ type proxyConnection struct {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager) *ProxyServiceServer {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager) *ProxyServiceServer {
+	ctx := context.Background()
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
-		pkceCleanupCancel: cancel,
+		proxyManager:      proxyMgr,
 	}
-	go s.cleanupPKCEVerifiers(ctx)
+	go s.cleanupStaleProxies(ctx)
 	return s
 }
 
-// cleanupPKCEVerifiers periodically removes expired PKCE verifiers.
-func (s *ProxyServiceServer) cleanupPKCEVerifiers(ctx context.Context) {
-	ticker := time.NewTicker(pkceVerifierTTL)
+// cleanupStaleProxies periodically removes proxies that haven't sent heartbeat in 10 minutes
+func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			now := time.Now()
-			s.pkceVerifiers.Range(func(key, value any) bool {
-				if entry, ok := value.(pkceEntry); ok && now.Sub(entry.createdAt) > pkceVerifierTTL {
-					s.pkceVerifiers.Delete(key)
-				}
-				return true
-			})
+			if err := s.proxyManager.CleanupStale(ctx, 10*time.Minute); err != nil {
+				log.WithContext(ctx).Debugf("Failed to cleanup stale proxies: %v", err)
+			}
 		}
 	}
 }
 
-// Close stops background goroutines.
-func (s *ProxyServiceServer) Close() {
-	s.pkceCleanupCancel()
+func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
+	s.serviceManager = manager
 }
 
-func (s *ProxyServiceServer) SetProxyManager(manager reverseproxy.Manager) {
-	s.reverseProxyManager = manager
+func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller) {
+	s.proxyController = proxyController
 }
 
 // GetMappingUpdate handles the control stream with proxy clients
 func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest, stream proto.ProxyService_GetMappingUpdateServer) error {
 	ctx := stream.Context()
 
-	peerInfo := ""
-	if p, ok := peer.FromContext(ctx); ok {
-		peerInfo = p.Addr.String()
-	}
-
+	peerInfo := PeerIPFromContext(ctx)
 	log.Infof("New proxy connection from %s", peerInfo)
 
 	proxyID := req.GetProxyId()
@@ -179,7 +166,15 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 
 	s.connectedProxies.Store(proxyID, conn)
-	s.addToCluster(conn.address, proxyID)
+	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
+	}
+
+	// Register proxy in database
+	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)
+	}
+
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
 		"address":       proxyAddress,
@@ -187,8 +182,15 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		"total_proxies": len(s.GetConnectedProxies()),
 	}).Info("Proxy registered in cluster")
 	defer func() {
+		if err := s.proxyManager.Disconnect(context.Background(), proxyID); err != nil {
+			log.Warnf("Failed to mark proxy %s as disconnected: %v", proxyID, err)
+		}
+
 		s.connectedProxies.Delete(proxyID)
-		s.removeFromCluster(conn.address, proxyID)
+		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); err != nil {
+			log.Warnf("Failed to unregister proxy %s from cluster: %v", proxyID, err)
+		}
+
 		cancel()
 		log.Infof("Proxy %s disconnected", proxyID)
 	}()
@@ -200,6 +202,9 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
 
+	// Start heartbeat goroutine
+	go s.heartbeat(connCtx, proxyID)
+
 	select {
 	case err := <-errChan:
 		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
@@ -208,10 +213,27 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 }
 
+// heartbeat updates the proxy's last_seen timestamp every minute
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := s.proxyManager.Heartbeat(ctx, proxyID); err != nil {
+				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", proxyID, err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // sendSnapshot sends the initial snapshot of services to the connecting proxy.
 // Only services matching the proxy's cluster address are sent.
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	services, err := s.reverseProxyManager.GetGlobalServices(ctx)
+	services, err := s.serviceManager.GetGlobalServices(ctx)
 	if err != nil {
 		return fmt.Errorf("get services from store: %w", err)
 	}
@@ -220,7 +242,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		return fmt.Errorf("proxy address is invalid")
 	}
 
-	var filtered []*reverseproxy.Service
+	var filtered []*rpservice.Service
 	for _, service := range services {
 		if !service.Enabled {
 			continue
@@ -255,7 +277,7 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping: []*proto.ProxyMapping{
 				service.ToProtoMapping(
-					reverseproxy.Create, // Initial snapshot, all records are "new" for the proxy.
+					rpservice.Create, // Initial snapshot, all records are "new" for the proxy.
 					token,
 					s.GetOIDCValidationConfig(),
 				),
@@ -389,61 +411,47 @@ func (s *ProxyServiceServer) GetConnectedProxyURLs() []string {
 	return urls
 }
 
-// addToCluster registers a proxy in a cluster.
-func (s *ProxyServiceServer) addToCluster(clusterAddr, proxyID string) {
-	if clusterAddr == "" {
-		return
-	}
-	proxySet, _ := s.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
-	log.Debugf("Added proxy %s to cluster %s", proxyID, clusterAddr)
-}
-
-// removeFromCluster removes a proxy from a cluster.
-func (s *ProxyServiceServer) removeFromCluster(clusterAddr, proxyID string) {
-	if clusterAddr == "" {
-		return
-	}
-	if proxySet, ok := s.clusterProxies.Load(clusterAddr); ok {
-		proxySet.(*sync.Map).Delete(proxyID)
-		log.Debugf("Removed proxy %s from cluster %s", proxyID, clusterAddr)
-	}
-}
-
 // SendServiceUpdateToCluster sends a service update to all proxy servers in a specific cluster.
 // If clusterAddr is empty, broadcasts to all connected proxy servers (backward compatibility).
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
-func (s *ProxyServiceServer) SendServiceUpdateToCluster(update *proto.GetMappingUpdateResponse, clusterAddr string) {
+func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, update *proto.ProxyMapping, clusterAddr string) {
+	updateResponse := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{update},
+	}
+
 	if clusterAddr == "" {
-		s.SendServiceUpdate(update)
+		s.SendServiceUpdate(updateResponse)
 		return
 	}
 
-	proxySet, ok := s.clusterProxies.Load(clusterAddr)
-	if !ok {
-		log.Debugf("No proxies connected for cluster %s", clusterAddr)
+	if s.proxyController == nil {
+		log.WithContext(ctx).Debugf("ProxyController not set, cannot send to cluster %s", clusterAddr)
+		return
+	}
+
+	proxyIDs := s.proxyController.GetProxiesForCluster(clusterAddr)
+	if len(proxyIDs) == 0 {
+		log.WithContext(ctx).Debugf("No proxies connected for cluster %s", clusterAddr)
 		return
 	}
 
 	log.Debugf("Sending service update to cluster %s", clusterAddr)
-	proxySet.(*sync.Map).Range(func(key, _ interface{}) bool {
-		proxyID := key.(string)
+	for _, proxyID := range proxyIDs {
 		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
 			conn := connVal.(*proxyConnection)
-			msg := s.perProxyMessage(update, proxyID)
+			msg := s.perProxyMessage(updateResponse, proxyID)
 			if msg == nil {
-				return true
+				continue
 			}
 			select {
 			case conn.sendChan <- msg:
-				log.Debugf("Sent service update to proxy %s in cluster %s", proxyID, clusterAddr)
+				log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
 			default:
-				log.Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
+				log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 			}
 		}
-		return true
-	})
+	}
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -490,35 +498,8 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	}
 }
 
-// GetAvailableClusters returns information about all connected proxy clusters.
-func (s *ProxyServiceServer) GetAvailableClusters() []ClusterInfo {
-	clusterCounts := make(map[string]int)
-	s.clusterProxies.Range(func(key, value interface{}) bool {
-		clusterAddr := key.(string)
-		proxySet := value.(*sync.Map)
-		count := 0
-		proxySet.Range(func(_, _ interface{}) bool {
-			count++
-			return true
-		})
-		if count > 0 {
-			clusterCounts[clusterAddr] = count
-		}
-		return true
-	})
-
-	clusters := make([]ClusterInfo, 0, len(clusterCounts))
-	for addr, count := range clusterCounts {
-		clusters = append(clusters, ClusterInfo{
-			Address:          addr,
-			ConnectedProxies: count,
-		})
-	}
-	return clusters
-}
-
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-	service, err := s.reverseProxyManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
+	service, err := s.serviceManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
 		return nil, status.Errorf(codes.FailedPrecondition, "get service from store: %v", err)
@@ -537,7 +518,7 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	}, nil
 }
 
-func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto.AuthenticateRequest, service *reverseproxy.Service) (bool, string, proxyauth.Method) {
+func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto.AuthenticateRequest, service *rpservice.Service) (bool, string, proxyauth.Method) {
 	switch v := req.GetRequest().(type) {
 	case *proto.AuthenticateRequest_Pin:
 		return s.authenticatePIN(ctx, req.GetId(), v, service.Auth.PinAuth)
@@ -548,7 +529,7 @@ func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto
 	}
 }
 
-func (s *ProxyServiceServer) authenticatePIN(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Pin, auth *reverseproxy.PINAuthConfig) (bool, string, proxyauth.Method) {
+func (s *ProxyServiceServer) authenticatePIN(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Pin, auth *rpservice.PINAuthConfig) (bool, string, proxyauth.Method) {
 	if auth == nil || !auth.Enabled {
 		log.WithContext(ctx).Debugf("PIN authentication attempted but not enabled for service %s", serviceID)
 		return false, "", ""
@@ -562,7 +543,7 @@ func (s *ProxyServiceServer) authenticatePIN(ctx context.Context, serviceID stri
 	return true, "pin-user", proxyauth.MethodPIN
 }
 
-func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Password, auth *reverseproxy.PasswordAuthConfig) (bool, string, proxyauth.Method) {
+func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_Password, auth *rpservice.PasswordAuthConfig) (bool, string, proxyauth.Method) {
 	if auth == nil || !auth.Enabled {
 		log.WithContext(ctx).Debugf("password authentication attempted but not enabled for service %s", serviceID)
 		return false, "", ""
@@ -584,7 +565,7 @@ func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err err
 	}
 }
 
-func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *reverseproxy.Service, userId string, method proxyauth.Method) (string, error) {
+func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *rpservice.Service, userId string, method proxyauth.Method) (string, error) {
 	if !authenticated || service.SessionPrivateKey == "" {
 		return "", nil
 	}
@@ -624,7 +605,7 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	}
 
 	if certificateIssued {
-		if err := s.reverseProxyManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
+		if err := s.serviceManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to set certificate issued timestamp")
 			return nil, status.Errorf(codes.Internal, "update certificate timestamp: %v", err)
 		}
@@ -636,7 +617,7 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 
 	internalStatus := protoStatusToInternal(protoStatus)
 
-	if err := s.reverseProxyManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
+	if err := s.serviceManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
 		log.WithContext(ctx).WithError(err).Error("failed to update service status")
 		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
 	}
@@ -651,22 +632,22 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 }
 
 // protoStatusToInternal maps proto status to internal status
-func protoStatusToInternal(protoStatus proto.ProxyStatus) reverseproxy.ProxyStatus {
+func protoStatusToInternal(protoStatus proto.ProxyStatus) rpservice.Status {
 	switch protoStatus {
 	case proto.ProxyStatus_PROXY_STATUS_PENDING:
-		return reverseproxy.StatusPending
+		return rpservice.StatusPending
 	case proto.ProxyStatus_PROXY_STATUS_ACTIVE:
-		return reverseproxy.StatusActive
+		return rpservice.StatusActive
 	case proto.ProxyStatus_PROXY_STATUS_TUNNEL_NOT_CREATED:
-		return reverseproxy.StatusTunnelNotCreated
+		return rpservice.StatusTunnelNotCreated
 	case proto.ProxyStatus_PROXY_STATUS_CERTIFICATE_PENDING:
-		return reverseproxy.StatusCertificatePending
+		return rpservice.StatusCertificatePending
 	case proto.ProxyStatus_PROXY_STATUS_CERTIFICATE_FAILED:
-		return reverseproxy.StatusCertificateFailed
+		return rpservice.StatusCertificateFailed
 	case proto.ProxyStatus_PROXY_STATUS_ERROR:
-		return reverseproxy.StatusError
+		return rpservice.StatusError
 	default:
-		return reverseproxy.StatusError
+		return rpservice.StatusError
 	}
 }
 
@@ -731,7 +712,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
 	}
 	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
-	services, err := s.reverseProxyManager.GetAccountServices(ctx, req.GetAccountId())
+	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account services: %v", err)
 		return nil, status.Errorf(codes.FailedPrecondition, "get account services: %v", err)
@@ -775,7 +756,10 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	state := fmt.Sprintf("%s|%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), nonceB64, hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
-	s.pkceVerifiers.Store(state, pkceEntry{verifier: codeVerifier, createdAt: time.Now()})
+	if err := s.pkceVerifierStore.Store(state, codeVerifier, pkceVerifierTTL); err != nil {
+		log.WithContext(ctx).Errorf("failed to store PKCE verifier: %v", err)
+		return nil, status.Errorf(codes.Internal, "store PKCE verifier: %v", err)
+	}
 
 	return &proto.GetOIDCURLResponse{
 		Url: (&oauth2.Config{
@@ -794,8 +778,8 @@ func (s *ProxyServiceServer) GetOIDCConfig() ProxyOIDCConfig {
 
 // GetOIDCValidationConfig returns the OIDC configuration for token validation
 // in the format needed by ToProtoMapping.
-func (s *ProxyServiceServer) GetOIDCValidationConfig() reverseproxy.OIDCValidationConfig {
-	return reverseproxy.OIDCValidationConfig{
+func (s *ProxyServiceServer) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{
 		Issuer:             s.oidcConfig.Issuer,
 		Audiences:          []string{s.oidcConfig.Audience},
 		KeysLocation:       s.oidcConfig.KeysLocation,
@@ -812,18 +796,10 @@ func (s *ProxyServiceServer) generateHMAC(input string) string {
 // ValidateState validates the state parameter from an OAuth callback.
 // Returns the original redirect URL if valid, or an error if invalid.
 func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
-	v, ok := s.pkceVerifiers.LoadAndDelete(state)
+	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
 	if !ok {
 		return "", "", errors.New("no verifier for state")
 	}
-	entry, ok := v.(pkceEntry)
-	if !ok {
-		return "", "", errors.New("invalid verifier for state")
-	}
-	if time.Since(entry.createdAt) > pkceVerifierTTL {
-		return "", "", errors.New("PKCE verifier expired")
-	}
-	verifier = entry.verifier
 
 	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
@@ -854,12 +830,12 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 // GenerateSessionToken creates a signed session JWT for the given domain and user.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	// Find the service by domain to get its signing key
-	services, err := s.reverseProxyManager.GetGlobalServices(ctx)
+	services, err := s.serviceManager.GetGlobalServices(ctx)
 	if err != nil {
 		return "", fmt.Errorf("get services: %w", err)
 	}
 
-	var service *reverseproxy.Service
+	var service *rpservice.Service
 	for _, svc := range services {
 		if svc.Domain == domain {
 			service = svc
@@ -925,8 +901,8 @@ func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain
 	return fmt.Errorf("user %s not in allowed groups for domain %s", user.Id, domain)
 }
 
-func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error) {
-	services, err := s.reverseProxyManager.GetAccountServices(ctx, accountID)
+func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+	services, err := s.serviceManager.GetAccountServices(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account services: %w", err)
 	}
@@ -1047,8 +1023,8 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	}, nil
 }
 
-func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*reverseproxy.Service, error) {
-	services, err := s.reverseProxyManager.GetGlobalServices(ctx)
+func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
+	services, err := s.serviceManager.GetGlobalServices(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get services: %w", err)
 	}
@@ -1062,7 +1038,7 @@ func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain stri
 	return nil, fmt.Errorf("service not found for domain: %s", domain)
 }
 
-func (s *ProxyServiceServer) checkGroupAccess(service *reverseproxy.Service, user *types.User) error {
+func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *types.User) error {
 	if service.Auth.BearerAuth == nil || !service.Auth.BearerAuth.Enabled {
 		return nil
 	}
