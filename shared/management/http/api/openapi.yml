@@ -83,6 +83,9 @@ tags:
   - name: EDR Huntress Integrations
     description: Manage Huntress EDR integrations.
     x-cloud-only: true
+  - name: EDR FleetDM Integrations
+    description: Manage FleetDM EDR integrations.
+    x-cloud-only: true
   - name: EDR Peers
     description: Manage EDR compliance bypass for peers.
     x-cloud-only: true
@@ -4105,6 +4108,129 @@ components:
           type: string
           description: Status of agent firewall. Can be one of Disabled, Enabled, Pending Isolation, Isolated, Pending Release.
           example: "Enabled"
+
+    EDRFleetDMRequest:
+      type: object
+      description: Request payload for creating or updating a FleetDM EDR integration
+      properties:
+        api_url:
+          type: string
+          description: FleetDM server URL
+        api_token:
+          type: string
+          description: FleetDM API token
+        groups:
+          type: array
+          description: The Groups this integrations applies to
+          items:
+            type: string
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours. Minimum value is 24 hours
+          minimum: 24
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/FleetDMMatchAttributes'
+      required:
+        - api_url
+        - api_token
+        - groups
+        - last_synced_interval
+        - match_attributes
+    EDRFleetDMResponse:
+      type: object
+      description: Represents a FleetDM EDR integration configuration
+      required:
+        - id
+        - account_id
+        - api_url
+        - created_by
+        - last_synced_at
+        - created_at
+        - updated_at
+        - groups
+        - last_synced_interval
+        - match_attributes
+        - enabled
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The unique numeric identifier for the integration.
+          example: 123
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "ch8i4ug6lnn4g9hqv7l0"
+        api_url:
+          type: string
+          description: FleetDM server URL
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours.
+        enabled:
+          type: boolean
+          description: Indicates whether the integration is enabled
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/FleetDMMatchAttributes'
+
+    FleetDMMatchAttributes:
+      type: object
+      description: Attribute conditions to match when approving FleetDM hosts
+      additionalProperties: false
+      properties:
+        disk_encryption_enabled:
+          type: boolean
+          description: Whether disk encryption (FileVault/BitLocker) must be enabled on the host
+        failing_policies_count_max:
+          type: integer
+          description: Maximum number of allowed failing policies. Use 0 to require all policies to pass
+          minimum: 0
+          example: 0
+        failing_critical_policies_count_max:
+          type: integer
+          description: Maximum number of allowed failing critical policies (FleetDM Premium). Use 0 to require all critical policies to pass
+          minimum: 0
+          example: 0
+        os_version_min:
+          type: string
+          description: Minimum OS version required (e.g. "14.0", "22H2")
+          example: "14.0"
+        vulnerable_software_count_max:
+          type: integer
+          description: Maximum number of allowed vulnerable software on the host
+          minimum: 0
+          example: 0
+        status_online:
+          type: boolean
+          description: Whether the host must be online (recently seen by Fleet)
 
     CreateScimIntegrationRequest:
       type: object
@@ -9272,6 +9398,161 @@ paths:
         - EDR Huntress Integrations
       summary: Delete EDR Huntress Integration
       description: Deletes an EDR Huntress Integration by its ID.
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/integrations/edr/fleetdm:
+    post:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Create EDR FleetDM Integration
+      description: Creates a new EDR FleetDM integration
+      operationId: createFleetDMEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFleetDMRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Get EDR FleetDM Integration
+      description: Retrieves a specific EDR FleetDM integration by its ID.
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Update EDR FleetDM Integration
+      description: Updates an existing EDR FleetDM Integration.
+      operationId: updateFleetDMEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFleetDMRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Delete EDR FleetDM Integration
+      description: Deletes an EDR FleetDM Integration by its ID.
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.

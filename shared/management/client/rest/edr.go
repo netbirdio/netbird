@@ -265,6 +265,65 @@ func (a *EDRAPI) DeleteHuntressIntegration(ctx context.Context) error {
 	return nil
 }
 
+// GetFleetDMIntegration retrieves the EDR FleetDM integration.
+func (a *EDRAPI) GetFleetDMIntegration(ctx context.Context) (*api.EDRFleetDMResponse, error) {
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/integrations/edr/fleetdm", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.EDRFleetDMResponse](resp)
+	return &ret, err
+}
+
+// CreateFleetDMIntegration creates a new EDR FleetDM integration.
+func (a *EDRAPI) CreateFleetDMIntegration(ctx context.Context, request api.EDRFleetDMRequest) (*api.EDRFleetDMResponse, error) {
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/integrations/edr/fleetdm", bytes.NewReader(requestBytes), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.EDRFleetDMResponse](resp)
+	return &ret, err
+}
+
+// UpdateFleetDMIntegration updates an existing EDR FleetDM integration.
+func (a *EDRAPI) UpdateFleetDMIntegration(ctx context.Context, request api.EDRFleetDMRequest) (*api.EDRFleetDMResponse, error) {
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/integrations/edr/fleetdm", bytes.NewReader(requestBytes), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[api.EDRFleetDMResponse](resp)
+	return &ret, err
+}
+
+// DeleteFleetDMIntegration deletes the EDR FleetDM integration.
+func (a *EDRAPI) DeleteFleetDMIntegration(ctx context.Context) error {
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/integrations/edr/fleetdm", nil, nil)
+	if err != nil {
+		return err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	return nil
+}
+
 // BypassPeerCompliance bypasses compliance for a non-compliant peer
 // See more: https://docs.netbird.io/api/resources/edr#bypass-peer-compliance
 func (a *EDRAPI) BypassPeerCompliance(ctx context.Context, peerID string) (*api.BypassResponse, error) {

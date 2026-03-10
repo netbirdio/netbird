@@ -1647,6 +1647,63 @@ type EDRFalconResponse struct {
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
 }
 
+// EDRFleetDMRequest Request payload for creating or updating a FleetDM EDR integration
+type EDRFleetDMRequest struct {
+	// ApiToken FleetDM API token
+	ApiToken string `json:"api_token"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+}
+
+// EDRFleetDMResponse Represents a FleetDM EDR integration configuration
+type EDRFleetDMResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // EDRHuntressRequest Request payload for creating or updating a EDR Huntress integration
 type EDRHuntressRequest struct {
 	// ApiKey Huntress API key
@@ -1853,6 +1910,27 @@ type Event struct {
 
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
+
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts
+type FleetDMMatchAttributes struct {
+	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
+	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
+
+	// FailingCriticalPoliciesCountMax Maximum number of allowed failing critical policies (FleetDM Premium). Use 0 to require all critical policies to pass
+	FailingCriticalPoliciesCountMax *int `json:"failing_critical_policies_count_max,omitempty"`
+
+	// FailingPoliciesCountMax Maximum number of allowed failing policies. Use 0 to require all policies to pass
+	FailingPoliciesCountMax *int `json:"failing_policies_count_max,omitempty"`
+
+	// OsVersionMin Minimum OS version required (e.g. "14.0", "22H2")
+	OsVersionMin *string `json:"os_version_min,omitempty"`
+
+	// StatusOnline Whether the host must be online (recently seen by Fleet)
+	StatusOnline *bool `json:"status_online,omitempty"`
+
+	// VulnerableSoftwareCountMax Maximum number of allowed vulnerable software on the host
+	VulnerableSoftwareCountMax *int `json:"vulnerable_software_count_max,omitempty"`
+}
 
 // GeoLocationCheck Posture check for geo location
 type GeoLocationCheck struct {
@@ -4393,6 +4471,12 @@ type CreateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
 
 // UpdateFalconEDRIntegrationJSONRequestBody defines body for UpdateFalconEDRIntegration for application/json ContentType.
 type UpdateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
+
+// CreateFleetDMEDRIntegrationJSONRequestBody defines body for CreateFleetDMEDRIntegration for application/json ContentType.
+type CreateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
+
+// UpdateFleetDMEDRIntegrationJSONRequestBody defines body for UpdateFleetDMEDRIntegration for application/json ContentType.
+type UpdateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
 
 // CreateHuntressEDRIntegrationJSONRequestBody defines body for CreateHuntressEDRIntegration for application/json ContentType.
 type CreateHuntressEDRIntegrationJSONRequestBody = EDRHuntressRequest
