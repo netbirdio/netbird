@@ -157,6 +157,7 @@ func (m *Manager) SetDownloadOnly() {
 	m.forceUpdate = false
 	m.expectedVersion = nil
 	m.updateToLatestVersion = false
+	m.lastTrigger = time.Time{}
 	m.updateMutex.Unlock()
 
 	select {
@@ -166,7 +167,7 @@ func (m *Manager) SetDownloadOnly() {
 }
 
 func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
-	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
+	log.Infof("expected version changed to %s, force update: %t", expectedVersion, forceUpdate)
 
 	if !m.autoUpdateSupported() {
 		log.Warnf("auto-update not supported on this platform")
@@ -200,6 +201,7 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 		m.updateToLatestVersion = false
 	}
 
+	m.lastTrigger = time.Time{}
 	m.downloadOnly = false
 	m.forceUpdate = forceUpdate
 
@@ -483,7 +485,7 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version, forceUpdate bool) bool 
 	}
 
 	if forceUpdate && time.Since(m.lastTrigger) < 3*time.Minute {
-		log.Debugf("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
+		log.Infof("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
 		return false
 	}
 
