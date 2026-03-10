@@ -4,14 +4,7 @@ Internal documentation for the NetBird client metrics system.
 
 ## Overview
 
-Client metrics track connection performance and sync durations. Two backend implementations are available:
-
-- **InfluxDB** (`influxdb.go`): Timestamped samples in InfluxDB line protocol. Best for sparse one-shot events (connections, syncs). Each event is pushed once then cleared.
-- **VictoriaMetrics** (`victoria.go`): Prometheus-style cumulative histograms. Better for continuous/high-frequency metrics.
-
-Select the implementation in `metrics_default.go`:
-- `newInfluxDBMetrics()` — InfluxDB line protocol
-- `newVictoriaMetrics()` — Prometheus format
+Client metrics track connection performance and sync durations using InfluxDB line protocol (`influxdb.go`). Each event is pushed once then cleared.
 
 Metrics are:
 - Disabled by default (opt-in via `NB_METRICS_ENABLED=true`)
@@ -131,9 +124,7 @@ For URL and Interval, the precedence is:
 5. On success: `Reset()` clears pushed samples
 6. `StopPush()` cancels context and waits for goroutine
 
-**InfluxDB mode:** Samples are collected with exact timestamps, pushed once, then cleared. No data is resent.
-
-**VictoriaMetrics mode:** Cumulative histograms accumulate in memory. After successful push, metrics are unregistered. Use `rate(sum)/rate(count)` for averages.
+Samples are collected with exact timestamps, pushed once, then cleared. No data is resent.
 
 ## Local Development Setup
 
@@ -150,7 +141,6 @@ This starts:
 - **Ingest server** on http://localhost:8087 — accepts client metrics (no auth needed)
 - **InfluxDB** — internal only, not exposed to host
 - **Grafana** on http://localhost:3001
-- **VictoriaMetrics** on http://localhost:8428
 
 ### 2. Configure Client
 
@@ -171,7 +161,6 @@ go run ./client/ up
 ### 4. View in Grafana
 
 - **InfluxDB dashboard:** http://localhost:3001/d/netbird-influxdb-metrics
-- **VictoriaMetrics dashboard:** http://localhost:3001/d/netbird-connection-metrics
 
 ### 5. Verify Data
 
@@ -183,11 +172,4 @@ docker compose exec influxdb influx query \
 
 # Check ingest server health
 curl http://localhost:8087/health
-
-# VictoriaMetrics - list metrics
-curl http://localhost:8428/api/v1/label/__name__/values
-
-# VictoriaMetrics - delete all data
-curl -s http://localhost:8428/api/v1/admin/tsdb/delete_series \
-  --data-urlencode 'match[]={__name__=~".+"}'
 ```
