@@ -18,3 +18,12 @@ type Domain struct {
 	// proxy cluster capabilities. Not persisted.
 	SupportsCustomPorts bool `gorm:"-"`
 }
+
+// EventMeta returns activity event metadata for a domain
+func (d *Domain) EventMeta() map[string]any {
+	return map[string]any{
+		"domain":         d.Domain,
+		"target_cluster": d.TargetCluster,
+		"validated":      d.Validated,
+	}
+}

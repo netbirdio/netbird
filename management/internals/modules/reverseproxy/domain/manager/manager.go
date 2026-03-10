@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -41,16 +43,16 @@ type Manager struct {
 	proxyManager        proxyManager
 	clusterCapabilities clusterCapabilities
 	permissionsManager  permissions.Manager
+	accountManager     account.Manager
 }
 
-func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager) Manager {
+func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return Manager{
-		store:        store,
-		proxyManager: proxyMgr,
-		validator: domain.Validator{
-			Resolver: net.DefaultResolver,
-		},
+		store:              store,
+		proxyManager:       proxyMgr,
+		validator:          domain.Validator{Resolver: net.DefaultResolver},
 		permissionsManager: permissionsManager,
+		accountManager:     accountManager,
 	}
 }
 
@@ -154,6 +156,9 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	if err != nil {
 		return d, fmt.Errorf("create domain in store: %w", err)
 	}
+
+	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
+
 	return d, nil
 }
 
@@ -166,10 +171,18 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 		return status.NewPermissionDeniedError()
 	}
 
+	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
+	if err != nil {
+		return fmt.Errorf("get domain from store: %w", err)
+	}
+
 	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
 		// TODO: check for "no records" type error. Because that is a success condition.
 		return fmt.Errorf("delete domain from store: %w", err)
 	}
+
+	m.accountManager.StoreEvent(ctx, userID, domainID, accountID, activity.DomainDeleted, d.EventMeta())
+
 	return nil
 }
 
@@ -236,6 +249,8 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 			}).WithError(err).Error("update custom domain in store")
 			return
 		}
+
+		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
 	} else {
 		log.WithFields(log.Fields{
 			"accountID":     accountID,

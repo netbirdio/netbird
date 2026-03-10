@@ -211,7 +211,7 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
-		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager())
+		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
 		s.AfterInit(func(s *BaseServer) {
 			m.SetClusterCapabilities(s.ServiceProxyController())
 		})

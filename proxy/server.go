@@ -19,14 +19,17 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pires/go-proxyproto"
-	"github.com/prometheus/client_golang/prometheus"
+	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -43,7 +46,7 @@ import (
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
-	"github.com/netbirdio/netbird/proxy/internal/metrics"
+	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
@@ -77,7 +80,7 @@ type Server struct {
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
-	meter         *metrics.Metrics
+	meter         *proxymetrics.Metrics
 	mainRouter    *nbtcp.Router
 	mainPort      uint16
 	udpMu         sync.Mutex
@@ -188,8 +191,19 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.svcPorts = make(map[serviceID][]uint16)
 	s.lastMappings = make(map[serviceID]*proto.ProxyMapping)
 
-	reg := prometheus.NewRegistry()
-	s.meter = metrics.New(reg)
+	exporter, err := prometheus.New()
+	if err != nil {
+		return fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(Server{}).PkgPath()
+	meter := provider.Meter(pkg)
+
+	s.meter, err = proxymetrics.New(ctx, meter)
+	if err != nil {
+		return fmt.Errorf("create metrics: %w", err)
+	}
 
 	mgmtConn, err := s.dialManagement()
 	if err != nil {
@@ -231,7 +245,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	s.startDebugEndpoint()
 
-	if err := s.startHealthServer(reg); err != nil {
+	if err := s.startHealthServer(); err != nil {
 		return err
 	}
 
@@ -343,12 +357,12 @@ func (s *Server) startDebugEndpoint() {
 }
 
 // startHealthServer launches the health probe and metrics server.
-func (s *Server) startHealthServer(reg *prometheus.Registry) error {
+func (s *Server) startHealthServer() error {
 	healthAddr := s.HealthAddress
 	if healthAddr == "" {
 		healthAddr = defaultHealthAddr
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(prometheus2.DefaultGatherer, promhttp.HandlerOpts{EnableOpenMetrics: true}))
 	healthListener, err := net.Listen("tcp", healthAddr)
 	if err != nil {
 		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
@@ -489,7 +503,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{

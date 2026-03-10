@@ -1,117 +1,215 @@
 package metrics
 
 import (
+	"context"
 	"net/http"
-	"strconv"
+	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/responsewriter"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
-// Metrics collects Prometheus metrics for the proxy.
+// Metrics collects OpenTelemetry metrics for the proxy.
 type Metrics struct {
-	requestsTotal     prometheus.Counter
-	activeRequests    prometheus.Gauge
-	configuredDomains prometheus.Gauge
-	pathsPerDomain    *prometheus.GaugeVec
-	requestDuration   *prometheus.HistogramVec
-	backendDuration   *prometheus.HistogramVec
-	l4Services        *prometheus.GaugeVec
+	ctx                      context.Context
+	requestsTotal            metric.Int64Counter
+	activeRequests           metric.Int64UpDownCounter
+	configuredDomains        metric.Int64UpDownCounter
+	totalPaths               metric.Int64UpDownCounter
+	requestDuration          metric.Int64Histogram
+	backendDuration          metric.Int64Histogram
+	certificateIssueDuration metric.Int64Histogram
 
-	// L4 connection-level metrics.
-	tcpActiveConns   *prometheus.GaugeVec
-	tcpConnsTotal    *prometheus.CounterVec
-	tcpConnDuration  *prometheus.HistogramVec
-	tcpBytesTotal    *prometheus.CounterVec
-	udpActiveSess    *prometheus.GaugeVec
-	udpSessionsTotal *prometheus.CounterVec
-	udpPacketsTotal  *prometheus.CounterVec
-	udpBytesTotal    *prometheus.CounterVec
+	// L4 service-level metrics.
+	l4Services metric.Int64UpDownCounter
+
+	// L4 TCP connection-level metrics.
+	tcpActiveConns  metric.Int64UpDownCounter
+	tcpConnsTotal   metric.Int64Counter
+	tcpConnDuration metric.Int64Histogram
+	tcpBytesTotal   metric.Int64Counter
+
+	// L4 UDP session-level metrics.
+	udpActiveSess    metric.Int64UpDownCounter
+	udpSessionsTotal metric.Int64Counter
+	udpPacketsTotal  metric.Int64Counter
+	udpBytesTotal    metric.Int64Counter
+
+	mappingsMux  sync.Mutex
+	mappingPaths map[string]int
 }
 
-// New creates a Metrics instance registered with the given registerer.
-func New(reg prometheus.Registerer) *Metrics {
-	promFactory := promauto.With(reg)
-	return &Metrics{
-		requestsTotal: promFactory.NewCounter(prometheus.CounterOpts{
-			Name: "netbird_proxy_requests_total",
-			Help: "Total number of requests made to the netbird proxy",
-		}),
-		activeRequests: promFactory.NewGauge(prometheus.GaugeOpts{
-			Name: "netbird_proxy_active_requests_count",
-			Help: "Current in-flight requests handled by the netbird proxy",
-		}),
-		configuredDomains: promFactory.NewGauge(prometheus.GaugeOpts{
-			Name: "netbird_proxy_domains_count",
-			Help: "Current number of domains configured on the netbird proxy",
-		}),
-		pathsPerDomain: promFactory.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: "netbird_proxy_paths_count",
-				Help: "Current number of paths configured on the netbird proxy labelled by domain",
-			},
-			[]string{"domain"},
-		),
-		requestDuration: promFactory.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "netbird_proxy_request_duration_seconds",
-				Help:    "Duration of requests made to the netbird proxy",
-				Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-			},
-			[]string{"status", "size", "method", "host", "path"},
-		),
-		backendDuration: promFactory.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "netbird_proxy_backend_duration_seconds",
-			Help:    "Duration of peer round trip time from the netbird proxy",
-			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-		},
-			[]string{"status", "size", "method", "host", "path"},
-		),
-		l4Services: promFactory.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "netbird_proxy_l4_services_count",
-			Help: "Current number of configured L4 services (TCP/TLS/UDP) by mode",
-		}, []string{"mode"}),
-
-		tcpActiveConns: promFactory.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "netbird_proxy_tcp_active_connections",
-			Help: "Current number of active TCP/TLS relay connections",
-		}, []string{"account_id"}),
-		tcpConnsTotal: promFactory.NewCounterVec(prometheus.CounterOpts{
-			Name: "netbird_proxy_tcp_connections_total",
-			Help: "Total TCP/TLS relay connections by result and account",
-		}, []string{"account_id", "result"}),
-		tcpConnDuration: promFactory.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "netbird_proxy_tcp_connection_duration_seconds",
-			Help:    "Duration of TCP/TLS relay connections by account",
-			Buckets: []float64{1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600},
-		}, []string{"account_id"}),
-		tcpBytesTotal: promFactory.NewCounterVec(prometheus.CounterOpts{
-			Name: "netbird_proxy_tcp_bytes_total",
-			Help: "Total bytes transferred through TCP/TLS relay by direction",
-		}, []string{"direction"}),
-
-		udpActiveSess: promFactory.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "netbird_proxy_udp_active_sessions",
-			Help: "Current number of active UDP relay sessions",
-		}, []string{"account_id"}),
-		udpSessionsTotal: promFactory.NewCounterVec(prometheus.CounterOpts{
-			Name: "netbird_proxy_udp_sessions_total",
-			Help: "Total UDP relay sessions by result and account",
-		}, []string{"account_id", "result"}),
-		udpPacketsTotal: promFactory.NewCounterVec(prometheus.CounterOpts{
-			Name: "netbird_proxy_udp_packets_total",
-			Help: "Total UDP packets relayed by direction",
-		}, []string{"direction"}),
-		udpBytesTotal: promFactory.NewCounterVec(prometheus.CounterOpts{
-			Name: "netbird_proxy_udp_bytes_total",
-			Help: "Total bytes transferred through UDP relay by direction",
-		}, []string{"direction"}),
+// New creates a Metrics instance using the given OpenTelemetry meter.
+func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
+	requestsTotal, err := meter.Int64Counter(
+		"proxy.http.request.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total number of requests made to the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	activeRequests, err := meter.Int64UpDownCounter(
+		"proxy.http.active_requests",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current in-flight requests handled by the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	configuredDomains, err := meter.Int64UpDownCounter(
+		"proxy.domains.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of domains configured on the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPaths, err := meter.Int64UpDownCounter(
+		"proxy.paths.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total number of paths configured on the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	requestDuration, err := meter.Int64Histogram(
+		"proxy.http.request.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of requests made to the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	backendDuration, err := meter.Int64Histogram(
+		"proxy.backend.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of peer round trip time from the netbird proxy"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	certificateIssueDuration, err := meter.Int64Histogram(
+		"proxy.certificate.issue.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of ACME certificate issuance"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	l4Services, err := meter.Int64UpDownCounter(
+		"proxy.l4.services.count",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of configured L4 services (TCP/TLS/UDP) by mode"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpActiveConns, err := meter.Int64UpDownCounter(
+		"proxy.tcp.active_connections",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of active TCP/TLS relay connections"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpConnsTotal, err := meter.Int64Counter(
+		"proxy.tcp.connections.total",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total TCP/TLS relay connections by result and account"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpConnDuration, err := meter.Int64Histogram(
+		"proxy.tcp.connection.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of TCP/TLS relay connections"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpBytesTotal, err := meter.Int64Counter(
+		"proxy.tcp.bytes.total",
+		metric.WithUnit("bytes"),
+		metric.WithDescription("Total bytes transferred through TCP/TLS relay by direction"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	udpActiveSess, err := meter.Int64UpDownCounter(
+		"proxy.udp.active_sessions",
+		metric.WithUnit("1"),
+		metric.WithDescription("Current number of active UDP relay sessions"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	udpSessionsTotal, err := meter.Int64Counter(
+		"proxy.udp.sessions.total",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total UDP relay sessions by result and account"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	udpPacketsTotal, err := meter.Int64Counter(
+		"proxy.udp.packets.total",
+		metric.WithUnit("1"),
+		metric.WithDescription("Total UDP packets relayed by direction"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	udpBytesTotal, err := meter.Int64Counter(
+		"proxy.udp.bytes.total",
+		metric.WithUnit("bytes"),
+		metric.WithDescription("Total bytes transferred through UDP relay by direction"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Metrics{
+		ctx:                      ctx,
+		requestsTotal:            requestsTotal,
+		activeRequests:           activeRequests,
+		configuredDomains:        configuredDomains,
+		totalPaths:               totalPaths,
+		requestDuration:          requestDuration,
+		backendDuration:          backendDuration,
+		certificateIssueDuration: certificateIssueDuration,
+		l4Services:               l4Services,
+		tcpActiveConns:           tcpActiveConns,
+		tcpConnsTotal:            tcpConnsTotal,
+		tcpConnDuration:          tcpConnDuration,
+		tcpBytesTotal:            tcpBytesTotal,
+		udpActiveSess:            udpActiveSess,
+		udpSessionsTotal:         udpSessionsTotal,
+		udpPacketsTotal:          udpPacketsTotal,
+		udpBytesTotal:            udpBytesTotal,
+		mappingPaths:             make(map[string]int),
+	}, nil
 }
 
 type responseInterceptor struct {
@@ -140,22 +238,19 @@ func (w *responseInterceptor) Unwrap() http.ResponseWriter {
 // Middleware wraps an HTTP handler with request metrics.
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.requestsTotal.Inc()
-		m.activeRequests.Inc()
-		defer m.activeRequests.Dec()
+		m.requestsTotal.Add(m.ctx, 1)
+		m.activeRequests.Add(m.ctx, 1)
 
 		interceptor := &responseInterceptor{PassthroughWriter: responsewriter.New(w)}
 
 		start := time.Now()
+		defer func() {
+			duration := time.Since(start)
+			m.activeRequests.Add(m.ctx, -1)
+			m.requestDuration.Record(m.ctx, duration.Milliseconds())
+		}()
+
 		next.ServeHTTP(interceptor, r)
-		duration := time.Since(start)
-		m.requestDuration.With(prometheus.Labels{
-			"status": strconv.Itoa(interceptor.status),
-			"size":   strconv.Itoa(interceptor.size),
-			"method": r.Method,
-			"host":   r.Host,
-			"path":   r.URL.Path,
-		}).Observe(duration.Seconds())
 	})
 }
 
@@ -168,29 +263,11 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 // RoundTripper wraps an http.RoundTripper with backend duration metrics.
 func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 	return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		labels := prometheus.Labels{
-			"method": req.Method,
-			"host":   req.Host,
-			// Fill potentially empty labels with default values to avoid cardinality issues.
-			"path":   "/",
-			"status": "0",
-			"size":   "0",
-		}
-		if req.URL != nil {
-			labels["path"] = req.URL.Path
-		}
-
 		start := time.Now()
 		res, err := next.RoundTrip(req)
 		duration := time.Since(start)
 
-		// Not all labels will be available if there was an error.
-		if res != nil {
-			labels["status"] = strconv.Itoa(res.StatusCode)
-			labels["size"] = strconv.Itoa(int(res.ContentLength))
-		}
-
-		m.backendDuration.With(labels).Observe(duration.Seconds())
+		m.backendDuration.Record(m.ctx, duration.Milliseconds())
 
 		return res, err
 	})
@@ -198,81 +275,118 @@ func (m *Metrics) RoundTripper(next http.RoundTripper) http.RoundTripper {
 
 // AddMapping records that a domain mapping was added.
 func (m *Metrics) AddMapping(mapping proxy.Mapping) {
-	m.configuredDomains.Inc()
-	m.pathsPerDomain.With(prometheus.Labels{
-		"domain": mapping.Host,
-	}).Set(float64(len(mapping.Paths)))
+	m.mappingsMux.Lock()
+	defer m.mappingsMux.Unlock()
+
+	newPathCount := len(mapping.Paths)
+	oldPathCount, exists := m.mappingPaths[mapping.Host]
+
+	if !exists {
+		m.configuredDomains.Add(m.ctx, 1)
+	}
+
+	pathDelta := newPathCount - oldPathCount
+	if pathDelta != 0 {
+		m.totalPaths.Add(m.ctx, int64(pathDelta))
+	}
+
+	m.mappingPaths[mapping.Host] = newPathCount
 }
 
 // RemoveMapping records that a domain mapping was removed.
 func (m *Metrics) RemoveMapping(mapping proxy.Mapping) {
-	m.configuredDomains.Dec()
-	m.pathsPerDomain.With(prometheus.Labels{
-		"domain": mapping.Host,
-	}).Set(0)
+	m.mappingsMux.Lock()
+	defer m.mappingsMux.Unlock()
+
+	oldPathCount, exists := m.mappingPaths[mapping.Host]
+	if !exists {
+		return
+	}
+
+	m.configuredDomains.Add(m.ctx, -1)
+	m.totalPaths.Add(m.ctx, -int64(oldPathCount))
+
+	delete(m.mappingPaths, mapping.Host)
+}
+
+// RecordCertificateIssuance records the duration of a certificate issuance.
+func (m *Metrics) RecordCertificateIssuance(duration time.Duration) {
+	m.certificateIssueDuration.Record(m.ctx, duration.Milliseconds())
 }
 
 // L4ServiceAdded increments the L4 service gauge for the given mode.
 func (m *Metrics) L4ServiceAdded(mode types.ServiceMode) {
-	m.l4Services.With(prometheus.Labels{"mode": string(mode)}).Inc()
+	m.l4Services.Add(m.ctx, 1, metric.WithAttributes(attribute.String("mode", string(mode))))
 }
 
 // L4ServiceRemoved decrements the L4 service gauge for the given mode.
 func (m *Metrics) L4ServiceRemoved(mode types.ServiceMode) {
-	m.l4Services.With(prometheus.Labels{"mode": string(mode)}).Dec()
+	m.l4Services.Add(m.ctx, -1, metric.WithAttributes(attribute.String("mode", string(mode))))
 }
 
 // TCPRelayStarted records a new TCP relay connection starting.
 func (m *Metrics) TCPRelayStarted(accountID types.AccountID) {
-	acct := string(accountID)
-	m.tcpActiveConns.With(prometheus.Labels{"account_id": acct}).Inc()
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": acct, "result": "success"}).Inc()
+	acct := attribute.String("account_id", string(accountID))
+	m.tcpActiveConns.Add(m.ctx, 1, metric.WithAttributes(acct))
+	m.tcpConnsTotal.Add(m.ctx, 1, metric.WithAttributes(acct, attribute.String("result", "success")))
 }
 
 // TCPRelayEnded records a TCP relay connection ending and accumulates bytes and duration.
 func (m *Metrics) TCPRelayEnded(accountID types.AccountID, duration time.Duration, srcToDst, dstToSrc int64) {
-	acct := string(accountID)
-	m.tcpActiveConns.With(prometheus.Labels{"account_id": acct}).Dec()
-	m.tcpConnDuration.With(prometheus.Labels{"account_id": acct}).Observe(duration.Seconds())
-	m.tcpBytesTotal.With(prometheus.Labels{"direction": "client_to_backend"}).Add(float64(srcToDst))
-	m.tcpBytesTotal.With(prometheus.Labels{"direction": "backend_to_client"}).Add(float64(dstToSrc))
+	acct := attribute.String("account_id", string(accountID))
+	m.tcpActiveConns.Add(m.ctx, -1, metric.WithAttributes(acct))
+	m.tcpConnDuration.Record(m.ctx, duration.Milliseconds(), metric.WithAttributes(acct))
+	m.tcpBytesTotal.Add(m.ctx, srcToDst, metric.WithAttributes(attribute.String("direction", "client_to_backend")))
+	m.tcpBytesTotal.Add(m.ctx, dstToSrc, metric.WithAttributes(attribute.String("direction", "backend_to_client")))
 }
 
 // TCPRelayDialError records a dial failure for a TCP relay.
 func (m *Metrics) TCPRelayDialError(accountID types.AccountID) {
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "dial_error"}).Inc()
+	m.tcpConnsTotal.Add(m.ctx, 1, metric.WithAttributes(
+		attribute.String("account_id", string(accountID)),
+		attribute.String("result", "dial_error"),
+	))
 }
 
 // TCPRelayRejected records a rejected TCP relay (semaphore full).
 func (m *Metrics) TCPRelayRejected(accountID types.AccountID) {
-	m.tcpConnsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "rejected"}).Inc()
+	m.tcpConnsTotal.Add(m.ctx, 1, metric.WithAttributes(
+		attribute.String("account_id", string(accountID)),
+		attribute.String("result", "rejected"),
+	))
 }
 
 // UDPSessionStarted records a new UDP session starting.
 func (m *Metrics) UDPSessionStarted(accountID types.AccountID) {
-	acct := string(accountID)
-	m.udpActiveSess.With(prometheus.Labels{"account_id": acct}).Inc()
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": acct, "result": "success"}).Inc()
+	acct := attribute.String("account_id", string(accountID))
+	m.udpActiveSess.Add(m.ctx, 1, metric.WithAttributes(acct))
+	m.udpSessionsTotal.Add(m.ctx, 1, metric.WithAttributes(acct, attribute.String("result", "success")))
 }
 
 // UDPSessionEnded records a UDP session ending.
 func (m *Metrics) UDPSessionEnded(accountID types.AccountID) {
-	m.udpActiveSess.With(prometheus.Labels{"account_id": string(accountID)}).Dec()
+	m.udpActiveSess.Add(m.ctx, -1, metric.WithAttributes(attribute.String("account_id", string(accountID))))
 }
 
 // UDPSessionDialError records a dial failure for a UDP session.
 func (m *Metrics) UDPSessionDialError(accountID types.AccountID) {
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "dial_error"}).Inc()
+	m.udpSessionsTotal.Add(m.ctx, 1, metric.WithAttributes(
+		attribute.String("account_id", string(accountID)),
+		attribute.String("result", "dial_error"),
+	))
 }
 
 // UDPSessionRejected records a rejected UDP session (limit or rate limited).
 func (m *Metrics) UDPSessionRejected(accountID types.AccountID) {
-	m.udpSessionsTotal.With(prometheus.Labels{"account_id": string(accountID), "result": "rejected"}).Inc()
+	m.udpSessionsTotal.Add(m.ctx, 1, metric.WithAttributes(
+		attribute.String("account_id", string(accountID)),
+		attribute.String("result", "rejected"),
+	))
 }
 
 // UDPPacketRelayed records a packet relayed in the given direction with its size in bytes.
 func (m *Metrics) UDPPacketRelayed(direction types.RelayDirection, bytes int) {
-	d := string(direction)
-	m.udpPacketsTotal.With(prometheus.Labels{"direction": d}).Inc()
-	m.udpBytesTotal.With(prometheus.Labels{"direction": d}).Add(float64(bytes))
+	dir := attribute.String("direction", string(direction))
+	m.udpPacketsTotal.Add(m.ctx, 1, metric.WithAttributes(dir))
+	m.udpBytesTotal.Add(m.ctx, int64(bytes), metric.WithAttributes(dir))
 }
