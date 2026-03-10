@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"net/url"
 	"strings"
 )
 
@@ -37,8 +38,12 @@ func DetermineDeploymentType(managementURL string) DeploymentType {
 		return DeploymentTypeUnknown
 	}
 
-	// Check for NetBird cloud API domain
-	if strings.Contains(strings.ToLower(managementURL), "api.netbird.io") {
+	u, err := url.Parse(managementURL)
+	if err != nil {
+		return DeploymentTypeSelfHosted
+	}
+
+	if strings.ToLower(u.Hostname()) == "api.netbird.io" {
 		return DeploymentTypeCloud
 	}
 
