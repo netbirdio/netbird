@@ -44,54 +44,7 @@ func main() {
 
 	client := &http.Client{Timeout: 10 * 1e9} // 10 seconds
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		if err := validateAuth(r); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-
-		body, err := readBody(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(body) > maxBodySize {
-			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-
-		validated, err := validateLineProtocol(body)
-		if err != nil {
-			log.Printf("WARN validation failed from %s: %v", r.RemoteAddr, err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, influxURL, bytes.NewReader(validated))
-		if err != nil {
-			log.Printf("ERROR create request: %v", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-		req.Header.Set("Authorization", "Token "+influxToken)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("ERROR forward to influxdb: %v", err)
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body) //nolint:errcheck
-	})
+	http.HandleFunc("/", handleIngest(client, influxURL, influxToken))
 
 	// Build config JSON once at startup from env vars
 	configJSON := buildConfigJSON()
@@ -121,6 +74,63 @@ func main() {
 	if err := http.ListenAndServe(listenAddr, nil); err != nil { //nolint:gosec
 		log.Fatal(err)
 	}
+}
+
+func handleIngest(client *http.Client, influxURL, influxToken string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if err := validateAuth(r); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		body, err := readBody(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(body) > maxBodySize {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		validated, err := validateLineProtocol(body)
+		if err != nil {
+			log.Printf("WARN validation failed from %s: %v", r.RemoteAddr, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		forwardToInflux(w, r, client, influxURL, influxToken, validated)
+	}
+}
+
+func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client, influxURL, influxToken string, body []byte) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, influxURL, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("ERROR create request: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	req.Header.Set("Authorization", "Token "+influxToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("ERROR forward to influxdb: %v", err)
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
 // validateAuth checks that the Authorization header contains a valid hashed peer ID.
