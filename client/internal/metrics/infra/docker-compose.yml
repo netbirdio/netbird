@@ -21,6 +21,25 @@ services:
     networks:
       - metrics
 
+  influxdb:
+    container_name: influxdb
+    image: influxdb:2
+    # No ports exposed — only accessible within the metrics network
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - ./influxdb/scripts:/docker-entrypoint-initdb.d
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_ADMIN_PASSWORD:?required}
+      - DOCKER_INFLUXDB_INIT_ORG=netbird
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_RETENTION=365d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN:-}
+    restart: unless-stopped
+    networks:
+      - metrics
+
   grafana:
     container_name: grafana
     image: grafana/grafana:11.6.0
