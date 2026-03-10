@@ -17,9 +17,9 @@ import (
 const (
 	defaultListenAddr  = ":8087"
 	defaultInfluxDBURL = "http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns"
-	maxBodySize        = 1 * 1024 * 1024 // 1 MB max request body
-	maxTotalSeconds    = 300.0           // reject total_seconds > 5 minutes
-	peerIDLength       = 16              // truncated SHA-256: 8 bytes = 16 hex chars
+	maxBodySize        = 50 * 1024 * 1024 // 50 MB max request body
+	maxTotalSeconds    = 300.0            // reject total_seconds > 5 minutes
+	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
 )
 
 var allowedMeasurements = map[string]map[string]bool{
@@ -158,7 +158,7 @@ func readBody(r *http.Request) ([]byte, error) {
 			return nil, fmt.Errorf("invalid gzip: %w", err)
 		}
 		defer gz.Close()
-		reader = gz
+		reader = io.LimitReader(gz, maxBodySize+1)
 	}
 
 	return io.ReadAll(reader)
