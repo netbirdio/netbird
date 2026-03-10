@@ -441,6 +441,9 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
 	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s.ProxyURL, s, s.Logger, s.CertLockMethod, s.meter)
+	// Prefetch the proxy's own certificate proactively so it is available on
+	// disk before any customer-domain TLS handshakes need it as a placeholder.
+	s.acme.AddProxyDomain(domain.Domain(s.ProxyURL))
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
