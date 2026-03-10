@@ -132,8 +132,7 @@ Samples are collected with exact timestamps, pushed once, then cleared. No data 
 
 ```bash
 # From this directory (client/internal/metrics/infra)
-cp .env.example .env
-# Edit .env — set INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN
+# Edit .env to change INFLUXDB_ADMIN_PASSWORD and INFLUXDB_ADMIN_TOKEN
 docker compose up -d
 ```
 
