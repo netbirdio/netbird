@@ -768,6 +768,11 @@ func (g *BundleGenerator) addMetrics() error {
 		return fmt.Errorf("export metrics: %w", err)
 	}
 
+	if buf.Len() == 0 {
+		log.Debugf("skipping metrics.txt in debug bundle: no metrics data")
+		return nil
+	}
+
 	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
 		return fmt.Errorf("add metrics file to zip: %w", err)
 	}
