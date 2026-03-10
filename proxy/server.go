@@ -214,6 +214,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Build the handler chain from inside out.
 	handler := http.Handler(s.proxy)
 	handler = s.auth.Protect(handler)
+	if s.acme != nil {
+		handler = certPendingMiddleware(s.acme, s.ProxyURL, handler)
+	}
 	handler = web.AssetHandler(handler)
 	handler = accessLog.Middleware(handler)
 	handler = s.meter.Middleware(handler)
@@ -437,7 +440,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s.ProxyURL, s, s.Logger, s.CertLockMethod, s.meter)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
@@ -452,6 +455,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		}()
 	}
 	tlsConfig = s.acme.TLSConfig()
+	tlsConfig.GetCertificate = s.acme.GetCertificate
 
 	// ServerName needs to be set to allow for ACME to work correctly
 	// when using CNAME URLs to access the proxy.
@@ -777,6 +781,60 @@ func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {
 	default:
 		return proxy.PathRewriteDefault
 	}
+}
+
+// certPendingMiddleware handles two cases:
+//
+//  1. Requests to a domain whose certificate is still being provisioned are
+//     redirected to the proxy's own URL with the original URL encoded as the
+//     "certpending" query parameter.
+//
+//  2. Requests arriving at the proxy URL with a "certpending" parameter are
+//     served a lightweight polling page that redirects back to the original
+//     domain automatically once its certificate is ready.
+func certPendingMiddleware(acmeMgr *acme.Manager, proxyURL string, next http.Handler) http.Handler {
+	proxyTarget := "https://" + proxyURL
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqHost := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			reqHost = h
+		}
+
+		// Serve the polling/redirect-back page when on the proxy itself.
+		if reqHost == proxyURL {
+			if original := r.URL.Query().Get("certpending"); original != "" {
+				serveCertPendingPage(w, r, acmeMgr, original)
+				return
+			}
+		}
+
+		if acmeMgr.IsCertPending(r.Host) {
+			originalURL := "https://" + r.Host + r.RequestURI
+			target := proxyTarget + "?certpending=" + url.QueryEscape(originalURL)
+			http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// serveCertPendingPage validates originalURL and either redirects immediately
+// if the certificate is now ready, or serves a cert-pending page via the web package.
+func serveCertPendingPage(w http.ResponseWriter, r *http.Request, acmeMgr *acme.Manager, originalURL string) {
+	parsed, err := url.Parse(originalURL)
+	if err != nil || parsed.Scheme != "https" || !acmeMgr.IsKnownDomain(parsed.Host) {
+		http.Error(w, "invalid redirect target", http.StatusBadRequest)
+		return
+	}
+
+	// Certificate is ready — send the user back.
+	if !acmeMgr.IsCertPending(parsed.Host) {
+		http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	web.ServeCertPendingPage(w, r, originalURL)
 }
 
 // debugEndpointAddr returns the address for the debug endpoint.
