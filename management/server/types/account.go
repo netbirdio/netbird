@@ -179,61 +179,6 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap Looku
 	return filteredRoutes
 }
 
-// getRoutingPeerRoutes returns the enabled and disabled lists of routes that the given routing peer serves
-// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-// If the given is not a routing peer, then the lists are empty.
-func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
-
-	peer := a.GetPeer(peerID)
-	if peer == nil {
-		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
-		return enabledRoutes, disabledRoutes
-	}
-
-	seenRoute := make(map[route.ID]struct{})
-
-	takeRoute := func(r *route.Route, id string) {
-		if _, ok := seenRoute[r.ID]; ok {
-			return
-		}
-		seenRoute[r.ID] = struct{}{}
-
-		if r.Enabled {
-			r.Peer = peer.Key
-			enabledRoutes = append(enabledRoutes, r)
-			return
-		}
-		disabledRoutes = append(disabledRoutes, r)
-	}
-
-	for _, r := range a.Routes {
-		for _, groupID := range r.PeerGroups {
-			group := a.GetGroup(groupID)
-			if group == nil {
-				log.WithContext(ctx).Errorf("route %s has peers group %s that doesn't exist under account %s", r.ID, groupID, a.Id)
-				continue
-			}
-			for _, id := range group.Peers {
-				if id != peerID {
-					continue
-				}
-
-				newPeerRoute := r.Copy()
-				newPeerRoute.Peer = id
-				newPeerRoute.PeerGroups = nil
-				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id) // we have to provide unique route id when distribute network map
-				takeRoute(newPeerRoute, id)
-				break
-			}
-		}
-		if r.Peer == peerID {
-			takeRoute(r.Copy(), peerID)
-		}
-	}
-
-	return enabledRoutes, disabledRoutes
-}
-
 // GetRoutesByPrefixOrDomains return list of routes by account and route prefix
 func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain.List) []*route.Route {
 	var routes []*route.Route
@@ -296,29 +241,6 @@ func (a *Account) addNetworksRoutingPeers(
 	}
 
 	return peersToConnect
-}
-
-func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
-	groupList := account.GetPeerGroups(peerID)
-
-	var peerNSGroups []*nbdns.NameServerGroup
-
-	for _, nsGroup := range account.NameServerGroups {
-		if !nsGroup.Enabled {
-			continue
-		}
-		for _, gID := range nsGroup.Groups {
-			_, found := groupList[gID]
-			if found {
-				if !peerIsNameserver(account.GetPeer(peerID), nsGroup) {
-					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
-					break
-				}
-			}
-		}
-	}
-
-	return peerNSGroups
 }
 
 // peerIsNameserver returns true if the peer is a nameserver for a nsGroup
@@ -675,19 +597,6 @@ func (a *Account) GetPeerGroupsList(peerID string) []string {
 		}
 	}
 	return grps
-}
-
-func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
-	peerGroups := a.GetPeerGroups(peerID)
-	enabled := true
-	for _, groupID := range a.DNSSettings.DisabledManagementGroups {
-		_, found := peerGroups[groupID]
-		if found {
-			enabled = false
-			break
-		}
-	}
-	return enabled
 }
 
 func (a *Account) GetPeerGroups(peerID string) LookupMap {
@@ -1231,21 +1140,6 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		distributionGroupPeers = append(distributionGroupPeers, peer)
 	}
 	return distributionGroupPeers
-}
-
-func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]struct{} {
-	distPeers := make(map[string]struct{})
-	for _, id := range route.Groups {
-		group := a.Groups[id]
-		if group == nil {
-			continue
-		}
-
-		for _, pID := range group.Peers {
-			distPeers[pID] = struct{}{}
-		}
-	}
-	return distPeers
 }
 
 func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
