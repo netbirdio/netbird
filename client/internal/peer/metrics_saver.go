@@ -37,7 +37,7 @@ func (s *MetricsStages) RecordWGHandshakeSuccess(handshakeTime time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.stageTimestamps.ConnectionReady.IsZero() {
+	if !s.stageTimestamps.ConnectionReady.IsZero() && s.stageTimestamps.WgHandshakeSuccess.IsZero() {
 		// WireGuard only reports handshake times with second precision, but ConnectionReady
 		// is captured with microsecond precision. If handshake appears before ConnectionReady
 		// due to truncation (e.g., handshake at 6.042s truncated to 6.000s), normalize to
