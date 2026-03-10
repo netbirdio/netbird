@@ -66,13 +66,13 @@ func (m *Manager) RefreshIfNeeded(ctx context.Context) *Config {
 	}
 
 	fetchedConfig, err := m.fetch(ctx)
+	m.lastFetched = time.Now()
 	if err != nil {
 		log.Warnf("failed to fetch metrics remote config: %v", err)
 		return m.lastConfig // return cached (may be nil)
 	}
 
 	m.lastConfig = fetchedConfig
-	m.lastFetched = time.Now()
 
 	log.Tracef("fetched metrics remote config: version-since=%s version-until=%s period=%s",
 		fetchedConfig.VersionSince, fetchedConfig.VersionUntil, fetchedConfig.Interval)
