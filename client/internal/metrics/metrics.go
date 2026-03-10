@@ -135,6 +135,13 @@ func (c *ClientMetrics) UpdateAgentInfo(agentInfo AgentInfo, publicKey string) {
 	c.mu.Lock()
 	c.agentInfo = agentInfo
 	c.mu.Unlock()
+
+	c.pushMu.Lock()
+	push := c.push
+	c.pushMu.Unlock()
+	if push != nil {
+		push.SetPeerID(agentInfo.peerID)
+	}
 }
 
 // Export exports metrics to the writer
@@ -163,6 +170,7 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 
 	c.mu.RLock()
 	agentVersion := c.agentInfo.Version
+	peerID := c.agentInfo.peerID
 	c.mu.RUnlock()
 
 	configManager := remoteconfig.NewManager(getMetricsConfigURL(), remoteconfig.DefaultMinRefreshInterval)
@@ -171,6 +179,7 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 		log.Errorf("failed to create metrics push: %v", err)
 		return
 	}
+	push.SetPeerID(peerID)
 
 	ctx, cancel := context.WithCancel(ctx)
 	c.pushCancel = cancel

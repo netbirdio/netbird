@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	goversion "github.com/hashicorp/go-version"
@@ -59,6 +60,9 @@ type Push struct {
 	config        PushConfig
 	agentVersion  *goversion.Version
 
+	peerID string
+	peerMu sync.RWMutex
+
 	client      *http.Client
 	envInterval time.Duration
 	envAddress  *url.URL
@@ -107,6 +111,13 @@ func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, 
 			Timeout: 10 * time.Second,
 		},
 	}, nil
+}
+
+// SetPeerID updates the hashed peer ID used for the Authorization header.
+func (p *Push) SetPeerID(peerID string) {
+	p.peerMu.Lock()
+	p.peerID = peerID
+	p.peerMu.Unlock()
 }
 
 // Start starts the periodic push loop.
@@ -196,6 +207,13 @@ func (p *Push) push(ctx context.Context, pushURL string) error {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	p.peerMu.RLock()
+	peerID := p.peerID
+	p.peerMu.RUnlock()
+	if peerID != "" {
+		req.Header.Set("Authorization", peerID)
+	}
 
 	// Send request
 	resp, err := p.client.Do(req)
