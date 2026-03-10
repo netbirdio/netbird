@@ -86,7 +86,6 @@ require (
 	github.com/pires/go-proxyproto v0.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_model v0.6.2
 	github.com/quic-go/quic-go v0.55.0
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
@@ -252,6 +251,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/russellhaering/goxmldsig v1.5.0 // indirect

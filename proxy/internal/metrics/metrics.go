@@ -46,170 +46,167 @@ type Metrics struct {
 
 // New creates a Metrics instance using the given OpenTelemetry meter.
 func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
-	requestsTotal, err := meter.Int64Counter(
+	m := &Metrics{
+		ctx:          ctx,
+		mappingPaths: make(map[string]int),
+	}
+
+	if err := m.initHTTPMetrics(meter); err != nil {
+		return nil, err
+	}
+	if err := m.initL4Metrics(meter); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func (m *Metrics) initHTTPMetrics(meter metric.Meter) error {
+	var err error
+
+	m.requestsTotal, err = meter.Int64Counter(
 		"proxy.http.request.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Total number of requests made to the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	activeRequests, err := meter.Int64UpDownCounter(
+	m.activeRequests, err = meter.Int64UpDownCounter(
 		"proxy.http.active_requests",
 		metric.WithUnit("1"),
 		metric.WithDescription("Current in-flight requests handled by the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	configuredDomains, err := meter.Int64UpDownCounter(
+	m.configuredDomains, err = meter.Int64UpDownCounter(
 		"proxy.domains.count",
 		metric.WithUnit("1"),
 		metric.WithDescription("Current number of domains configured on the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	totalPaths, err := meter.Int64UpDownCounter(
+	m.totalPaths, err = meter.Int64UpDownCounter(
 		"proxy.paths.count",
 		metric.WithUnit("1"),
 		metric.WithDescription("Total number of paths configured on the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	requestDuration, err := meter.Int64Histogram(
+	m.requestDuration, err = meter.Int64Histogram(
 		"proxy.http.request.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of requests made to the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	backendDuration, err := meter.Int64Histogram(
+	m.backendDuration, err = meter.Int64Histogram(
 		"proxy.backend.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of peer round trip time from the netbird proxy"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	certificateIssueDuration, err := meter.Int64Histogram(
+	m.certificateIssueDuration, err = meter.Int64Histogram(
 		"proxy.certificate.issue.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of ACME certificate issuance"),
 	)
-	if err != nil {
-		return nil, err
-	}
+	return err
+}
 
-	l4Services, err := meter.Int64UpDownCounter(
+func (m *Metrics) initL4Metrics(meter metric.Meter) error {
+	var err error
+
+	m.l4Services, err = meter.Int64UpDownCounter(
 		"proxy.l4.services.count",
 		metric.WithUnit("1"),
 		metric.WithDescription("Current number of configured L4 services (TCP/TLS/UDP) by mode"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tcpActiveConns, err := meter.Int64UpDownCounter(
+	m.tcpActiveConns, err = meter.Int64UpDownCounter(
 		"proxy.tcp.active_connections",
 		metric.WithUnit("1"),
 		metric.WithDescription("Current number of active TCP/TLS relay connections"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tcpConnsTotal, err := meter.Int64Counter(
+	m.tcpConnsTotal, err = meter.Int64Counter(
 		"proxy.tcp.connections.total",
 		metric.WithUnit("1"),
 		metric.WithDescription("Total TCP/TLS relay connections by result and account"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tcpConnDuration, err := meter.Int64Histogram(
+	m.tcpConnDuration, err = meter.Int64Histogram(
 		"proxy.tcp.connection.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of TCP/TLS relay connections"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tcpBytesTotal, err := meter.Int64Counter(
+	m.tcpBytesTotal, err = meter.Int64Counter(
 		"proxy.tcp.bytes.total",
 		metric.WithUnit("bytes"),
 		metric.WithDescription("Total bytes transferred through TCP/TLS relay by direction"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	udpActiveSess, err := meter.Int64UpDownCounter(
+	m.udpActiveSess, err = meter.Int64UpDownCounter(
 		"proxy.udp.active_sessions",
 		metric.WithUnit("1"),
 		metric.WithDescription("Current number of active UDP relay sessions"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	udpSessionsTotal, err := meter.Int64Counter(
+	m.udpSessionsTotal, err = meter.Int64Counter(
 		"proxy.udp.sessions.total",
 		metric.WithUnit("1"),
 		metric.WithDescription("Total UDP relay sessions by result and account"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	udpPacketsTotal, err := meter.Int64Counter(
+	m.udpPacketsTotal, err = meter.Int64Counter(
 		"proxy.udp.packets.total",
 		metric.WithUnit("1"),
 		metric.WithDescription("Total UDP packets relayed by direction"),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	udpBytesTotal, err := meter.Int64Counter(
+	m.udpBytesTotal, err = meter.Int64Counter(
 		"proxy.udp.bytes.total",
 		metric.WithUnit("bytes"),
 		metric.WithDescription("Total bytes transferred through UDP relay by direction"),
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Metrics{
-		ctx:                      ctx,
-		requestsTotal:            requestsTotal,
-		activeRequests:           activeRequests,
-		configuredDomains:        configuredDomains,
-		totalPaths:               totalPaths,
-		requestDuration:          requestDuration,
-		backendDuration:          backendDuration,
-		certificateIssueDuration: certificateIssueDuration,
-		l4Services:               l4Services,
-		tcpActiveConns:           tcpActiveConns,
-		tcpConnsTotal:            tcpConnsTotal,
-		tcpConnDuration:          tcpConnDuration,
-		tcpBytesTotal:            tcpBytesTotal,
-		udpActiveSess:            udpActiveSess,
-		udpSessionsTotal:         udpSessionsTotal,
-		udpPacketsTotal:          udpPacketsTotal,
-		udpBytesTotal:            udpBytesTotal,
-		mappingPaths:             make(map[string]int),
-	}, nil
+	return err
 }
 
 type responseInterceptor struct {
