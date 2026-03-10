@@ -65,8 +65,8 @@ type Manager struct {
 }
 
 // NewManager creates a new ACME certificate manager. The certDir is used
-// for caching certificates. The lockMethod controls cross-replica coordination
-// strategy (see CertLockMethod constants).
+// for caching certificates. The lockMethod controls cross-replica
+// coordination strategy (see CertLockMethod constants).
 // eabKID and eabHMACKey are optional External Account Binding credentials
 // required for some CAs like ZeroSSL. The eabHMACKey should be the base64
 // URL-encoded string provided by the CA.
@@ -137,39 +137,21 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
 // It acquires a distributed lock to prevent multiple replicas from issuing
-// duplicate ACME requests. While waiting for the lock a background goroutine
-// polls disk; if another replica writes the certificate first it cancels the
-// lock wait so this replica can load from disk instead. Once the lock is
-// resolved, ACME and a disk-polling ticker race: whichever produces a valid
-// certificate first wins and the other is abandoned.
+// duplicate ACME requests. The second replica will block until the first
+// finishes, then find the certificate in the cache.
+// ACME and periodic disk reads race; whichever produces a valid certificate
+// first wins. This handles cases where locking is unreliable and another
+// replica already wrote the cert to the shared cache.
 func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	name := d.PunycodeString()
 
-	if cert, err := mgr.readCertFromDisk(ctx, name); err == nil {
-		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
-		mgr.finalizeCert(ctx, d, name, cert, 0)
-		return
-	}
-
-	// Poll disk only during the lock-wait phase. A child context lets us stop
-	// the goroutine cleanly once the lock outcome is known.
-	pollCtx, stopPoll := context.WithCancel(ctx)
-	go mgr.pollDiskAndCancel(pollCtx, name, cancel)
-
 	mgr.logger.Infof("acquiring cert lock for domain %q", name)
 	lockStart := time.Now()
 	unlock, err := mgr.locker.Lock(ctx, name)
-	stopPoll() // stop poll regardless of lock outcome
-
 	if err != nil {
-		if cert, derr := mgr.readCertFromDisk(context.Background(), name); derr == nil {
-			mgr.logger.Infof("certificate for domain %q appeared on disk while waiting for lock", name)
-			mgr.finalizeCert(context.Background(), d, name, cert, 0)
-			return
-		}
 		mgr.logger.Warnf("acquire cert lock for domain %q, proceeding without lock: %v", name, err)
 	} else {
 		mgr.logger.Infof("acquired cert lock for domain %q in %s", name, time.Since(lockStart))
@@ -177,15 +159,13 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	}
 
 	if cert, err := mgr.readCertFromDisk(ctx, name); err == nil {
-		mgr.logger.Infof("certificate for domain %q already on disk after lock, skipping ACME", name)
-		mgr.finalizeCert(ctx, d, name, cert, 0)
+		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
+		mgr.recordAndNotify(ctx, d, name, cert, 0)
 		return
 	}
 
-	// Race ACME against disk polling. autocert creates its own internal
-	// context so it cannot be cancelled externally; we run it in a goroutine
-	// and abandon it if the disk wins. The abandoned goroutine will receive
-	// orderNotReady from the CA (cert already issued) and exit on its own.
+	// Run ACME in a goroutine so we can race it against periodic disk reads.
+	// autocert uses its own internal context and cannot be cancelled externally.
 	type acmeResult struct {
 		cert *tls.Certificate
 		err  error
@@ -193,7 +173,7 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	acmeCh := make(chan acmeResult, 1)
 	hello := &tls.ClientHelloInfo{ServerName: name, Conn: &dummyConn{ctx: ctx}}
 	go func() {
-		cert, err := mgr.Manager.GetCertificate(hello)
+		cert, err := mgr.GetCertificate(hello)
 		acmeCh <- acmeResult{cert, err}
 	}()
 
@@ -206,16 +186,11 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 		case res := <-acmeCh:
 			elapsed := time.Since(start)
 			if res.err != nil {
-				if cert, derr := mgr.readCertFromDisk(context.Background(), name); derr == nil {
-					mgr.logger.Infof("ACME failed for domain %q but cert on disk, using disk cert: %v", name, res.err)
-					mgr.finalizeCert(context.Background(), d, name, cert, 0)
-					return
-				}
-				mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed, res.err)
+				mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed.String(), res.err)
 				mgr.setDomainState(d, domainFailed, res.err.Error())
 				return
 			}
-			mgr.finalizeCert(ctx, d, name, res.cert, elapsed)
+			mgr.recordAndNotify(ctx, d, name, res.cert, elapsed)
 			return
 
 		case <-diskTicker.C:
@@ -223,18 +198,14 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 			if err != nil {
 				continue
 			}
-			mgr.logger.Infof("cert appeared on disk for domain %q after %s, disk won the race", name, time.Since(start).Round(time.Millisecond))
-			// Drain the ACME goroutine before finalizing. autocert holds a
-			// per-domain write lock while ACME is in flight; calling
-			// finalizeCert (→ domainReady) before that lock is released would
-			// let browser connections through and block them on the read lock.
-			// Draining keeps the domain in domainPending (redirect active)
-			// until autocert is done, then flips atomically.
+			mgr.logger.Infof("certificate for domain %q appeared on disk after %s", name, time.Since(start).Round(time.Millisecond))
+			// Drain the ACME goroutine before marking ready — autocert holds
+			// an internal write lock on certState while ACME is in flight.
 			go func() {
-				<-acmeCh // result is irrelevant; cert is already on disk
-				mgr.finalizeCert(context.Background(), d, name, cert, 0)
+				<-acmeCh
+				mgr.recordAndNotify(context.Background(), d, name, cert, 0)
 			}()
-			return // defer unlock() fires; above goroutine finalizes async
+			return
 
 		case <-ctx.Done():
 			mgr.logger.Warnf("prefetch certificate for domain %q timed out", name)
@@ -244,22 +215,9 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	}
 }
 
-func (mgr *Manager) setDomainState(d domain.Domain, state domainState, errMsg string) {
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-	if info, ok := mgr.domains[d]; ok {
-		info.state = state
-		info.err = errMsg
-	}
-}
-
-// readCertFromDisk reads and parses the certificate for name directly from the
-// autocert DirCache, bypassing autocert's internal certState mutex. This is
-// safe to call even while autocert is actively running ACME for the same
-// domain in another goroutine. The cert is validated (not expired, parses
-// correctly) before being returned.
-//
-// autocert cache format: [private key PEM block][certificate chain PEM blocks...]
+// readCertFromDisk reads and parses a certificate directly from the autocert
+// DirCache, bypassing autocert's internal certState mutex. Safe to call
+// concurrently with an in-flight ACME request for the same domain.
 func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Certificate, error) {
 	if mgr.Cache == nil {
 		return nil, fmt.Errorf("no cache configured")
@@ -271,9 +229,6 @@ func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Cer
 	privBlock, certsPEM := pem.Decode(data)
 	if privBlock == nil || !strings.Contains(privBlock.Type, "PRIVATE") {
 		return nil, fmt.Errorf("no private key in cache for %q", name)
-	}
-	if len(certsPEM) == 0 {
-		return nil, fmt.Errorf("no certificate in cache for %q", name)
 	}
 	cert, err := tls.X509KeyPair(certsPEM, pem.EncodeToMemory(privBlock))
 	if err != nil {
@@ -292,31 +247,9 @@ func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Cer
 	return &cert, nil
 }
 
-// pollDiskAndCancel polls the shared disk cache every 5 seconds and calls
-// cancel if a valid certificate for name appears. It is intended to run as a
-// goroutine only during the lock-wait phase; pass a child context so it can
-// be stopped cleanly once the lock outcome is known.
-func (mgr *Manager) pollDiskAndCancel(ctx context.Context, name string, cancel context.CancelFunc) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, err := mgr.readCertFromDisk(context.Background(), name); err == nil {
-				mgr.logger.Debugf("cert detected on disk for domain %q, cancelling lock wait", name)
-				cancel()
-				return
-			}
-		}
-	}
-}
-
-// finalizeCert marks the domain ready, logs cert details, records metrics if
-// elapsed > 0 (i.e. the cert was issued via ACME rather than loaded from
-// disk), and notifies the cert notifier.
-func (mgr *Manager) finalizeCert(ctx context.Context, d domain.Domain, name string, cert *tls.Certificate, elapsed time.Duration) {
+// recordAndNotify records metrics, marks the domain ready, logs cert details,
+// and notifies the cert notifier.
+func (mgr *Manager) recordAndNotify(ctx context.Context, d domain.Domain, name string, cert *tls.Certificate, elapsed time.Duration) {
 	if elapsed > 0 && mgr.metrics != nil {
 		mgr.metrics.RecordCertificateIssuance(elapsed)
 	}
@@ -324,7 +257,7 @@ func (mgr *Manager) finalizeCert(ctx context.Context, d domain.Domain, name stri
 	now := time.Now()
 	if cert != nil && cert.Leaf != nil {
 		leaf := cert.Leaf
-		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notBefore=%s notAfter=%s now=%s",
+		mgr.logger.Infof("certificate for domain %q ready in %s: serial=%s SANs=%v notBefore=%s, notAfter=%s, now=%s",
 			name, elapsed.Round(time.Millisecond),
 			leaf.SerialNumber.Text(16),
 			leaf.DNSNames,
@@ -343,6 +276,15 @@ func (mgr *Manager) finalizeCert(ctx context.Context, d domain.Domain, name stri
 		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name); err != nil {
 			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
 		}
+	}
+}
+
+func (mgr *Manager) setDomainState(d domain.Domain, state domainState, errMsg string) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if info, ok := mgr.domains[d]; ok {
+		info.state = state
+		info.err = errMsg
 	}
 }
 
