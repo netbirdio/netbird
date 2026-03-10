@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -9,7 +10,10 @@ import (
 )
 
 func isAutoUpdateSupported() bool {
-	isBrew := !installer.TypeOfInstaller(context.Background()).Downloadable()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	isBrew := !installer.TypeOfInstaller(ctx).Downloadable()
 	if isBrew {
 		log.Warnf("auto-update disabled on Homebrew installation")
 		return false

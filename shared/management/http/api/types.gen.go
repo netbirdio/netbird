@@ -946,6 +946,21 @@ func (e ServiceTargetTargetType) Valid() bool {
 	}
 }
 
+// Defines values for ServiceTargetOptionsPathRewrite.
+const (
+	ServiceTargetOptionsPathRewritePreserve ServiceTargetOptionsPathRewrite = "preserve"
+)
+
+// Valid indicates whether the value is a known member of the ServiceTargetOptionsPathRewrite enum.
+func (e ServiceTargetOptionsPathRewrite) Valid() bool {
+	switch e {
+	case ServiceTargetOptionsPathRewritePreserve:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TenantResponseStatus.
 const (
 	TenantResponseStatusActive   TenantResponseStatus = "active"
@@ -3207,6 +3222,12 @@ type ProxyAccessLog struct {
 	// AuthMethodUsed Authentication method used (e.g., password, pin, oidc)
 	AuthMethodUsed *string `json:"auth_method_used,omitempty"`
 
+	// BytesDownload Bytes downloaded (response body size)
+	BytesDownload int64 `json:"bytes_download"`
+
+	// BytesUpload Bytes uploaded (request body size)
+	BytesUpload int64 `json:"bytes_upload"`
+
 	// CityName City name from geolocation
 	CityName *string `json:"city_name,omitempty"`
 
@@ -3555,7 +3576,8 @@ type ServiceTarget struct {
 	Enabled bool `json:"enabled"`
 
 	// Host Backend ip or domain for this target
-	Host *string `json:"host,omitempty"`
+	Host    *string               `json:"host,omitempty"`
+	Options *ServiceTargetOptions `json:"options,omitempty"`
 
 	// Path URL path prefix for this target
 	Path *string `json:"path,omitempty"`
@@ -3578,6 +3600,24 @@ type ServiceTargetProtocol string
 
 // ServiceTargetTargetType Target type (e.g., "peer", "resource")
 type ServiceTargetTargetType string
+
+// ServiceTargetOptions defines model for ServiceTargetOptions.
+type ServiceTargetOptions struct {
+	// CustomHeaders Extra headers sent to the backend. Hop-by-hop and proxy-managed headers (Host, Connection, Transfer-Encoding, etc.) are rejected.
+	CustomHeaders *map[string]string `json:"custom_headers,omitempty"`
+
+	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
+	PathRewrite *ServiceTargetOptionsPathRewrite `json:"path_rewrite,omitempty"`
+
+	// RequestTimeout Per-target response timeout as a Go duration string (e.g. "30s", "2m")
+	RequestTimeout *string `json:"request_timeout,omitempty"`
+
+	// SkipTlsVerify Skip TLS certificate verification for this backend
+	SkipTlsVerify *bool `json:"skip_tls_verify,omitempty"`
+}
+
+// ServiceTargetOptionsPathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
+type ServiceTargetOptionsPathRewrite string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {

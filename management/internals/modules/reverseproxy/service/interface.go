@@ -1,6 +1,6 @@
-package reverseproxy
+package service
 
-//go:generate go run github.com/golang/mock/mockgen -package reverseproxy -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go run github.com/golang/mock/mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -14,15 +14,15 @@ type Manager interface {
 	DeleteService(ctx context.Context, accountID, userID, serviceID string) error
 	DeleteAllServices(ctx context.Context, accountID, userID string) error
 	SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error
-	SetStatus(ctx context.Context, accountID, serviceID string, status ProxyStatus) error
+	SetStatus(ctx context.Context, accountID, serviceID string, status Status) error
 	ReloadAllServicesForAccount(ctx context.Context, accountID string) error
 	ReloadService(ctx context.Context, accountID, serviceID string) error
 	GetGlobalServices(ctx context.Context) ([]*Service, error)
 	GetServiceByID(ctx context.Context, accountID, serviceID string) (*Service, error)
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
 	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
-	ValidateExposePermission(ctx context.Context, accountID, peerID string) error
-	CreateServiceFromPeer(ctx context.Context, accountID, peerID string, service *Service) (*Service, error)
-	DeleteServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
-	ExpireServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
+	CreateServiceFromPeer(ctx context.Context, accountID, peerID string, req *ExposeServiceRequest) (*ExposeServiceResponse, error)
+	RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
+	StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
+	StartExposeReaper(ctx context.Context)
 }

@@ -4,6 +4,7 @@ package management;
 
 option go_package = "/proto";
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // ProxyService - Management is the SERVER, Proxy is the CLIENT
@@ -50,9 +51,22 @@ enum ProxyMappingUpdateType {
   UPDATE_TYPE_REMOVED = 2;
 }
 
+enum PathRewriteMode {
+  PATH_REWRITE_DEFAULT = 0;
+  PATH_REWRITE_PRESERVE = 1;
+}
+
+message PathTargetOptions {
+  bool skip_tls_verify = 1;
+  google.protobuf.Duration request_timeout = 2;
+  PathRewriteMode path_rewrite = 3;
+  map<string, string> custom_headers = 4;
+}
+
 message PathMapping {
   string path = 1;
   string target = 2;
+  PathTargetOptions options = 3;
 }
 
 message Authentication {
@@ -101,6 +115,8 @@ message AccessLog {
   string auth_mechanism = 11;
   string user_id = 12;
   bool auth_success = 13;
+  int64 bytes_upload = 14;
+  int64 bytes_download = 15;
 }
 
 message AuthenticateRequest {

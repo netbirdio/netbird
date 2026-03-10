@@ -46,8 +46,10 @@ const (
 	cmdSFTP             = "<sftp>"
 	cmdNonInteractive   = "<idle>"
 
-	// DefaultJWTMaxTokenAge is the default maximum age for JWT tokens accepted by the SSH server
-	DefaultJWTMaxTokenAge = 5 * 60
+	// DefaultJWTMaxTokenAge is the default maximum age for JWT tokens accepted by the SSH server.
+	// Set to 10 minutes to accommodate identity providers like Azure Entra ID
+	// that backdate the iat claim by up to 5 minutes.
+	DefaultJWTMaxTokenAge = 10 * 60
 )
 
 var (

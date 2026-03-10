@@ -11,6 +11,26 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
+// APIError represents an error response from the management API.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+// Error implements the error interface.
+func (e *APIError) Error() string {
+	return e.Message
+}
+
+// IsNotFound returns true if the error represents a 404 Not Found response.
+func IsNotFound(err error) bool {
+	var apiErr *APIError
+	if ok := errors.As(err, &apiErr); ok {
+		return apiErr.StatusCode == http.StatusNotFound
+	}
+	return false
+}
+
 // Client Management service HTTP REST API Client
 type Client struct {
 	managementURL string
@@ -105,6 +125,15 @@ type Client struct {
 	// Instance NetBird Instance API
 	// see more: https://docs.netbird.io/api/resources/instance
 	Instance *InstanceAPI
+
+	// ReverseProxyServices NetBird reverse proxy services APIs
+	ReverseProxyServices *ReverseProxyServicesAPI
+
+	// ReverseProxyClusters NetBird reverse proxy clusters APIs
+	ReverseProxyClusters *ReverseProxyClustersAPI
+
+	// ReverseProxyDomains NetBird reverse proxy domains APIs
+	ReverseProxyDomains *ReverseProxyDomainsAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -160,6 +189,9 @@ func (c *Client) initialize() {
 	c.IdentityProviders = &IdentityProvidersAPI{c}
 	c.Ingress = &IngressAPI{c}
 	c.Instance = &InstanceAPI{c}
+	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
+	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
+	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
 }
 
 // NewRequest creates and executes new management API request
@@ -194,10 +226,12 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	if resp.StatusCode > 299 {
 		parsedErr, pErr := parseResponse[util.ErrorResponse](resp)
 		if pErr != nil {
-
 			return nil, pErr
 		}
-		return nil, errors.New(parsedErr.Message)
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    parsedErr.Message,
+		}
 	}
 
 	return resp, nil

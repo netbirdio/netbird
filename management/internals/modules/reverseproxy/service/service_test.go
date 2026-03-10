@@ -1,14 +1,16 @@
-package reverseproxy
+package service
 
 import (
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -86,6 +88,188 @@ func TestValidate_MultipleTargetsOneInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty target_id")
 }
 
+func TestValidateTargetOptions_PathRewrite(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    PathRewriteMode
+		wantErr string
+	}{
+		{"empty is default", "", ""},
+		{"preserve is valid", PathRewritePreserve, ""},
+		{"unknown rejected", "regex", "unknown path_rewrite mode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets[0].Options.PathRewrite = tt.mode
+			err := rp.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTargetOptions_RequestTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		wantErr string
+	}{
+		{"valid 30s", 30 * time.Second, ""},
+		{"valid 2m", 2 * time.Minute, ""},
+		{"zero is fine", 0, ""},
+		{"negative", -1 * time.Second, "must be positive"},
+		{"exceeds max", 10 * time.Minute, "exceeds maximum"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets[0].Options.RequestTimeout = tt.timeout
+			err := rp.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTargetOptions_CustomHeaders(t *testing.T) {
+	t.Run("valid headers", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{
+			"X-Custom": "value",
+			"X-Trace":  "abc123",
+		}
+		assert.NoError(t, rp.Validate())
+	})
+
+	t.Run("CRLF in key", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{"X-Bad\r\nKey": "value"}
+		assert.ErrorContains(t, rp.Validate(), "not a valid HTTP header name")
+	})
+
+	t.Run("CRLF in value", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{"X-Good": "bad\nvalue"}
+		assert.ErrorContains(t, rp.Validate(), "invalid characters")
+	})
+
+	t.Run("hop-by-hop header rejected", func(t *testing.T) {
+		for _, h := range []string{"Connection", "Transfer-Encoding", "Keep-Alive", "Upgrade", "Proxy-Connection"} {
+			rp := validProxy()
+			rp.Targets[0].Options.CustomHeaders = map[string]string{h: "value"}
+			assert.ErrorContains(t, rp.Validate(), "hop-by-hop", "header %q should be rejected", h)
+		}
+	})
+
+	t.Run("reserved header rejected", func(t *testing.T) {
+		for _, h := range []string{"X-Forwarded-For", "X-Real-IP", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Port", "Cookie", "Forwarded", "Content-Length", "Content-Type"} {
+			rp := validProxy()
+			rp.Targets[0].Options.CustomHeaders = map[string]string{h: "value"}
+			assert.ErrorContains(t, rp.Validate(), "managed by the proxy", "header %q should be rejected", h)
+		}
+	})
+
+	t.Run("Host header rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{"Host": "evil.com"}
+		assert.ErrorContains(t, rp.Validate(), "pass_host_header")
+	})
+
+	t.Run("too many headers", func(t *testing.T) {
+		rp := validProxy()
+		headers := make(map[string]string, 17)
+		for i := range 17 {
+			headers[fmt.Sprintf("X-H%d", i)] = "v"
+		}
+		rp.Targets[0].Options.CustomHeaders = headers
+		assert.ErrorContains(t, rp.Validate(), "exceeds maximum of 16")
+	})
+
+	t.Run("key too long", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{strings.Repeat("X", 129): "v"}
+		assert.ErrorContains(t, rp.Validate(), "key")
+		assert.ErrorContains(t, rp.Validate(), "exceeds maximum length")
+	})
+
+	t.Run("value too long", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{"X-Ok": strings.Repeat("v", 4097)}
+		assert.ErrorContains(t, rp.Validate(), "value exceeds maximum length")
+	})
+
+	t.Run("duplicate canonical keys rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].Options.CustomHeaders = map[string]string{
+			"x-custom": "a",
+			"X-Custom": "b",
+		}
+		assert.ErrorContains(t, rp.Validate(), "collide")
+	})
+}
+
+func TestToProtoMapping_TargetOptions(t *testing.T) {
+	rp := &Service{
+		ID:        "svc-1",
+		AccountID: "acc-1",
+		Domain:    "example.com",
+		Targets: []*Target{
+			{
+				TargetId:   "peer-1",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.1",
+				Port:       8080,
+				Protocol:   "http",
+				Enabled:    true,
+				Options: TargetOptions{
+					SkipTLSVerify:  true,
+					RequestTimeout: 30 * time.Second,
+					PathRewrite:    PathRewritePreserve,
+					CustomHeaders:  map[string]string{"X-Custom": "val"},
+				},
+			},
+		},
+	}
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	require.Len(t, pm.Path, 1)
+
+	opts := pm.Path[0].Options
+	require.NotNil(t, opts, "options should be populated")
+	assert.True(t, opts.SkipTlsVerify)
+	assert.Equal(t, proto.PathRewriteMode_PATH_REWRITE_PRESERVE, opts.PathRewrite)
+	assert.Equal(t, map[string]string{"X-Custom": "val"}, opts.CustomHeaders)
+	require.NotNil(t, opts.RequestTimeout)
+	assert.Equal(t, int64(30), opts.RequestTimeout.Seconds)
+}
+
+func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {
+	rp := &Service{
+		ID:        "svc-1",
+		AccountID: "acc-1",
+		Domain:    "example.com",
+		Targets: []*Target{
+			{
+				TargetId:   "peer-1",
+				TargetType: TargetTypePeer,
+				Host:       "10.0.0.1",
+				Port:       8080,
+				Protocol:   "http",
+				Enabled:    true,
+			},
+		},
+	}
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	require.Len(t, pm.Path, 1)
+	assert.Nil(t, pm.Path[0].Options, "options should be nil when all defaults")
+}
+
 func TestIsDefaultPort(t *testing.T) {
 	tests := []struct {
 		scheme string
@@ -109,7 +293,7 @@ func TestIsDefaultPort(t *testing.T) {
 }
 
 func TestToProtoMapping_PortInTargetURL(t *testing.T) {
-	oidcConfig := OIDCValidationConfig{}
+	oidcConfig := proxy.OIDCValidationConfig{}
 
 	tests := []struct {
 		name       string
@@ -202,7 +386,7 @@ func TestToProtoMapping_DisabledTargetSkipped(t *testing.T) {
 			{TargetId: "peer-2", TargetType: TargetTypePeer, Host: "10.0.0.2", Port: 9090, Protocol: "http", Enabled: true},
 		},
 	}
-	pm := rp.ToProtoMapping(Create, "token", OIDCValidationConfig{})
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
 	require.Len(t, pm.Path, 1)
 	assert.Equal(t, "http://10.0.0.2:9090/", pm.Path[0].Target)
 }
@@ -219,7 +403,7 @@ func TestToProtoMapping_OperationTypes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.op), func(t *testing.T) {
-			pm := rp.ToProtoMapping(tt.op, "", OIDCValidationConfig{})
+			pm := rp.ToProtoMapping(tt.op, "", proxy.OIDCValidationConfig{})
 			assert.Equal(t, tt.want, pm.Type)
 		})
 	}
@@ -458,14 +642,14 @@ func TestGenerateExposeName(t *testing.T) {
 	})
 }
 
-func TestFromExposeRequest(t *testing.T) {
+func TestExposeServiceRequest_ToService(t *testing.T) {
 	t.Run("basic HTTP service", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port:     8080,
-			Protocol: proto.ExposeProtocol_EXPOSE_HTTP,
+			Protocol: "http",
 		}
 
-		service := FromExposeRequest(req, "account-1", "peer-1", "mysvc")
+		service := req.ToService("account-1", "peer-1", "mysvc")
 
 		assert.Equal(t, "account-1", service.AccountID)
 		assert.Equal(t, "mysvc", service.Name)
@@ -483,22 +667,22 @@ func TestFromExposeRequest(t *testing.T) {
 	})
 
 	t.Run("with custom domain", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port:   3000,
 			Domain: "example.com",
 		}
 
-		service := FromExposeRequest(req, "acc", "peer", "web")
+		service := req.ToService("acc", "peer", "web")
 		assert.Equal(t, "web.example.com", service.Domain)
 	})
 
 	t.Run("with PIN auth", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port: 80,
 			Pin:  "1234",
 		}
 
-		service := FromExposeRequest(req, "acc", "peer", "svc")
+		service := req.ToService("acc", "peer", "svc")
 		require.NotNil(t, service.Auth.PinAuth)
 		assert.True(t, service.Auth.PinAuth.Enabled)
 		assert.Equal(t, "1234", service.Auth.PinAuth.Pin)
@@ -507,31 +691,31 @@ func TestFromExposeRequest(t *testing.T) {
 	})
 
 	t.Run("with password auth", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port:     80,
 			Password: "secret",
 		}
 
-		service := FromExposeRequest(req, "acc", "peer", "svc")
+		service := req.ToService("acc", "peer", "svc")
 		require.NotNil(t, service.Auth.PasswordAuth)
 		assert.True(t, service.Auth.PasswordAuth.Enabled)
 		assert.Equal(t, "secret", service.Auth.PasswordAuth.Password)
 	})
 
 	t.Run("with user groups (bearer auth)", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port:       80,
 			UserGroups: []string{"admins", "devs"},
 		}
 
-		service := FromExposeRequest(req, "acc", "peer", "svc")
+		service := req.ToService("acc", "peer", "svc")
 		require.NotNil(t, service.Auth.BearerAuth)
 		assert.True(t, service.Auth.BearerAuth.Enabled)
 		assert.Equal(t, []string{"admins", "devs"}, service.Auth.BearerAuth.DistributionGroups)
 	})
 
 	t.Run("with all auth types", func(t *testing.T) {
-		req := &proto.ExposeServiceRequest{
+		req := &ExposeServiceRequest{
 			Port:       443,
 			Domain:     "myco.com",
 			Pin:        "9999",
@@ -539,7 +723,7 @@ func TestFromExposeRequest(t *testing.T) {
 			UserGroups: []string{"ops"},
 		}
 
-		service := FromExposeRequest(req, "acc", "peer", "full")
+		service := req.ToService("acc", "peer", "full")
 		assert.Equal(t, "full.myco.com", service.Domain)
 		require.NotNil(t, service.Auth.PinAuth)
 		require.NotNil(t, service.Auth.PasswordAuth)
