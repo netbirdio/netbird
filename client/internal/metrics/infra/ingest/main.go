@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ const (
 	defaultInfluxDBURL = "http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns"
 	maxBodySize        = 1 * 1024 * 1024 // 1 MB max request body
 	maxTotalSeconds    = 300.0           // reject total_seconds > 5 minutes
+	peerIDLength       = 16              // truncated SHA-256: 8 bytes = 16 hex chars
 )
 
 var allowedMeasurements = map[string]map[string]bool{
@@ -47,9 +50,14 @@ func main() {
 			return
 		}
 
-		body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize+1))
+		if err := validateAuth(r); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		body, err := readBody(r)
 		if err != nil {
-			http.Error(w, "read error", http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if len(body) > maxBodySize {
@@ -113,6 +121,37 @@ func main() {
 	if err := http.ListenAndServe(listenAddr, nil); err != nil { //nolint:gosec
 		log.Fatal(err)
 	}
+}
+
+// validateAuth checks that the Authorization header contains a valid hashed peer ID.
+func validateAuth(r *http.Request) error {
+	peerID := r.Header.Get("Authorization")
+	if peerID == "" {
+		return fmt.Errorf("missing Authorization header")
+	}
+	if len(peerID) != peerIDLength {
+		return fmt.Errorf("invalid Authorization header length")
+	}
+	if _, err := hex.DecodeString(peerID); err != nil {
+		return fmt.Errorf("invalid Authorization header format")
+	}
+	return nil
+}
+
+// readBody reads the request body, decompressing gzip if Content-Encoding indicates it.
+func readBody(r *http.Request) ([]byte, error) {
+	reader := io.LimitReader(r.Body, maxBodySize+1)
+
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(reader)
+		if err != nil {
+			return nil, fmt.Errorf("invalid gzip: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	return io.ReadAll(reader)
 }
 
 // validateLineProtocol parses InfluxDB line protocol lines,

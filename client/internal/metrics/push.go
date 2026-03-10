@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"net/http"
@@ -201,12 +202,19 @@ func (p *Push) push(ctx context.Context, pushURL string) error {
 		return nil
 	}
 
+	// Gzip compress the body
+	compressed, err := gzipCompress(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("gzip compress: %w", err)
+	}
+
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", pushURL, &buf)
+	req, err := http.NewRequestWithContext(ctx, "POST", pushURL, compressed)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	req.Header.Set("Content-Encoding", "gzip")
 
 	p.peerMu.RLock()
 	peerID := p.peerID
@@ -254,6 +262,20 @@ func (p *Push) resolveServerURL(remoteServerURL *url.URL) string {
 	}
 
 	return baseURL.String()
+}
+
+// gzipCompress compresses data using gzip and returns the compressed buffer.
+func gzipCompress(data []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	defer func() { _ = gz.Close() }()
+	if _, err := gz.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return &buf, nil
 }
 
 // isVersionInRange checks if current falls within [since, until)
