@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"slices"
 	"strings"
@@ -143,6 +144,8 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 // first wins. This handles cases where locking is unreliable and another
 // replica already wrote the cert to the shared cache.
 func (mgr *Manager) prefetchCertificate(d domain.Domain) {
+	time.Sleep(time.Duration(50+rand.IntN(151)) * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
