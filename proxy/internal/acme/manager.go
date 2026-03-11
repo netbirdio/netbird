@@ -314,6 +314,12 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 		}
 		mgr.mu.Unlock()
 		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, pattern)
+
+		if mgr.certNotifier != nil {
+			if err := mgr.certNotifier.NotifyCertificateIssued(context.Background(), accountID, serviceID, name); err != nil {
+				mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
+			}
+		}
 		return
 	}
 
