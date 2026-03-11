@@ -89,8 +89,8 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 
 	compactedNetworkMap, err := strconv.ParseBool(os.Getenv(types.EnvNewNetworkMapCompacted))
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", types.EnvNewNetworkMapCompacted, err)
-		compactedNetworkMap = false
+		log.WithContext(ctx).Warnf("failed to parse %s, using default value true: %v", types.EnvNewNetworkMapCompacted, err)
+		compactedNetworkMap = true
 	}
 
 	ids := strings.Split(os.Getenv(network_map.EnvNewNetworkMapAccounts), ",")
