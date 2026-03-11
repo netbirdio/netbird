@@ -7,7 +7,9 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/pem"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -338,7 +340,12 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 // It acquires a distributed lock to prevent multiple replicas from issuing
 // duplicate ACME requests. The second replica will block until the first
 // finishes, then find the certificate in the cache.
+// ACME and periodic disk reads race; whichever produces a valid certificate
+// first wins. This handles cases where locking is unreliable and another
+// replica already wrote the cert to the shared cache.
 func (mgr *Manager) prefetchCertificate(d domain.Domain) {
+	time.Sleep(time.Duration(rand.IntN(200)) * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -354,26 +361,105 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 		defer unlock()
 	}
 
-	hello := &tls.ClientHelloInfo{
-		ServerName: name,
-		Conn:       &dummyConn{ctx: ctx},
-	}
-
-	start := time.Now()
-	cert, err := mgr.GetCertificate(hello)
-	elapsed := time.Since(start)
-	if err != nil {
-		mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed.String(), err)
-		mgr.setDomainState(d, domainFailed, err.Error())
+	if cert, err := mgr.readCertFromDisk(ctx, name); err == nil {
+		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
+		mgr.recordAndNotify(ctx, d, name, cert, 0)
 		return
 	}
 
-	if mgr.metrics != nil {
+	// Run ACME in a goroutine so we can race it against periodic disk reads.
+	// autocert uses its own internal context and cannot be cancelled externally.
+	type acmeResult struct {
+		cert *tls.Certificate
+		err  error
+	}
+	acmeCh := make(chan acmeResult, 1)
+	hello := &tls.ClientHelloInfo{ServerName: name, Conn: &dummyConn{ctx: ctx}}
+	go func() {
+		cert, err := mgr.GetCertificate(hello)
+		acmeCh <- acmeResult{cert, err}
+	}()
+
+	start := time.Now()
+	diskTicker := time.NewTicker(5 * time.Second)
+	defer diskTicker.Stop()
+
+	for {
+		select {
+		case res := <-acmeCh:
+			elapsed := time.Since(start)
+			if res.err != nil {
+				mgr.logger.Warnf("prefetch certificate for domain %q in %s: %v", name, elapsed.String(), res.err)
+				mgr.setDomainState(d, domainFailed, res.err.Error())
+				return
+			}
+			mgr.recordAndNotify(ctx, d, name, res.cert, elapsed)
+			return
+
+		case <-diskTicker.C:
+			cert, err := mgr.readCertFromDisk(context.Background(), name)
+			if err != nil {
+				continue
+			}
+			mgr.logger.Infof("certificate for domain %q appeared on disk after %s", name, time.Since(start).Round(time.Millisecond))
+			// Drain the ACME goroutine before marking ready — autocert holds
+			// an internal write lock on certState while ACME is in flight.
+			go func() {
+				select {
+				case <-acmeCh:
+				default:
+				}
+				mgr.recordAndNotify(context.Background(), d, name, cert, 0)
+			}()
+			return
+
+		case <-ctx.Done():
+			mgr.logger.Warnf("prefetch certificate for domain %q timed out", name)
+			mgr.setDomainState(d, domainFailed, ctx.Err().Error())
+			return
+		}
+	}
+}
+
+// readCertFromDisk reads and parses a certificate directly from the autocert
+// DirCache, bypassing autocert's internal certState mutex. Safe to call
+// concurrently with an in-flight ACME request for the same domain.
+func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Certificate, error) {
+	if mgr.Cache == nil {
+		return nil, fmt.Errorf("no cache configured")
+	}
+	data, err := mgr.Cache.Get(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	privBlock, certsPEM := pem.Decode(data)
+	if privBlock == nil || !strings.Contains(privBlock.Type, "PRIVATE") {
+		return nil, fmt.Errorf("no private key in cache for %q", name)
+	}
+	cert, err := tls.X509KeyPair(certsPEM, pem.EncodeToMemory(privBlock))
+	if err != nil {
+		return nil, fmt.Errorf("parse cached certificate for %q: %w", name, err)
+	}
+	if len(cert.Certificate) > 0 {
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse leaf for %q: %w", name, err)
+		}
+		if time.Now().After(leaf.NotAfter) {
+			return nil, fmt.Errorf("cached certificate for %q expired at %s", name, leaf.NotAfter)
+		}
+		cert.Leaf = leaf
+	}
+	return &cert, nil
+}
+
+// recordAndNotify records metrics, marks the domain ready, logs cert details,
+// and notifies the cert notifier.
+func (mgr *Manager) recordAndNotify(ctx context.Context, d domain.Domain, name string, cert *tls.Certificate, elapsed time.Duration) {
+	if elapsed > 0 && mgr.metrics != nil {
 		mgr.metrics.RecordCertificateIssuance(elapsed)
 	}
-
 	mgr.setDomainState(d, domainReady, "")
-
 	now := time.Now()
 	if cert != nil && cert.Leaf != nil {
 		leaf := cert.Leaf
@@ -389,11 +475,9 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	} else {
 		mgr.logger.Infof("certificate for domain %q ready in %s", name, elapsed.Round(time.Millisecond))
 	}
-
 	mgr.mu.RLock()
 	info := mgr.domains[d]
 	mgr.mu.RUnlock()
-
 	if info != nil && mgr.certNotifier != nil {
 		if err := mgr.certNotifier.NotifyCertificateIssued(ctx, info.accountID, info.serviceID, name); err != nil {
 			mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
