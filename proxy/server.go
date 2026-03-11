@@ -1066,7 +1066,7 @@ func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		return fmt.Errorf("empty target address for UDP service %s", svcID)
 	}
 
-	if err := s.addUDPRelay(ctx, accountID, svcID, mapping.GetDomain(), targetAddr, port, s.l4DialTimeout(mapping), l4SessionIdleTimeout(mapping)); err != nil {
+	if err := s.addUDPRelay(ctx, mapping, targetAddr, port); err != nil {
 		return fmt.Errorf("UDP relay for service %s: %w", svcID, err)
 	}
 
@@ -1192,7 +1192,10 @@ func l4SessionIdleTimeout(mapping *proto.ProxyMapping) time.Duration {
 }
 
 // addUDPRelay starts a UDP relay on the specified listen port.
-func (s *Server) addUDPRelay(ctx context.Context, accountID types.AccountID, svcID types.ServiceID, domain, targetAddress string, listenPort uint16, dialTimeout, sessionTTL time.Duration) error {
+func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, targetAddress string, listenPort uint16) error {
+	svcID := types.ServiceID(mapping.GetId())
+	accountID := types.AccountID(mapping.GetAccountId())
+
 	if s.WireguardPort != 0 && listenPort == s.WireguardPort {
 		return fmt.Errorf("UDP port %d conflicts with tunnel port", listenPort)
 	}
@@ -1223,12 +1226,12 @@ func (s *Server) addUDPRelay(ctx context.Context, accountID types.AccountID, svc
 		Logger:      entry,
 		Listener:    listener,
 		Target:      targetAddress,
-		Domain:      domain,
+		Domain:      mapping.GetDomain(),
 		AccountID:   accountID,
 		ServiceID:   svcID,
 		DialFunc:    dialFn,
-		DialTimeout: dialTimeout,
-		SessionTTL:  sessionTTL,
+		DialTimeout: s.l4DialTimeout(mapping),
+		SessionTTL:  l4SessionIdleTimeout(mapping),
 		AccessLog:   s.accessLog,
 	})
 	relay.SetObserver(s.meter)
