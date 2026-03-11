@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 
+	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
@@ -33,6 +35,11 @@ const (
 	defaultDialTimeout = 30 * time.Second
 )
 
+// l4Logger sends layer-4 access log entries to the management server.
+type l4Logger interface {
+	LogL4(entry accesslog.L4Entry)
+}
+
 // SessionObserver receives callbacks for UDP session lifecycle events.
 // All methods must be safe for concurrent use.
 type SessionObserver interface {
@@ -44,7 +51,7 @@ type SessionObserver interface {
 }
 
 // clientAddr is a typed key for UDP session lookups.
-type clientAddr = string
+type clientAddr string
 
 // Relay listens for incoming UDP packets on a dedicated port and
 // maintains per-client sessions that relay packets to a backend
@@ -53,7 +60,9 @@ type Relay struct {
 	logger      *log.Entry
 	listener    net.PacketConn
 	target      string
+	domain      string
 	accountID   types.AccountID
+	serviceID   types.ServiceID
 	dialFunc    types.DialContextFunc
 	dialTimeout time.Duration
 	sessionTTL  time.Duration
@@ -68,11 +77,13 @@ type Relay struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	observer    SessionObserver
+	accessLog   l4Logger
 }
 
 type session struct {
-	backend net.Conn
-	addr    net.Addr
+	backend   net.Conn
+	addr      net.Addr
+	createdAt time.Time
 	// lastSeen stores the last activity timestamp as unix nanoseconds.
 	lastSeen atomic.Int64
 	cancel   context.CancelFunc
@@ -95,11 +106,14 @@ type RelayConfig struct {
 	Logger      *log.Entry
 	Listener    net.PacketConn
 	Target      string
+	Domain      string
 	AccountID   types.AccountID
+	ServiceID   types.ServiceID
 	DialFunc    types.DialContextFunc
 	DialTimeout time.Duration
 	SessionTTL  time.Duration
 	MaxSessions int
+	AccessLog   l4Logger
 }
 
 // New creates a UDP relay for the given listener and backend target.
@@ -124,7 +138,10 @@ func New(parentCtx context.Context, cfg RelayConfig) *Relay {
 		logger:      cfg.Logger,
 		listener:    cfg.Listener,
 		target:      cfg.Target,
+		domain:      cfg.Domain,
 		accountID:   cfg.AccountID,
+		serviceID:   cfg.ServiceID,
+		accessLog:   cfg.AccessLog,
 		dialFunc:    cfg.DialFunc,
 		dialTimeout: dialTimeout,
 		sessionTTL:  sessionTTL,
@@ -140,6 +157,11 @@ func New(parentCtx context.Context, cfg RelayConfig) *Relay {
 		ctx:         ctx,
 		cancel:      cancel,
 	}
+}
+
+// ServiceID returns the service ID associated with this relay.
+func (r *Relay) ServiceID() types.ServiceID {
+	return r.serviceID
 }
 
 // SetObserver sets the session lifecycle observer. Must be called before Serve.
@@ -196,7 +218,7 @@ func (r *Relay) Serve() {
 
 // getOrCreateSession returns an existing session or creates a new one.
 func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
-	key := addr.String()
+	key := clientAddr(addr.String())
 
 	r.mu.RLock()
 	sess, ok := r.sessions[key]
@@ -260,9 +282,10 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 
 	sessCtx, sessCancel := context.WithCancel(r.ctx)
 	sess = &session{
-		backend: backend,
-		addr:    addr,
-		cancel:  sessCancel,
+		backend:   backend,
+		addr:      addr,
+		createdAt: time.Now(),
+		cancel:    sessCancel,
 	}
 	sess.updateLastSeen()
 
@@ -358,7 +381,7 @@ func (r *Relay) cleanupLoop() {
 
 // cleanupIdleSessions closes sessions that have been idle for too long.
 func (r *Relay) cleanupIdleSessions() {
-	var cleaned int
+	var expired []*session
 
 	r.mu.Lock()
 	for key, sess := range r.sessions {
@@ -369,22 +392,21 @@ func (r *Relay) cleanupIdleSessions() {
 		if idle > r.sessionTTL {
 			r.logger.Debugf("UDP session %s idle for %s, closing (client→backend: %d bytes, backend→client: %d bytes)",
 				sess.addr, idle, sess.bytesIn.Load(), sess.bytesOut.Load())
-			// Delete before closing so getOrCreateSession never returns
-			// a stale entry whose backend is being torn down.
 			delete(r.sessions, key)
 			sess.cancel()
 			if err := sess.backend.Close(); err != nil {
 				r.logger.Debugf("close idle session %s backend: %v", sess.addr, err)
 			}
-			cleaned++
+			expired = append(expired, sess)
 		}
 	}
 	r.mu.Unlock()
 
-	if r.observer != nil {
-		for range cleaned {
+	for _, sess := range expired {
+		if r.observer != nil {
 			r.observer.UDPSessionEnded(r.accountID)
 		}
+		r.logSessionEnd(sess)
 	}
 }
 
@@ -393,7 +415,7 @@ func (r *Relay) cleanupIdleSessions() {
 // because the identity check prevents double-close when both paths race.
 func (r *Relay) removeSession(sess *session) {
 	r.mu.Lock()
-	key := sess.addr.String()
+	key := clientAddr(sess.addr.String())
 	removed := r.sessions[key] == sess
 	if removed {
 		delete(r.sessions, key)
@@ -410,7 +432,31 @@ func (r *Relay) removeSession(sess *session) {
 		if r.observer != nil {
 			r.observer.UDPSessionEnded(r.accountID)
 		}
+		r.logSessionEnd(sess)
 	}
+}
+
+// logSessionEnd sends an access log entry for a completed UDP session.
+func (r *Relay) logSessionEnd(sess *session) {
+	if r.accessLog == nil {
+		return
+	}
+
+	var sourceIP netip.Addr
+	if ap, err := netip.ParseAddrPort(sess.addr.String()); err == nil {
+		sourceIP = ap.Addr().Unmap()
+	}
+
+	r.accessLog.LogL4(accesslog.L4Entry{
+		AccountID:     r.accountID,
+		ServiceID:     r.serviceID,
+		Protocol:      accesslog.ProtocolUDP,
+		Host:          r.domain,
+		SourceIP:      sourceIP,
+		DurationMs:    time.Unix(0, sess.lastSeen.Load()).Sub(sess.createdAt).Milliseconds(),
+		BytesUpload:   sess.bytesIn.Load(),
+		BytesDownload: sess.bytesOut.Load(),
+	})
 }
 
 // Close stops the relay, waits for all session goroutines to exit,
@@ -421,7 +467,7 @@ func (r *Relay) Close() {
 		r.logger.Debugf("close UDP listener: %v", err)
 	}
 
-	var closed int
+	var closedSessions []*session
 	r.mu.Lock()
 	for key, sess := range r.sessions {
 		if sess == nil {
@@ -435,14 +481,15 @@ func (r *Relay) Close() {
 			r.logger.Debugf("close session %s backend: %v", sess.addr, err)
 		}
 		delete(r.sessions, key)
-		closed++
+		closedSessions = append(closedSessions, sess)
 	}
 	r.mu.Unlock()
 
-	if r.observer != nil {
-		for range closed {
+	for _, sess := range closedSessions {
+		if r.observer != nil {
 			r.observer.UDPSessionEnded(r.accountID)
 		}
+		r.logSessionEnd(sess)
 	}
 
 	r.sessWg.Wait()

@@ -3,13 +3,16 @@ package tcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -17,11 +20,8 @@ import (
 // timeout is configured.
 const defaultDialTimeout = 30 * time.Second
 
-// sniHost is a typed key for SNI hostname lookups.
-type sniHost = string
-
-// serviceID is a typed key for per-service context tracking.
-type serviceID = string
+// SNIHost is a typed key for SNI hostname lookups.
+type SNIHost string
 
 // RouteType specifies how a connection should be handled.
 type RouteType int
@@ -52,7 +52,11 @@ type DialResolver func(accountID types.AccountID) (types.DialContextFunc, error)
 type Route struct {
 	Type      RouteType
 	AccountID types.AccountID
-	ServiceID string
+	ServiceID types.ServiceID
+	// Domain is the service's configured domain, used for access log entries.
+	Domain string
+	// Protocol is the frontend protocol (tcp, tls), used for access log entries.
+	Protocol accesslog.Protocol
 	// Target is the backend address for TCP relay (e.g. "10.0.0.5:5432").
 	Target string
 	// ProxyProtocol enables sending a PROXY protocol v2 header to the backend.
@@ -60,6 +64,11 @@ type Route struct {
 	// DialTimeout overrides the default dial timeout for this route.
 	// Zero uses defaultDialTimeout.
 	DialTimeout time.Duration
+}
+
+// l4Logger sends layer-4 access log entries to the management server.
+type l4Logger interface {
+	LogL4(entry accesslog.L4Entry)
 }
 
 // RelayObserver receives callbacks for TCP relay lifecycle events.
@@ -80,7 +89,7 @@ type Router struct {
 	httpCh       chan net.Conn
 	httpListener *chanListener
 	mu           sync.RWMutex
-	routes       map[sniHost][]Route
+	routes       map[SNIHost][]Route
 	fallback     *Route
 	draining     bool
 	dialResolve  DialResolver
@@ -89,10 +98,11 @@ type Router struct {
 	relaySem     chan struct{}
 	drainDone    chan struct{}
 	observer     RelayObserver
+	accessLog    l4Logger
 	// svcCtxs tracks a context per service ID. All relay goroutines for a
 	// service derive from its context; canceling it kills them immediately.
-	svcCtxs    map[serviceID]context.Context
-	svcCancels map[serviceID]context.CancelFunc
+	svcCtxs    map[types.ServiceID]context.Context
+	svcCancels map[types.ServiceID]context.CancelFunc
 }
 
 // NewRouter creates a new SNI-based connection router.
@@ -102,11 +112,11 @@ func NewRouter(logger *log.Logger, dialResolve DialResolver, addr net.Addr) *Rou
 		logger:       logger,
 		httpCh:       httpCh,
 		httpListener: newChanListener(httpCh, addr),
-		routes:       make(map[sniHost][]Route),
+		routes:       make(map[SNIHost][]Route),
 		dialResolve:  dialResolve,
 		relaySem:     make(chan struct{}, DefaultMaxRelayConns),
-		svcCtxs:      make(map[serviceID]context.Context),
-		svcCancels:   make(map[serviceID]context.CancelFunc),
+		svcCtxs:      make(map[types.ServiceID]context.Context),
+		svcCancels:   make(map[types.ServiceID]context.CancelFunc),
 	}
 }
 
@@ -116,11 +126,11 @@ func NewRouter(logger *log.Logger, dialResolve DialResolver, addr net.Addr) *Rou
 func NewPortRouter(logger *log.Logger, dialResolve DialResolver) *Router {
 	return &Router{
 		logger:      logger,
-		routes:      make(map[sniHost][]Route),
+		routes:      make(map[SNIHost][]Route),
 		dialResolve: dialResolve,
 		relaySem:    make(chan struct{}, DefaultMaxRelayConns),
-		svcCtxs:     make(map[serviceID]context.Context),
-		svcCancels:  make(map[serviceID]context.CancelFunc),
+		svcCtxs:     make(map[types.ServiceID]context.Context),
+		svcCancels:  make(map[types.ServiceID]context.CancelFunc),
 	}
 }
 
@@ -133,7 +143,7 @@ func (r *Router) HTTPListener() net.Listener {
 // AddRoute registers an SNI route. Multiple routes for the same host are
 // stored and resolved by priority at lookup time (HTTP > TCP).
 // Empty host is ignored to prevent conflicts with ECH/ESNI fallback.
-func (r *Router) AddRoute(host string, route Route) {
+func (r *Router) AddRoute(host SNIHost, route Route) {
 	if host == "" {
 		return
 	}
@@ -155,17 +165,17 @@ func (r *Router) AddRoute(host string, route Route) {
 // RemoveRoute removes the route for the given host and service ID.
 // Active relay connections for the service are closed immediately.
 // If other routes remain for the host, they are preserved.
-func (r *Router) RemoveRoute(host, serviceID string) {
+func (r *Router) RemoveRoute(host SNIHost, svcID types.ServiceID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.routes[host] = slices.DeleteFunc(r.routes[host], func(route Route) bool {
-		return route.ServiceID == serviceID
+		return route.ServiceID == svcID
 	})
 	if len(r.routes[host]) == 0 {
 		delete(r.routes, host)
 	}
-	r.cancelServiceLocked(serviceID)
+	r.cancelServiceLocked(svcID)
 }
 
 // SetFallback registers a catch-all route for connections that don't
@@ -179,11 +189,11 @@ func (r *Router) SetFallback(route Route) {
 
 // RemoveFallback clears the catch-all fallback route and closes any
 // active relay connections for the given service.
-func (r *Router) RemoveFallback(serviceID string) {
+func (r *Router) RemoveFallback(svcID types.ServiceID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.fallback = nil
-	r.cancelServiceLocked(serviceID)
+	r.cancelServiceLocked(svcID)
 }
 
 // SetObserver sets the relay lifecycle observer. Must be called before Serve.
@@ -191,6 +201,13 @@ func (r *Router) SetObserver(obs RelayObserver) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.observer = obs
+}
+
+// SetAccessLogger sets the L4 access logger. Must be called before Serve.
+func (r *Router) SetAccessLogger(l l4Logger) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accessLog = l
 }
 
 // getObserver returns the current relay observer under the read lock.
@@ -278,7 +295,8 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	route, ok := r.lookupRoute(sni)
+	host := SNIHost(sni)
+	route, ok := r.lookupRoute(host)
 	if !ok {
 		r.handleUnmatched(ctx, wrapped)
 		return
@@ -289,7 +307,14 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	r.relayTCP(ctx, wrapped, sni, route)
+	if err := r.relayTCP(ctx, wrapped, host, route); err != nil {
+		r.logger.WithFields(log.Fields{
+			"sni":        host,
+			"service_id": route.ServiceID,
+			"target":     route.Target,
+		}).Warnf("TCP relay: %v", err)
+		_ = wrapped.Close()
+	}
 }
 
 // isFallbackOnly returns true when the router has no SNI routes and no HTTP
@@ -310,7 +335,13 @@ func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
 	r.mu.RUnlock()
 
 	if fb != nil {
-		r.relayTCP(ctx, conn, "fallback", *fb)
+		if err := r.relayTCP(ctx, conn, SNIHost("fallback"), *fb); err != nil {
+			r.logger.WithFields(log.Fields{
+				"service_id": fb.ServiceID,
+				"target":     fb.Target,
+			}).Warnf("TCP relay (fallback): %v", err)
+			_ = conn.Close()
+		}
 		return
 	}
 	r.sendToHTTP(conn)
@@ -318,10 +349,10 @@ func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
 
 // lookupRoute returns the highest-priority route for the given SNI host.
 // HTTP routes take precedence over TCP routes.
-func (r *Router) lookupRoute(sni string) (Route, bool) {
+func (r *Router) lookupRoute(host SNIHost) (Route, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	routes, ok := r.routes[sni]
+	routes, ok := r.routes[host]
 	if !ok || len(routes) == 0 {
 		return Route{}, false
 	}
@@ -388,58 +419,99 @@ func (r *Router) Drain(timeout time.Duration) bool {
 
 // cancelServiceLocked cancels and removes the context for the given service,
 // closing all its active relay connections. Must be called with mu held.
-func (r *Router) cancelServiceLocked(serviceID string) {
-	if cancel, ok := r.svcCancels[serviceID]; ok {
+func (r *Router) cancelServiceLocked(svcID types.ServiceID) {
+	if cancel, ok := r.svcCancels[svcID]; ok {
 		cancel()
-		delete(r.svcCtxs, serviceID)
-		delete(r.svcCancels, serviceID)
+		delete(r.svcCtxs, svcID)
+		delete(r.svcCancels, svcID)
 	}
 }
 
-// relayTCP dials the backend and starts a bidirectional relay.
-// The relay uses a per-service context: when the service is removed
-// via RemoveRoute/RemoveFallback, all its relays are killed immediately.
-func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route Route) {
-	r.mu.Lock()
-	if r.draining {
-		r.mu.Unlock()
-		_ = conn.Close()
-		return
-	}
-	r.activeRelays.Add(1)
-	svcCtx := r.getOrCreateServiceCtxLocked(ctx, route.ServiceID)
-	r.mu.Unlock()
-
-	obs := r.getObserver()
-
-	select {
-	case r.relaySem <- struct{}{}:
-	default:
-		r.activeRelays.Done()
-		r.logger.Warn("TCP relay connection limit reached, rejecting connection")
-		if obs != nil {
-			obs.TCPRelayRejected(route.AccountID)
-		}
-		_ = conn.Close()
-		return
+// relayTCP sets up and runs a bidirectional TCP relay.
+// The caller owns conn and must close it if this method returns an error.
+// On success (nil error), both conn and backend are closed by the relay.
+func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni SNIHost, route Route) error {
+	svcCtx, err := r.acquireRelay(ctx, route)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		<-r.relaySem
 		r.activeRelays.Done()
 	}()
 
-	acct := route.AccountID
+	backend, err := r.dialBackend(svcCtx, route)
+	if err != nil {
+		obs := r.getObserver()
+		if obs != nil {
+			obs.TCPRelayDialError(route.AccountID)
+		}
+		return err
+	}
+
+	if route.ProxyProtocol {
+		if err := writeProxyProtoV2(conn, backend); err != nil {
+			_ = backend.Close()
+			return fmt.Errorf("write PROXY protocol header: %w", err)
+		}
+	}
+
+	obs := r.getObserver()
+	if obs != nil {
+		obs.TCPRelayStarted(route.AccountID)
+	}
+
 	entry := r.logger.WithFields(log.Fields{
 		"sni":        sni,
 		"service_id": route.ServiceID,
 		"target":     route.Target,
 	})
+	entry.Debug("TCP relay started")
 
+	start := time.Now()
+	s2d, d2s := Relay(svcCtx, entry, conn, backend, DefaultIdleTimeout)
+	elapsed := time.Since(start)
+
+	if obs != nil {
+		obs.TCPRelayEnded(route.AccountID, elapsed, s2d, d2s)
+	}
+	entry.Debugf("TCP relay ended (client→backend: %d bytes, backend→client: %d bytes)", s2d, d2s)
+
+	r.logL4Entry(route, conn, elapsed, s2d, d2s)
+	return nil
+}
+
+// acquireRelay checks draining state, increments activeRelays, and acquires
+// a semaphore slot. Returns the per-service context on success.
+// The caller must release the semaphore and call activeRelays.Done() when done.
+func (r *Router) acquireRelay(ctx context.Context, route Route) (context.Context, error) {
+	r.mu.Lock()
+	if r.draining {
+		r.mu.Unlock()
+		return nil, errors.New("router is draining")
+	}
+	r.activeRelays.Add(1)
+	svcCtx := r.getOrCreateServiceCtxLocked(ctx, route.ServiceID)
+	r.mu.Unlock()
+
+	select {
+	case r.relaySem <- struct{}{}:
+		return svcCtx, nil
+	default:
+		r.activeRelays.Done()
+		obs := r.getObserver()
+		if obs != nil {
+			obs.TCPRelayRejected(route.AccountID)
+		}
+		return nil, errors.New("TCP relay connection limit reached")
+	}
+}
+
+// dialBackend resolves the dialer for the route's account and dials the backend.
+func (r *Router) dialBackend(svcCtx context.Context, route Route) (net.Conn, error) {
 	dialFn, err := r.dialResolve(route.AccountID)
 	if err != nil {
-		entry.Warnf("failed to resolve dialer: %v", err)
-		_ = conn.Close()
-		return
+		return nil, fmt.Errorf("resolve dialer: %w", err)
 	}
 
 	dialTimeout := route.DialTimeout
@@ -450,45 +522,49 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni string, route 
 	backend, err := dialFn(dialCtx, "tcp", route.Target)
 	dialCancel()
 	if err != nil {
-		entry.Warnf("failed to dial backend: %v", err)
-		if obs != nil {
-			obs.TCPRelayDialError(acct)
-		}
-		_ = conn.Close()
+		return nil, fmt.Errorf("dial backend %s: %w", route.Target, err)
+	}
+	return backend, nil
+}
+
+// logL4Entry sends a TCP relay access log entry if an access logger is configured.
+func (r *Router) logL4Entry(route Route, conn net.Conn, duration time.Duration, bytesUp, bytesDown int64) {
+	r.mu.RLock()
+	al := r.accessLog
+	r.mu.RUnlock()
+
+	if al == nil {
 		return
 	}
 
-	if route.ProxyProtocol {
-		if err := writeProxyProtoV2(conn, backend); err != nil {
-			entry.Warnf("failed to write PROXY protocol header: %v", err)
-			_ = conn.Close()
-			_ = backend.Close()
-			return
+	var sourceIP netip.Addr
+	if remote := conn.RemoteAddr(); remote != nil {
+		if ap, err := netip.ParseAddrPort(remote.String()); err == nil {
+			sourceIP = ap.Addr().Unmap()
 		}
 	}
 
-	if obs != nil {
-		obs.TCPRelayStarted(acct)
-	}
-	entry.Debug("TCP relay started")
-	start := time.Now()
-	s2d, d2s := Relay(svcCtx, entry, conn, backend, DefaultIdleTimeout)
-	elapsed := time.Since(start)
-	if obs != nil {
-		obs.TCPRelayEnded(acct, elapsed, s2d, d2s)
-	}
-	entry.Debugf("TCP relay ended (client→backend: %d bytes, backend→client: %d bytes)", s2d, d2s)
+	al.LogL4(accesslog.L4Entry{
+		AccountID:     route.AccountID,
+		ServiceID:     route.ServiceID,
+		Protocol:      route.Protocol,
+		Host:          route.Domain,
+		SourceIP:      sourceIP,
+		DurationMs:    duration.Milliseconds(),
+		BytesUpload:   bytesUp,
+		BytesDownload: bytesDown,
+	})
 }
 
 // getOrCreateServiceCtxLocked returns the context for a service, creating one
 // if it doesn't exist yet. The context is a child of the server context.
 // Must be called with mu held.
-func (r *Router) getOrCreateServiceCtxLocked(parent context.Context, serviceID string) context.Context {
-	if ctx, ok := r.svcCtxs[serviceID]; ok {
+func (r *Router) getOrCreateServiceCtxLocked(parent context.Context, svcID types.ServiceID) context.Context {
+	if ctx, ok := r.svcCtxs[svcID]; ok {
 		return ctx
 	}
 	ctx, cancel := context.WithCancel(parent)
-	r.svcCtxs[serviceID] = ctx
-	r.svcCancels[serviceID] = cancel
+	r.svcCtxs[svcID] = ctx
+	r.svcCancels[svcID] = cancel
 	return ctx
 }

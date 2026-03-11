@@ -6,11 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -19,6 +21,7 @@ const (
 	bytesThreshold      = 1024 * 1024 * 1024 // Log every 1GB
 	usageCleanupPeriod  = 1 * time.Hour      // Clean up stale counters every hour
 	usageInactiveWindow = 24 * time.Hour     // Consider domain inactive if no traffic for 24 hours
+	logSendTimeout      = 10 * time.Second
 )
 
 type domainUsage struct {
@@ -79,22 +82,63 @@ func (l *Logger) Close() {
 
 type logEntry struct {
 	ID            string
-	AccountID     string
-	ServiceId     string
+	AccountID     types.AccountID
+	ServiceId     types.ServiceID
 	Host          string
 	Path          string
 	DurationMs    int64
 	Method        string
 	ResponseCode  int32
-	SourceIp      string
+	SourceIP      netip.Addr
 	AuthMechanism string
 	UserId        string
 	AuthSuccess   bool
 	BytesUpload   int64
 	BytesDownload int64
+	Protocol      Protocol
 }
 
-func (l *Logger) log(ctx context.Context, entry logEntry) {
+// Protocol identifies the transport protocol of an access log entry.
+type Protocol string
+
+const (
+	ProtocolHTTP Protocol = "http"
+	ProtocolTCP  Protocol = "tcp"
+	ProtocolUDP  Protocol = "udp"
+	ProtocolTLS  Protocol = "tls"
+)
+
+// L4Entry holds the data for a layer-4 (TCP/UDP) access log entry.
+type L4Entry struct {
+	AccountID     types.AccountID
+	ServiceID     types.ServiceID
+	Protocol      Protocol
+	Host          string // SNI hostname or listen address
+	SourceIP      netip.Addr
+	DurationMs    int64
+	BytesUpload   int64
+	BytesDownload int64
+}
+
+// LogL4 sends an access log entry for a layer-4 connection (TCP or UDP).
+// The call is non-blocking: the gRPC send happens in a background goroutine.
+func (l *Logger) LogL4(entry L4Entry) {
+	le := logEntry{
+		ID:            xid.New().String(),
+		AccountID:     entry.AccountID,
+		ServiceId:     entry.ServiceID,
+		Protocol:      entry.Protocol,
+		Host:          entry.Host,
+		SourceIP:      entry.SourceIP,
+		DurationMs:    entry.DurationMs,
+		BytesUpload:   entry.BytesUpload,
+		BytesDownload: entry.BytesDownload,
+	}
+	l.log(le)
+	l.trackUsage(entry.Host, entry.BytesUpload+entry.BytesDownload)
+}
+
+func (l *Logger) log(entry logEntry) {
 	// Fire off the log request in a separate routine.
 	// This increases the possibility of losing a log message
 	// (although it should still get logged in the event of an error),
@@ -105,31 +149,37 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	// allow for resolving that on the server.
 	now := timestamppb.Now() // Grab the timestamp before launching the goroutine to try to prevent weird timing issues. This is probably unnecessary.
 	go func() {
-		logCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		logCtx, cancel := context.WithTimeout(context.Background(), logSendTimeout)
 		defer cancel()
 		if entry.AuthMechanism != auth.MethodOIDC.String() {
 			entry.UserId = ""
 		}
+
+		var sourceIP string
+		if entry.SourceIP.IsValid() {
+			sourceIP = entry.SourceIP.String()
+		}
+
 		if _, err := l.client.SendAccessLog(logCtx, &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				LogId:         entry.ID,
-				AccountId:     entry.AccountID,
+				AccountId:     string(entry.AccountID),
 				Timestamp:     now,
-				ServiceId:     entry.ServiceId,
+				ServiceId:     string(entry.ServiceId),
 				Host:          entry.Host,
 				Path:          entry.Path,
 				DurationMs:    entry.DurationMs,
 				Method:        entry.Method,
 				ResponseCode:  entry.ResponseCode,
-				SourceIp:      entry.SourceIp,
+				SourceIp:      sourceIP,
 				AuthMechanism: entry.AuthMechanism,
 				UserId:        entry.UserId,
 				AuthSuccess:   entry.AuthSuccess,
 				BytesUpload:   entry.BytesUpload,
 				BytesDownload: entry.BytesDownload,
+				Protocol:      string(entry.Protocol),
 			},
 		}); err != nil {
-			// If it fails to send on the gRPC connection, then at least log it to the error log.
 			l.logger.WithFields(log.Fields{
 				"service_id":     entry.ServiceId,
 				"host":           entry.Host,
@@ -137,7 +187,7 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 				"duration":       entry.DurationMs,
 				"method":         entry.Method,
 				"response_code":  entry.ResponseCode,
-				"source_ip":      entry.SourceIp,
+				"source_ip":      sourceIP,
 				"auth_mechanism": entry.AuthMechanism,
 				"user_id":        entry.UserId,
 				"auth_success":   entry.AuthSuccess,

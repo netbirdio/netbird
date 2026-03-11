@@ -509,15 +509,15 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					nil,
 					"",
 					0,
-					mapping.GetAccountId(),
-					mapping.GetId(),
+					proxytypes.AccountID(mapping.GetAccountId()),
+					proxytypes.ServiceID(mapping.GetId()),
 				)
 				require.NoError(t, err)
 
 				// Apply to real proxy (idempotent)
 				proxyHandler.AddMapping(proxy.Mapping{
 					Host:      mapping.GetDomain(),
-					ID:        mapping.GetId(),
+					ID:        proxytypes.ServiceID(mapping.GetId()),
 					AccountID: proxytypes.AccountID(mapping.GetAccountId()),
 				})
 			}

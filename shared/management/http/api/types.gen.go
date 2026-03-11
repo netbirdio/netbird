@@ -3306,6 +3306,9 @@ type ProxyAccessLog struct {
 	// Path Path of the request
 	Path string `json:"path"`
 
+	// Protocol Protocol type: http, tcp, or udp
+	Protocol *string `json:"protocol,omitempty"`
+
 	// Reason Reason for the request result (e.g., authentication failure)
 	Reason *string `json:"reason,omitempty"`
 

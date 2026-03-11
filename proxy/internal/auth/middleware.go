@@ -44,8 +44,8 @@ type DomainConfig struct {
 	Schemes           []Scheme
 	SessionPublicKey  ed25519.PublicKey
 	SessionExpiration time.Duration
-	AccountID         string
-	ServiceID         string
+	AccountID         types.AccountID
+	ServiceID         types.ServiceID
 }
 
 type validationResult struct {
@@ -124,7 +124,7 @@ func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
 
 func setCapturedIDs(r *http.Request, config DomainConfig) {
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetAccountId(types.AccountID(config.AccountID))
+		cd.SetAccountId(config.AccountID)
 		cd.SetServiceId(config.ServiceID)
 	}
 }
@@ -275,7 +275,7 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 // session JWTs. Returns an error if the key is missing or invalid.
 // Callers must not serve the domain if this returns an error, to avoid
 // exposing an unauthenticated service.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID, serviceID string) error {
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID) error {
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()

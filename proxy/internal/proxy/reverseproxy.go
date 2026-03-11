@@ -141,9 +141,9 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 			r.Out.Header.Set(k, v)
 		}
 
-		clientIP := extractClientIP(r.In.RemoteAddr)
+		clientIP := extractHostIP(r.In.RemoteAddr)
 
-		if IsTrustedProxy(clientIP, p.trustedProxies) {
+		if isTrustedAddr(clientIP, p.trustedProxies) {
 			p.setTrustedForwardingHeaders(r, clientIP)
 		} else {
 			p.setUntrustedForwardingHeaders(r, clientIP)
@@ -213,12 +213,14 @@ func normalizeHost(u *url.URL) string {
 // setTrustedForwardingHeaders appends to the existing forwarding header chain
 // and preserves upstream-provided headers when the direct connection is from
 // a trusted proxy.
-func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP netip.Addr) {
+	ipStr := clientIP.String()
+
 	// Append the direct connection IP to the existing X-Forwarded-For chain.
 	if existing := r.In.Header.Get("X-Forwarded-For"); existing != "" {
-		r.Out.Header.Set("X-Forwarded-For", existing+", "+clientIP)
+		r.Out.Header.Set("X-Forwarded-For", existing+", "+ipStr)
 	} else {
-		r.Out.Header.Set("X-Forwarded-For", clientIP)
+		r.Out.Header.Set("X-Forwarded-For", ipStr)
 	}
 
 	// Preserve upstream X-Real-IP if present; otherwise resolve through the chain.
@@ -226,7 +228,7 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 		r.Out.Header.Set("X-Real-IP", realIP)
 	} else {
 		resolved := ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"), p.trustedProxies)
-		r.Out.Header.Set("X-Real-IP", resolved)
+		r.Out.Header.Set("X-Real-IP", resolved.String())
 	}
 
 	// Preserve upstream X-Forwarded-Host if present.
@@ -256,10 +258,11 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 // sets them fresh based on the direct connection. This is the default
 // behavior when no trusted proxies are configured or the direct connection
 // is from an untrusted source.
-func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP netip.Addr) {
+	ipStr := clientIP.String()
 	proto := auth.ResolveProto(p.forwardedProto, r.In.TLS)
-	r.Out.Header.Set("X-Forwarded-For", clientIP)
-	r.Out.Header.Set("X-Real-IP", clientIP)
+	r.Out.Header.Set("X-Forwarded-For", ipStr)
+	r.Out.Header.Set("X-Real-IP", ipStr)
 	r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
 	r.Out.Header.Set("X-Forwarded-Proto", proto)
 	r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, proto))
@@ -285,16 +288,6 @@ func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 		q.Del("session_token")
 		r.Out.URL.RawQuery = q.Encode()
 	}
-}
-
-// extractClientIP extracts the IP address from an http.Request.RemoteAddr
-// which is always in host:port format.
-func extractClientIP(remoteAddr string) string {
-	ip, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr
-	}
-	return ip
 }
 
 // extractForwardedPort returns the port from the Host header if present,
@@ -326,10 +319,12 @@ func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	web.ServeErrorPage(w, r, code, title, message, requestID, status)
 }
 
-// getClientIP retrieves the resolved client IP from context.
+// getClientIP retrieves the resolved client IP string from context.
 func getClientIP(r *http.Request) string {
 	if capturedData := CapturedDataFromContext(r.Context()); capturedData != nil {
-		return capturedData.GetClientIP()
+		if ip := capturedData.GetClientIP(); ip.IsValid() {
+			return ip.String()
+		}
 	}
 	return ""
 }

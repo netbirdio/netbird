@@ -32,7 +32,7 @@ type PathTarget struct {
 
 // Mapping describes how a domain is routed by the HTTP reverse proxy.
 type Mapping struct {
-	ID               string
+	ID               types.ServiceID
 	AccountID        types.AccountID
 	Host             string
 	Paths            map[string]*PathTarget
@@ -43,7 +43,7 @@ type Mapping struct {
 type targetResult struct {
 	target           *PathTarget
 	matchedPath      string
-	serviceID        string
+	serviceID        types.ServiceID
 	accountID        types.AccountID
 	passHostHeader   bool
 	rewriteRedirects bool

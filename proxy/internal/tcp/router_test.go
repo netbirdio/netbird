@@ -371,7 +371,7 @@ func TestRouter_HTTPPrecedenceGuard(t *testing.T) {
 	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
 	router := NewRouter(logger, nil, addr)
 
-	host := "app.example.com"
+	host := SNIHost("app.example.com")
 
 	t.Run("http takes precedence over tcp at lookup", func(t *testing.T) {
 		router.AddRoute(host, Route{Type: RouteHTTP, ServiceID: "svc-http"})
@@ -380,7 +380,7 @@ func TestRouter_HTTPPrecedenceGuard(t *testing.T) {
 		route, ok := router.lookupRoute(host)
 		require.True(t, ok)
 		assert.Equal(t, RouteHTTP, route.Type, "HTTP route must take precedence over TCP")
-		assert.Equal(t, "svc-http", route.ServiceID)
+		assert.Equal(t, types.ServiceID("svc-http"), route.ServiceID)
 
 		router.RemoveRoute(host, "svc-http")
 		router.RemoveRoute(host, "svc-tcp")
@@ -395,7 +395,7 @@ func TestRouter_HTTPPrecedenceGuard(t *testing.T) {
 		route, ok := router.lookupRoute(host)
 		require.True(t, ok)
 		assert.Equal(t, RouteTCP, route.Type, "TCP should take over after HTTP removal")
-		assert.Equal(t, "svc-tcp", route.ServiceID)
+		assert.Equal(t, types.ServiceID("svc-tcp"), route.ServiceID)
 
 		router.RemoveRoute(host, "svc-tcp")
 	})
@@ -440,10 +440,10 @@ func TestRouter_HTTPPrecedenceGuard(t *testing.T) {
 
 		router.RemoveRoute("a.example.com", "svc-a")
 
-		_, ok := router.lookupRoute("a.example.com")
+		_, ok := router.lookupRoute(SNIHost("a.example.com"))
 		assert.False(t, ok)
 
-		route, ok := router.lookupRoute("b.example.com")
+		route, ok := router.lookupRoute(SNIHost("b.example.com"))
 		require.True(t, ok)
 		assert.Equal(t, RouteTCP, route.Type, "removing one host must not affect another")
 

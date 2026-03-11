@@ -2832,6 +2832,10 @@ components:
           format: int64
           description: "Bytes downloaded (response body size)"
           example: 8192
+        protocol:
+          type: string
+          description: "Protocol type: http, tcp, or udp"
+          example: "http"
       required:
         - id
         - service_id

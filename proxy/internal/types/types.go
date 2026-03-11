@@ -10,6 +10,9 @@ import (
 // AccountID represents a unique identifier for a NetBird account.
 type AccountID string
 
+// ServiceID represents a unique identifier for a proxy service.
+type ServiceID string
+
 // ServiceMode describes how a reverse proxy service is exposed.
 type ServiceMode string
 

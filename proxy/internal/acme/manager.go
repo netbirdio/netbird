@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -24,7 +25,7 @@ import (
 var oidSCTList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
 
 type certificateNotifier interface {
-	NotifyCertificateIssued(ctx context.Context, accountID, serviceID, domain string) error
+	NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error
 }
 
 type domainState int
@@ -36,8 +37,8 @@ const (
 )
 
 type domainInfo struct {
-	accountID string
-	serviceID string
+	accountID types.AccountID
+	serviceID types.ServiceID
 	state     domainState
 	err       string
 }
@@ -121,7 +122,7 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 }
 
 // AddDomain registers a domain for ACME certificate prefetching.
-func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
+func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) {
 	mgr.mu.Lock()
 	mgr.domains[d] = &domainInfo{
 		accountID: accountID,

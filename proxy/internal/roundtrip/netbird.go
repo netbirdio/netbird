@@ -28,7 +28,7 @@ import (
 const deviceNamePrefix = "ingress-proxy-"
 
 // backendKey identifies a backend by its host:port from the target URL.
-type backendKey = string
+type backendKey string
 
 // ServiceKey uniquely identifies a service (HTTP reverse proxy or L4 service)
 // that holds a reference to an embedded NetBird client. Callers should use the
@@ -41,7 +41,7 @@ func DomainServiceKey(domain string) ServiceKey {
 }
 
 // L4ServiceKey returns a ServiceKey for an L4 service (TCP/UDP).
-func L4ServiceKey(id string) ServiceKey {
+func L4ServiceKey(id types.ServiceID) ServiceKey {
 	return ServiceKey("l4:" + id)
 }
 
@@ -58,12 +58,12 @@ var (
 
 // serviceInfo holds metadata about a registered service.
 type serviceInfo struct {
-	serviceID string
+	serviceID types.ServiceID
 }
 
 type serviceNotification struct {
 	key       ServiceKey
-	serviceID string
+	serviceID types.ServiceID
 }
 
 // clientEntry holds an embedded NetBird client and tracks which services use it.
@@ -115,7 +115,7 @@ type ClientConfig struct {
 }
 
 type statusNotifier interface {
-	NotifyStatus(ctx context.Context, accountID, serviceID string, connected bool) error
+	NotifyStatus(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error
 }
 
 type managementClient interface {
@@ -157,7 +157,7 @@ type skipTLSVerifyContextKey struct{}
 // AddPeer registers a service for an account. If the account doesn't have a client yet,
 // one is created by authenticating with the management server using the provided token.
 // Multiple services can share the same client.
-func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken, serviceID string) error {
+func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, serviceID types.ServiceID) error {
 	si := serviceInfo{serviceID: serviceID}
 
 	n.clientsMux.Lock()
@@ -174,7 +174,7 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		}).Debug("registered service with existing client")
 
 		if started && n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), serviceID, true); err != nil {
+			if err := n.statusNotifier.NotifyStatus(ctx, accountID, serviceID, true); err != nil {
 				n.logger.WithFields(log.Fields{
 					"account_id":  accountID,
 					"service_key": key,
@@ -227,7 +227,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	}).Debug("authenticating new proxy peer with management")
 
 	resp, err := n.mgmtClient.CreateProxyPeer(ctx, &proto.CreateProxyPeerRequest{
-		ServiceId:          serviceID,
+		ServiceId:          string(serviceID),
 		AccountId:          string(accountID),
 		Token:              authToken,
 		WireguardPublicKey: publicKey.String(),
@@ -337,7 +337,7 @@ func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountI
 		return
 	}
 	for _, sn := range toNotify {
-		if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), sn.serviceID, true); err != nil {
+		if err := n.statusNotifier.NotifyStatus(ctx, accountID, sn.serviceID, true); err != nil {
 			n.logger.WithFields(log.Fields{
 				"account_id":  accountID,
 				"service_key": sn.key,
@@ -406,11 +406,11 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	return nil
 }
 
-func (n *NetBird) notifyDisconnect(ctx context.Context, accountID types.AccountID, key ServiceKey, serviceID string) {
+func (n *NetBird) notifyDisconnect(ctx context.Context, accountID types.AccountID, key ServiceKey, serviceID types.ServiceID) {
 	if n.statusNotifier == nil {
 		return
 	}
-	if err := n.statusNotifier.NotifyStatus(ctx, string(accountID), serviceID, false); err != nil {
+	if err := n.statusNotifier.NotifyStatus(ctx, accountID, serviceID, false); err != nil {
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == codes.NotFound {
 			n.logger.WithField("service_key", key).Debug("service already removed, skipping disconnect notification")
 		} else {
@@ -445,7 +445,7 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	n.clientsMux.RUnlock()
 
-	release, ok := entry.acquireInflight(req.URL.Host)
+	release, ok := entry.acquireInflight(backendKey(req.URL.Host))
 	defer release()
 	if !ok {
 		return nil, ErrTooManyInflight

@@ -284,23 +284,23 @@ func TestRewriteFunc_URLRewriting(t *testing.T) {
 	})
 }
 
-func TestExtractClientIP(t *testing.T) {
+func TestExtractHostIP(t *testing.T) {
 	tests := []struct {
 		name       string
 		remoteAddr string
-		expected   string
+		expected   netip.Addr
 	}{
-		{"IPv4 with port", "192.168.1.1:12345", "192.168.1.1"},
-		{"IPv6 with port", "[::1]:12345", "::1"},
-		{"IPv6 full with port", "[2001:db8::1]:443", "2001:db8::1"},
-		{"IPv4 without port fallback", "192.168.1.1", "192.168.1.1"},
-		{"IPv6 without brackets fallback", "::1", "::1"},
-		{"empty string fallback", "", ""},
-		{"public IP", "203.0.113.50:9999", "203.0.113.50"},
+		{"IPv4 with port", "192.168.1.1:12345", netip.MustParseAddr("192.168.1.1")},
+		{"IPv6 with port", "[::1]:12345", netip.MustParseAddr("::1")},
+		{"IPv6 full with port", "[2001:db8::1]:443", netip.MustParseAddr("2001:db8::1")},
+		{"IPv4 without port fallback", "192.168.1.1", netip.MustParseAddr("192.168.1.1")},
+		{"IPv6 without brackets fallback", "::1", netip.MustParseAddr("::1")},
+		{"empty string fallback", "", netip.Addr{}},
+		{"public IP", "203.0.113.50:9999", netip.MustParseAddr("203.0.113.50")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractClientIP(tt.remoteAddr))
+			assert.Equal(t, tt.expected, extractHostIP(tt.remoteAddr))
 		})
 	}
 }

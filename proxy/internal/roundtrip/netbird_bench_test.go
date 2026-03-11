@@ -31,7 +31,7 @@ func BenchmarkHasClient(b *testing.B) {
 		nb.clients[id] = &clientEntry{
 			services: map[ServiceKey]serviceInfo{
 				ServiceKey(rand.Text()): {
-					serviceID: rand.Text(),
+					serviceID: types.ServiceID(rand.Text()),
 				},
 			},
 			createdAt: time.Now(),
@@ -72,7 +72,7 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 		nb.clients[id] = &clientEntry{
 			services: map[ServiceKey]serviceInfo{
 				ServiceKey(rand.Text()): {
-					serviceID: rand.Text(),
+					serviceID: types.ServiceID(rand.Text()),
 				},
 			},
 			createdAt: time.Now(),
@@ -92,7 +92,7 @@ func BenchmarkHasClientDuringAddPeer(b *testing.B) {
 					types.AccountID(rand.Text()),
 					ServiceKey(rand.Text()),
 					rand.Text(),
-					rand.Text()); err != nil {
+					types.ServiceID(rand.Text())); err != nil {
 					return
 				}
 			}

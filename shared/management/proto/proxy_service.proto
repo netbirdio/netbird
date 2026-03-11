@@ -132,6 +132,7 @@ message AccessLog {
   bool auth_success = 13;
   int64 bytes_upload = 14;
   int64 bytes_download = 15;
+  string protocol = 16;
 }
 
 message AuthenticateRequest {
