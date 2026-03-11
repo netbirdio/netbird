@@ -104,12 +104,16 @@ type DefaultServer struct {
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+
+	probeMu     sync.Mutex
+	probeCancel context.CancelFunc
+	probeWg     sync.WaitGroup
 }
 
 type handlerWithStop interface {
 	dns.Handler
 	Stop()
-	ProbeAvailability()
+	ProbeAvailability(context.Context)
 	ID() types.HandlerID
 }
 
@@ -362,7 +366,13 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 
 // Stop stops the server
 func (s *DefaultServer) Stop() {
+	s.probeMu.Lock()
+	if s.probeCancel != nil {
+		s.probeCancel()
+	}
 	s.ctxCancel()
+	s.probeMu.Unlock()
+	s.probeWg.Wait()
 	s.shutdownWg.Wait()
 
 	s.mux.Lock()
@@ -479,7 +489,8 @@ func (s *DefaultServer) SearchDomains() []string {
 }
 
 // ProbeAvailability tests each upstream group's servers for availability
-// and deactivates the group if no server responds
+// and deactivates the group if no server responds.
+// If a previous probe is still running, it will be cancelled before starting a new one.
 func (s *DefaultServer) ProbeAvailability() {
 	if val := os.Getenv(envSkipDNSProbe); val != "" {
 		skipProbe, err := strconv.ParseBool(val)
@@ -492,15 +503,43 @@ func (s *DefaultServer) ProbeAvailability() {
 		}
 	}
 
+	s.probeMu.Lock()
+
+	// don't start probes on a stopped server
+	if s.ctx.Err() != nil {
+		s.probeMu.Unlock()
+		return
+	}
+
+	// cancel any running probe
+	if s.probeCancel != nil {
+		s.probeCancel()
+		s.probeCancel = nil
+	}
+
+	// wait for the previous probe goroutines to finish while holding
+	// the mutex so no other caller can start a new probe concurrently
+	s.probeWg.Wait()
+
+	// start a new probe
+	probeCtx, probeCancel := context.WithCancel(s.ctx)
+	s.probeCancel = probeCancel
+
+	s.probeWg.Add(1)
+	defer s.probeWg.Done()
+
 	var wg sync.WaitGroup
 	for _, mux := range s.dnsMuxMap {
 		wg.Add(1)
 		go func(mux handlerWithStop) {
 			defer wg.Done()
-			mux.ProbeAvailability()
+			mux.ProbeAvailability(probeCtx)
 		}(mux.handler)
 	}
+	s.probeMu.Unlock()
+
 	wg.Wait()
+	probeCancel()
 }
 
 func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
