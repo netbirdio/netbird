@@ -115,8 +115,11 @@ func (u *upstreamResolverBase) MatchSubdomains() bool {
 
 func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
+	u.mutex.Lock()
 	u.cancel()
 	u.wg.Wait()
+	u.mutex.Unlock()
+
 }
 
 // ServeDNS handles a DNS request

@@ -528,14 +528,23 @@ func (s *DefaultServer) ProbeAvailability() {
 	s.probeWg.Add(1)
 	defer s.probeWg.Done()
 
-	var wg sync.WaitGroup
+	// Snapshot handlers under s.mux to avoid racing with updateMux/dnsMuxMap writers.
+	s.mux.Lock()
+	handlers := make([]handlerWithStop, 0, len(s.dnsMuxMap))
 	for _, mux := range s.dnsMuxMap {
-		wg.Add(1)
-		go func(mux handlerWithStop) {
-			defer wg.Done()
-			mux.ProbeAvailability(probeCtx)
-		}(mux.handler)
+		handlers = append(handlers, mux.handler)
 	}
+	s.mux.Unlock()
+
+	var wg sync.WaitGroup
+	for _, handler := range handlers {
+		wg.Add(1)
+		go func(h handlerWithStop) {
+			defer wg.Done()
+			h.ProbeAvailability(probeCtx)
+		}(handler)
+	}
+
 	s.probeMu.Unlock()
 
 	wg.Wait()
