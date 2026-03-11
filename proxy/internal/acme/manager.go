@@ -9,7 +9,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/netbirdio/netbird/proxy/internal/certwatch"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -46,6 +50,14 @@ type metricsRecorder interface {
 	RecordCertificateIssuance(duration time.Duration)
 }
 
+// wildcardEntry maps a domain suffix (e.g. ".example.com") to a certwatch
+// watcher that hot-reloads the corresponding wildcard certificate from disk.
+type wildcardEntry struct {
+	suffix  string // e.g. ".example.com"
+	pattern string // e.g. "*.example.com"
+	watcher *certwatch.Watcher
+}
+
 // Manager wraps autocert.Manager with domain tracking and cross-replica
 // coordination via a pluggable locking strategy. The locker prevents
 // duplicate ACME requests when multiple replicas share a certificate cache.
@@ -56,6 +68,9 @@ type Manager struct {
 	locker  certLocker
 	mu      sync.RWMutex
 	domains map[domain.Domain]*domainInfo
+
+	// wildcards holds all loaded wildcard certificates, keyed by suffix.
+	wildcards []wildcardEntry
 
 	certNotifier certificateNotifier
 	logger       *log.Logger
@@ -68,7 +83,11 @@ type Manager struct {
 // eabKID and eabHMACKey are optional External Account Binding credentials
 // required for some CAs like ZeroSSL. The eabHMACKey should be the base64
 // URL-encoded string provided by the CA.
-func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder) *Manager {
+// wildcardDir is an optional path to a directory containing wildcard
+// certificate pairs (<name>.crt / <name>.key). The wildcard patterns are
+// extracted from the certificates' SAN lists automatically. Domains
+// matching a wildcard are served from disk; all others go through ACME.
+func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder, wildcardDir string) (*Manager, error) {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -79,6 +98,14 @@ func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificat
 		certNotifier: notifier,
 		logger:       logger,
 		metrics:      metrics,
+	}
+
+	if wildcardDir != "" {
+		entries, err := loadWildcardDir(wildcardDir, logger)
+		if err != nil {
+			return nil, fmt.Errorf("load wildcard certificates from %q: %w", wildcardDir, err)
+		}
+		mgr.wildcards = entries
 	}
 
 	var eab *acme.ExternalAccountBinding
@@ -104,7 +131,149 @@ func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificat
 			DirectoryURL: acmeURL,
 		},
 	}
-	return mgr
+	return mgr, nil
+}
+
+// WatchWildcards starts watching all wildcard certificate files for changes.
+// It blocks until ctx is cancelled. It is a no-op if no wildcards are loaded.
+func (mgr *Manager) WatchWildcards(ctx context.Context) {
+	if len(mgr.wildcards) == 0 {
+		return
+	}
+	// Each watcher blocks, so run them all concurrently and wait for ctx.
+	var wg sync.WaitGroup
+	for i := range mgr.wildcards {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mgr.wildcards[i].watcher.Watch(ctx)
+		}()
+	}
+	wg.Wait()
+}
+
+// loadWildcardDir scans dir for .crt files, pairs each with a matching .key
+// file, loads them, and extracts wildcard SANs (*.example.com) to build
+// the suffix lookup entries.
+func loadWildcardDir(dir string, logger *log.Logger) ([]wildcardEntry, error) {
+	crtFiles, err := filepath.Glob(filepath.Join(dir, "*.crt"))
+	if err != nil {
+		return nil, fmt.Errorf("glob certificate files: %w", err)
+	}
+
+	if len(crtFiles) == 0 {
+		return nil, fmt.Errorf("no .crt files found in %s", dir)
+	}
+
+	var entries []wildcardEntry
+
+	for _, crtPath := range crtFiles {
+		base := strings.TrimSuffix(filepath.Base(crtPath), ".crt")
+		keyPath := filepath.Join(dir, base+".key")
+		if _, err := os.Stat(keyPath); err != nil {
+			logger.Warnf("skipping %s: no matching key file %s", crtPath, keyPath)
+			continue
+		}
+
+		watcher, err := certwatch.NewWatcher(crtPath, keyPath, logger)
+		if err != nil {
+			logger.Warnf("skipping %s: %v", crtPath, err)
+			continue
+		}
+
+		leaf := watcher.Leaf()
+		if leaf == nil {
+			logger.Warnf("skipping %s: no parsed leaf certificate", crtPath)
+			continue
+		}
+
+		for _, san := range leaf.DNSNames {
+			suffix, ok := parseWildcard(san)
+			if !ok {
+				continue
+			}
+			entries = append(entries, wildcardEntry{
+				suffix:  suffix,
+				pattern: san,
+				watcher: watcher,
+			})
+			logger.Infof("wildcard certificate loaded: %s (from %s)", san, filepath.Base(crtPath))
+		}
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no wildcard SANs (*.example.com) found in certificates in %s", dir)
+	}
+
+	return entries, nil
+}
+
+// parseWildcard validates a wildcard domain pattern like "*.example.com"
+// and returns the suffix ".example.com" for matching.
+func parseWildcard(pattern string) (suffix string, ok bool) {
+	if !strings.HasPrefix(pattern, "*.") {
+		return "", false
+	}
+	parent := pattern[1:] // ".example.com"
+	if strings.Count(parent, ".") < 2 {
+		return "", false
+	}
+	return strings.ToLower(parent), true
+}
+
+// findWildcard returns the watcher for the wildcard that covers host, or nil.
+func (mgr *Manager) findWildcard(host string) *certwatch.Watcher {
+	if len(mgr.wildcards) == 0 {
+		return nil
+	}
+	host = strings.ToLower(host)
+	for i := range mgr.wildcards {
+		e := &mgr.wildcards[i]
+		if !strings.HasSuffix(host, e.suffix) {
+			continue
+		}
+		// Single-level match: prefix before suffix must have no dots.
+		prefix := strings.TrimSuffix(host, e.suffix)
+		if len(prefix) > 0 && !strings.Contains(prefix, ".") {
+			return e.watcher
+		}
+	}
+	return nil
+}
+
+// matchesWildcard reports whether host is covered by any configured wildcard.
+func (mgr *Manager) matchesWildcard(host string) bool {
+	return mgr.findWildcard(host) != nil
+}
+
+// findWildcardPattern returns the pattern string (e.g. "*.example.com") for
+// the wildcard that covers host, or empty string if none match.
+func (mgr *Manager) findWildcardPattern(host string) string {
+	if len(mgr.wildcards) == 0 {
+		return ""
+	}
+	host = strings.ToLower(host)
+	for i := range mgr.wildcards {
+		e := &mgr.wildcards[i]
+		if !strings.HasSuffix(host, e.suffix) {
+			continue
+		}
+		prefix := strings.TrimSuffix(host, e.suffix)
+		if len(prefix) > 0 && !strings.Contains(prefix, ".") {
+			return e.pattern
+		}
+	}
+	return ""
+}
+
+// WildcardPatterns returns the wildcard patterns that are currently loaded.
+func (mgr *Manager) WildcardPatterns() []string {
+	patterns := make([]string, len(mgr.wildcards))
+	for i, e := range mgr.wildcards {
+		patterns[i] = e.pattern
+	}
+	slices.Sort(patterns)
+	return patterns
 }
 
 func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
@@ -120,8 +289,34 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 	return nil
 }
 
-// AddDomain registers a domain for ACME certificate prefetching.
+// GetCertificate returns the TLS certificate for the given ClientHello.
+// If the requested domain matches a loaded wildcard, the static wildcard
+// certificate is returned. Otherwise, the ACME autocert manager handles
+// the request.
+func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if w := mgr.findWildcard(hello.ServerName); w != nil {
+		return w.GetCertificate(hello)
+	}
+	return mgr.Manager.GetCertificate(hello)
+}
+
+// AddDomain registers a domain for certificate management. Domains that
+// match a loaded wildcard are marked ready immediately (they use the
+// static wildcard certificate). All other domains go through ACME prefetch.
 func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
+	name := d.PunycodeString()
+	if pattern := mgr.findWildcardPattern(name); pattern != "" {
+		mgr.mu.Lock()
+		mgr.domains[d] = &domainInfo{
+			accountID: accountID,
+			serviceID: serviceID,
+			state:     domainReady,
+		}
+		mgr.mu.Unlock()
+		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, pattern)
+		return
+	}
+
 	mgr.mu.Lock()
 	mgr.domains[d] = &domainInfo{
 		accountID: accountID,

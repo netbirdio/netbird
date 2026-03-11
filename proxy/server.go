@@ -97,6 +97,11 @@ type Server struct {
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
 	CertLockMethod acme.CertLockMethod
+	// WildcardCertDir is an optional directory containing wildcard certificate
+	// pairs (<name>.crt / <name>.key). Wildcard patterns are extracted from
+	// the certificates' SAN lists. Matching domains use these static certs
+	// instead of ACME.
+	WildcardCertDir string
 
 	// DebugEndpointEnabled enables the debug HTTP endpoint.
 	DebugEndpointEnabled bool
@@ -437,7 +442,13 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
+	var err error
+	s.acme, err = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter, s.WildcardCertDir)
+	if err != nil {
+		return nil, fmt.Errorf("create ACME manager: %w", err)
+	}
+
+	go s.acme.WatchWildcards(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
