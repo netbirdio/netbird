@@ -205,7 +205,10 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 			// Drain the ACME goroutine before marking ready — autocert holds
 			// an internal write lock on certState while ACME is in flight.
 			go func() {
-				<-acmeCh
+				select {
+				case <-acmeCh:
+				default:
+				}
 				mgr.recordAndNotify(context.Background(), d, name, cert, 0)
 			}()
 			return
