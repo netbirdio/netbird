@@ -96,6 +96,10 @@ type Server struct {
 	// does not handle them.
 	hijackTracker conntrack.HijackTracker
 
+	// routerReady is closed once mainRouter is fully initialized.
+	// The mapping worker waits on this before processing updates.
+	routerReady chan struct{}
+
 	// Mostly used for debugging on management.
 	startTime time.Time
 
@@ -185,6 +189,7 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.Ac
 
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.initDefaults()
+	s.routerReady = make(chan struct{})
 	s.udpRelays = make(map[types.ServiceID]*udprelay.Relay)
 	s.portRouters = make(map[uint16]*portRouter)
 	s.svcPorts = make(map[types.ServiceID][]uint16)
@@ -272,6 +277,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.mainRouter = nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
 	s.mainRouter.SetObserver(s.meter)
 	s.mainRouter.SetAccessLogger(s.accessLog)
+	close(s.routerReady)
 
 	// The HTTP server uses the chanListener fed by the SNI router.
 	s.https = &http.Server{
@@ -860,6 +866,12 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 }
 
 func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool) error {
+	select {
+	case <-s.routerReady:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	for {
 		// Check for context completion to gracefully shutdown.
 		select {
