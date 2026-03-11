@@ -464,6 +464,10 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	}
 	tlsConfig = s.acme.TLSConfig()
 
+	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
+	// bypasses our override that checks wildcards first.
+	tlsConfig.GetCertificate = s.acme.GetCertificate
+
 	// ServerName needs to be set to allow for ACME to work correctly
 	// when using CNAME URLs to access the proxy.
 	tlsConfig.ServerName = s.ProxyURL
