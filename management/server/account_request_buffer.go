@@ -86,7 +86,14 @@ func (ac *AccountRequestBuffer) processGetAccountBatch(ctx context.Context, acco
 	result := &AccountResult{Account: account, Err: err}
 
 	for _, req := range requests {
-		req.ResultChan <- result
+		if account != nil {
+			// Shallow copy the account so each goroutine gets its own struct value.
+			// This prevents data races when callers mutate fields like Policies.
+			accountCopy := *account
+			req.ResultChan <- &AccountResult{Account: &accountCopy, Err: err}
+		} else {
+			req.ResultChan <- result
+		}
 		close(req.ResultChan)
 	}
 }
