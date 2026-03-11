@@ -168,7 +168,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 	return Create(s, func() *nbgrpc.ProxyServiceServer {
-		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.ProxyManager())
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.ProxyManager())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
@@ -200,6 +200,16 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 		}
 		log.Info("One-time token store initialized for proxy authentication")
 		return tokenStore
+	})
+}
+
+func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
+	return Create(s, func() *nbgrpc.PKCEVerifierStore {
+		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
+		if err != nil {
+			log.Fatalf("failed to create PKCE verifier store: %v", err)
+		}
+		return pkceStore
 	})
 }
 

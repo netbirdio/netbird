@@ -208,6 +208,21 @@ func (mr *MockStoreMockRecorder) CountAccountsByPrivateDomain(ctx, domain interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAccountsByPrivateDomain", reflect.TypeOf((*MockStore)(nil).CountAccountsByPrivateDomain), ctx, domain)
 }
 
+// CountEphemeralServicesByPeer mocks base method.
+func (m *MockStore) CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEphemeralServicesByPeer", ctx, lockStrength, accountID, peerID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEphemeralServicesByPeer indicates an expected call of CountEphemeralServicesByPeer.
+func (mr *MockStoreMockRecorder) CountEphemeralServicesByPeer(ctx, lockStrength, accountID, peerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEphemeralServicesByPeer", reflect.TypeOf((*MockStore)(nil).CountEphemeralServicesByPeer), ctx, lockStrength, accountID, peerID)
+}
+
 // CreateAccessLog mocks base method.
 func (m *MockStore) CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error {
 	m.ctrl.T.Helper()
@@ -684,6 +699,21 @@ func (m *MockStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID 
 func (mr *MockStoreMockRecorder) DeleteZoneDNSRecords(ctx, accountID, zoneID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZoneDNSRecords", reflect.TypeOf((*MockStore)(nil).DeleteZoneDNSRecords), ctx, accountID, zoneID)
+}
+
+// EphemeralServiceExists mocks base method.
+func (m *MockStore) EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EphemeralServiceExists", ctx, lockStrength, accountID, peerID, domain)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EphemeralServiceExists indicates an expected call of EphemeralServiceExists.
+func (mr *MockStoreMockRecorder) EphemeralServiceExists(ctx, lockStrength, accountID, peerID, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EphemeralServiceExists", reflect.TypeOf((*MockStore)(nil).EphemeralServiceExists), ctx, lockStrength, accountID, peerID, domain)
 }
 
 // ExecuteInTransaction mocks base method.
@@ -1362,6 +1392,21 @@ func (mr *MockStoreMockRecorder) GetDNSRecordByID(ctx, lockStrength, accountID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDNSRecordByID", reflect.TypeOf((*MockStore)(nil).GetDNSRecordByID), ctx, lockStrength, accountID, zoneID, recordID)
 }
 
+// GetExpiredEphemeralServices mocks base method.
+func (m *MockStore) GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*service.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExpiredEphemeralServices", ctx, ttl, limit)
+	ret0, _ := ret[0].([]*service.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExpiredEphemeralServices indicates an expected call of GetExpiredEphemeralServices.
+func (mr *MockStoreMockRecorder) GetExpiredEphemeralServices(ctx, ttl, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExpiredEphemeralServices", reflect.TypeOf((*MockStore)(nil).GetExpiredEphemeralServices), ctx, ttl, limit)
+}
+
 // GetGroupByID mocks base method.
 func (m *MockStore) GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types2.Group, error) {
 	m.ctrl.T.Helper()
@@ -1887,18 +1932,18 @@ func (mr *MockStoreMockRecorder) GetRouteByID(ctx, lockStrength, accountID, rout
 }
 
 // GetServiceByDomain mocks base method.
-func (m *MockStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*service.Service, error) {
+func (m *MockStore) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetServiceByDomain", ctx, accountID, domain)
+	ret := m.ctrl.Call(m, "GetServiceByDomain", ctx, domain)
 	ret0, _ := ret[0].(*service.Service)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetServiceByDomain indicates an expected call of GetServiceByDomain.
-func (mr *MockStoreMockRecorder) GetServiceByDomain(ctx, accountID, domain interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetServiceByDomain(ctx, domain interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockStore)(nil).GetServiceByDomain), ctx, accountID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockStore)(nil).GetServiceByDomain), ctx, domain)
 }
 
 // GetServiceByID mocks base method.
@@ -2399,6 +2444,20 @@ func (m *MockStore) RemoveResourceFromGroup(ctx context.Context, accountId, grou
 func (mr *MockStoreMockRecorder) RemoveResourceFromGroup(ctx, accountId, groupID, resourceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveResourceFromGroup", reflect.TypeOf((*MockStore)(nil).RemoveResourceFromGroup), ctx, accountId, groupID, resourceID)
+}
+
+// RenewEphemeralService mocks base method.
+func (m *MockStore) RenewEphemeralService(ctx context.Context, accountID, peerID, domain string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewEphemeralService", ctx, accountID, peerID, domain)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RenewEphemeralService indicates an expected call of RenewEphemeralService.
+func (mr *MockStoreMockRecorder) RenewEphemeralService(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewEphemeralService", reflect.TypeOf((*MockStore)(nil).RenewEphemeralService), ctx, accountID, peerID, domain)
 }
 
 // RevokeProxyAccessToken mocks base method.

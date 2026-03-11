@@ -1379,9 +1379,10 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
-		userAuth.Domain = am.singleAccountModeDomain
-		userAuth.DomainCategory = types.PrivateCategory
-		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+		err := am.updateUserAuthWithSingleMode(ctx, &userAuth)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, userAuth)
@@ -1412,6 +1413,35 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	}
 
 	return accountID, user.Id, nil
+}
+
+// updateUserAuthWithSingleMode modifies the userAuth with the single account domain, or if there is an existing account, with the domain of that account
+func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Context, userAuth *auth.UserAuth) error {
+	userAuth.DomainCategory = types.PrivateCategory
+	userAuth.Domain = am.singleAccountModeDomain
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		if e, ok := status.FromError(err); !ok || e.Type() != status.NotFound {
+			return err
+		}
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	if accountID == "" {
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	domain, _, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	userAuth.Domain = domain
+
+	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+	return nil
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,

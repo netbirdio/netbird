@@ -19,14 +19,17 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pires/go-proxyproto"
-	"github.com/prometheus/client_golang/prometheus"
+	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -42,7 +45,7 @@ import (
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
-	"github.com/netbirdio/netbird/proxy/internal/metrics"
+	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -63,7 +66,7 @@ type Server struct {
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
-	meter         *metrics.Metrics
+	meter         *proxymetrics.Metrics
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -152,8 +155,19 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, service
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.initDefaults()
 
-	reg := prometheus.NewRegistry()
-	s.meter = metrics.New(reg)
+	exporter, err := prometheus.New()
+	if err != nil {
+		return fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(Server{}).PkgPath()
+	meter := provider.Meter(pkg)
+
+	s.meter, err = proxymetrics.New(ctx, meter)
+	if err != nil {
+		return fmt.Errorf("create metrics: %w", err)
+	}
 
 	mgmtConn, err := s.dialManagement()
 	if err != nil {
@@ -193,7 +207,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	s.startDebugEndpoint()
 
-	if err := s.startHealthServer(reg); err != nil {
+	if err := s.startHealthServer(); err != nil {
 		return err
 	}
 
@@ -284,12 +298,12 @@ func (s *Server) startDebugEndpoint() {
 }
 
 // startHealthServer launches the health probe and metrics server.
-func (s *Server) startHealthServer(reg *prometheus.Registry) error {
+func (s *Server) startHealthServer() error {
 	healthAddr := s.HealthAddress
 	if healthAddr == "" {
 		healthAddr = defaultHealthAddr
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(prometheus2.DefaultGatherer, promhttp.HandlerOpts{EnableOpenMetrics: true}))
 	healthListener, err := net.Listen("tcp", healthAddr)
 	if err != nil {
 		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
@@ -423,7 +437,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
+	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
@@ -720,7 +734,7 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 }
 
 func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
-	paths := make(map[string]*url.URL)
+	paths := make(map[string]*proxy.PathTarget)
 	for _, pathMapping := range mapping.GetPath() {
 		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
@@ -734,7 +748,17 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 			}).WithError(err).Error("failed to parse target URL for path, skipping")
 			continue
 		}
-		paths[pathMapping.GetPath()] = targetURL
+
+		pt := &proxy.PathTarget{URL: targetURL}
+		if opts := pathMapping.GetOptions(); opts != nil {
+			pt.SkipTLSVerify = opts.GetSkipTlsVerify()
+			pt.PathRewrite = protoToPathRewrite(opts.GetPathRewrite())
+			pt.CustomHeaders = opts.GetCustomHeaders()
+			if d := opts.GetRequestTimeout(); d != nil {
+				pt.RequestTimeout = d.AsDuration()
+			}
+		}
+		paths[pathMapping.GetPath()] = pt
 	}
 	return proxy.Mapping{
 		ID:               mapping.GetId(),
@@ -743,6 +767,15 @@ func (s *Server) protoToMapping(mapping *proto.ProxyMapping) proxy.Mapping {
 		Paths:            paths,
 		PassHostHeader:   mapping.GetPassHostHeader(),
 		RewriteRedirects: mapping.GetRewriteRedirects(),
+	}
+}
+
+func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {
+	switch mode {
+	case proto.PathRewriteMode_PATH_REWRITE_PRESERVE:
+		return proxy.PathRewritePreserve
+	default:
+		return proxy.PathRewriteDefault
 	}
 }
 

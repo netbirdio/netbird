@@ -4977,9 +4977,9 @@ func (s *SqlStore) GetServiceByID(ctx context.Context, lockStrength LockingStren
 	return service, nil
 }
 
-func (s *SqlStore) GetServiceByDomain(ctx context.Context, accountID, domain string) (*rpservice.Service, error) {
+func (s *SqlStore) GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
 	var service *rpservice.Service
-	result := s.db.Preload("Targets").Where("account_id = ? AND domain = ?", accountID, domain).First(&service)
+	result := s.db.Preload("Targets").Where("domain = ?", domain).First(&service)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(status.NotFound, "service with domain %s not found", domain)
@@ -5038,6 +5038,99 @@ func (s *SqlStore) GetAccountServices(ctx context.Context, lockStrength LockingS
 	}
 
 	return serviceList, nil
+}
+
+// RenewEphemeralService updates the last_renewed_at timestamp for an ephemeral service.
+func (s *SqlStore) RenewEphemeralService(ctx context.Context, accountID, peerID, domain string) error {
+	result := s.db.Model(&rpservice.Service{}).
+		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Update("meta_last_renewed_at", time.Now())
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to renew ephemeral service: %v", result.Error)
+		return status.Errorf(status.Internal, "renew ephemeral service")
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "no active expose session for domain %s", domain)
+	}
+	return nil
+}
+
+// GetExpiredEphemeralServices returns ephemeral services whose last renewal exceeds the given TTL.
+// Only the fields needed for reaping are selected. The limit parameter caps the batch size to
+// avoid loading too many rows in a single tick. Rows with empty source_peer are excluded to
+// skip malformed legacy data.
+func (s *SqlStore) GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*rpservice.Service, error) {
+	cutoff := time.Now().Add(-ttl)
+	var services []*rpservice.Service
+	result := s.db.
+		Select("id", "account_id", "source_peer", "domain").
+		Where("source = ? AND source_peer <> '' AND meta_last_renewed_at < ?", rpservice.SourceEphemeral, cutoff).
+		Limit(limit).
+		Find(&services)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get expired ephemeral services: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "get expired ephemeral services")
+	}
+	return services, nil
+}
+
+// CountEphemeralServicesByPeer returns the count of ephemeral services for a specific peer.
+// Use LockingStrengthUpdate inside a transaction to serialize concurrent create operations.
+// The locking is applied via a row-level SELECT ... FOR UPDATE (not on the aggregate) to
+// stay compatible with Postgres, which disallows FOR UPDATE on COUNT(*).
+func (s *SqlStore) CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error) {
+	if lockStrength == LockingStrengthNone {
+		var count int64
+		result := s.db.Model(&rpservice.Service{}).
+			Where("account_id = ? AND source_peer = ? AND source = ?", accountID, peerID, rpservice.SourceEphemeral).
+			Count(&count)
+		if result.Error != nil {
+			log.WithContext(ctx).Errorf("failed to count ephemeral services: %v", result.Error)
+			return 0, status.Errorf(status.Internal, "count ephemeral services")
+		}
+		return count, nil
+	}
+
+	var ids []string
+	result := s.db.Model(&rpservice.Service{}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Select("id").
+		Where("account_id = ? AND source_peer = ? AND source = ?", accountID, peerID, rpservice.SourceEphemeral).
+		Pluck("id", &ids)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count ephemeral services: %v", result.Error)
+		return 0, status.Errorf(status.Internal, "count ephemeral services")
+	}
+	return int64(len(ids)), nil
+}
+
+// EphemeralServiceExists checks if an ephemeral service exists for the given peer and domain.
+// Use LockingStrengthUpdate inside a transaction to serialize concurrent create operations.
+func (s *SqlStore) EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error) {
+	if lockStrength == LockingStrengthNone {
+		var count int64
+		result := s.db.Model(&rpservice.Service{}).
+			Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+			Count(&count)
+		if result.Error != nil {
+			log.WithContext(ctx).Errorf("failed to check ephemeral service existence: %v", result.Error)
+			return false, status.Errorf(status.Internal, "check ephemeral service existence")
+		}
+		return count > 0, nil
+	}
+
+	var id string
+	result := s.db.Model(&rpservice.Service{}).
+		Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Select("id").
+		Where("account_id = ? AND source_peer = ? AND domain = ? AND source = ?", accountID, peerID, domain, rpservice.SourceEphemeral).
+		Limit(1).
+		Pluck("id", &id)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to check ephemeral service existence: %v", result.Error)
+		return false, status.Errorf(status.Internal, "check ephemeral service existence")
+	}
+	return id != "", nil
 }
 
 func (s *SqlStore) GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error) {
