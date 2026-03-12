@@ -3,6 +3,7 @@ package idp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -83,20 +84,24 @@ func TestJumpCloudGetUserDataByID(t *testing.T) {
 }
 
 func TestJumpCloudGetAccount(t *testing.T) {
-	searchResponse := jumpCloudUserList{
-		Results: []jumpCloudUser{
-			{ID: "u1", Email: "a@test.com", Firstname: "Alice", Lastname: "Smith"},
-			{ID: "u2", Email: "b@test.com", Firstname: "Bob", Lastname: "Jones"},
-		},
-		TotalCount: 2,
-	}
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/search/systemusers", r.URL.Path)
 		assert.Equal(t, http.MethodPost, r.Method)
 
+		var reqBody map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.Contains(t, reqBody, "limit")
+		assert.Contains(t, reqBody, "skip")
+
+		resp := jumpCloudUserList{
+			Results: []jumpCloudUser{
+				{ID: "u1", Email: "a@test.com", Firstname: "Alice", Lastname: "Smith"},
+				{ID: "u2", Email: "b@test.com", Firstname: "Bob", Lastname: "Jones"},
+			},
+			TotalCount: 2,
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(searchResponse)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -110,17 +115,16 @@ func TestJumpCloudGetAccount(t *testing.T) {
 }
 
 func TestJumpCloudGetAllAccounts(t *testing.T) {
-	searchResponse := jumpCloudUserList{
-		Results: []jumpCloudUser{
-			{ID: "u1", Email: "a@test.com", Firstname: "Alice"},
-			{ID: "u2", Email: "b@test.com", Firstname: "Bob"},
-		},
-		TotalCount: 2,
-	}
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := jumpCloudUserList{
+			Results: []jumpCloudUser{
+				{ID: "u1", Email: "a@test.com", Firstname: "Alice"},
+				{ID: "u2", Email: "b@test.com", Firstname: "Bob"},
+			},
+			TotalCount: 2,
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(searchResponse)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -129,6 +133,48 @@ func TestJumpCloudGetAllAccounts(t *testing.T) {
 	indexedUsers, err := manager.GetAllAccounts(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, indexedUsers[UnsetAccountID], 2)
+}
+
+func TestJumpCloudGetAllAccountsPagination(t *testing.T) {
+	totalUsers := 250
+	allUsers := make([]jumpCloudUser, totalUsers)
+	for i := range allUsers {
+		allUsers[i] = jumpCloudUser{
+			ID:        fmt.Sprintf("u%d", i),
+			Email:     fmt.Sprintf("user%d@test.com", i),
+			Firstname: fmt.Sprintf("User%d", i),
+		}
+	}
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]int
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+
+		limit := reqBody["limit"]
+		skip := reqBody["skip"]
+		requestCount++
+
+		end := skip + limit
+		if end > totalUsers {
+			end = totalUsers
+		}
+
+		resp := jumpCloudUserList{
+			Results:    allUsers[skip:end],
+			TotalCount: totalUsers,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	manager := newTestJumpCloudManager(t, server.URL)
+
+	indexedUsers, err := manager.GetAllAccounts(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, indexedUsers[UnsetAccountID], totalUsers)
+	assert.Equal(t, 3, requestCount, "should require 3 pages for 250 users at page size 100")
 }
 
 func TestJumpCloudGetUserByEmail(t *testing.T) {

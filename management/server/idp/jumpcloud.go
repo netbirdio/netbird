@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	jumpCloudDefaultApiUrl = "https://console.jumpcloud.com"
+	jumpCloudDefaultApiUrl  = "https://console.jumpcloud.com"
+	jumpCloudSearchPageSize = 100
 )
 
 // jumpCloudUser represents a JumpCloud V1 API system user.
@@ -75,7 +76,10 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 	if apiBase == "" {
 		apiBase = jumpCloudDefaultApiUrl
 	}
-	apiBase = strings.TrimSuffix(apiBase, "/") + "/api"
+	apiBase = strings.TrimSuffix(apiBase, "/")
+	if !strings.HasSuffix(apiBase, "/api") {
+		apiBase += "/api"
+	}
 
 	credentials := &JumpCloudCredentials{
 		clientConfig: config,
@@ -159,7 +163,7 @@ func (jm *JumpCloudManager) GetUserDataByID(ctx context.Context, userID string, 
 
 // GetAccount returns all the users for a given profile.
 func (jm *JumpCloudManager) GetAccount(ctx context.Context, accountID string) ([]*UserData, error) {
-	body, err := jm.doRequest(ctx, http.MethodPost, "/search/systemusers", bytes.NewReader([]byte("{}")))
+	allUsers, err := jm.searchAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +172,8 @@ func (jm *JumpCloudManager) GetAccount(ctx context.Context, accountID string) ([
 		jm.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	var userList jumpCloudUserList
-	if err = jm.helper.Unmarshal(body, &userList); err != nil {
-		return nil, err
-	}
-
-	users := make([]*UserData, 0, len(userList.Results))
-	for _, user := range userList.Results {
+	users := make([]*UserData, 0, len(allUsers))
+	for _, user := range allUsers {
 		userData := parseJumpCloudUser(user)
 		userData.AppMetadata.WTAccountID = accountID
 		users = append(users, userData)
@@ -186,7 +185,7 @@ func (jm *JumpCloudManager) GetAccount(ctx context.Context, accountID string) ([
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (jm *JumpCloudManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
-	body, err := jm.doRequest(ctx, http.MethodPost, "/search/systemusers", bytes.NewReader([]byte("{}")))
+	allUsers, err := jm.searchAllUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -195,18 +194,48 @@ func (jm *JumpCloudManager) GetAllAccounts(ctx context.Context) (map[string][]*U
 		jm.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
-	var userList jumpCloudUserList
-	if err = jm.helper.Unmarshal(body, &userList); err != nil {
-		return nil, err
-	}
-
 	indexedUsers := make(map[string][]*UserData)
-	for _, user := range userList.Results {
+	for _, user := range allUsers {
 		userData := parseJumpCloudUser(user)
 		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
 
 	return indexedUsers, nil
+}
+
+// searchAllUsers paginates through all system users using limit/skip.
+func (jm *JumpCloudManager) searchAllUsers(ctx context.Context) ([]jumpCloudUser, error) {
+	var allUsers []jumpCloudUser
+
+	for skip := 0; ; skip += jumpCloudSearchPageSize {
+		searchReq := map[string]int{
+			"limit": jumpCloudSearchPageSize,
+			"skip":  skip,
+		}
+
+		payload, err := json.Marshal(searchReq)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err := jm.doRequest(ctx, http.MethodPost, "/search/systemusers", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+
+		var userList jumpCloudUserList
+		if err = jm.helper.Unmarshal(body, &userList); err != nil {
+			return nil, err
+		}
+
+		allUsers = append(allUsers, userList.Results...)
+
+		if skip+len(userList.Results) >= userList.TotalCount {
+			break
+		}
+	}
+
+	return allUsers, nil
 }
 
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
