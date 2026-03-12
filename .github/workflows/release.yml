@@ -318,8 +318,8 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           GPG_DEB_KEY_FILE: ${{ env.GPG_DEB_KEY_FILE }}
           GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
-          NFPM_NETBIRD_UI_DEB_DEB_PASSPHRASE: ${{ secrets.GPG_DEB_PASSPHRASE }}
-          NFPM_NETBIRD_UI_RPM_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          NFPM_DEB_PASSPHRASE: ${{ secrets.GPG_DEB_PASSPHRASE }}
+          NFPM_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
       - name: Clean up GPG keys
         if: always()
         run: rm -f /tmp/gpg-deb-signing-key.asc /tmp/gpg-rpm-signing-key.asc
