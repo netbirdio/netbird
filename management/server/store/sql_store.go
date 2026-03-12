@@ -5426,3 +5426,61 @@ func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration t
 
 	return nil
 }
+
+// GetRoutingPeerNetworks returns the distinct network names where the peer is assigned as a routing peer
+// in an enabled network router, either directly or via peer groups.
+func (s *SqlStore) GetRoutingPeerNetworks(_ context.Context, accountID, peerID string) ([]string, error) {
+	var routers []*routerTypes.NetworkRouter
+	if err := s.db.Select("peer, peer_groups, network_id").Where("account_id = ? AND enabled = true", accountID).Find(&routers).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get enabled routers: %v", err)
+	}
+
+	if len(routers) == 0 {
+		return nil, nil
+	}
+
+	var groupPeers []types.GroupPeer
+	if err := s.db.Select("group_id").Where("peer_id = ?", peerID).Find(&groupPeers).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get peer group memberships: %v", err)
+	}
+
+	groupSet := make(map[string]struct{}, len(groupPeers))
+	for _, gp := range groupPeers {
+		groupSet[gp.GroupID] = struct{}{}
+	}
+
+	networkIDs := make(map[string]struct{})
+	for _, r := range routers {
+		if r.Peer == peerID {
+			networkIDs[r.NetworkID] = struct{}{}
+		} else if r.Peer == "" {
+			for _, pg := range r.PeerGroups {
+				if _, ok := groupSet[pg]; ok {
+					networkIDs[r.NetworkID] = struct{}{}
+					break
+				}
+			}
+		}
+	}
+
+	if len(networkIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(networkIDs))
+	for id := range networkIDs {
+		ids = append(ids, id)
+	}
+
+	var networks []*networkTypes.Network
+	if err := s.db.Select("name").Where("account_id = ? AND id IN ?", accountID, ids).Find(&networks).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get networks: %v", err)
+	}
+
+	names := make([]string, 0, len(networks))
+	for _, n := range networks {
+		names = append(names, n.Name)
+	}
+
+	return names, nil
+}

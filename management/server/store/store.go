@@ -287,6 +287,8 @@ type Store interface {
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 const (
