@@ -10,9 +10,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -408,6 +410,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 	go r.flushDNSCache()
 
+	if err := killDNSCacheProcess(); err != nil {
+		log.Warnf("failed to kill DnsCache process for NRPT flush, DNS may require reboot to clear: %v", err)
+	}
+
 	return nil
 }
 
@@ -485,6 +491,52 @@ func refreshGroupPolicy() error {
 	}
 
 	return nil
+}
+
+// killDNSCacheProcess terminates the svchost process hosting the DnsCache service,
+// forcing a cold reload of NRPT policy from registry. This is necessary because
+// DnsCache ignores PARAMCHANGE signals on many Windows builds (NOT_PAUSABLE),
+// and retains stale NRPT rules in memory even after registry keys are deleted.
+func killDNSCacheProcess() error {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return fmt.Errorf("open SCM: %w", err)
+	}
+	defer windows.CloseServiceHandle(scm)
+
+	svcName, _ := syscall.UTF16PtrFromString("Dnscache")
+	svc, err := windows.OpenService(scm, svcName, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return fmt.Errorf("open DnsCache service: %w", err)
+	}
+	defer windows.CloseServiceHandle(svc)
+
+	var status windows.SERVICE_STATUS_PROCESS
+	var bytesNeeded uint32
+	err = windows.QueryServiceStatusEx(
+		svc,
+		windows.SC_STATUS_PROCESS_INFO,
+		(*byte)(unsafe.Pointer(&status)),
+		uint32(unsafe.Sizeof(status)),
+		&bytesNeeded,
+	)
+	if err != nil {
+		return fmt.Errorf("query DnsCache status: %w", err)
+	}
+
+	pid := status.ProcessId
+	if pid == 0 {
+		return fmt.Errorf("DnsCache PID is 0")
+	}
+
+	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid)
+	if err != nil {
+		return fmt.Errorf("open process %d: %w", pid, err)
+	}
+	defer windows.CloseHandle(handle)
+
+	log.Infof("killing DnsCache svchost PID %d to flush NRPT policy from memory", pid)
+	return windows.TerminateProcess(handle, 0)
 }
 
 func closer(closer io.Closer) {
