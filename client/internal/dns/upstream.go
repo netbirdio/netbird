@@ -409,21 +409,18 @@ func (u *upstreamResolverBase) upstreamServersString() string {
 	return strings.Join(servers, ", ")
 }
 
-func (u *upstreamResolverBase) testNameserver(ctx context.Context, ctx2 context.Context, server netip.AddrPort, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func (u *upstreamResolverBase) testNameserver(baseCtx context.Context, externalCtx context.Context, server netip.AddrPort, timeout time.Duration) error {
+	mergedCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
 
-	stop := context.AfterFunc(u.ctx, cancel)
-	defer stop()
-
-	if ctx2 != nil {
-		stop2 := context.AfterFunc(ctx2, cancel)
+	if externalCtx != nil {
+		stop2 := context.AfterFunc(externalCtx, cancel)
 		defer stop2()
 	}
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchange(ctx, server.String(), r)
+	_, _, err := u.upstreamClient.exchange(mergedCtx, server.String(), r)
 	return err
 }
 
