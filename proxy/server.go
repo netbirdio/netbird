@@ -697,8 +697,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, serviceID); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
+	var wildcardHit bool
 	if s.acme != nil {
-		s.acme.AddDomain(d, string(accountID), serviceID)
+		wildcardHit = s.acme.AddDomain(d, string(accountID), serviceID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the
@@ -708,6 +709,13 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		s.removeMapping(ctx, mapping)
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
+
+	if wildcardHit {
+		if err := s.NotifyCertificateIssued(ctx, string(accountID), serviceID, string(d)); err != nil {
+			s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
+		}
+	}
+
 	return nil
 }
 

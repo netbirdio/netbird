@@ -295,8 +295,13 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 
 // AddDomain registers a domain for certificate management. Domains that
 // match a loaded wildcard are marked ready immediately (they use the
-// static wildcard certificate). All other domains go through ACME prefetch.
-func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
+// static wildcard certificate) and the method returns true. All other
+// domains go through ACME prefetch and the method returns false.
+//
+// When AddDomain returns true the caller is responsible for sending any
+// certificate-ready notifications after the surrounding operation (e.g.
+// mapping update) has committed successfully.
+func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) (wildcardHit bool) {
 	name := d.PunycodeString()
 	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()
@@ -307,13 +312,7 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 		}
 		mgr.mu.Unlock()
 		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, e.pattern)
-
-		if mgr.certNotifier != nil {
-			if err := mgr.certNotifier.NotifyCertificateIssued(context.Background(), accountID, serviceID, name); err != nil {
-				mgr.logger.Warnf("notify certificate ready for domain %q: %v", name, err)
-			}
-		}
-		return
+		return true
 	}
 
 	mgr.mu.Lock()
@@ -325,6 +324,7 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 	mgr.mu.Unlock()
 
 	go mgr.prefetchCertificate(d)
+	return false
 }
 
 // prefetchCertificate proactively triggers certificate generation for a domain.
