@@ -61,6 +61,10 @@ type Settings struct {
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
 
+	// AutoUpdateAlways when true, updates are installed automatically in the background;
+	// when false, updates require user interaction from the UI
+	AutoUpdateAlways bool `gorm:"default:false"`
+
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
 	EmbeddedIdpEnabled bool `gorm:"-"`
@@ -91,6 +95,7 @@ func (s *Settings) Copy() *Settings {
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
+		AutoUpdateAlways:                s.AutoUpdateAlways,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 	}
