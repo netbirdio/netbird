@@ -230,8 +230,7 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
-  // deprecated, reserve 3
-  // optional bool autoUpdate = 3;
+  reserved 3;
 }
 
 message UpResponse {}

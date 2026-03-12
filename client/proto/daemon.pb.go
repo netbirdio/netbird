@@ -6096,12 +6096,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\buserCode\x18\x01 \x01(\tR\buserCode\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\",\n" +
 	"\x14WaitSSOLoginResponse\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\"p\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"v\n" +
 	"\tUpRequest\x12%\n" +
 	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
-	"\t_username\"\f\n" +
+	"\t_usernameJ\x04\b\x03\x10\x04\"\f\n" +
 	"\n" +
 	"UpResponse\"\xa1\x01\n" +
 	"\rStatusRequest\x12,\n" +
