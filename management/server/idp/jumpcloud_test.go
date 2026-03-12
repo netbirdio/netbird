@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,7 +88,7 @@ func TestJumpCloudGetAccount(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 		assert.Contains(t, reqBody, "limit")
 		assert.Contains(t, reqBody, "skip")
 
@@ -149,7 +148,7 @@ func TestJumpCloudGetAllAccountsPagination(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]int
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		limit := reqBody["limit"]
 		skip := reqBody["skip"]
@@ -190,8 +189,8 @@ func TestJumpCloudGetUserByEmail(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		assert.True(t, strings.Contains(string(body), "alice@test.com"))
+		assert.NoError(t, err)
+		assert.Contains(t, string(body), "alice@test.com")
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(searchResponse)
