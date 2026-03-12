@@ -34,6 +34,16 @@ const (
 	geolocationDisabledKey = "NB_DISABLE_GEOLOCATION"
 )
 
+// migrationServer adapts BaseServer's store.Store and activity.Store
+// to the migration-specific MigrationStore/MigrationEventStore interfaces.
+type migrationServer struct {
+	store      migration.MigrationStore
+	eventStore migration.MigrationEventStore
+}
+
+func (m *migrationServer) Store() migration.MigrationStore        { return m.store }
+func (m *migrationServer) EventStore() migration.MigrationEventStore { return m.eventStore }
+
 func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	if os.Getenv(geolocationDisabledKey) == "true" {
 		log.Info("geolocation service is disabled, skipping initialization")
@@ -125,7 +135,16 @@ func (s *BaseServer) seedIDPConnectors() error {
 	s.Config.EmbeddedIdP.StaticConnectors = append(s.Config.EmbeddedIdP.StaticConnectors, *conn)
 
 	s.AfterInit(func(s *BaseServer) {
-		if err := migration.MigrateUsersToStaticConnectors(s, conn); err != nil {
+		ms, ok := s.Store().(migration.MigrationStore)
+		if !ok {
+			log.Fatalf("store does not support migration operations")
+		}
+		var mes migration.MigrationEventStore
+		if es, ok := s.EventStore().(migration.MigrationEventStore); ok {
+			mes = es
+		}
+		srv := &migrationServer{store: ms, eventStore: mes}
+		if err := migration.MigrateUsersToStaticConnectors(srv, conn); err != nil {
 			log.Fatalf("failed to migrate users to static connectors: %v", err)
 		}
 	})

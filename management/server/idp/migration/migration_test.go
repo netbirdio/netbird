@@ -1,21 +1,49 @@
 package migration
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/idp/dex"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
+
+// testStore is a hand-written mock for MigrationStore.
+type testStore struct {
+	listUsersFunc    func(ctx context.Context) ([]*types.User, error)
+	updateUserIDFunc func(ctx context.Context, accountID, oldUserID, newUserID string) error
+	updateCalls      []updateUserIDCall
+}
+
+type updateUserIDCall struct {
+	AccountID string
+	OldUserID string
+	NewUserID string
+}
+
+func (s *testStore) ListUsers(ctx context.Context) ([]*types.User, error) {
+	return s.listUsersFunc(ctx)
+}
+
+func (s *testStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	s.updateCalls = append(s.updateCalls, updateUserIDCall{accountID, oldUserID, newUserID})
+	return s.updateUserIDFunc(ctx, accountID, oldUserID, newUserID)
+}
+
+type testServer struct {
+	store      MigrationStore
+	eventStore MigrationEventStore
+}
+
+func (s *testServer) Store() MigrationStore        { return s.store }
+func (s *testServer) EventStore() MigrationEventStore { return s.eventStore }
 
 func TestSeedConnectorFromEnv(t *testing.T) {
 	t.Run("returns nil when env var is not set", func(t *testing.T) {
@@ -101,19 +129,6 @@ func TestIsSeedInfoPresent(t *testing.T) {
 	})
 }
 
-type mockServer struct {
-	s          store.Store
-	eventStore activity.Store
-}
-
-func (m *mockServer) Store() store.Store {
-	return m.s
-}
-
-func (m *mockServer) EventStore() activity.Store {
-	return m.eventStore
-}
-
 func TestMigrateUsersToStaticConnectors(t *testing.T) {
 	connector := &dex.Connector{
 		Type: "oidc",
@@ -122,120 +137,143 @@ func TestMigrateUsersToStaticConnectors(t *testing.T) {
 	}
 
 	t.Run("succeeds with no users", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
+		ms := &testStore{
+			listUsersFunc:    func(ctx context.Context) ([]*types.User, error) { return nil, nil },
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error { return nil },
+		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(nil, nil)
-
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
 	})
 
 	t.Run("returns error when ListUsers fails", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return nil, fmt.Errorf("db error")
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error { return nil },
+		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(nil, fmt.Errorf("db error"))
-
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to list users")
 	})
 
 	t.Run("migrates single user with correct encoded ID", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		user := &types.User{Id: "user-1", AccountID: "account-1"}
 		expectedNewID := dex.EncodeDexUserID("user-1", "test-connector")
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return([]*types.User{user}, nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-1", expectedNewID).Return(nil)
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return []*types.User{user}, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		require.Len(t, ms.updateCalls, 1)
+		assert.Equal(t, "account-1", ms.updateCalls[0].AccountID)
+		assert.Equal(t, "user-1", ms.updateCalls[0].OldUserID)
+		assert.Equal(t, expectedNewID, ms.updateCalls[0].NewUserID)
 	})
 
 	t.Run("migrates multiple users", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		users := []*types.User{
 			{Id: "user-1", AccountID: "account-1"},
 			{Id: "user-2", AccountID: "account-1"},
 			{Id: "user-3", AccountID: "account-2"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		for _, u := range users {
-			expectedNewID := dex.EncodeDexUserID(u.Id, connector.ID)
-			mockStore.EXPECT().UpdateUserID(gomock.Any(), u.AccountID, u.Id, expectedNewID).Return(nil)
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return nil
+			},
 		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		assert.Len(t, ms.updateCalls, 3)
 	})
 
 	t.Run("returns error when UpdateUserID fails", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		users := []*types.User{
 			{Id: "user-1", AccountID: "account-1"},
 			{Id: "user-2", AccountID: "account-1"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-1", gomock.Any()).Return(nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-2", gomock.Any()).Return(fmt.Errorf("update failed"))
+		callCount := 0
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				callCount++
+				if callCount == 2 {
+					return fmt.Errorf("update failed")
+				}
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update user ID for user user-2")
 	})
 
 	t.Run("stops on first UpdateUserID error", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		users := []*types.User{
 			{Id: "user-1", AccountID: "account-1"},
 			{Id: "user-2", AccountID: "account-1"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-1", gomock.Any()).Return(fmt.Errorf("update failed"))
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return fmt.Errorf("update failed")
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.Error(t, err)
+		assert.Len(t, ms.updateCalls, 1) // stopped after first error
 	})
 
 	t.Run("skips already migrated users", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		alreadyMigratedID := dex.EncodeDexUserID("user-1", "test-connector")
 		users := []*types.User{
 			{Id: alreadyMigratedID, AccountID: "account-1"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		// UpdateUserID should NOT be called for already-migrated users
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		assert.Len(t, ms.updateCalls, 0)
 	})
 
 	t.Run("migrates only non-migrated users in mixed state", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		alreadyMigratedID := dex.EncodeDexUserID("user-1", "test-connector")
 		users := []*types.User{
 			{Id: alreadyMigratedID, AccountID: "account-1"},
@@ -243,38 +281,50 @@ func TestMigrateUsersToStaticConnectors(t *testing.T) {
 			{Id: "user-3", AccountID: "account-2"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		// Only user-2 and user-3 should be migrated
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-2", dex.EncodeDexUserID("user-2", connector.ID)).Return(nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-2", "user-3", dex.EncodeDexUserID("user-3", connector.ID)).Return(nil)
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		// Only user-2 and user-3 should be migrated
+		assert.Len(t, ms.updateCalls, 2)
+		assert.Equal(t, "user-2", ms.updateCalls[0].OldUserID)
+		assert.Equal(t, "user-3", ms.updateCalls[1].OldUserID)
 	})
 
 	t.Run("dry run does not call UpdateUserID", func(t *testing.T) {
 		t.Setenv(dryRunEnvKey, "true")
-		ctrl := gomock.NewController(t)
 
 		users := []*types.User{
 			{Id: "user-1", AccountID: "account-1"},
 			{Id: "user-2", AccountID: "account-1"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		// UpdateUserID should NOT be called in dry-run mode
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				t.Fatal("UpdateUserID should not be called in dry-run mode")
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		assert.Len(t, ms.updateCalls, 0)
 	})
 
 	t.Run("dry run skips already migrated users", func(t *testing.T) {
 		t.Setenv(dryRunEnvKey, "true")
-		ctrl := gomock.NewController(t)
 
 		alreadyMigratedID := dex.EncodeDexUserID("user-1", "test-connector")
 		users := []*types.User{
@@ -282,26 +332,36 @@ func TestMigrateUsersToStaticConnectors(t *testing.T) {
 			{Id: "user-2", AccountID: "account-1"},
 		}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return(users, nil)
-		// No UpdateUserID calls expected
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return users, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				t.Fatal("UpdateUserID should not be called in dry-run mode")
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
 	})
 
 	t.Run("dry run disabled by default", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
 		user := &types.User{Id: "user-1", AccountID: "account-1"}
 
-		mockStore := store.NewMockStore(ctrl)
-		mockStore.EXPECT().ListUsers(gomock.Any()).Return([]*types.User{user}, nil)
-		mockStore.EXPECT().UpdateUserID(gomock.Any(), "account-1", "user-1", gomock.Any()).Return(nil)
+		ms := &testStore{
+			listUsersFunc: func(ctx context.Context) ([]*types.User, error) {
+				return []*types.User{user}, nil
+			},
+			updateUserIDFunc: func(ctx context.Context, accountID, oldUserID, newUserID string) error {
+				return nil
+			},
+		}
 
-		srv := &mockServer{s: mockStore}
+		srv := &testServer{store: ms}
 		err := MigrateUsersToStaticConnectors(srv, connector)
 		assert.NoError(t, err)
+		assert.Len(t, ms.updateCalls, 1) // proves it's not in dry-run
 	})
 }

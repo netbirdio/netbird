@@ -13,16 +13,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // Server is the dependency interface that migration functions use to access
 // the main data store and the activity event store.
 type Server interface {
-	Store() store.Store
-	EventStore() activity.Store
+	Store() MigrationStore
+	EventStore() MigrationEventStore // may return nil
 }
 
 const idpSeedInfoKey = "IDP_SEED_INFO"
@@ -119,7 +117,7 @@ func MigrateUsersToStaticConnectors(s Server, conn *dex.Connector) error {
 
 // reconcileActivityStore updates activity store references for users already migrated
 // in the main DB whose activity entries may still use old IDs from a previous partial failure.
-func reconcileActivityStore(ctx context.Context, eventStore activity.Store, users []*types.User) error {
+func reconcileActivityStore(ctx context.Context, eventStore MigrationEventStore, users []*types.User) error {
 	for _, user := range users {
 		originalID, _, err := dex.DecodeDexUserID(user.Id)
 		if err != nil {
