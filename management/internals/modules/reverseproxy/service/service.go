@@ -134,7 +134,7 @@ type Service struct {
 	ID                string `gorm:"primaryKey"`
 	AccountID         string `gorm:"index"`
 	Name              string
-	Domain            string    `gorm:"index"`
+	Domain            string    `gorm:"type:varchar(255);uniqueIndex"`
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
@@ -535,15 +535,15 @@ var hopByHopHeaders = map[string]struct{}{
 // reservedHeaders are set authoritatively by the proxy or control HTTP framing
 // and cannot be overridden.
 var reservedHeaders = map[string]struct{}{
-	"Content-Length":      {},
-	"Content-Type":        {},
-	"Cookie":              {},
-	"Forwarded":           {},
-	"X-Forwarded-For":     {},
-	"X-Forwarded-Host":    {},
-	"X-Forwarded-Port":    {},
-	"X-Forwarded-Proto":   {},
-	"X-Real-Ip":           {},
+	"Content-Length":    {},
+	"Content-Type":      {},
+	"Cookie":            {},
+	"Forwarded":         {},
+	"X-Forwarded-For":   {},
+	"X-Forwarded-Host":  {},
+	"X-Forwarded-Port":  {},
+	"X-Forwarded-Proto": {},
+	"X-Real-Ip":         {},
 }
 
 func validateTargetOptions(idx int, opts *TargetOptions) error {

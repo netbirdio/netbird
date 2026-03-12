@@ -849,14 +849,26 @@ func (s *Server) cleanupConnection() error {
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
+
+	// Capture the engine reference before cancelling the context.
+	// After actCancel(), the connectWithRetryRuns goroutine wakes up
+	// and sets connectClient.engine = nil, causing connectClient.Stop()
+	// to skip the engine shutdown entirely.
+	var engine *internal.Engine
+	if s.connectClient != nil {
+		engine = s.connectClient.Engine()
+	}
+
 	s.actCancel()
 
 	if s.connectClient == nil {
 		return nil
 	}
 
-	if err := s.connectClient.Stop(); err != nil {
-		return err
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return err
+		}
 	}
 
 	s.connectClient = nil
@@ -1613,9 +1625,14 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, doInitialAutoUpdate bool, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
-	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
+	client := internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
+	client.SetSyncResponsePersistence(s.persistSyncResponse)
+
+	s.mutex.Lock()
+	s.connectClient = client
+	s.mutex.Unlock()
+
+	if err := client.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil

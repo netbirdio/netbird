@@ -72,7 +72,6 @@ func TestInitializeServiceForCreate(t *testing.T) {
 
 func TestCheckDomainAvailable(t *testing.T) {
 	ctx := context.Background()
-	accountID := "test-account"
 
 	tests := []struct {
 		name             string
@@ -88,7 +87,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetServiceByDomain(ctx, accountID, "available.com").
+					GetServiceByDomain(ctx, "available.com").
 					Return(nil, status.Errorf(status.NotFound, "not found"))
 			},
 			expectedError: false,
@@ -99,7 +98,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetServiceByDomain(ctx, accountID, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "existing-id", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
@@ -111,7 +110,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "service-123",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetServiceByDomain(ctx, accountID, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: false,
@@ -122,7 +121,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "service-456",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetServiceByDomain(ctx, accountID, "exists.com").
+					GetServiceByDomain(ctx, "exists.com").
 					Return(&rpservice.Service{ID: "service-123", Domain: "exists.com"}, nil)
 			},
 			expectedError: true,
@@ -134,7 +133,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			excludeServiceID: "",
 			setupMock: func(ms *store.MockStore) {
 				ms.EXPECT().
-					GetServiceByDomain(ctx, accountID, "error.com").
+					GetServiceByDomain(ctx, "error.com").
 					Return(nil, errors.New("database error"))
 			},
 			expectedError: true,
@@ -150,7 +149,7 @@ func TestCheckDomainAvailable(t *testing.T) {
 			tt.setupMock(mockStore)
 
 			mgr := &Manager{}
-			err := mgr.checkDomainAvailable(ctx, mockStore, accountID, tt.domain, tt.excludeServiceID)
+			err := mgr.checkDomainAvailable(ctx, mockStore, tt.domain, tt.excludeServiceID)
 
 			if tt.expectedError {
 				require.Error(t, err)
@@ -168,7 +167,6 @@ func TestCheckDomainAvailable(t *testing.T) {
 
 func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 	ctx := context.Background()
-	accountID := "test-account"
 
 	t.Run("empty domain", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
@@ -176,11 +174,11 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetServiceByDomain(ctx, accountID, "").
+			GetServiceByDomain(ctx, "").
 			Return(nil, status.Errorf(status.NotFound, "not found"))
 
 		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "", "")
+		err := mgr.checkDomainAvailable(ctx, mockStore, "", "")
 
 		assert.NoError(t, err)
 	})
@@ -191,11 +189,11 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetServiceByDomain(ctx, accountID, "test.com").
+			GetServiceByDomain(ctx, "test.com").
 			Return(&rpservice.Service{ID: "some-id", Domain: "test.com"}, nil)
 
 		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "test.com", "")
+		err := mgr.checkDomainAvailable(ctx, mockStore, "test.com", "")
 
 		assert.Error(t, err)
 		sErr, ok := status.FromError(err)
@@ -209,11 +207,11 @@ func TestCheckDomainAvailable_EdgeCases(t *testing.T) {
 
 		mockStore := store.NewMockStore(ctrl)
 		mockStore.EXPECT().
-			GetServiceByDomain(ctx, accountID, "nil.com").
+			GetServiceByDomain(ctx, "nil.com").
 			Return(nil, nil)
 
 		mgr := &Manager{}
-		err := mgr.checkDomainAvailable(ctx, mockStore, accountID, "nil.com", "")
+		err := mgr.checkDomainAvailable(ctx, mockStore, "nil.com", "")
 
 		assert.NoError(t, err)
 	})
@@ -241,7 +239,7 @@ func TestPersistNewService(t *testing.T) {
 				// Create another mock for the transaction
 				txMock := store.NewMockStore(ctrl)
 				txMock.EXPECT().
-					GetServiceByDomain(ctx, accountID, "new.com").
+					GetServiceByDomain(ctx, "new.com").
 					Return(nil, status.Errorf(status.NotFound, "not found"))
 				txMock.EXPECT().
 					CreateService(ctx, service).
@@ -272,7 +270,7 @@ func TestPersistNewService(t *testing.T) {
 			DoAndReturn(func(ctx context.Context, fn func(store.Store) error) error {
 				txMock := store.NewMockStore(ctrl)
 				txMock.EXPECT().
-					GetServiceByDomain(ctx, accountID, "existing.com").
+					GetServiceByDomain(ctx, "existing.com").
 					Return(&rpservice.Service{ID: "other-id", Domain: "existing.com"}, nil)
 
 				return fn(txMock)
@@ -425,8 +423,9 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 		t.Helper()
 		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 1*time.Hour, 10*time.Minute, 100)
 		require.NoError(t, err)
-		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-		t.Cleanup(srv.Close)
+		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
+		require.NoError(t, err)
+		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 		return srv
 	}
 
@@ -705,8 +704,9 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
 	require.NoError(t, err)
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-	t.Cleanup(proxySrv.Close)
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
@@ -814,7 +814,7 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		assert.NotEmpty(t, resp.ServiceURL, "service URL should be set")
 
 		// Verify service is persisted in store
-		persisted, err := testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+		persisted, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.NoError(t, err)
 		assert.Equal(t, resp.Domain, persisted.Domain)
 		assert.Equal(t, rpservice.SourceEphemeral, persisted.Source, "source should be ephemeral")
@@ -977,7 +977,7 @@ func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify service is deleted
-		_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+		_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.Error(t, err, "service should be deleted")
 	})
 
@@ -1012,7 +1012,7 @@ func TestStopServiceFromPeer(t *testing.T) {
 		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain)
 		require.NoError(t, err)
 
-		_, err = testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+		_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
 		require.Error(t, err, "service should be deleted")
 	})
 }
@@ -1031,7 +1031,7 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count, "one ephemeral service should exist after create")
 
-	svc, err := testStore.GetServiceByDomain(ctx, testAccountID, resp.Domain)
+	svc, err := testStore.GetServiceByDomain(ctx, resp.Domain)
 	require.NoError(t, err)
 
 	err = mgr.DeleteService(ctx, testAccountID, testUserID, svc.ID)
@@ -1136,8 +1136,9 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
 	require.NoError(t, err)
-	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
-	t.Cleanup(proxySrv.Close)
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)

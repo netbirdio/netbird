@@ -19,14 +19,17 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pires/go-proxyproto"
-	"github.com/prometheus/client_golang/prometheus"
+	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -42,7 +45,7 @@ import (
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
-	"github.com/netbirdio/netbird/proxy/internal/metrics"
+	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -63,7 +66,7 @@ type Server struct {
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
-	meter         *metrics.Metrics
+	meter         *proxymetrics.Metrics
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -94,6 +97,11 @@ type Server struct {
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
 	CertLockMethod acme.CertLockMethod
+	// WildcardCertDir is an optional directory containing wildcard certificate
+	// pairs (<name>.crt / <name>.key). Wildcard patterns are extracted from
+	// the certificates' SAN lists. Matching domains use these static certs
+	// instead of ACME.
+	WildcardCertDir string
 
 	// DebugEndpointEnabled enables the debug HTTP endpoint.
 	DebugEndpointEnabled bool
@@ -152,8 +160,19 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID, service
 func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.initDefaults()
 
-	reg := prometheus.NewRegistry()
-	s.meter = metrics.New(reg)
+	exporter, err := prometheus.New()
+	if err != nil {
+		return fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(Server{}).PkgPath()
+	meter := provider.Meter(pkg)
+
+	s.meter, err = proxymetrics.New(ctx, meter)
+	if err != nil {
+		return fmt.Errorf("create metrics: %w", err)
+	}
 
 	mgmtConn, err := s.dialManagement()
 	if err != nil {
@@ -193,7 +212,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	s.startDebugEndpoint()
 
-	if err := s.startHealthServer(reg); err != nil {
+	if err := s.startHealthServer(); err != nil {
 		return err
 	}
 
@@ -284,12 +303,12 @@ func (s *Server) startDebugEndpoint() {
 }
 
 // startHealthServer launches the health probe and metrics server.
-func (s *Server) startHealthServer(reg *prometheus.Registry) error {
+func (s *Server) startHealthServer() error {
 	healthAddr := s.HealthAddress
 	if healthAddr == "" {
 		healthAddr = defaultHealthAddr
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(prometheus2.DefaultGatherer, promhttp.HandlerOpts{EnableOpenMetrics: true}))
 	healthListener, err := net.Listen("tcp", healthAddr)
 	if err != nil {
 		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
@@ -423,7 +442,20 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod)
+	var err error
+	s.acme, err = acme.NewManager(acme.ManagerConfig{
+		CertDir:     s.CertificateDirectory,
+		ACMEURL:     s.ACMEDirectory,
+		EABKID:      s.ACMEEABKID,
+		EABHMACKey:  s.ACMEEABHMACKey,
+		LockMethod:  s.CertLockMethod,
+		WildcardDir: s.WildcardCertDir,
+	}, s, s.Logger, s.meter)
+	if err != nil {
+		return nil, fmt.Errorf("create ACME manager: %w", err)
+	}
+
+	go s.acme.WatchWildcards(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
@@ -438,6 +470,10 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		}()
 	}
 	tlsConfig = s.acme.TLSConfig()
+
+	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
+	// bypasses our override that checks wildcards first.
+	tlsConfig.GetCertificate = s.acme.GetCertificate
 
 	// ServerName needs to be set to allow for ACME to work correctly
 	// when using CNAME URLs to access the proxy.
@@ -661,8 +697,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, serviceID); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
+	var wildcardHit bool
 	if s.acme != nil {
-		s.acme.AddDomain(d, string(accountID), serviceID)
+		wildcardHit = s.acme.AddDomain(d, string(accountID), serviceID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the
@@ -672,6 +709,13 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		s.removeMapping(ctx, mapping)
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
+
+	if wildcardHit {
+		if err := s.NotifyCertificateIssued(ctx, string(accountID), serviceID, string(d)); err != nil {
+			s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
+		}
+	}
+
 	return nil
 }
 
