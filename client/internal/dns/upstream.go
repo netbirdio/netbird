@@ -372,7 +372,9 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
 	u.successCount.Add(1)
 	u.reactivate()
+	u.mutex.Lock()
 	u.disabled = false
+	u.mutex.Unlock()
 }
 
 // isTimeout returns true if the given error is a network timeout error.
