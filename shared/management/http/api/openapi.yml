@@ -4257,6 +4257,7 @@ components:
         emails:
           type: array
           description: List of email addresses to send notifications to.
+          minItems: 1
           items:
             type: string
             format: email

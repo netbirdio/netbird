@@ -5440,7 +5440,7 @@ func (s *SqlStore) GetRoutingPeerNetworks(_ context.Context, accountID, peerID s
 	}
 
 	var groupPeers []types.GroupPeer
-	if err := s.db.Select("group_id").Where("peer_id = ?", peerID).Find(&groupPeers).Error; err != nil {
+	if err := s.db.Select("group_id").Where("account_id = ? AND peer_id = ?", accountID, peerID).Find(&groupPeers).Error; err != nil {
 		return nil, status.Errorf(status.Internal, "failed to get peer group memberships: %v", err)
 	}
 
