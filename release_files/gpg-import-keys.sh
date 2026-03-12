@@ -22,11 +22,13 @@ import_key() {
     echo "--- import ---"
     printf '%s' "$passphrase" | gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-fd 0 --import "$tmp_file"
 
-    echo "--- list imported keys ---"
-    gpg --list-secret-keys --keyid-format long
+    # Extract the fingerprint of the imported key
+    local fpr
+    fpr=$(gpg --with-colons --show-keys "$tmp_file" 2>/dev/null | awk -F: '/^fpr:/ { print $10; exit }')
+    echo "Key fingerprint: $fpr"
 
-    echo "--- export without passphrase ---"
-    printf '%s' "$passphrase" | gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-fd 0 --export-secret-keys --armor > "$out_file"
+    echo "--- export key $fpr ---"
+    printf '%s' "$passphrase" | gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-fd 0 --export-secret-keys --armor "$fpr" > "$out_file"
     echo "Exported key size: $(wc -c < "$out_file") bytes"
 
     rm -f "$tmp_file"
