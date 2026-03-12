@@ -67,7 +67,7 @@ func TestJumpCloudGetUserDataByID(t *testing.T) {
 		assert.Equal(t, "test-api-key", r.Header.Get("x-api-key"))
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userResponse)
+		_ = json.NewEncoder(w).Encode(userResponse)
 	}))
 	defer server.Close()
 
@@ -96,7 +96,7 @@ func TestJumpCloudGetAccount(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(searchResponse)
+		_ = json.NewEncoder(w).Encode(searchResponse)
 	}))
 	defer server.Close()
 
@@ -120,7 +120,7 @@ func TestJumpCloudGetAllAccounts(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(searchResponse)
+		_ = json.NewEncoder(w).Encode(searchResponse)
 	}))
 	defer server.Close()
 
@@ -148,7 +148,7 @@ func TestJumpCloudGetUserByEmail(t *testing.T) {
 		assert.True(t, strings.Contains(string(body), "alice@test.com"))
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(searchResponse)
+		_ = json.NewEncoder(w).Encode(searchResponse)
 	}))
 	defer server.Close()
 
@@ -167,7 +167,7 @@ func TestJumpCloudDeleteUser(t *testing.T) {
 		assert.Equal(t, "test-api-key", r.Header.Get("x-api-key"))
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"_id": "user123"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"_id": "user123"})
 	}))
 	defer server.Close()
 
