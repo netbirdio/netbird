@@ -12,9 +12,6 @@ import (
 )
 
 const (
-	EnvNewNetworkMapBuilder  = "NB_EXPERIMENT_NETWORK_MAP"
-	EnvNewNetworkMapAccounts = "NB_EXPERIMENT_NETWORK_MAP_ACCOUNTS"
-
 	DnsForwarderPort           = nbdns.ForwarderServerPort
 	OldForwarderPort           = nbdns.ForwarderClientPort
 	DnsForwarderPortMinVersion = "v0.59.0"

@@ -1169,11 +1169,6 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
-func TestAccountManager_NetworkUpdates_SaveGroup_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_SaveGroup(t)
-}
-
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	testAccountManager_NetworkUpdates_SaveGroup(t)
 }
@@ -1229,11 +1224,6 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	wg.Wait()
 }
 
-func TestAccountManager_NetworkUpdates_DeletePolicy_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeletePolicy(t)
-}
-
 func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	testAccountManager_NetworkUpdates_DeletePolicy(t)
 }
@@ -1270,11 +1260,6 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_SavePolicy_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_SavePolicy(t)
 }
 
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
@@ -1328,11 +1313,6 @@ func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_DeletePeer_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeletePeer(t)
 }
 
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
@@ -1393,11 +1373,6 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_DeleteGroup_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeleteGroup(t)
 }
 
 func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
@@ -1747,9 +1722,7 @@ func TestAccount_Copy(t *testing.T) {
 				Targets:   []*service.Target{},
 			},
 		},
-		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
-	account.InitOnce()
 	err := hasNilField(account)
 	if err != nil {
 		t.Fatal(err)

@@ -177,11 +177,6 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 	testGetNetworkMapGeneral(t)
 }
 
-func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testGetNetworkMapGeneral(t)
-}
-
 func testGetNetworkMapGeneral(t *testing.T) {
 	manager, _, err := createManager(t)
 	if err != nil {
@@ -1014,11 +1009,6 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}
 }
 
-func TestUpdateAccountPeers_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testUpdateAccountPeers(t)
-}
-
 func TestUpdateAccountPeers(t *testing.T) {
 	testUpdateAccountPeers(t)
 }
@@ -1586,7 +1576,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}

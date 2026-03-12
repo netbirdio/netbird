@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -107,14 +106,7 @@ type Account struct {
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
-	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
-	nmapInitOnce    *sync.Once         `gorm:"-"`
-
 	ReverseProxyFreeDomainNonce string
-}
-
-func (a *Account) InitOnce() {
-	a.nmapInitOnce = &sync.Once{}
 }
 
 // this class is used by gorm only
@@ -150,33 +142,6 @@ type AccountOnboarding struct {
 func (o AccountOnboarding) IsEqual(onboarding AccountOnboarding) bool {
 	return o.OnboardingFlowPending == onboarding.OnboardingFlowPending &&
 		o.SignupFormPending == onboarding.SignupFormPending
-}
-
-// filterRoutesFromPeersOfSameHAGroup filters and returns a list of routes that don't share the same HA route membership
-func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships LookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
-	for _, r := range routes {
-		_, found := peerMemberships[string(r.GetHAUniqueID())]
-		if !found {
-			filteredRoutes = append(filteredRoutes, r)
-		}
-	}
-	return filteredRoutes
-}
-
-// filterRoutesByGroups returns a list with routes that have distribution groups in the group's map
-func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
-	for _, r := range routes {
-		for _, groupID := range r.Groups {
-			_, found := groupListMap[groupID]
-			if found {
-				filteredRoutes = append(filteredRoutes, r)
-				break
-			}
-		}
-	}
-	return filteredRoutes
 }
 
 // GetRoutesByPrefixOrDomains return list of routes by account and route prefix
@@ -241,16 +206,6 @@ func (a *Account) addNetworksRoutingPeers(
 	}
 
 	return peersToConnect
-}
-
-// peerIsNameserver returns true if the peer is a nameserver for a nsGroup
-func peerIsNameserver(peer *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
-	for _, ns := range nsGroup.NameServers {
-		if peer.IP.Equal(ns.IP.AsSlice()) {
-			return true
-		}
-	}
-	return false
 }
 
 func AddPeerLabelsToAccount(ctx context.Context, account *Account, peerLabels LookupMap) {
@@ -722,8 +677,6 @@ func (a *Account) Copy() *Account {
 		NetworkResources:       networkResources,
 		Services:               services,
 		Onboarding:             a.Onboarding,
-		NetworkMapCache:        a.NetworkMapCache,
-		nmapInitOnce:           a.nmapInitOnce,
 	}
 }
 
@@ -1140,35 +1093,6 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 		distributionGroupPeers = append(distributionGroupPeers, peer)
 	}
 	return distributionGroupPeers
-}
-
-func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
-	var rules []*RouteFirewallRule
-
-	sources := []string{"0.0.0.0/0"}
-	if route.Network.Addr().Is6() {
-		sources = []string{"::/0"}
-	}
-	rule := RouteFirewallRule{
-		SourceRanges: sources,
-		Action:       string(PolicyTrafficActionAccept),
-		Destination:  route.Network.String(),
-		Protocol:     string(PolicyRuleProtocolALL),
-		Domains:      route.Domains,
-		IsDynamic:    route.IsDynamic(),
-		RouteID:      route.ID,
-	}
-
-	rules = append(rules, &rule)
-
-	// dynamic routes always contain an IPv4 placeholder as destination, hence we must add IPv6 rules additionally
-	if route.IsDynamic() {
-		ruleV6 := rule
-		ruleV6.SourceRanges = []string{"::/0"}
-		rules = append(rules, &ruleV6)
-	}
-
-	return rules
 }
 
 // GetAllRoutePoliciesFromGroups retrieves route policies associated with the specified access control groups
