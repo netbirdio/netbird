@@ -97,6 +97,11 @@ type Server struct {
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
 	CertLockMethod acme.CertLockMethod
+	// WildcardCertDir is an optional directory containing wildcard certificate
+	// pairs (<name>.crt / <name>.key). Wildcard patterns are extracted from
+	// the certificates' SAN lists. Matching domains use these static certs
+	// instead of ACME.
+	WildcardCertDir string
 
 	// DebugEndpointEnabled enables the debug HTTP endpoint.
 	DebugEndpointEnabled bool
@@ -437,7 +442,20 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	s.acme = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter)
+	var err error
+	s.acme, err = acme.NewManager(acme.ManagerConfig{
+		CertDir:     s.CertificateDirectory,
+		ACMEURL:     s.ACMEDirectory,
+		EABKID:      s.ACMEEABKID,
+		EABHMACKey:  s.ACMEEABHMACKey,
+		LockMethod:  s.CertLockMethod,
+		WildcardDir: s.WildcardCertDir,
+	}, s, s.Logger, s.meter)
+	if err != nil {
+		return nil, fmt.Errorf("create ACME manager: %w", err)
+	}
+
+	go s.acme.WatchWildcards(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
@@ -452,6 +470,10 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		}()
 	}
 	tlsConfig = s.acme.TLSConfig()
+
+	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
+	// bypasses our override that checks wildcards first.
+	tlsConfig.GetCertificate = s.acme.GetCertificate
 
 	// ServerName needs to be set to allow for ACME to work correctly
 	// when using CNAME URLs to access the proxy.
@@ -675,8 +697,9 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	if err := s.netbird.AddPeer(ctx, accountID, d, authToken, serviceID); err != nil {
 		return fmt.Errorf("create peer for domain %q: %w", d, err)
 	}
+	var wildcardHit bool
 	if s.acme != nil {
-		s.acme.AddDomain(d, string(accountID), serviceID)
+		wildcardHit = s.acme.AddDomain(d, string(accountID), serviceID)
 	}
 
 	// Pass the mapping through to the update function to avoid duplicating the
@@ -686,6 +709,13 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		s.removeMapping(ctx, mapping)
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
+
+	if wildcardHit {
+		if err := s.NotifyCertificateIssued(ctx, string(accountID), serviceID, string(d)); err != nil {
+			s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
+		}
+	}
+
 	return nil
 }
 
