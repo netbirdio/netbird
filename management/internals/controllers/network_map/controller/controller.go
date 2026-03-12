@@ -108,7 +108,6 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		holder:               types.NewHolder(),
 		expNewNetworkMap:     newNetworkMapBuilder,
 		expNewNetworkMapAIDs: expIDs,
-
 	}
 }
 

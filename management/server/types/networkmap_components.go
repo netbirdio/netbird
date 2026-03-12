@@ -132,7 +132,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		sourcePeers,
 	)
 
-	dnsManagementStatus := c.getPeerDNSManagementStatus(targetPeerID)
+	dnsManagementStatus := c.getPeerDNSManagementStatusFromGroups(peerGroups)
 	dnsUpdate := nbdns.Config{
 		ServiceEnable: dnsManagementStatus,
 	}
@@ -150,7 +150,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		customZones = append(customZones, c.AccountZones...)
 
 		dnsUpdate.CustomZones = customZones
-		dnsUpdate.NameServerGroups = c.getPeerNSGroups(targetPeerID)
+		dnsUpdate.NameServerGroups = c.getPeerNSGroupsFromGroups(targetPeerID, peerGroups)
 	}
 
 	return &NetworkMap{
@@ -276,6 +276,16 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 	peers := make([]*nbpeer.Peer, 0)
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
+			protocol := rule.Protocol
+			if protocol == PolicyRuleProtocolNetbirdSSH {
+				protocol = PolicyRuleProtocolTCP
+			}
+
+			protocolStr := string(protocol)
+			actionStr := string(rule.Action)
+			dirStr := strconv.Itoa(direction)
+			portsJoined := strings.Join(rule.Ports, ",")
+
 			for _, peer := range groupPeers {
 				if peer == nil {
 					continue
@@ -286,21 +296,18 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 					peersExists[peer.ID] = struct{}{}
 				}
 
-				protocol := rule.Protocol
-				if protocol == PolicyRuleProtocolNetbirdSSH {
-					protocol = PolicyRuleProtocolTCP
-				}
+				peerIP := net.IP(peer.IP).String()
 
 				fr := FirewallRule{
 					PolicyID:  rule.ID,
-					PeerIP:    net.IP(peer.IP).String(),
+					PeerIP:    peerIP,
 					Direction: direction,
-					Action:    string(rule.Action),
-					Protocol:  string(protocol),
+					Action:    actionStr,
+					Protocol:  protocolStr,
 				}
 
-				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
-					fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
+				ruleID := rule.ID + peerIP + dirStr +
+					protocolStr + actionStr + portsJoined
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
 				}
@@ -311,13 +318,7 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 					continue
 				}
 
-				rules = append(rules, expandPortsAndRanges(fr, &PolicyRule{
-					ID:         rule.ID,
-					Ports:      rule.Ports,
-					PortRanges: rule.PortRanges,
-					Protocol:   rule.Protocol,
-					Action:     rule.Action,
-				}, targetPeer)...)
+				rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -393,7 +394,7 @@ func (c *NetworkMapComponents) getPeerFromResource(resource Resource, peerID str
 }
 
 func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nbpeer.Peer) ([]*nbpeer.Peer, []*nbpeer.Peer) {
-	var peersToConnect []*nbpeer.Peer
+	peersToConnect := make([]*nbpeer.Peer, 0, len(aclPeers))
 	var expiredPeers []*nbpeer.Peer
 
 	for _, p := range aclPeers {
@@ -408,35 +409,35 @@ func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nbpeer.P
 	return peersToConnect, expiredPeers
 }
 
-func (c *NetworkMapComponents) getPeerDNSManagementStatus(peerID string) bool {
-	peerGroups := c.GetPeerGroups(peerID)
-	enabled := true
+func (c *NetworkMapComponents) getPeerDNSManagementStatusFromGroups(peerGroups map[string]struct{}) bool {
 	for _, groupID := range c.DNSSettings.DisabledManagementGroups {
 		if _, found := peerGroups[groupID]; found {
-			enabled = false
-			break
+			return false
 		}
 	}
-	return enabled
+	return true
 }
 
-func (c *NetworkMapComponents) getPeerNSGroups(peerID string) []*nbdns.NameServerGroup {
-	groupList := c.GetPeerGroups(peerID)
-
+func (c *NetworkMapComponents) getPeerNSGroupsFromGroups(peerID string, groupList map[string]struct{}) []*nbdns.NameServerGroup {
 	var peerNSGroups []*nbdns.NameServerGroup
+
+	targetPeerInfo := c.GetPeerInfo(peerID)
+	if targetPeerInfo == nil {
+		return peerNSGroups
+	}
+
+	peerIPStr := targetPeerInfo.IP.String()
 
 	for _, nsGroup := range c.NameServerGroups {
 		if !nsGroup.Enabled {
 			continue
 		}
 		for _, gID := range nsGroup.Groups {
-			_, found := groupList[gID]
-			if found {
-				targetPeerInfo := c.GetPeerInfo(peerID)
-				if targetPeerInfo != nil && !c.peerIsNameserver(targetPeerInfo, nsGroup) {
+			if _, found := groupList[gID]; found {
+				if !c.peerIsNameserver(peerIPStr, nsGroup) {
 					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
-					break
 				}
+				break
 			}
 		}
 	}
@@ -444,9 +445,9 @@ func (c *NetworkMapComponents) getPeerNSGroups(peerID string) []*nbdns.NameServe
 	return peerNSGroups
 }
 
-func (c *NetworkMapComponents) peerIsNameserver(peerInfo *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
+func (c *NetworkMapComponents) peerIsNameserver(peerIPStr string, nsGroup *nbdns.NameServerGroup) bool {
 	for _, ns := range nsGroup.NameServers {
-		if peerInfo.IP.String() == ns.IP.String() {
+		if peerIPStr == ns.IP.String() {
 			return true
 		}
 	}
@@ -487,14 +488,13 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 		}
 		seenRoute[r.ID] = struct{}{}
 
-		routeObj := c.copyRoute(r)
-		routeObj.Peer = peerInfo.Key
+		r.Peer = peerInfo.Key
 
 		if r.Enabled {
-			enabledRoutes = append(enabledRoutes, routeObj)
+			enabledRoutes = append(enabledRoutes, r)
 			return
 		}
-		disabledRoutes = append(disabledRoutes, routeObj)
+		disabledRoutes = append(disabledRoutes, r)
 	}
 
 	for _, r := range c.Routes {
@@ -508,7 +508,7 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 					continue
 				}
 
-				newPeerRoute := c.copyRoute(r)
+				newPeerRoute := r.Copy()
 				newPeerRoute.Peer = id
 				newPeerRoute.PeerGroups = nil
 				newPeerRoute.ID = route.ID(string(r.ID) + ":" + id)
@@ -517,50 +517,13 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 			}
 		}
 		if r.Peer == peerID {
-			takeRoute(c.copyRoute(r))
+			takeRoute(r.Copy())
 		}
 	}
 
 	return enabledRoutes, disabledRoutes
 }
 
-func (c *NetworkMapComponents) copyRoute(r *route.Route) *route.Route {
-	var groups, accessControlGroups, peerGroups []string
-	var domains domain.List
-
-	if r.Groups != nil {
-		groups = append([]string{}, r.Groups...)
-	}
-	if r.AccessControlGroups != nil {
-		accessControlGroups = append([]string{}, r.AccessControlGroups...)
-	}
-	if r.PeerGroups != nil {
-		peerGroups = append([]string{}, r.PeerGroups...)
-	}
-	if r.Domains != nil {
-		domains = append(domain.List{}, r.Domains...)
-	}
-
-	return &route.Route{
-		ID:                  r.ID,
-		AccountID:           r.AccountID,
-		Network:             r.Network,
-		NetworkType:         r.NetworkType,
-		Description:         r.Description,
-		Peer:                r.Peer,
-		PeerID:              r.PeerID,
-		Metric:              r.Metric,
-		Masquerade:          r.Masquerade,
-		NetID:               r.NetID,
-		Enabled:             r.Enabled,
-		Groups:              groups,
-		AccessControlGroups: accessControlGroups,
-		PeerGroups:          peerGroups,
-		Domains:             domains,
-		KeepRoute:           r.KeepRoute,
-		SkipAutoApply:       r.SkipAutoApply,
-	}
-}
 
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
