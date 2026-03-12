@@ -60,7 +60,7 @@ type Lookup struct {
 func NewLookup(logger *log.Logger, dataDir string) (*Lookup, error) {
 	if isDisabledByEnv(logger) {
 		logger.Info("geolocation disabled via environment variable")
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	if envDir := os.Getenv(EnvDataDir); envDir != "" {
@@ -68,14 +68,14 @@ func NewLookup(logger *log.Logger, dataDir string) (*Lookup, error) {
 	}
 
 	if dataDir == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	mmdbPath, err := ensureMMDB(logger, dataDir)
 	if err != nil {
 		logger.Warnf("geolocation database unavailable: %v", err)
 		logger.Warn("country-based access restrictions will deny all requests until a database is available")
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	db, err := maxminddb.Open(mmdbPath)

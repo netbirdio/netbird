@@ -112,6 +112,13 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 	// IPv4 CIDR rules match regardless of how the address was received.
 	addr = addr.Unmap()
 
+	if v := f.checkCIDR(addr); v != Allow {
+		return v
+	}
+	return f.checkCountry(addr, geo)
+}
+
+func (f *Filter) checkCIDR(addr netip.Addr) Verdict {
 	if len(f.AllowedCIDRs) > 0 {
 		allowed := false
 		for _, prefix := range f.AllowedCIDRs {
@@ -130,7 +137,10 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 			return DenyCIDR
 		}
 	}
+	return Allow
+}
 
+func (f *Filter) checkCountry(addr netip.Addr, geo GeoResolver) Verdict {
 	if len(f.AllowedCountries) == 0 && len(f.BlockedCountries) == 0 {
 		return Allow
 	}

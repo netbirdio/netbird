@@ -253,65 +253,74 @@ func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 
-		token, _, err := hdr.Authenticate(r)
-		if err != nil {
-			if errors.Is(err, ErrHeaderAuthFailed) {
-				if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-					cd.SetOrigin(proxy.OriginAuth)
-					cd.SetAuthMethod(auth.MethodHeader.String())
-				}
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return true
-			}
-			mw.logger.WithField("scheme", "header").Warnf("header auth infrastructure error: %v", err)
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-			}
-			http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+		handled := mw.tryHeaderScheme(w, r, host, config, hdr, next)
+		if handled {
 			return true
 		}
-		if token == "" {
-			continue
-		}
-
-		result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
-		if err != nil {
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-				cd.SetAuthMethod(auth.MethodHeader.String())
-			}
-			status := http.StatusBadRequest
-			msg := "invalid session token"
-			if errors.Is(err, errValidationUnavailable) {
-				status = http.StatusBadGateway
-				msg = "authentication service unavailable"
-			}
-			http.Error(w, msg, status)
-			return true
-		}
-
-		if !result.Valid {
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-				cd.SetUserID(result.UserID)
-				cd.SetAuthMethod(auth.MethodHeader.String())
-			}
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return true
-		}
-
-		// Set session cookie so subsequent requests skip the gRPC call.
-		setSessionCookie(w, token, config.SessionExpiration)
-
-		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-			cd.SetUserID(result.UserID)
-			cd.SetAuthMethod(auth.MethodHeader.String())
-		}
-
-		next.ServeHTTP(w, r)
-		return true
 	}
 	return false
+}
+
+func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, hdr Header, next http.Handler) bool {
+	token, _, err := hdr.Authenticate(r)
+	if err != nil {
+		return mw.handleHeaderAuthError(w, r, err)
+	}
+	if token == "" {
+		return false
+	}
+
+	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
+	if err != nil {
+		setHeaderCapturedData(r.Context(), "")
+		status := http.StatusBadRequest
+		msg := "invalid session token"
+		if errors.Is(err, errValidationUnavailable) {
+			status = http.StatusBadGateway
+			msg = "authentication service unavailable"
+		}
+		http.Error(w, msg, status)
+		return true
+	}
+
+	if !result.Valid {
+		setHeaderCapturedData(r.Context(), result.UserID)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return true
+	}
+
+	setSessionCookie(w, token, config.SessionExpiration)
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetUserID(result.UserID)
+		cd.SetAuthMethod(auth.MethodHeader.String())
+	}
+
+	next.ServeHTTP(w, r)
+	return true
+}
+
+func (mw *Middleware) handleHeaderAuthError(w http.ResponseWriter, r *http.Request, err error) bool {
+	if errors.Is(err, ErrHeaderAuthFailed) {
+		setHeaderCapturedData(r.Context(), "")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return true
+	}
+	mw.logger.WithField("scheme", "header").Warnf("header auth infrastructure error: %v", err)
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(proxy.OriginAuth)
+	}
+	http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+	return true
+}
+
+func setHeaderCapturedData(ctx context.Context, userID string) {
+	cd := proxy.CapturedDataFromContext(ctx)
+	if cd == nil {
+		return
+	}
+	cd.SetOrigin(proxy.OriginAuth)
+	cd.SetAuthMethod(auth.MethodHeader.String())
+	cd.SetUserID(userID)
 }
 
 // authenticateWithSchemes tries each configured auth scheme in order.

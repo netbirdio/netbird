@@ -553,32 +553,38 @@ func isHTTPFamily(mode string) bool {
 	return mode == "" || mode == "http"
 }
 
-func (m *Manager) preserveExistingAuthSecrets(service, existingService *service.Service) {
-	if service.Auth.PasswordAuth != nil && service.Auth.PasswordAuth.Enabled &&
+func (m *Manager) preserveExistingAuthSecrets(svc, existingService *service.Service) {
+	if svc.Auth.PasswordAuth != nil && svc.Auth.PasswordAuth.Enabled &&
 		existingService.Auth.PasswordAuth != nil && existingService.Auth.PasswordAuth.Enabled &&
-		service.Auth.PasswordAuth.Password == "" {
-		service.Auth.PasswordAuth = existingService.Auth.PasswordAuth
+		svc.Auth.PasswordAuth.Password == "" {
+		svc.Auth.PasswordAuth = existingService.Auth.PasswordAuth
 	}
 
-	if service.Auth.PinAuth != nil && service.Auth.PinAuth.Enabled &&
+	if svc.Auth.PinAuth != nil && svc.Auth.PinAuth.Enabled &&
 		existingService.Auth.PinAuth != nil && existingService.Auth.PinAuth.Enabled &&
-		service.Auth.PinAuth.Pin == "" {
-		service.Auth.PinAuth = existingService.Auth.PinAuth
+		svc.Auth.PinAuth.Pin == "" {
+		svc.Auth.PinAuth = existingService.Auth.PinAuth
 	}
 
-	// Preserve existing header auth hashes when the value is empty (not re-entered).
-	if len(service.Auth.HeaderAuths) > 0 && len(existingService.Auth.HeaderAuths) > 0 {
-		existingByHeader := make(map[string]string, len(existingService.Auth.HeaderAuths))
-		for _, h := range existingService.Auth.HeaderAuths {
-			if h != nil && h.Value != "" {
-				existingByHeader[h.Header] = h.Value
-			}
+	preserveHeaderAuthHashes(svc.Auth.HeaderAuths, existingService.Auth.HeaderAuths)
+}
+
+// preserveHeaderAuthHashes fills in empty header auth values from the existing
+// service so that unchanged secrets are not lost on update.
+func preserveHeaderAuthHashes(headers, existing []*service.HeaderAuthConfig) {
+	if len(headers) == 0 || len(existing) == 0 {
+		return
+	}
+	existingByHeader := make(map[string]string, len(existing))
+	for _, h := range existing {
+		if h != nil && h.Value != "" {
+			existingByHeader[h.Header] = h.Value
 		}
-		for _, h := range service.Auth.HeaderAuths {
-			if h != nil && h.Enabled && h.Value == "" {
-				if hash, ok := existingByHeader[h.Header]; ok {
-					h.Value = hash
-				}
+	}
+	for _, h := range headers {
+		if h != nil && h.Enabled && h.Value == "" {
+			if hash, ok := existingByHeader[h.Header]; ok {
+				h.Value = hash
 			}
 		}
 	}

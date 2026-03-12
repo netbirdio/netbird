@@ -252,16 +252,8 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 		return nil, r.ctx.Err()
 	}
 
-	// Check access restrictions on new session creation only.
-	if r.filter != nil {
-		clientIP, err := addrFromUDPAddr(addr)
-		if err != nil {
-			return nil, fmt.Errorf("parse client address %s for restriction check: %w", addr, err)
-		}
-		if v := r.filter.Check(clientIP, r.geo); v != restrict.Allow {
-			r.logDeny(clientIP, v)
-			return nil, fmt.Errorf("access restricted for %s", addr)
-		}
+	if err := r.checkAccessRestrictions(addr); err != nil {
+		return nil, err
 	}
 
 	r.mu.Lock()
@@ -333,6 +325,21 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 
 	r.logger.Debugf("UDP session created for %s", addr)
 	return sess, nil
+}
+
+func (r *Relay) checkAccessRestrictions(addr net.Addr) error {
+	if r.filter == nil {
+		return nil
+	}
+	clientIP, err := addrFromUDPAddr(addr)
+	if err != nil {
+		return fmt.Errorf("parse client address %s for restriction check: %w", addr, err)
+	}
+	if v := r.filter.Check(clientIP, r.geo); v != restrict.Allow {
+		r.logDeny(clientIP, v)
+		return fmt.Errorf("access restricted for %s", addr)
+	}
+	return nil
 }
 
 // relayBackendToClient reads packets from the backend and writes them

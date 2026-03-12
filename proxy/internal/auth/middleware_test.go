@@ -681,7 +681,7 @@ func TestCheckIPRestrictions_UnparseableAddress(t *testing.T) {
 		remoteAddr string
 		wantCode   int
 	}{
-		{"unparseable address denies", "not-an-ip:1234", http.StatusForbidden},
+		{"unparsable address denies", "not-an-ip:1234", http.StatusForbidden},
 		{"empty address denies", "", http.StatusForbidden},
 		{"allowed address passes", "10.1.2.3:5678", http.StatusOK},
 		{"denied address blocked", "192.168.1.1:5678", http.StatusForbidden},

@@ -1690,7 +1690,7 @@ func TestCheckRestrictions_UnparseableAddress(t *testing.T) {
 	route := Route{Filter: filter}
 
 	conn := &fakeConn{remote: fakeAddr("not-an-ip")}
-	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(conn, route), "unparseable address must be denied")
+	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(conn, route), "unparsable address must be denied")
 }
 
 func TestCheckRestrictions_NilRemoteAddr(t *testing.T) {
