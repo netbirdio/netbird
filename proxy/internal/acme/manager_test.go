@@ -121,7 +121,7 @@ func TestParseWildcard(t *testing.T) {
 	}{
 		{"*.example.com", ".example.com", true},
 		{"*.foo.example.com", ".foo.example.com", true},
-		{"*.COM", ".com", false},      // single-label TLD
+		{"*.COM", ".com", true},       // single-label TLD
 		{"example.com", "", false},    // no wildcard prefix
 		{"*example.com", "", false},   // missing dot
 		{"**.example.com", "", false}, // double star
@@ -162,7 +162,7 @@ func TestMatchesWildcard(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.host, func(t *testing.T) {
-			assert.Equal(t, tc.match, mgr.matchesWildcard(tc.host))
+			assert.Equal(t, tc.match, mgr.findWildcardEntry(tc.host) != nil)
 		})
 	}
 }

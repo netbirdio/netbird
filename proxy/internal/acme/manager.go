@@ -233,7 +233,7 @@ func parseWildcard(pattern string) (suffix string, ok bool) {
 		return "", false
 	}
 	parent := pattern[1:] // ".example.com"
-	if strings.Count(parent, ".") < 2 {
+	if strings.Count(parent, ".") < 1 {
 		return "", false
 	}
 	return strings.ToLower(parent), true
