@@ -60,6 +60,26 @@ type wildcardEntry struct {
 	watcher *certwatch.Watcher
 }
 
+// ManagerConfig holds the configuration values for the ACME certificate manager.
+type ManagerConfig struct {
+	// CertDir is the directory used for caching ACME certificates.
+	CertDir string
+	// ACMEURL is the ACME directory URL (e.g. Let's Encrypt).
+	ACMEURL string
+	// EABKID and EABHMACKey are optional External Account Binding credentials
+	// required by some CAs (e.g. ZeroSSL). EABHMACKey is the base64
+	// URL-encoded string provided by the CA.
+	EABKID     string
+	EABHMACKey string
+	// LockMethod controls the cross-replica coordination strategy.
+	LockMethod CertLockMethod
+	// WildcardDir is an optional path to a directory containing wildcard
+	// certificate pairs (<name>.crt / <name>.key). Wildcard patterns are
+	// extracted from the certificates' SAN lists. Domains matching a
+	// wildcard are served from disk; all others go through ACME.
+	WildcardDir string
+}
+
 // Manager wraps autocert.Manager with domain tracking and cross-replica
 // coordination via a pluggable locking strategy. The locker prevents
 // duplicate ACME requests when multiple replicas share a certificate cache.
@@ -79,58 +99,49 @@ type Manager struct {
 	metrics      metricsRecorder
 }
 
-// NewManager creates a new ACME certificate manager. The certDir is used
-// for caching certificates. The lockMethod controls cross-replica
-// coordination strategy (see CertLockMethod constants).
-// eabKID and eabHMACKey are optional External Account Binding credentials
-// required for some CAs like ZeroSSL. The eabHMACKey should be the base64
-// URL-encoded string provided by the CA.
-// wildcardDir is an optional path to a directory containing wildcard
-// certificate pairs (<name>.crt / <name>.key). The wildcard patterns are
-// extracted from the certificates' SAN lists automatically. Domains
-// matching a wildcard are served from disk; all others go through ACME.
-func NewManager(certDir, acmeURL, eabKID, eabHMACKey string, notifier certificateNotifier, logger *log.Logger, lockMethod CertLockMethod, metrics metricsRecorder, wildcardDir string) (*Manager, error) {
+// NewManager creates a new ACME certificate manager.
+func NewManager(cfg ManagerConfig, notifier certificateNotifier, logger *log.Logger, metrics metricsRecorder) (*Manager, error) {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
-		certDir:      certDir,
-		locker:       newCertLocker(lockMethod, certDir, logger),
+		certDir:      cfg.CertDir,
+		locker:       newCertLocker(cfg.LockMethod, cfg.CertDir, logger),
 		domains:      make(map[domain.Domain]*domainInfo),
 		certNotifier: notifier,
 		logger:       logger,
 		metrics:      metrics,
 	}
 
-	if wildcardDir != "" {
-		entries, err := loadWildcardDir(wildcardDir, logger)
+	if cfg.WildcardDir != "" {
+		entries, err := loadWildcardDir(cfg.WildcardDir, logger)
 		if err != nil {
-			return nil, fmt.Errorf("load wildcard certificates from %q: %w", wildcardDir, err)
+			return nil, fmt.Errorf("load wildcard certificates from %q: %w", cfg.WildcardDir, err)
 		}
 		mgr.wildcards = entries
 	}
 
 	var eab *acme.ExternalAccountBinding
-	if eabKID != "" && eabHMACKey != "" {
-		decodedKey, err := base64.RawURLEncoding.DecodeString(eabHMACKey)
+	if cfg.EABKID != "" && cfg.EABHMACKey != "" {
+		decodedKey, err := base64.RawURLEncoding.DecodeString(cfg.EABHMACKey)
 		if err != nil {
 			logger.Errorf("failed to decode EAB HMAC key: %v", err)
 		} else {
 			eab = &acme.ExternalAccountBinding{
-				KID: eabKID,
+				KID: cfg.EABKID,
 				Key: decodedKey,
 			}
-			logger.Infof("configured External Account Binding with KID: %s", eabKID)
+			logger.Infof("configured External Account Binding with KID: %s", cfg.EABKID)
 		}
 	}
 
 	mgr.Manager = &autocert.Manager{
 		Prompt:                 autocert.AcceptTOS,
 		HostPolicy:             mgr.hostPolicy,
-		Cache:                  autocert.DirCache(certDir),
+		Cache:                  autocert.DirCache(cfg.CertDir),
 		ExternalAccountBinding: eab,
 		Client: &acme.Client{
-			DirectoryURL: acmeURL,
+			DirectoryURL: cfg.ACMEURL,
 		},
 	}
 	return mgr, nil

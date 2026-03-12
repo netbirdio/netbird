@@ -20,7 +20,7 @@ import (
 )
 
 func TestHostPolicy(t *testing.T) {
-	mgr, err := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "", nil, "")
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
 	require.NoError(t, err)
 	mgr.AddDomain("example.com", "acc1", "rp1")
 
@@ -81,7 +81,7 @@ func TestHostPolicy(t *testing.T) {
 }
 
 func TestDomainStates(t *testing.T) {
-	mgr, err := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "", nil, "")
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, mgr.PendingCerts(), "initially zero")
@@ -144,7 +144,7 @@ func TestMatchesWildcard(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(acmeDir, "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -205,7 +205,7 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(acmeDir, "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Add a wildcard-matching domain — should be immediately ready.
@@ -231,7 +231,7 @@ func TestWildcardGetCertificate(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(acmeDir, "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.NoError(t, err)
 
 	mgr.AddDomain("foo.example.com", "acc1", "svc1")
@@ -249,7 +249,7 @@ func TestMultipleWildcards(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "other", "*.other.org")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(acmeDir, "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"*.example.com", "*.other.org"}, mgr.WildcardPatterns())
@@ -281,7 +281,7 @@ func TestMultipleWildcards(t *testing.T) {
 func TestWildcardDirEmpty(t *testing.T) {
 	wcDir := t.TempDir()
 	// Empty directory — no .crt files.
-	_, err := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	_, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no .crt files found")
 }
@@ -291,14 +291,14 @@ func TestWildcardDirNonWildcardCert(t *testing.T) {
 	// Certificate without a wildcard SAN.
 	generateSelfSignedCert(t, wcDir, "plain", "plain.example.com")
 
-	_, err := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "", nil, wcDir)
+	_, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no wildcard SANs")
 }
 
 func TestNoWildcardDir(t *testing.T) {
 	// Empty string means no wildcard dir — pure ACME mode.
-	mgr, err := NewManager(t.TempDir(), "https://acme.example.com/directory", "", "", nil, nil, "", nil, "")
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, mgr.WildcardPatterns())
 }

@@ -443,7 +443,14 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
 	var err error
-	s.acme, err = acme.NewManager(s.CertificateDirectory, s.ACMEDirectory, s.ACMEEABKID, s.ACMEEABHMACKey, s, s.Logger, s.CertLockMethod, s.meter, s.WildcardCertDir)
+	s.acme, err = acme.NewManager(acme.ManagerConfig{
+		CertDir:     s.CertificateDirectory,
+		ACMEURL:     s.ACMEDirectory,
+		EABKID:      s.ACMEEABKID,
+		EABHMACKey:  s.ACMEEABHMACKey,
+		LockMethod:  s.CertLockMethod,
+		WildcardDir: s.WildcardCertDir,
+	}, s, s.Logger, s.meter)
 	if err != nil {
 		return nil, fmt.Errorf("create ACME manager: %w", err)
 	}
