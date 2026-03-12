@@ -234,8 +234,8 @@ func parseWildcard(pattern string) (suffix string, ok bool) {
 	return strings.ToLower(parent), true
 }
 
-// findWildcard returns the watcher for the wildcard that covers host, or nil.
-func (mgr *Manager) findWildcard(host string) *certwatch.Watcher {
+// findWildcardEntry returns the wildcard entry that covers host, or nil.
+func (mgr *Manager) findWildcardEntry(host string) *wildcardEntry {
 	if len(mgr.wildcards) == 0 {
 		return nil
 	}
@@ -248,35 +248,10 @@ func (mgr *Manager) findWildcard(host string) *certwatch.Watcher {
 		// Single-level match: prefix before suffix must have no dots.
 		prefix := strings.TrimSuffix(host, e.suffix)
 		if len(prefix) > 0 && !strings.Contains(prefix, ".") {
-			return e.watcher
+			return e
 		}
 	}
 	return nil
-}
-
-// matchesWildcard reports whether host is covered by any configured wildcard.
-func (mgr *Manager) matchesWildcard(host string) bool {
-	return mgr.findWildcard(host) != nil
-}
-
-// findWildcardPattern returns the pattern string (e.g. "*.example.com") for
-// the wildcard that covers host, or empty string if none match.
-func (mgr *Manager) findWildcardPattern(host string) string {
-	if len(mgr.wildcards) == 0 {
-		return ""
-	}
-	host = strings.ToLower(host)
-	for i := range mgr.wildcards {
-		e := &mgr.wildcards[i]
-		if !strings.HasSuffix(host, e.suffix) {
-			continue
-		}
-		prefix := strings.TrimSuffix(host, e.suffix)
-		if len(prefix) > 0 && !strings.Contains(prefix, ".") {
-			return e.pattern
-		}
-	}
-	return ""
 }
 
 // WildcardPatterns returns the wildcard patterns that are currently loaded.
@@ -307,8 +282,8 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 // certificate is returned. Otherwise, the ACME autocert manager handles
 // the request.
 func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if w := mgr.findWildcard(hello.ServerName); w != nil {
-		return w.GetCertificate(hello)
+	if e := mgr.findWildcardEntry(hello.ServerName); e != nil {
+		return e.watcher.GetCertificate(hello)
 	}
 	return mgr.Manager.GetCertificate(hello)
 }
@@ -318,7 +293,7 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 // static wildcard certificate). All other domains go through ACME prefetch.
 func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 	name := d.PunycodeString()
-	if pattern := mgr.findWildcardPattern(name); pattern != "" {
+	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()
 		mgr.domains[d] = &domainInfo{
 			accountID: accountID,
@@ -326,7 +301,7 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) {
 			state:     domainReady,
 		}
 		mgr.mu.Unlock()
-		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, pattern)
+		mgr.logger.Debugf("domain %q matches wildcard %q, using static certificate", name, e.pattern)
 
 		if mgr.certNotifier != nil {
 			if err := mgr.certNotifier.NotifyCertificateIssued(context.Background(), accountID, serviceID, name); err != nil {
