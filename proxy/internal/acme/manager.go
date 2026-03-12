@@ -153,13 +153,18 @@ func (mgr *Manager) WatchWildcards(ctx context.Context) {
 	if len(mgr.wildcards) == 0 {
 		return
 	}
-	// Each watcher blocks, so run them all concurrently and wait for ctx.
+	seen := make(map[*certwatch.Watcher]struct{})
 	var wg sync.WaitGroup
 	for i := range mgr.wildcards {
+		w := mgr.wildcards[i].watcher
+		if _, ok := seen[w]; ok {
+			continue
+		}
+		seen[w] = struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			mgr.wildcards[i].watcher.Watch(ctx)
+			w.Watch(ctx)
 		}()
 	}
 	wg.Wait()
