@@ -27,8 +27,11 @@ import_key() {
     fpr=$(gpg --with-colons --show-keys "$tmp_file" 2>/dev/null | awk -F: '/^fpr:/ { print $10; exit }')
     echo "Key fingerprint: $fpr"
 
+    echo "--- remove passphrase from key $fpr ---"
+    printf '%s\n\n' "$passphrase" | gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-fd 0 --passwd "$fpr"
+
     echo "--- export key $fpr ---"
-    printf '%s' "$passphrase" | gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-fd 0 --export-secret-keys --armor "$fpr" > "$out_file"
+    gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase "" --export-secret-keys --armor "$fpr" > "$out_file"
     echo "Exported key size: $(wc -c < "$out_file") bytes"
 
     rm -f "$tmp_file"
