@@ -76,6 +76,10 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+    deb:
+      signature:
+        key_file: '{{ if index .Env "GPG_DEB_KEY_FILE" }}{{ .Env.GPG_DEB_KEY_FILE }}{{ end }}'
+        type: origin
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -95,6 +99,9 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 
 uploads:
   - name: debian

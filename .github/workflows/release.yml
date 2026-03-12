@@ -169,6 +169,20 @@ jobs:
       - name: Install OS build dependencies
         run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 
+      - name: Import GPG signing keys
+        env:
+          GPG_DEB_PRIVATE_KEY: ${{ secrets.GPG_DEB_PRIVATE_KEY }}
+          GPG_DEB_PASSPHRASE: ${{ secrets.GPG_DEB_PASSPHRASE }}
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+          GPG_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+        run: |
+          echo "$GPG_DEB_PRIVATE_KEY" | base64 -d | gpg --batch --yes --passphrase "$GPG_DEB_PASSPHRASE" --pinentry-mode loopback --import
+          gpg --batch --yes --passphrase "$GPG_DEB_PASSPHRASE" --pinentry-mode loopback --export-secret-keys --armor > /tmp/gpg-deb-signing-key.asc
+          echo "GPG_DEB_KEY_FILE=/tmp/gpg-deb-signing-key.asc" >> $GITHUB_ENV
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d | gpg --batch --yes --passphrase "$GPG_RPM_PASSPHRASE" --pinentry-mode loopback --import
+          gpg --batch --yes --passphrase "$GPG_RPM_PASSPHRASE" --pinentry-mode loopback --export-secret-keys --armor > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
       - name: Install goversioninfo
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@233067e
       - name: Generate windows syso amd64
@@ -186,6 +200,11 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_DEB_KEY_FILE: ${{ env.GPG_DEB_KEY_FILE }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+      - name: Clean up GPG keys
+        if: always()
+        run: rm -f /tmp/gpg-deb-signing-key.asc /tmp/gpg-rpm-signing-key.asc
       - name: Tag and push PR images (amd64 only)
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
@@ -265,6 +284,20 @@ jobs:
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libappindicator3-dev gir1.2-appindicator3-0.1 libxxf86vm-dev gcc-mingw-w64-x86-64
 
+      - name: Import GPG signing keys
+        env:
+          GPG_DEB_PRIVATE_KEY: ${{ secrets.GPG_DEB_PRIVATE_KEY }}
+          GPG_DEB_PASSPHRASE: ${{ secrets.GPG_DEB_PASSPHRASE }}
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+          GPG_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+        run: |
+          echo "$GPG_DEB_PRIVATE_KEY" | base64 -d | gpg --batch --yes --passphrase "$GPG_DEB_PASSPHRASE" --pinentry-mode loopback --import
+          gpg --batch --yes --passphrase "$GPG_DEB_PASSPHRASE" --pinentry-mode loopback --export-secret-keys --armor > /tmp/gpg-deb-signing-key.asc
+          echo "GPG_DEB_KEY_FILE=/tmp/gpg-deb-signing-key.asc" >> $GITHUB_ENV
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d | gpg --batch --yes --passphrase "$GPG_RPM_PASSPHRASE" --pinentry-mode loopback --import
+          gpg --batch --yes --passphrase "$GPG_RPM_PASSPHRASE" --pinentry-mode loopback --export-secret-keys --armor > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
       - name: Install LLVM-MinGW for ARM64 cross-compilation
         run: |
           cd /tmp
@@ -289,6 +322,11 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_DEB_KEY_FILE: ${{ env.GPG_DEB_KEY_FILE }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+      - name: Clean up GPG keys
+        if: always()
+        run: rm -f /tmp/gpg-deb-signing-key.asc /tmp/gpg-rpm-signing-key.asc
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v4
         with:

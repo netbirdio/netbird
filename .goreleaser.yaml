@@ -177,10 +177,13 @@ nfpms:
       - netbird
     formats:
       - deb
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
+    deb:
+      signature:
+        key_file: '{{ if index .Env "GPG_DEB_KEY_FILE" }}{{ .Env.GPG_DEB_KEY_FILE }}{{ end }}'
+        type: origin
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
@@ -191,10 +194,12 @@ nfpms:
       - netbird
     formats:
       - rpm
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers:
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-amd64
