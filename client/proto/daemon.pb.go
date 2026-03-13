@@ -95,6 +95,7 @@ const (
 	ExposeProtocol_EXPOSE_HTTPS ExposeProtocol = 1
 	ExposeProtocol_EXPOSE_TCP   ExposeProtocol = 2
 	ExposeProtocol_EXPOSE_UDP   ExposeProtocol = 3
+	ExposeProtocol_EXPOSE_TLS   ExposeProtocol = 4
 )
 
 // Enum value maps for ExposeProtocol.
@@ -104,12 +105,14 @@ var (
 		1: "EXPOSE_HTTPS",
 		2: "EXPOSE_TCP",
 		3: "EXPOSE_UDP",
+		4: "EXPOSE_TLS",
 	}
 	ExposeProtocol_value = map[string]int32{
 		"EXPOSE_HTTP":  0,
 		"EXPOSE_HTTPS": 1,
 		"EXPOSE_TCP":   2,
 		"EXPOSE_UDP":   3,
+		"EXPOSE_TLS":   4,
 	}
 )
 
@@ -5741,6 +5744,7 @@ type ExposeServiceRequest struct {
 	UserGroups    []string               `protobuf:"bytes,5,rep,name=user_groups,json=userGroups,proto3" json:"user_groups,omitempty"`
 	Domain        string                 `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
 	NamePrefix    string                 `protobuf:"bytes,7,opt,name=name_prefix,json=namePrefix,proto3" json:"name_prefix,omitempty"`
+	ListenPort    uint32                 `protobuf:"varint,8,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5824,6 +5828,13 @@ func (x *ExposeServiceRequest) GetNamePrefix() string {
 	return ""
 }
 
+func (x *ExposeServiceRequest) GetListenPort() uint32 {
+	if x != nil {
+		return x.ListenPort
+	}
+	return 0
+}
+
 type ExposeServiceEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Event:
@@ -5891,12 +5902,13 @@ type ExposeServiceEvent_Ready struct {
 func (*ExposeServiceEvent_Ready) isExposeServiceEvent_Event() {}
 
 type ExposeServiceReady struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	ServiceUrl    string                 `protobuf:"bytes,2,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
-	Domain        string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName      string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	ServiceUrl       string                 `protobuf:"bytes,2,opt,name=service_url,json=serviceUrl,proto3" json:"service_url,omitempty"`
+	Domain           string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
+	PortAutoAssigned bool                   `protobuf:"varint,4,opt,name=port_auto_assigned,json=portAutoAssigned,proto3" json:"port_auto_assigned,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ExposeServiceReady) Reset() {
@@ -5948,6 +5960,13 @@ func (x *ExposeServiceReady) GetDomain() string {
 		return x.Domain
 	}
 	return ""
+}
+
+func (x *ExposeServiceReady) GetPortAutoAssigned() bool {
+	if x != nil {
+		return x.PortAutoAssigned
+	}
+	return false
 }
 
 type PortInfo_Range struct {
@@ -6499,7 +6518,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16InstallerResultRequest\"O\n" +
 	"\x17InstallerResultResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1a\n" +
-	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\xe6\x01\n" +
+	"\berrorMsg\x18\x02 \x01(\tR\berrorMsg\"\x87\x02\n" +
 	"\x14ExposeServiceRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\rR\x04port\x122\n" +
 	"\bprotocol\x18\x02 \x01(\x0e2\x16.daemon.ExposeProtocolR\bprotocol\x12\x10\n" +
@@ -6509,15 +6528,18 @@ const file_daemon_proto_rawDesc = "" +
 	"userGroups\x12\x16\n" +
 	"\x06domain\x18\x06 \x01(\tR\x06domain\x12\x1f\n" +
 	"\vname_prefix\x18\a \x01(\tR\n" +
-	"namePrefix\"Q\n" +
+	"namePrefix\x12\x1f\n" +
+	"\vlisten_port\x18\b \x01(\rR\n" +
+	"listenPort\"Q\n" +
 	"\x12ExposeServiceEvent\x122\n" +
 	"\x05ready\x18\x01 \x01(\v2\x1a.daemon.ExposeServiceReadyH\x00R\x05readyB\a\n" +
-	"\x05event\"p\n" +
+	"\x05event\"\x9e\x01\n" +
 	"\x12ExposeServiceReady\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1f\n" +
 	"\vservice_url\x18\x02 \x01(\tR\n" +
 	"serviceUrl\x12\x16\n" +
-	"\x06domain\x18\x03 \x01(\tR\x06domain*b\n" +
+	"\x06domain\x18\x03 \x01(\tR\x06domain\x12,\n" +
+	"\x12port_auto_assigned\x18\x04 \x01(\bR\x10portAutoAssigned*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -6526,14 +6548,16 @@ const file_daemon_proto_rawDesc = "" +
 	"\x04WARN\x10\x04\x12\b\n" +
 	"\x04INFO\x10\x05\x12\t\n" +
 	"\x05DEBUG\x10\x06\x12\t\n" +
-	"\x05TRACE\x10\a*S\n" +
+	"\x05TRACE\x10\a*c\n" +
 	"\x0eExposeProtocol\x12\x0f\n" +
 	"\vEXPOSE_HTTP\x10\x00\x12\x10\n" +
 	"\fEXPOSE_HTTPS\x10\x01\x12\x0e\n" +
 	"\n" +
 	"EXPOSE_TCP\x10\x02\x12\x0e\n" +
 	"\n" +
-	"EXPOSE_UDP\x10\x032\xfc\x15\n" +
+	"EXPOSE_UDP\x10\x03\x12\x0e\n" +
+	"\n" +
+	"EXPOSE_TLS\x10\x042\xfc\x15\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +

@@ -15,6 +15,7 @@ func NewRequest(req *daemonProto.ExposeServiceRequest) *Request {
 		UserGroups: req.UserGroups,
 		Domain:     req.Domain,
 		NamePrefix: req.NamePrefix,
+		ListenPort: uint16(req.ListenPort),
 	}
 }
 
@@ -27,13 +28,15 @@ func toClientExposeRequest(req Request) mgm.ExposeRequest {
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
+		ListenPort: req.ListenPort,
 	}
 }
 
 func fromClientExposeResponse(response *mgm.ExposeResponse) *Response {
 	return &Response{
-		ServiceName: response.ServiceName,
-		Domain:      response.Domain,
-		ServiceURL:  response.ServiceURL,
+		ServiceName:      response.ServiceName,
+		Domain:           response.Domain,
+		ServiceURL:       response.ServiceURL,
+		PortAutoAssigned: response.PortAutoAssigned,
 	}
 }

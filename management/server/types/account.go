@@ -907,8 +907,8 @@ func (a *Account) Copy() *Account {
 	}
 
 	services := []*service.Service{}
-	for _, service := range a.Services {
-		services = append(services, service.Copy())
+	for _, svc := range a.Services {
+		services = append(services, svc.Copy())
 	}
 
 	return &Account{
@@ -1605,12 +1605,12 @@ func (a *Account) GetPoliciesForNetworkResource(resourceId string) []*Policy {
 	networkResourceGroups := a.getNetworkResourceGroups(resourceId)
 
 	for _, policy := range a.Policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
@@ -1812,15 +1812,18 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		}
 		a.injectServiceProxyPolicies(ctx, service, proxyPeersByCluster)
 	}
+
 }
 
 func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *service.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
+	proxyPeers := proxyPeersByCluster[service.ProxyCluster]
 	for _, target := range service.Targets {
 		if !target.Enabled {
 			continue
 		}
-		a.injectTargetProxyPolicies(ctx, service, target, proxyPeersByCluster[service.ProxyCluster])
+		a.injectTargetProxyPolicies(ctx, service, target, proxyPeers)
 	}
+
 }
 
 func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *service.Service, target *service.Target, proxyPeers []*nbpeer.Peer) {
@@ -1840,13 +1843,13 @@ func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *servic
 	}
 }
 
-func (a *Account) resolveTargetPort(ctx context.Context, target *service.Target) (int, bool) {
+func (a *Account) resolveTargetPort(ctx context.Context, target *service.Target) (uint16, bool) {
 	if target.Port != 0 {
 		return target.Port, true
 	}
 
 	switch target.Protocol {
-	case "https":
+	case "https", "tls":
 		return 443, true
 	case "http":
 		return 80, true
@@ -1856,17 +1859,23 @@ func (a *Account) resolveTargetPort(ctx context.Context, target *service.Target)
 	}
 }
 
-func (a *Account) createProxyPolicy(service *service.Service, target *service.Target, proxyPeer *nbpeer.Peer, port int, path string) *Policy {
-	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
+func (a *Account) createProxyPolicy(svc *service.Service, target *service.Target, proxyPeer *nbpeer.Peer, port uint16, path string) *Policy {
+	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", svc.ID, proxyPeer.ID, path)
+
+	protocol := PolicyRuleProtocolTCP
+	if svc.Mode == service.ModeUDP {
+		protocol = PolicyRuleProtocolUDP
+	}
+
 	return &Policy{
 		ID:      policyID,
-		Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
+		Name:    fmt.Sprintf("Proxy Access to %s", svc.Name),
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
 				ID:       policyID,
 				PolicyID: policyID,
-				Name:     fmt.Sprintf("Allow access to %s", service.Name),
+				Name:     fmt.Sprintf("Allow access to %s", svc.Name),
 				Enabled:  true,
 				SourceResource: Resource{
 					ID:   proxyPeer.ID,
@@ -1877,12 +1886,12 @@ func (a *Account) createProxyPolicy(service *service.Service, target *service.Ta
 					Type: ResourceType(target.TargetType),
 				},
 				Bidirectional: false,
-				Protocol:      PolicyRuleProtocolTCP,
+				Protocol:      protocol,
 				Action:        PolicyTrafficActionAccept,
 				PortRanges: []RulePortRange{
 					{
-						Start: uint16(port),
-						End:   uint16(port),
+						Start: port,
+						End:   port,
 					},
 				},
 			},

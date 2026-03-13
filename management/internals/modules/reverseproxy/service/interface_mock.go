@@ -211,17 +211,17 @@ func (mr *MockManagerMockRecorder) ReloadService(ctx, accountID, serviceID inter
 }
 
 // RenewServiceFromPeer mocks base method.
-func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RenewServiceFromPeer indicates an expected call of RenewServiceFromPeer.
-func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // SetCertificateIssuedAt mocks base method.
@@ -265,17 +265,17 @@ func (mr *MockManagerMockRecorder) StartExposeReaper(ctx interface{}) *gomock.Ca
 }
 
 // StopServiceFromPeer mocks base method.
-func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StopServiceFromPeer indicates an expected call of StopServiceFromPeer.
-func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // UpdateService mocks base method.

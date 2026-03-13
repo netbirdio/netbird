@@ -25,7 +25,7 @@ func (nopTransport) RoundTrip(*http.Request) (*http.Response, error) {
 func BenchmarkServeHTTP(b *testing.B) {
 	rp := proxy.NewReverseProxy(nopTransport{}, "http", nil, nil)
 	rp.AddMapping(proxy.Mapping{
-		ID:        rand.Text(),
+		ID:        types.ServiceID(rand.Text()),
 		AccountID: types.AccountID(rand.Text()),
 		Host:      "app.example.com",
 		Paths: map[string]*proxy.PathTarget{
@@ -66,7 +66,7 @@ func BenchmarkServeHTTPHostCount(b *testing.B) {
 					target = id
 				}
 				rp.AddMapping(proxy.Mapping{
-					ID:        id,
+					ID:        types.ServiceID(id),
 					AccountID: types.AccountID(rand.Text()),
 					Host:      host,
 					Paths: map[string]*proxy.PathTarget{
@@ -118,7 +118,7 @@ func BenchmarkServeHTTPPathCount(b *testing.B) {
 				}
 			}
 			rp.AddMapping(proxy.Mapping{
-				ID:        rand.Text(),
+				ID:        types.ServiceID(rand.Text()),
 				AccountID: types.AccountID(rand.Text()),
 				Host:      "app.example.com",
 				Paths:     paths,

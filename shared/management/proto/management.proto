@@ -652,6 +652,7 @@ enum ExposeProtocol {
   EXPOSE_HTTPS = 1;
   EXPOSE_TCP = 2;
   EXPOSE_UDP = 3;
+  EXPOSE_TLS = 4;
 }
 
 message ExposeServiceRequest {
@@ -662,12 +663,14 @@ message ExposeServiceRequest {
   repeated string user_groups = 5;
   string domain = 6;
   string name_prefix = 7;
+  uint32 listen_port = 8;
 }
 
 message ExposeServiceResponse {
   string service_name = 1;
   string service_url = 2;
   string domain = 3;
+  bool port_auto_assigned = 4;
 }
 
 message RenewExposeRequest {

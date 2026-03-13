@@ -56,12 +56,14 @@ type ExposeRequest struct {
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 type ExposeResponse struct {
-	ServiceName string
-	Domain      string
-	ServiceURL  string
+	ServiceName      string
+	Domain           string
+	ServiceURL       string
+	PortAutoAssigned bool
 }
 
 // NewClient creates a new client to Management service
@@ -790,9 +792,10 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
-		ServiceName: resp.ServiceName,
-		Domain:      resp.Domain,
-		ServiceURL:  resp.ServiceUrl,
+		ServiceName:      resp.ServiceName,
+		Domain:           resp.Domain,
+		ServiceURL:       resp.ServiceUrl,
+		PortAutoAssigned: resp.PortAutoAssigned,
 	}
 }
 
@@ -808,6 +811,8 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		protocol = proto.ExposeProtocol_EXPOSE_TCP
 	case int(proto.ExposeProtocol_EXPOSE_UDP):
 		protocol = proto.ExposeProtocol_EXPOSE_UDP
+	case int(proto.ExposeProtocol_EXPOSE_TLS):
+		protocol = proto.ExposeProtocol_EXPOSE_TLS
 	default:
 		return nil, fmt.Errorf("invalid expose protocol: %d", req.Protocol)
 	}
@@ -820,6 +825,7 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
+		ListenPort: uint32(req.ListenPort),
 	}, nil
 }
 

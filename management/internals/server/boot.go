@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"

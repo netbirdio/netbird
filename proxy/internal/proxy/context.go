@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/netip"
 	"sync"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -47,10 +48,10 @@ func (o ResponseOrigin) String() string {
 type CapturedData struct {
 	mu         sync.RWMutex
 	RequestID  string
-	ServiceId  string
+	ServiceId  types.ServiceID
 	AccountId  types.AccountID
 	Origin     ResponseOrigin
-	ClientIP   string
+	ClientIP   netip.Addr
 	UserID     string
 	AuthMethod string
 }
@@ -63,14 +64,14 @@ func (c *CapturedData) GetRequestID() string {
 }
 
 // SetServiceId safely sets the service ID
-func (c *CapturedData) SetServiceId(serviceId string) {
+func (c *CapturedData) SetServiceId(serviceId types.ServiceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ServiceId = serviceId
 }
 
 // GetServiceId safely gets the service ID
-func (c *CapturedData) GetServiceId() string {
+func (c *CapturedData) GetServiceId() types.ServiceID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ServiceId
@@ -105,14 +106,14 @@ func (c *CapturedData) GetOrigin() ResponseOrigin {
 }
 
 // SetClientIP safely sets the resolved client IP.
-func (c *CapturedData) SetClientIP(ip string) {
+func (c *CapturedData) SetClientIP(ip netip.Addr) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ClientIP = ip
 }
 
 // GetClientIP safely gets the resolved client IP.
-func (c *CapturedData) GetClientIP() string {
+func (c *CapturedData) GetClientIP() netip.Addr {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ClientIP
@@ -161,13 +162,13 @@ func CapturedDataFromContext(ctx context.Context) *CapturedData {
 	return data
 }
 
-func withServiceId(ctx context.Context, serviceId string) context.Context {
+func withServiceId(ctx context.Context, serviceId types.ServiceID) context.Context {
 	return context.WithValue(ctx, serviceIdKey, serviceId)
 }
 
-func ServiceIdFromContext(ctx context.Context) string {
+func ServiceIdFromContext(ctx context.Context) types.ServiceID {
 	v := ctx.Value(serviceIdKey)
-	serviceId, ok := v.(string)
+	serviceId, ok := v.(types.ServiceID)
 	if !ok {
 		return ""
 	}

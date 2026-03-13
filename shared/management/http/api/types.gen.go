@@ -880,6 +880,30 @@ func (e SentinelOneMatchAttributesNetworkStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceMode.
+const (
+	ServiceModeHttp ServiceMode = "http"
+	ServiceModeTcp  ServiceMode = "tcp"
+	ServiceModeTls  ServiceMode = "tls"
+	ServiceModeUdp  ServiceMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceMode enum.
+func (e ServiceMode) Valid() bool {
+	switch e {
+	case ServiceModeHttp:
+		return true
+	case ServiceModeTcp:
+		return true
+	case ServiceModeTls:
+		return true
+	case ServiceModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceMetaStatus.
 const (
 	ServiceMetaStatusActive             ServiceMetaStatus = "active"
@@ -910,10 +934,36 @@ func (e ServiceMetaStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceRequestMode.
+const (
+	ServiceRequestModeHttp ServiceRequestMode = "http"
+	ServiceRequestModeTcp  ServiceRequestMode = "tcp"
+	ServiceRequestModeTls  ServiceRequestMode = "tls"
+	ServiceRequestModeUdp  ServiceRequestMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestMode enum.
+func (e ServiceRequestMode) Valid() bool {
+	switch e {
+	case ServiceRequestModeHttp:
+		return true
+	case ServiceRequestModeTcp:
+		return true
+	case ServiceRequestModeTls:
+		return true
+	case ServiceRequestModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceTargetProtocol.
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
 	ServiceTargetProtocolHttps ServiceTargetProtocol = "https"
+	ServiceTargetProtocolTcp   ServiceTargetProtocol = "tcp"
+	ServiceTargetProtocolUdp   ServiceTargetProtocol = "udp"
 )
 
 // Valid indicates whether the value is a known member of the ServiceTargetProtocol enum.
@@ -923,6 +973,10 @@ func (e ServiceTargetProtocol) Valid() bool {
 		return true
 	case ServiceTargetProtocolHttps:
 		return true
+	case ServiceTargetProtocolTcp:
+		return true
+	case ServiceTargetProtocolUdp:
+		return true
 	default:
 		return false
 	}
@@ -930,16 +984,22 @@ func (e ServiceTargetProtocol) Valid() bool {
 
 // Defines values for ServiceTargetTargetType.
 const (
-	ServiceTargetTargetTypePeer     ServiceTargetTargetType = "peer"
-	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
+	ServiceTargetTargetTypeDomain ServiceTargetTargetType = "domain"
+	ServiceTargetTargetTypeHost   ServiceTargetTargetType = "host"
+	ServiceTargetTargetTypePeer   ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeSubnet ServiceTargetTargetType = "subnet"
 )
 
 // Valid indicates whether the value is a known member of the ServiceTargetTargetType enum.
 func (e ServiceTargetTargetType) Valid() bool {
 	switch e {
+	case ServiceTargetTargetTypeDomain:
+		return true
+	case ServiceTargetTargetTypeHost:
+		return true
 	case ServiceTargetTargetTypePeer:
 		return true
-	case ServiceTargetTargetTypeResource:
+	case ServiceTargetTargetTypeSubnet:
 		return true
 	default:
 		return false
@@ -3249,6 +3309,9 @@ type ProxyAccessLog struct {
 	// Path Path of the request
 	Path string `json:"path"`
 
+	// Protocol Protocol type: http, tcp, or udp
+	Protocol *string `json:"protocol,omitempty"`
+
 	// Reason Reason for the request result (e.g., authentication failure)
 	Reason *string `json:"reason,omitempty"`
 
@@ -3312,6 +3375,9 @@ type ReverseProxyDomain struct {
 
 	// Id Domain ID
 	Id string `json:"id"`
+
+	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
+	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
 
 	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
 	TargetCluster *string `json:"target_cluster,omitempty"`
@@ -3505,14 +3571,23 @@ type Service struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Service ID
-	Id   string      `json:"id"`
-	Meta ServiceMeta `json:"meta"`
+	Id string `json:"id"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only)
+	ListenPort *int        `json:"listen_port,omitempty"`
+	Meta       ServiceMeta `json:"meta"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceMode `json:"mode,omitempty"`
 
 	// Name Service name
 	Name string `json:"name"`
 
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// PortAutoAssigned Whether the listen port was auto-assigned
+	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
 
 	// ProxyCluster The proxy cluster handling this service (derived from domain)
 	ProxyCluster *string `json:"proxy_cluster,omitempty"`
@@ -3523,6 +3598,9 @@ type Service struct {
 	// Targets List of target backends for this service
 	Targets []ServiceTarget `json:"targets"`
 }
+
+// ServiceMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceMode string
 
 // ServiceAuthConfig defines model for ServiceAuthConfig.
 type ServiceAuthConfig struct {
@@ -3549,13 +3627,19 @@ type ServiceMetaStatus string
 
 // ServiceRequest defines model for ServiceRequest.
 type ServiceRequest struct {
-	Auth ServiceAuthConfig `json:"auth"`
+	Auth *ServiceAuthConfig `json:"auth,omitempty"`
 
 	// Domain Domain for the service
 	Domain string `json:"domain"`
 
 	// Enabled Whether the service is enabled
 	Enabled bool `json:"enabled"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+	ListenPort *int `json:"listen_port,omitempty"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceRequestMode `json:"mode,omitempty"`
 
 	// Name Service name
 	Name string `json:"name"`
@@ -3567,8 +3651,11 @@ type ServiceRequest struct {
 	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
 
 	// Targets List of target backends for this service
-	Targets []ServiceTarget `json:"targets"`
+	Targets *[]ServiceTarget `json:"targets,omitempty"`
 }
+
+// ServiceRequestMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
@@ -3579,10 +3666,10 @@ type ServiceTarget struct {
 	Host    *string               `json:"host,omitempty"`
 	Options *ServiceTargetOptions `json:"options,omitempty"`
 
-	// Path URL path prefix for this target
+	// Path URL path prefix for this target (HTTP only)
 	Path *string `json:"path,omitempty"`
 
-	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+	// Port Backend port for this target
 	Port int `json:"port"`
 
 	// Protocol Protocol to use when connecting to the backend
@@ -3591,14 +3678,14 @@ type ServiceTarget struct {
 	// TargetId Target ID
 	TargetId string `json:"target_id"`
 
-	// TargetType Target type (e.g., "peer", "resource")
+	// TargetType Target type
 	TargetType ServiceTargetTargetType `json:"target_type"`
 }
 
 // ServiceTargetProtocol Protocol to use when connecting to the backend
 type ServiceTargetProtocol string
 
-// ServiceTargetTargetType Target type (e.g., "peer", "resource")
+// ServiceTargetTargetType Target type
 type ServiceTargetTargetType string
 
 // ServiceTargetOptions defines model for ServiceTargetOptions.
@@ -3609,8 +3696,14 @@ type ServiceTargetOptions struct {
 	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
 	PathRewrite *ServiceTargetOptionsPathRewrite `json:"path_rewrite,omitempty"`
 
+	// ProxyProtocol Send PROXY Protocol v2 header to this backend (TCP/TLS only)
+	ProxyProtocol *bool `json:"proxy_protocol,omitempty"`
+
 	// RequestTimeout Per-target response timeout as a Go duration string (e.g. "30s", "2m")
 	RequestTimeout *string `json:"request_timeout,omitempty"`
+
+	// SessionIdleTimeout Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m"). Maximum 10m.
+	SessionIdleTimeout *string `json:"session_idle_timeout,omitempty"`
 
 	// SkipTlsVerify Skip TLS certificate verification for this backend
 	SkipTlsVerify *bool `json:"skip_tls_verify,omitempty"`
@@ -4135,6 +4228,9 @@ type ZoneRequest struct {
 	// Name Zone name identifier
 	Name string `json:"name"`
 }
+
+// Conflict Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
+type Conflict = ErrorResponse
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {

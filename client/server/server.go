@@ -1378,9 +1378,10 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	if err := srv.Send(&proto.ExposeServiceEvent{
 		Event: &proto.ExposeServiceEvent_Ready{
 			Ready: &proto.ExposeServiceReady{
-				ServiceName: result.ServiceName,
-				ServiceUrl:  result.ServiceURL,
-				Domain:      result.Domain,
+				ServiceName:      result.ServiceName,
+				ServiceUrl:       result.ServiceURL,
+				Domain:           result.Domain,
+				PortAutoAssigned: result.PortAutoAssigned,
 			},
 		},
 	}); err != nil {

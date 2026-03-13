@@ -2836,6 +2836,10 @@ components:
           format: int64
           description: "Bytes downloaded (response body size)"
           example: 8192
+        protocol:
+          type: string
+          description: "Protocol type: http, tcp, or udp"
+          example: "http"
       required:
         - id
         - service_id
@@ -2954,6 +2958,20 @@ components:
         domain:
           type: string
           description: Domain for the service
+        mode:
+          type: string
+          description: Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+          enum: [http, tcp, udp, tls]
+          default: http
+        listen_port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Port the proxy listens on (L4/TLS only)
+        port_auto_assigned:
+          type: boolean
+          description: Whether the listen port was auto-assigned
+          readOnly: true
         proxy_cluster:
           type: string
           description: The proxy cluster handling this service (derived from domain)
@@ -3020,6 +3038,16 @@ components:
         domain:
           type: string
           description: Domain for the service
+        mode:
+          type: string
+          description: Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+          enum: [http, tcp, udp, tls]
+          default: http
+        listen_port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
         targets:
           type: array
           items:
@@ -3040,8 +3068,6 @@ components:
       required:
         - name
         - domain
-        - targets
-        - auth
         - enabled
     ServiceTargetOptions:
       type: object
@@ -3065,6 +3091,12 @@ components:
           additionalProperties:
             type: string
             pattern: '^[^\r\n]*$'
+        proxy_protocol:
+          type: boolean
+          description: Send PROXY Protocol v2 header to this backend (TCP/TLS only)
+        session_idle_timeout:
+          type: string
+          description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m"). Maximum 10m.
     ServiceTarget:
       type: object
       properties:
@@ -3073,21 +3105,23 @@ components:
           description: Target ID
         target_type:
           type: string
-          description: Target type (e.g., "peer", "resource")
-          enum: [peer, resource]
+          description: Target type
+          enum: [peer, host, domain, subnet]
         path:
           type: string
-          description: URL path prefix for this target
+          description: URL path prefix for this target (HTTP only)
         protocol:
           type: string
           description: Protocol to use when connecting to the backend
-          enum: [http, https]
+          enum: [http, https, tcp, udp]
         host:
           type: string
           description: Backend ip or domain for this target
         port:
           type: integer
-          description: Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+          minimum: 1
+          maximum: 65535
+          description: Backend port for this target
         enabled:
           type: boolean
           description: Whether this target is enabled
@@ -3194,6 +3228,9 @@ components:
         target_cluster:
           type: string
           description: The proxy cluster this domain is validated against (only for custom domains)
+        supports_custom_ports:
+          type: boolean
+          description: Whether the cluster supports binding arbitrary TCP/UDP ports
       required:
         - id
         - domain
@@ -4277,6 +4314,12 @@ components:
     requires_authentication:
       description: Requires authentication
       content: { }
+    conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   securitySchemes:
     BearerAuth:
       type: http
@@ -9621,6 +9664,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/reverse-proxies/clusters:
+    get:
+      summary: List available proxy clusters
+      description: Returns a list of available proxy clusters with their connection status
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of proxy clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProxyCluster'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/services:
     get:
       summary: List all Services
@@ -9670,29 +9736,8 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies/clusters:
-    get:
-      summary: List available proxy clusters
-      description: Returns a list of available proxy clusters with their connection status
-      tags: [ Services ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      responses:
-        '200':
-          description: A JSON Array of proxy clusters
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProxyCluster'
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/services/{serviceId}:
@@ -9762,6 +9807,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '409':
+          "$ref": "#/components/responses/conflict"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
