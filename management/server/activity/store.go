@@ -55,4 +55,3 @@ func (store *InMemoryEventStore) Close(_ context.Context) error {
 	store.events = make([]*Event, 0)
 	return nil
 }
-

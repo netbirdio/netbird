@@ -11,14 +11,22 @@ This tool migrates NetBird deployments from an external IdP (Auth0, Zitadel, Okt
 
 ```
 tools/idp-migrate/
-├── main.go          # CLI entry point, connector resolution, config generation
-├── main_test.go     # 27 tests covering all exported/internal functions
-└── DEVELOPMENT.md   # this file
+├── main.go              # CLI entry point, connector resolution, config generation
+├── main_test.go         # 21 tests covering all exported/internal functions
+├── DEVELOPMENT.md       # this file
+└── MIGRATION_GUIDE.md   # operator-facing step-by-step guide
 
 management/server/idp/migration/
-├── migration.go     # MigrateUsersToStaticConnectors(), migrateUser(), reconcileActivityStore()
-├── migration_test.go # 14 tests with hand-written mocks
-└── store.go         # MigrationStore, MigrationEventStore interfaces
+├── migration.go         # MigrateUsersToStaticConnectors(), migrateUser(), reconcileActivityStore()
+├── migration_test.go    # 3 top-level tests (with subtests) using hand-written mocks
+└── store.go             # MigrationStore, MigrationEventStore interfaces
+
+management/server/store/
+└── sql_store_idp_migration.go   # ListUsers(), UpdateUserID(), txDeferFKConstraints() on SqlStore
+
+management/server/activity/store/
+├── sql_store_idp_migration.go      # UpdateUserID() on activity Store
+└── sql_store_idp_migration_test.go # 5 subtests for activity UpdateUserID
 
 management/internals/server/modules.go
   └── seedIDPConnectors()   # combined server path (uses same migration code)
@@ -62,10 +70,13 @@ management/internals/server/modules.go
 
 ### Phase 2: DB Migration
 
-1. Opens the main store (`SqlStore`) and activity store (non-fatal if missing).
+`migrateDB()` orchestrates the database migration:
+
+1. `openStores()` opens the main store (`SqlStore`) and activity store (non-fatal if missing).
 2. Type-asserts both to `migration.MigrationStore` / `migration.MigrationEventStore`.
-3. Scans all users — counts pending vs already-migrated (using `DecodeDexUserID`).
-4. Calls `migration.MigrateUsersToStaticConnectors(srv, conn)`:
+3. `previewUsers()` scans all users — counts pending vs already-migrated (using `DecodeDexUserID`).
+4. `confirmPrompt()` asks for interactive confirmation (unless `--force` or `--dry-run`).
+5. Calls `migration.MigrateUsersToStaticConnectors(srv, conn)`:
    - **Reconciliation pass**: fixes activity store references for users already migrated in the main DB but whose events still reference old IDs (from a previous partial failure).
    - **Main loop**: for each non-migrated user, calls `migrateUser()` which atomically updates the user ID in both the main store and activity store.
    - **Dry-run**: logs what would happen, skips all writes.
@@ -74,7 +85,7 @@ management/internals/server/modules.go
 
 ### Phase 3: Config Generation
 
-Unless `--skip-config` is set:
+Unless `--skip-config` is set, `generateConfig()` runs:
 
 1. **Derive domain** — `deriveDomain()` priority:
    1. `HttpConfig.LetsEncryptDomain` (most explicit)
@@ -105,7 +116,7 @@ type MigrationEventStore interface {
 }
 ```
 
-The concrete `SqlStore` types already have these methods, so they satisfy the interfaces via Go's structural typing — zero changes needed on the store implementations. At runtime, both the standalone tool and the combined server type-assert:
+The concrete `SqlStore` types already have these methods (in their respective `sql_store_idp_migration.go` files), so they satisfy the interfaces via Go's structural typing — zero changes needed on the core store interfaces. At runtime, both the standalone tool and the combined server type-assert:
 
 ```go
 migStore, ok := mainStore.(migration.MigrationStore)
@@ -141,6 +152,9 @@ go test -v ./management/server/idp/migration/...
 # Standalone tool
 go test -v ./tools/idp-migrate/...
 
+# Activity store migration tests
+go test -v -run TestUpdateUserID ./management/server/activity/store/...
+
 # Build
 go build ./tools/idp-migrate/
 ```
@@ -151,14 +165,14 @@ When migration tooling is no longer needed, delete:
 
 1. `tools/idp-migrate/` — entire directory
 2. `management/server/idp/migration/` — entire directory
-3. In `management/internals/server/modules.go`:
+3. `management/server/store/sql_store_idp_migration.go` — migration methods on main SqlStore
+4. `management/server/activity/store/sql_store_idp_migration.go` — migration method on activity Store
+5. `management/server/activity/store/sql_store_idp_migration_test.go` — tests for the above
+6. In `management/internals/server/modules.go`:
    - Remove the `migration` import
    - Remove `migrationServer` struct and methods
    - Remove `seedIDPConnectors()` method
    - Remove the `s.seedIDPConnectors()` call in `IdpManager()`
-4. Optionally remove the now-dead methods from concrete store types:
-   - `SqlStore.ListUsers()` and `SqlStore.UpdateUserID()` in `management/server/store/sql_store.go`
-   - `Store.UpdateUserID()` in `management/server/activity/store/sql_store.go`
-5. Run `go mod tidy`
+7. Run `go mod tidy`
 
 No core interfaces or mocks need editing — that's the point of the decoupling.
