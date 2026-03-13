@@ -46,7 +46,7 @@ func NewAuth(ctx context.Context, privateKey string, mgmURL *url.URL, config *pr
 	mgmTLSEnabled := mgmURL.Scheme == "https"
 
 	log.Debugf("connecting to Management Service %s", mgmURL.String())
-	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTLSEnabled)
+	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTLSEnabled, config.MgmtClientCertKeyPair)
 	if err != nil {
 		log.Errorf("failed connecting to Management Service %s: %v", mgmURL.String(), err)
 		return nil, err
@@ -370,7 +370,7 @@ func (a *Auth) reconnect(ctx context.Context, brokenClient *mgm.GrpcClient) erro
 	// Create new connection FIRST, before closing the old one
 	// This ensures a.client is never nil, preventing panics in other threads
 	log.Debugf("reconnecting to Management Service %s", a.mgmURL.String())
-	mgmClient, err := mgm.NewClient(ctx, a.mgmURL.Host, a.privateKey, a.mgmTLSEnabled)
+	mgmClient, err := mgm.NewClient(ctx, a.mgmURL.Host, a.privateKey, a.mgmTLSEnabled, a.config.MgmtClientCertKeyPair)
 	if err != nil {
 		log.Errorf("failed reconnecting to Management Service %s: %v", a.mgmURL.String(), err)
 		// Keep the old client if reconnection fails

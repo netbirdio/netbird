@@ -13,7 +13,11 @@ import (
 func (c *Client) getDialers() []dialer.DialeFn {
 	if c.mtu > 0 && c.mtu > iface.DefaultMTU {
 		c.log.Infof("MTU %d exceeds default (%d), forcing WebSocket transport to avoid DATAGRAM frame size issues", c.mtu, iface.DefaultMTU)
-		return []dialer.DialeFn{ws.Dialer{}}
+		return []dialer.DialeFn{ws.Dialer{ClientCert: c.clientCert}}
 	}
-	return []dialer.DialeFn{quic.Dialer{}, ws.Dialer{}}
+	if c.clientCert != nil {
+		c.log.Infof("Using client certificate requires websocket dialer.")
+		return []dialer.DialeFn{ws.Dialer{ClientCert: c.clientCert}}
+	}
+	return []dialer.DialeFn{quic.Dialer{}, ws.Dialer{ClientCert: c.clientCert}}
 }
