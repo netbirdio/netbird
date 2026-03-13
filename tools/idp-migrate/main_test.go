@@ -74,12 +74,22 @@ func TestResolveConnector_FlagOverridesEnv(t *testing.T) {
 	assert.Equal(t, "env-id", conn.ID)
 	assert.Equal(t, "from-env", conn.Name)
 
-	// Empty flag + no env → config auto-detect
+	// Empty flag + no env → config auto-detect (uses keycloak which works with auto-detect)
 	t.Setenv("IDP_SEED_INFO", "")
-	conn, err = resolveConnector("", cfg)
+	cfgKeycloak := &nbconfig.Config{
+		IdpManagerConfig: &idp.Config{
+			ManagerType: "keycloak",
+			ClientConfig: &idp.ClientConfig{
+				Issuer:       "https://kc.example.com/realms/test",
+				ClientID:     "config-client",
+				ClientSecret: "config-secret",
+			},
+		},
+	}
+	conn, err = resolveConnector("", cfgKeycloak)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	assert.Equal(t, "zitadel", conn.ID)
+	assert.Equal(t, "keycloak", conn.ID)
 }
 
 func TestResolveConnector_InvalidBase64(t *testing.T) {
@@ -123,27 +133,41 @@ func TestResolveConnector_NoConfigFallback(t *testing.T) {
 }
 
 func TestBuildConnectorFromConfig_Zitadel(t *testing.T) {
+	// Zitadel uses service account credentials in IdpManagerConfig, which are
+	// not valid OAuth client credentials. Auto-detection should return an error
+	// instructing the user to use --idp-seed-info.
 	cfg := &nbconfig.Config{
 		IdpManagerConfig: &idp.Config{
 			ManagerType: "zitadel",
 			ClientConfig: &idp.ClientConfig{
 				Issuer:       "https://zitadel.example.com",
-				ClientID:     "zitadel-client-id",
-				ClientSecret: "zitadel-secret",
+				ClientID:     "netbird-service-account",
+				ClientSecret: "",
 			},
 		},
 	}
 
-	conn, err := buildConnectorFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "zitadel", conn.Type)
-	assert.Equal(t, "zitadel", conn.ID)
-	assert.Equal(t, "zitadel", conn.Name)
-	assert.Equal(t, "https://zitadel.example.com", conn.Config["issuer"])
-	assert.Equal(t, "zitadel-client-id", conn.Config["clientID"])
-	assert.Equal(t, "zitadel-secret", conn.Config["clientSecret"])
-	assert.Equal(t, "https://zitadel.example.com/oauth2/callback", conn.Config["redirectURI"])
+	_, err := buildConnectorFromConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "zitadel auto-detection is not supported")
+	assert.Contains(t, err.Error(), "--idp-seed-info")
+}
+
+func TestBuildConnectorFromConfig_EmptyClientSecret(t *testing.T) {
+	cfg := &nbconfig.Config{
+		IdpManagerConfig: &idp.Config{
+			ManagerType: "okta",
+			ClientConfig: &idp.ClientConfig{
+				Issuer:       "https://dev-12345.okta.com",
+				ClientID:     "okta-id",
+				ClientSecret: "", // empty secret
+			},
+		},
+	}
+
+	_, err := buildConnectorFromConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no client secret")
 }
 
 func TestBuildConnectorFromConfig_Auth0(t *testing.T) {
@@ -224,7 +248,7 @@ func TestBuildConnectorFromConfig_JumpCloud(t *testing.T) {
 func TestBuildConnectorFromConfig_MissingClientConfig(t *testing.T) {
 	cfg := &nbconfig.Config{
 		IdpManagerConfig: &idp.Config{
-			ManagerType: "zitadel",
+			ManagerType: "keycloak",
 			// no ClientConfig
 		},
 	}
@@ -520,17 +544,38 @@ func TestGenerateConfig(t *testing.T) {
 		httpConfig, ok := result["HttpConfig"].(map[string]interface{})
 		require.True(t, ok)
 		assert.Equal(t, "https://mgmt.example.com/oauth2", httpConfig["AuthIssuer"])
+		assert.Equal(t, "netbird-dashboard", httpConfig["AuthAudience"])
+		assert.Equal(t, "netbird-dashboard", httpConfig["AuthClientID"])
+		assert.Equal(t, "netbird-cli", httpConfig["CLIAuthAudience"])
 		assert.Equal(t, "https://mgmt.example.com/oauth2/keys", httpConfig["AuthKeysLocation"])
 		assert.Equal(t, "https://mgmt.example.com/oauth2/.well-known/openid-configuration", httpConfig["OIDCConfigEndpoint"])
-		assert.Equal(t, "netbird-dashboard", httpConfig["AuthClientID"])
-		// AuthUserIDClaim should be preserved since it was already set
-		assert.Equal(t, "preferred_username", httpConfig["AuthUserIDClaim"])
+		assert.Equal(t, "sub", httpConfig["AuthUserIDClaim"])
+		assert.Equal(t, true, httpConfig["IdpSignKeyRefreshEnabled"])
+
+		// PKCEAuthorizationFlow should be updated to Dex endpoints
+		pkce, ok := result["PKCEAuthorizationFlow"].(map[string]interface{})
+		require.True(t, ok, "PKCEAuthorizationFlow should be present")
+		providerCfg, ok := pkce["ProviderConfig"].(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "netbird-cli", providerCfg["Audience"])
+		assert.Equal(t, "netbird-cli", providerCfg["ClientID"])
+		assert.Equal(t, "https://mgmt.example.com/oauth2/auth", providerCfg["AuthorizationEndpoint"])
+		assert.Equal(t, "https://mgmt.example.com/oauth2/token", providerCfg["TokenEndpoint"])
+		assert.Equal(t, "https://mgmt.example.com/oauth2/device/code", providerCfg["DeviceAuthEndpoint"])
+
+		// Static connector's redirectURI should use the management domain
+		connectors := embeddedIdP["StaticConnectors"].([]interface{})
+		require.Len(t, connectors, 1)
+		firstConn := connectors[0].(map[string]interface{})
+		connCfg := firstConn["config"].(map[string]interface{})
+		assert.Equal(t, "https://mgmt.example.com/oauth2/callback", connCfg["redirectURI"],
+			"redirectURI should be overridden to use the management domain")
 
 		// Datadir should be preserved
 		assert.Equal(t, "/var/lib/netbird", result["Datadir"])
 	})
 
-	t.Run("sets AuthUserIDClaim when not present", func(t *testing.T) {
+	t.Run("sets AuthUserIDClaim to sub", func(t *testing.T) {
 		dir := t.TempDir()
 		configPath := filepath.Join(dir, "management.json")
 

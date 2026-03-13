@@ -65,18 +65,22 @@ The build requires `CGO_ENABLED=1` because it links the SQLite driver used by `S
 2. `IDP_SEED_INFO` env var — same format, read via `migration.SeedConnectorFromEnv()`
 3. Auto-detect from `management.json` — reads `IdpManagerConfig.ClientConfig` fields and maps `ManagerType` to a Dex connector type:
 
-| ManagerType | Dex Connector Type |
-|-------------|--------------------|
-| `zitadel` | `zitadel` |
-| `keycloak` | `keycloak` |
-| `okta` | `okta` |
-| `authentik` | `authentik` |
-| `pocketid` | `pocketid` |
-| `auth0` | `oidc` (generic) |
-| `azure` | `entra` |
-| `google` | `google` |
-| `jumpcloud` | **error** (unsupported) |
-| *(unknown)* | `oidc` (fallback) |
+| ManagerType | Dex Connector Type | Notes |
+|-------------|--------------------|----|
+| `keycloak` | `keycloak` | |
+| `okta` | `okta` | |
+| `authentik` | `authentik` | |
+| `pocketid` | `pocketid` | |
+| `auth0` | `oidc` (generic) | |
+| `azure` | `entra` | |
+| `google` | `google` | |
+| `zitadel` | **error** | Uses service account credentials — requires `--idp-seed-info` |
+| `jumpcloud` | **error** | No Dex connector available |
+| *(unknown)* | `oidc` (fallback) | Requires non-empty `ClientSecret` |
+
+**Why Zitadel can't be auto-detected**: Zitadel's `IdpManagerConfig.ClientConfig` contains service account credentials (a login name like `netbird-service-account` and possibly a PAT), not OAuth client credentials. These can't be used as an OIDC connector's `clientID`/`clientSecret`. The user must create a confidential Web application in Zitadel and provide it via `--idp-seed-info`.
+
+Additionally, `buildConnectorFromConfig` validates that `ClientSecret` is non-empty for all providers. If the secret is missing, the tool errors with instructions to use `--idp-seed-info`.
 
 ### Phase 2: DB Migration
 
@@ -106,8 +110,10 @@ Unless `--skip-config` is set, `generateConfig()` runs:
 2. **Transform JSON** — reads existing config as raw JSON to preserve all fields, then:
    - Removes `IdpManagerConfig`
    - Adds `EmbeddedIdP` with the static connector, redirect URIs, etc.
-   - Updates `HttpConfig.AuthIssuer`, `AuthKeysLocation`, `OIDCConfigEndpoint`, `AuthClientID`
-   - Sets `AuthUserIDClaim` to `"sub"` only if not already set
+   - Overrides the connector's `redirectURI` to use the derived management domain (not the IdP issuer)
+   - Updates `HttpConfig`: `AuthIssuer`, `AuthAudience`, `AuthClientID`, `CLIAuthAudience`, `AuthKeysLocation`, `OIDCConfigEndpoint`, `IdpSignKeyRefreshEnabled`
+   - Sets `AuthUserIDClaim` to `"sub"`
+   - Generates `PKCEAuthorizationFlow` with Dex endpoints
 
 3. **Write** — backs up original as `management.json.bak`, writes new config. In dry-run mode, prints to stdout instead.
 

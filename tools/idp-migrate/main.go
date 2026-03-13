@@ -279,15 +279,61 @@ func decodeConnector(encoded string) (*dex.Connector, error) {
 
 // buildConnectorFromConfig constructs a Dex connector from management.json's
 // IdpManagerConfig fields (issuer, clientID, clientSecret, type).
+//
+// Some providers (Zitadel, Google Workspace) use service account credentials in
+// IdpManagerConfig that are NOT valid OAuth client credentials. For these providers,
+// auto-detection returns an error with instructions to use --idp-seed-info instead.
 func buildConnectorFromConfig(cfg *nbconfig.Config) (*dex.Connector, error) {
 	idpCfg := cfg.IdpManagerConfig
 	if idpCfg == nil || idpCfg.ClientConfig == nil {
 		return nil, nil
 	}
 
-	connType, err := mapManagerTypeToConnectorType(idpCfg.ManagerType)
+	managerType := strings.ToLower(idpCfg.ManagerType)
+
+	connType, err := mapManagerTypeToConnectorType(managerType)
 	if err != nil {
 		return nil, err
+	}
+
+	// Zitadel's IdpManagerConfig uses a service account (not an OAuth app).
+	// The ClientID is a service user login name (e.g., "netbird-service-account"),
+	// not a Zitadel OAuth application client ID. These credentials cannot be used
+	// for the Dex OIDC connector.
+	if managerType == "zitadel" {
+		issuer := idpCfg.ClientConfig.Issuer
+		if issuer == "" && cfg.HttpConfig != nil {
+			issuer = cfg.HttpConfig.AuthIssuer
+		}
+		return nil, fmt.Errorf(`zitadel auto-detection is not supported because the management server uses service account credentials (ClientID: %q) which are not valid OAuth client credentials for the Dex connector.
+
+You need to create a confidential OAuth application in Zitadel:
+
+  1. Open the Zitadel console at %s/ui/console
+  2. Navigate to Projects → select the NetBird project → Applications
+  3. Create a new application:
+       Name: netbird-dex
+       Type: Web
+       Authentication Method: POST (sends client_id + client_secret in body)
+  4. Add redirect URI: https://<your-management-domain>/oauth2/callback
+  5. Copy the generated client ID and client secret
+  6. Create connector.json:
+       {
+         "type": "zitadel",
+         "name": "zitadel",
+         "id": "zitadel",
+         "config": {
+           "issuer": "%s",
+           "clientID": "<client-id-from-step-5>",
+           "clientSecret": "<client-secret-from-step-5>",
+           "redirectURI": "https://<your-management-domain>/oauth2/callback"
+         }
+       }
+  7. Run: netbird-idp-migrate --config management.json --idp-seed-info "$(base64 < connector.json)"`,
+			idpCfg.ClientConfig.ClientID,
+			strings.TrimSuffix(issuer, "/"),
+			issuer,
+		)
 	}
 
 	issuer := idpCfg.ClientConfig.Issuer
@@ -298,9 +344,16 @@ func buildConnectorFromConfig(cfg *nbconfig.Config) (*dex.Connector, error) {
 		return nil, fmt.Errorf("could not determine OIDC issuer from config (neither ClientConfig.Issuer nor HttpConfig.AuthIssuer set)")
 	}
 
+	clientSecret := idpCfg.ClientConfig.ClientSecret
+	if clientSecret == "" {
+		return nil, fmt.Errorf("no client secret found in IdpManagerConfig.ClientConfig; the Dex OIDC connector requires a confidential client with a secret — provide credentials via --idp-seed-info")
+	}
+
+	// Use issuer as a reasonable default for redirectURI; generateConfig() will
+	// override this with the correct management domain.
 	redirectURI := strings.TrimSuffix(issuer, "/") + "/oauth2/callback"
 
-	connID := strings.ToLower(idpCfg.ManagerType)
+	connID := managerType
 
 	return &dex.Connector{
 		Type: connType,
@@ -309,7 +362,7 @@ func buildConnectorFromConfig(cfg *nbconfig.Config) (*dex.Connector, error) {
 		Config: map[string]interface{}{
 			"issuer":       issuer,
 			"clientID":     idpCfg.ClientConfig.ClientID,
-			"clientSecret": idpCfg.ClientConfig.ClientSecret,
+			"clientSecret": clientSecret,
 			"redirectURI":  redirectURI,
 		},
 	}, nil
@@ -369,6 +422,14 @@ func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config
 	// Remove old IdP config
 	delete(configMap, "IdpManagerConfig")
 
+	// Ensure the connector's redirectURI points to the management server (Dex callback),
+	// not the external IdP. The auto-detection may have used the IdP issuer URL.
+	connConfig := make(map[string]interface{}, len(conn.Config))
+	for k, v := range conn.Config {
+		connConfig[k] = v
+	}
+	connConfig["redirectURI"] = fmt.Sprintf("https://%s/oauth2/callback", domain)
+
 	// Add EmbeddedIdP section
 	configMap["EmbeddedIdP"] = map[string]interface{}{
 		"Enabled":               true,
@@ -388,7 +449,7 @@ func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config
 				"type":   conn.Type,
 				"name":   conn.Name,
 				"id":     conn.ID,
-				"config": conn.Config,
+				"config": connConfig,
 			},
 		},
 	}
@@ -400,11 +461,31 @@ func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config
 		configMap["HttpConfig"] = httpConfig
 	}
 	httpConfig["AuthIssuer"] = fmt.Sprintf("https://%s/oauth2", domain)
+	httpConfig["AuthAudience"] = "netbird-dashboard"
+	httpConfig["AuthClientID"] = "netbird-dashboard"
+	httpConfig["CLIAuthAudience"] = "netbird-cli"
 	httpConfig["AuthKeysLocation"] = fmt.Sprintf("https://%s/oauth2/keys", domain)
 	httpConfig["OIDCConfigEndpoint"] = fmt.Sprintf("https://%s/oauth2/.well-known/openid-configuration", domain)
-	httpConfig["AuthClientID"] = "netbird-dashboard"
-	if _, ok := httpConfig["AuthUserIDClaim"]; !ok {
-		httpConfig["AuthUserIDClaim"] = "sub"
+	httpConfig["AuthUserIDClaim"] = "sub"
+	httpConfig["IdpSignKeyRefreshEnabled"] = true
+
+	// Update PKCEAuthorizationFlow to use Dex endpoints
+	dexIssuer := fmt.Sprintf("https://%s/oauth2", domain)
+	configMap["PKCEAuthorizationFlow"] = map[string]interface{}{
+		"ProviderConfig": map[string]interface{}{
+			"Audience":              "netbird-cli",
+			"ClientID":             "netbird-cli",
+			"ClientSecret":         "",
+			"Scope":                "openid profile email offline_access",
+			"AuthorizationEndpoint": dexIssuer + "/auth",
+			"TokenEndpoint":         dexIssuer + "/token",
+			"DeviceAuthEndpoint":    dexIssuer + "/device/code",
+			"RedirectURLs": []string{
+				"http://localhost:53000/",
+				"http://localhost:54000/",
+			},
+			"UseIDToken": false,
+		},
 	}
 
 	newJSON, err := json.MarshalIndent(configMap, "", "  ")
