@@ -210,7 +210,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		},
 	}
 
-	_, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, false)
+	_, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, true)
 	if err != nil {
 		return fmt.Errorf("failed to create proxy peer: %w", err)
 	}
