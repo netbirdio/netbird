@@ -1991,6 +1991,21 @@ func (mr *MockStoreMockRecorder) GetServices(ctx, lockStrength interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServices", reflect.TypeOf((*MockStore)(nil).GetServices), ctx, lockStrength)
 }
 
+// GetServicesByAccountID mocks base method.
+func (m *MockStore) GetServicesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServicesByAccountID", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*reverseproxy.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServicesByAccountID indicates an expected call of GetServicesByAccountID.
+func (mr *MockStoreMockRecorder) GetServicesByAccountID(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServicesByAccountID", reflect.TypeOf((*MockStore)(nil).GetServicesByAccountID), ctx, lockStrength, accountID)
+}
+
 // GetSetupKeyByID mocks base method.
 func (m *MockStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types2.SetupKey, error) {
 	m.ctrl.T.Helper()
@@ -2332,6 +2347,21 @@ func (m *MockStore) ListFreeDomains(ctx context.Context, accountID string) ([]st
 func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
+}
+
+// ListUsers mocks base method.
+func (m *MockStore) ListUsers(ctx context.Context) ([]*types2.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUsers", ctx)
+	ret0, _ := ret[0].([]*types2.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUsers indicates an expected call of ListUsers.
+func (mr *MockStoreMockRecorder) ListUsers(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx)
 }
 
 // MarkAccountPrimary mocks base method.
@@ -2919,6 +2949,20 @@ func (m *MockStore) UpdateService(ctx context.Context, service *service.Service)
 func (mr *MockStoreMockRecorder) UpdateService(ctx, service interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateService", reflect.TypeOf((*MockStore)(nil).UpdateService), ctx, service)
+}
+
+// UpdateUserID mocks base method.
+func (m *MockStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUserID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserID", ctx, accountID, oldUserID, newUserID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserID indicates an expected call of UpdateUserID.
+func (mr *MockStoreMockRecorder) UpdateUserID(ctx, accountID, oldUserID, newUserID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserID", reflect.TypeOf((*MockStore)(nil).UpdateUserID), ctx, accountID, oldUserID, newUserID)
 }
 
 // UpdateZone mocks base method.
