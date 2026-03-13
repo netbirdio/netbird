@@ -195,9 +195,9 @@ func (p *Push) resolve(ctx context.Context) (pushURL string, interval time.Durat
 
 // push exports metrics and sends them to the metrics server
 func (p *Push) push(ctx context.Context, pushURL string) error {
-	// Atomically export and clear metrics
+	// Export metrics without clearing
 	var buf bytes.Buffer
-	if err := p.metrics.ExportAndReset(&buf); err != nil {
+	if err := p.metrics.Export(&buf); err != nil {
 		return fmt.Errorf("export metrics: %w", err)
 	}
 
@@ -248,6 +248,7 @@ func (p *Push) push(ctx context.Context, pushURL string) error {
 	}
 
 	log.Debugf("successfully pushed metrics to %s", pushURL)
+	p.metrics.Reset()
 	return nil
 }
 
