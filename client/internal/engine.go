@@ -1315,8 +1315,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// Test received (upstream) servers for availability right away instead of upon usage.
 	// If no server of a server group responds this will disable the respective handler and retry later.
-	e.dnsServer.ProbeAvailability()
-
+	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 
