@@ -33,6 +33,16 @@ management/internals/server/modules.go
       migrationServer       # adapter struct for type assertions
 ```
 
+## Release / Distribution
+
+The tool is included in `.goreleaser.yaml` as the `netbird-idp-migrate` build target. Each NetBird release produces pre-built archives for Linux (amd64, arm64, arm) that are uploaded to GitHub Releases. The archive naming convention is:
+
+```
+netbird-idp-migrate_<version>_linux_<arch>.tar.gz
+```
+
+The build requires `CGO_ENABLED=1` because it links the SQLite driver used by `SqlStore`. The cross-compilation setup (CC env for arm64/arm) mirrors the `netbird-mgmt` build.
+
 ## CLI Flags
 
 | Flag | Type | Default | Description |
@@ -155,7 +165,7 @@ go test -v ./tools/idp-migrate/...
 # Activity store migration tests
 go test -v -run TestUpdateUserID ./management/server/activity/store/...
 
-# Build
+# Build locally
 go build ./tools/idp-migrate/
 ```
 
@@ -173,6 +183,9 @@ When migration tooling is no longer needed, delete:
    - Remove `migrationServer` struct and methods
    - Remove `seedIDPConnectors()` method
    - Remove the `s.seedIDPConnectors()` call in `IdpManager()`
-7. Run `go mod tidy`
+7. In `.goreleaser.yaml`:
+   - Remove the `netbird-idp-migrate` build entry
+   - Remove the `netbird-idp-migrate` archive entry
+8. Run `go mod tidy`
 
 No core interfaces or mocks need editing — that's the point of the decoupling.

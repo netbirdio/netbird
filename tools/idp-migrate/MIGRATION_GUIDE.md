@@ -32,9 +32,21 @@ Existing users keep logging in through the same external provider — Dex acts a
 
 ## Step-by-step
 
-### 1. Build the tool
+### 1. Get the tool
 
-From the repository root:
+**Option A: Download a pre-built binary** from the GitHub Releases page.
+
+Each release includes `netbird-idp-migrate` archives for Linux (amd64, arm64, arm). Download the one matching your management server's architecture:
+
+```bash
+# Example for linux/amd64 — replace VERSION with the release tag
+curl -L -o netbird-idp-migrate.tar.gz \
+  https://github.com/netbirdio/netbird/releases/download/VERSION/netbird-idp-migrate_VERSION_linux_amd64.tar.gz
+tar xzf netbird-idp-migrate.tar.gz
+chmod +x netbird-idp-migrate
+```
+
+**Option B: Build from source** (requires Go 1.25+ and a C compiler for CGO/SQLite):
 
 ```bash
 go build -o netbird-idp-migrate ./tools/idp-migrate/

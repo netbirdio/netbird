@@ -154,6 +154,26 @@ builds:
       - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-idp-migrate
+    dir: tools/idp-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-idp-migrate
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -166,6 +186,10 @@ archives:
       - netbird-wasm
     name_template: "{{ .ProjectName }}_{{ .Version }}"
     format: binary
+  - id: netbird-idp-migrate
+    builds:
+      - netbird-idp-migrate
+    name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
