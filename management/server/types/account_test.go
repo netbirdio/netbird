@@ -1939,3 +1939,54 @@ func Test_filterPeerAppliedZones(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPeersCustomZone_InvalidIPs(t *testing.T) {
+	account := &Account{
+		Id: "testAccount",
+		Peers: map[string]*nbpeer.Peer{
+			"valid": {
+				ID:        "valid",
+				DNSLabel:  "valid-peer",
+				IP:        net.IP{100, 64, 0, 1},
+				AccountID: "testAccount",
+				Key:       "validKey",
+			},
+			"ipv6-loopback": {
+				ID:        "ipv6-loopback",
+				DNSLabel:  "loopback-peer",
+				IP:        net.IPv6loopback,
+				AccountID: "testAccount",
+				Key:       "loopbackKey",
+			},
+			"nil-ip": {
+				ID:        "nil-ip",
+				DNSLabel:  "nil-peer",
+				IP:        nil,
+				AccountID: "testAccount",
+				Key:       "nilKey",
+			},
+			"ipv4-loopback": {
+				ID:        "ipv4-loopback",
+				DNSLabel:  "v4loop-peer",
+				IP:        net.IP{127, 0, 0, 1},
+				AccountID: "testAccount",
+				Key:       "v4loopKey",
+			},
+			"unspecified": {
+				ID:        "unspecified",
+				DNSLabel:  "unspecified-peer",
+				IP:        net.IPv4zero,
+				AccountID: "testAccount",
+				Key:       "unspecKey",
+			},
+		},
+	}
+
+	zone := account.GetPeersCustomZone(context.Background(), "netbird.cloud")
+
+	// Only the valid peer should produce a record
+	require.Len(t, zone.Records, 1, "only valid peer should produce a DNS record")
+	assert.Equal(t, "valid-peer.netbird.cloud", zone.Records[0].Name)
+	assert.Equal(t, "100.64.0.1", zone.Records[0].RData)
+	assert.Equal(t, int(dns.TypeA), zone.Records[0].Type)
+}
