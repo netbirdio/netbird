@@ -15,8 +15,6 @@ import (
 const (
 	// EnvDisable disables geolocation lookups entirely when set to a truthy value.
 	EnvDisable = "NB_PROXY_DISABLE_GEOLOCATION"
-	// EnvDataDir overrides the directory where the GeoLite2 MMDB file is stored.
-	EnvDataDir = "NB_PROXY_GEOLOCATION_DATA_DIR"
 
 	mmdbGlob = "GeoLite2-City_*.mmdb"
 )
@@ -61,10 +59,6 @@ func NewLookup(logger *log.Logger, dataDir string) (*Lookup, error) {
 	if isDisabledByEnv(logger) {
 		logger.Info("geolocation disabled via environment variable")
 		return nil, nil //nolint:nilnil
-	}
-
-	if envDir := os.Getenv(EnvDataDir); envDir != "" {
-		dataDir = envDir
 	}
 
 	if dataDir == "" {

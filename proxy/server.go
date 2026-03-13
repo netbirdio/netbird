@@ -163,10 +163,11 @@ type Server struct {
 	// SupportsCustomPorts indicates whether the proxy can bind arbitrary
 	// ports for TCP/UDP/TLS services.
 	SupportsCustomPorts bool
-	// DefaultDialTimeout is the default timeout for establishing backend
-	// connections when no per-service timeout is configured. Zero means
-	// each transport uses its own hardcoded default (typically 30s).
-	DefaultDialTimeout time.Duration
+	// MaxDialTimeout caps the per-service backend dial timeout.
+	// When the API sends a timeout, it is clamped to this value.
+	// When the API sends no timeout, this value is used as the default.
+	// Zero means no cap (the proxy honors whatever management sends).
+	MaxDialTimeout time.Duration
 	// GeoDataDir is the directory containing GeoLite2 MMDB files for
 	// country-based access restrictions. Empty disables geo lookups.
 	GeoDataDir string
@@ -180,6 +181,18 @@ type Server struct {
 func (s *Server) clampIdleTimeout(d time.Duration) time.Duration {
 	if s.MaxSessionIdleTimeout > 0 && d > s.MaxSessionIdleTimeout {
 		return s.MaxSessionIdleTimeout
+	}
+	return d
+}
+
+// clampDialTimeout returns d capped to MaxDialTimeout when configured.
+// If d is zero, MaxDialTimeout is used as the default.
+func (s *Server) clampDialTimeout(d time.Duration) time.Duration {
+	if s.MaxDialTimeout <= 0 {
+		return d
+	}
+	if d <= 0 || d > s.MaxDialTimeout {
+		return s.MaxDialTimeout
 	}
 	return d
 }
@@ -1286,15 +1299,15 @@ func (s *Server) l4ProxyProtocol(mapping *proto.ProxyMapping) bool {
 }
 
 // l4DialTimeout returns the dial timeout from the first target's options,
-// falling back to the server's DefaultDialTimeout.
+// clamped to MaxDialTimeout.
 func (s *Server) l4DialTimeout(mapping *proto.ProxyMapping) time.Duration {
 	paths := mapping.GetPath()
 	if len(paths) > 0 {
 		if d := paths[0].GetOptions().GetRequestTimeout(); d != nil {
-			return d.AsDuration()
+			return s.clampDialTimeout(d.AsDuration())
 		}
 	}
-	return s.DefaultDialTimeout
+	return s.clampDialTimeout(0)
 }
 
 // l4SessionIdleTimeout returns the configured session idle timeout from the
@@ -1535,9 +1548,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 				pt.RequestTimeout = d.AsDuration()
 			}
 		}
-		if pt.RequestTimeout == 0 && s.DefaultDialTimeout > 0 {
-			pt.RequestTimeout = s.DefaultDialTimeout
-		}
+		pt.RequestTimeout = s.clampDialTimeout(pt.RequestTimeout)
 		paths[pathMapping.GetPath()] = pt
 	}
 	m := proxy.Mapping{

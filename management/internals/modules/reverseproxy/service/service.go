@@ -836,8 +836,7 @@ func IsPortBasedProtocol(mode string) bool {
 }
 
 const (
-	maxRequestTimeout = 5 * time.Minute
-	maxCustomHeaders  = 16
+	maxCustomHeaders = 16
 	maxHeaderKeyLen   = 128
 	maxHeaderValueLen = 4096
 )
@@ -878,13 +877,8 @@ func validateTargetOptions(idx int, opts *TargetOptions) error {
 		return fmt.Errorf("target %d: unknown path_rewrite mode %q", idx, opts.PathRewrite)
 	}
 
-	if opts.RequestTimeout != 0 {
-		if opts.RequestTimeout <= 0 {
-			return fmt.Errorf("target %d: request_timeout must be positive", idx)
-		}
-		if opts.RequestTimeout > maxRequestTimeout {
-			return fmt.Errorf("target %d: request_timeout exceeds maximum of %s", idx, maxRequestTimeout)
-		}
+	if opts.RequestTimeout < 0 {
+		return fmt.Errorf("target %d: request_timeout must be positive", idx)
 	}
 
 	if opts.SessionIdleTimeout < 0 {

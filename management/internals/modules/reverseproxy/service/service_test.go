@@ -120,9 +120,9 @@ func TestValidateTargetOptions_RequestTimeout(t *testing.T) {
 	}{
 		{"valid 30s", 30 * time.Second, ""},
 		{"valid 2m", 2 * time.Minute, ""},
+		{"valid 10m", 10 * time.Minute, ""},
 		{"zero is fine", 0, ""},
 		{"negative", -1 * time.Second, "must be positive"},
-		{"exceeds max", 10 * time.Minute, "exceeds maximum"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
