@@ -23,6 +23,7 @@ import (
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 }
@@ -256,7 +257,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 }
 
 func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) error {
-	openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
+	openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser, showQR)
 
 	resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 	if err != nil {
@@ -324,7 +325,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser)
+	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser, showQR)
 
 	tokenInfo, err := oAuthFlow.WaitToken(context.TODO(), flowInfo)
 	if err != nil {
@@ -334,7 +335,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser bool) {
+func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser, showQR bool) {
 	var codeMsg string
 	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
@@ -346,6 +347,10 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 		cmd.Println("Please do the SSO login in your browser. \n" +
 			"If your browser didn't open automatically, use this URL to log in:\n\n" +
 			verificationURIComplete + " " + codeMsg)
+	}
+
+	if showQR {
+		printQRCode(cmd.OutOrStdout(), verificationURIComplete)
 	}
 
 	cmd.Println("")
