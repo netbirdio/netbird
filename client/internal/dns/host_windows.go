@@ -408,7 +408,9 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
 
-	go r.flushDNSCache()
+	// Flush synchronously before killing DnsCache to avoid a race condition
+	// where the async flush targets a process that is already being terminated.
+	r.flushDNSCache()
 
 	if err := killDNSCacheProcess(); err != nil {
 		log.Warnf("failed to kill DnsCache process for NRPT flush, DNS may require reboot to clear: %v", err)
@@ -497,6 +499,11 @@ func refreshGroupPolicy() error {
 // forcing a cold reload of NRPT policy from registry. This is necessary because
 // DnsCache ignores PARAMCHANGE signals on many Windows builds (NOT_PAUSABLE),
 // and retains stale NRPT rules in memory even after registry keys are deleted.
+//
+// Note: This terminates the entire svchost.exe process, which may include other
+// services in the same process group. Windows Service Control Manager will
+// automatically respawn affected services. There may be a brief interruption
+// or state loss in co-hosted services during respawn.
 func killDNSCacheProcess() error {
 	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
@@ -526,17 +533,37 @@ func killDNSCacheProcess() error {
 
 	pid := status.ProcessId
 	if pid == 0 {
-		return fmt.Errorf("DnsCache PID is 0")
+		// DnsCache is not running — no stale rules to worry about,
+		// next start will read clean registry.
+		log.Debug("DnsCache service not running, no process to kill")
+		return nil
 	}
 
-	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid)
+	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid)
 	if err != nil {
 		return fmt.Errorf("open process %d: %w", pid, err)
 	}
 	defer windows.CloseHandle(handle)
 
-	log.Infof("killing DnsCache svchost PID %d to flush NRPT policy from memory", pid)
-	return windows.TerminateProcess(handle, 0)
+	log.Warnf("killing DnsCache svchost PID %d to flush stale NRPT policy from memory — co-hosted services will be briefly interrupted and respawned by SCM", pid)
+
+	if err := windows.TerminateProcess(handle, 0); err != nil {
+		return fmt.Errorf("terminate process %d: %w", pid, err)
+	}
+
+	// Wait for the process to fully exit before returning, so the caller
+	// can be confident the next DnsCache start will read clean registry.
+	event, err := windows.WaitForSingleObject(handle, 3000) // 3 second timeout
+	if err != nil {
+		return fmt.Errorf("wait for process %d termination: %w", pid, err)
+	}
+	if event == uint32(windows.WAIT_TIMEOUT) {
+		log.Warnf("DnsCache process %d termination timed out after 3s", pid)
+		return fmt.Errorf("timed out waiting for DnsCache process %d to terminate", pid)
+	}
+
+	log.Infof("DnsCache process %d terminated, NRPT policy will reload from clean registry on respawn", pid)
+	return nil
 }
 
 func closer(closer io.Closer) {
