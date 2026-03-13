@@ -575,7 +575,7 @@ func (m *Manager) sendServiceUpdateNotifications(ctx context.Context, accountID 
 	oidcCfg := m.proxyController.GetOIDCValidationConfig()
 
 	switch {
-	case updateInfo.domainChanged && updateInfo.oldCluster != s.ProxyCluster:
+	case updateInfo.domainChanged || updateInfo.oldCluster != s.ProxyCluster:
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", oidcCfg), updateInfo.oldCluster)
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", oidcCfg), s.ProxyCluster)
 	case !s.Enabled && updateInfo.serviceEnabledChanged:

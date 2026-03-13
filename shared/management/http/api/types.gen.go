@@ -1367,6 +1367,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
+	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
+
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 

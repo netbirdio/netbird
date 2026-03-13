@@ -225,6 +225,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 			return nil, fmt.Errorf("invalid AutoUpdateVersion")
 		}
 	}
+	if req.Settings.AutoUpdateAlways != nil {
+		returnSettings.AutoUpdateAlways = *req.Settings.AutoUpdateAlways
+	}
 
 	return returnSettings, nil
 }
@@ -348,6 +351,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
+		AutoUpdateAlways:                &settings.AutoUpdateAlways,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 	}

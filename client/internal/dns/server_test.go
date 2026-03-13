@@ -1065,7 +1065,7 @@ type mockHandler struct {
 
 func (m *mockHandler) ServeDNS(dns.ResponseWriter, *dns.Msg) {}
 func (m *mockHandler) Stop()                                 {}
-func (m *mockHandler) ProbeAvailability()                    {}
+func (m *mockHandler) ProbeAvailability(context.Context)     {}
 func (m *mockHandler) ID() types.HandlerID                   { return types.HandlerID(m.Id) }
 
 type mockService struct{}
