@@ -850,7 +850,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			StartedAt: timestamppb.New(s.startTime),
 			Address:   s.ProxyURL,
 			Capabilities: &proto.ProxyCapabilities{
-				SupportsCustomPorts: s.SupportsCustomPorts,
+				SupportsCustomPorts: &s.SupportsCustomPorts,
 			},
 		})
 		if err != nil {

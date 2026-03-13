@@ -272,7 +272,8 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && !m.proxyController.ClusterSupportsCustomPorts(svc.ProxyCluster) {
+	customPorts := m.proxyController.ClusterSupportsCustomPorts(svc.ProxyCluster)
+	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
 		}

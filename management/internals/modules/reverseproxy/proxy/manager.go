@@ -33,5 +33,5 @@ type Controller interface {
 	RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error
 	UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error
 	GetProxiesForCluster(clusterAddr string) []string
-	ClusterSupportsCustomPorts(clusterAddr string) bool
+	ClusterSupportsCustomPorts(clusterAddr string) *bool
 }

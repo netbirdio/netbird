@@ -53,8 +53,8 @@ func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clus
 	return nil
 }
 
-func (c *testProxyController) ClusterSupportsCustomPorts(_ string) bool {
-	return true
+func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
+	return ptr(true)
 }
 
 func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
@@ -352,9 +352,9 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 	const cluster = "proxy.example.com"
 
 	// Proxy A supports custom ports.
-	chA := registerFakeProxyWithCaps(s, "proxy-a", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: true})
+	chA := registerFakeProxyWithCaps(s, "proxy-a", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
 	// Proxy B does NOT support custom ports (shared cloud proxy).
-	chB := registerFakeProxyWithCaps(s, "proxy-b", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+	chB := registerFakeProxyWithCaps(s, "proxy-b", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
 
 	ctx := context.Background()
 
@@ -404,7 +404,7 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 
 	const cluster = "proxy.example.com"
 
-	chShared := registerFakeProxyWithCaps(s, "proxy-shared", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+	chShared := registerFakeProxyWithCaps(s, "proxy-shared", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
 
 	tlsMapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
@@ -434,8 +434,8 @@ func TestServiceModifyNotifications(t *testing.T) {
 		}
 		s.SetProxyController(newTestProxyController())
 		chs := map[string]chan *proto.GetMappingUpdateResponse{
-			"cluster-a": registerFakeProxyWithCaps(s, "proxy-a", "cluster-a", &proto.ProxyCapabilities{SupportsCustomPorts: true}),
-			"cluster-b": registerFakeProxyWithCaps(s, "proxy-b", "cluster-b", &proto.ProxyCapabilities{SupportsCustomPorts: true}),
+			"cluster-a": registerFakeProxyWithCaps(s, "proxy-a", "cluster-a", &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)}),
+			"cluster-b": registerFakeProxyWithCaps(s, "proxy-b", "cluster-b", &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)}),
 		}
 		return s, chs
 	}
@@ -584,8 +584,8 @@ func TestServiceModifyNotifications(t *testing.T) {
 		}
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
-		chModern := registerFakeProxyWithCaps(s, "modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: true})
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+		chModern := registerFakeProxyWithCaps(s, "modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
+		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
 
 		// TLS passthrough works on all proxies regardless of custom port support
 		s.SendServiceUpdateToCluster(ctx, tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), cluster)
@@ -604,7 +604,7 @@ func TestServiceModifyNotifications(t *testing.T) {
 		}
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: false})
+		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
 
 		mapping := tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
 		mapping.ListenPort = 0 // default port

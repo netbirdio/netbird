@@ -22,8 +22,10 @@ import (
 
 const testCluster = "test-cluster"
 
+func boolPtr(v bool) *bool { return &v }
+
 // setupL4Test creates a manager with a mock proxy controller for L4 port tests.
-func setupL4Test(t *testing.T, customPortsSupported bool) (*Manager, store.Store, *proxy.MockController) {
+func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Store, *proxy.MockController) {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)
@@ -121,7 +123,7 @@ func seedService(t *testing.T, s store.Store, name, protocol, domain, cluster st
 }
 
 func TestPortConflict_TCPSamePortCluster(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	seedService(t, testStore, "existing-tcp", "tcp", testCluster, testCluster, 5432)
@@ -147,7 +149,7 @@ func TestPortConflict_TCPSamePortCluster(t *testing.T) {
 }
 
 func TestPortConflict_UDPSamePortCluster(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	seedService(t, testStore, "existing-udp", "udp", testCluster, testCluster, 5432)
@@ -173,7 +175,7 @@ func TestPortConflict_UDPSamePortCluster(t *testing.T) {
 }
 
 func TestPortConflict_TLSSamePortDifferentDomain(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	seedService(t, testStore, "existing-tls", "tls", "app1.example.com", testCluster, 443)
@@ -198,7 +200,7 @@ func TestPortConflict_TLSSamePortDifferentDomain(t *testing.T) {
 }
 
 func TestPortConflict_TLSSamePortSameDomain(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	seedService(t, testStore, "existing-tls", "tls", "app.example.com", testCluster, 443)
@@ -224,7 +226,7 @@ func TestPortConflict_TLSSamePortSameDomain(t *testing.T) {
 }
 
 func TestPortConflict_TLSAndTCPSamePort(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	seedService(t, testStore, "existing-tls", "tls", "app.example.com", testCluster, 443)
@@ -249,7 +251,7 @@ func TestPortConflict_TLSAndTCPSamePort(t *testing.T) {
 }
 
 func TestAutoAssign_TCPNoListenPort(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -275,7 +277,7 @@ func TestAutoAssign_TCPNoListenPort(t *testing.T) {
 }
 
 func TestAutoAssign_TCPCustomPortRejectedWhenNotSupported(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -299,7 +301,7 @@ func TestAutoAssign_TCPCustomPortRejectedWhenNotSupported(t *testing.T) {
 }
 
 func TestAutoAssign_TLSCustomPortAlwaysAllowed(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -324,7 +326,7 @@ func TestAutoAssign_TLSCustomPortAlwaysAllowed(t *testing.T) {
 }
 
 func TestAutoAssign_EphemeralOverridesPortWhenNotSupported(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -352,7 +354,7 @@ func TestAutoAssign_EphemeralOverridesPortWhenNotSupported(t *testing.T) {
 }
 
 func TestAutoAssign_EphemeralTLSKeepsCustomPort(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -378,7 +380,7 @@ func TestAutoAssign_EphemeralTLSKeepsCustomPort(t *testing.T) {
 }
 
 func TestAutoAssign_AvoidsExistingPorts(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	existingPort := uint16(20000)
@@ -406,7 +408,7 @@ func TestAutoAssign_AvoidsExistingPorts(t *testing.T) {
 }
 
 func TestAutoAssign_TCPCustomPortAllowedWhenSupported(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, true)
+	mgr, _, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	svc := &rpservice.Service{
@@ -431,7 +433,7 @@ func TestAutoAssign_TCPCustomPortAllowedWhenSupported(t *testing.T) {
 }
 
 func TestUpdate_PreservesExistingListenPort(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 12345)
@@ -456,7 +458,7 @@ func TestUpdate_PreservesExistingListenPort(t *testing.T) {
 }
 
 func TestUpdate_AllowsPortChange(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	existing := seedService(t, testStore, "tcp-svc", "tcp", testCluster, testCluster, 12345)
@@ -481,7 +483,7 @@ func TestUpdate_AllowsPortChange(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TCP(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -497,7 +499,7 @@ func TestCreateServiceFromPeer_TCP(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TCP_CustomPort(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, true)
+	mgr, _, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -512,7 +514,7 @@ func TestCreateServiceFromPeer_TCP_CustomPort(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TCP_DefaultListenPort(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, true)
+	mgr, _, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -527,7 +529,7 @@ func TestCreateServiceFromPeer_TCP_DefaultListenPort(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TLS(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, false)
+	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -544,7 +546,7 @@ func TestCreateServiceFromPeer_TLS(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_TCP_StopAndRenew(t *testing.T) {
-	mgr, testStore, _ := setupL4Test(t, true)
+	mgr, testStore, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
@@ -567,7 +569,7 @@ func TestCreateServiceFromPeer_TCP_StopAndRenew(t *testing.T) {
 }
 
 func TestCreateServiceFromPeer_L4_RejectsAuth(t *testing.T) {
-	mgr, _, _ := setupL4Test(t, true)
+	mgr, _, _ := setupL4Test(t, boolPtr(true))
 	ctx := context.Background()
 
 	_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{

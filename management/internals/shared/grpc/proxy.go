@@ -506,22 +506,33 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	}
 }
 
-// ClusterSupportsCustomPorts returns true if any connected proxy in the given
-// cluster reports custom port support.
-func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) bool {
+// ClusterSupportsCustomPorts returns whether any connected proxy in the given
+// cluster reports custom port support. Returns nil if no proxy has reported
+// capabilities (old proxies that predate the field).
+func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) *bool {
 	if s.proxyController == nil {
-		return false
+		return nil
 	}
 
+	var hasCapabilities bool
 	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
-		if connVal, ok := s.connectedProxies.Load(pid); ok {
-			conn := connVal.(*proxyConnection)
-			if conn.capabilities != nil && conn.capabilities.SupportsCustomPorts {
-				return true
-			}
+		connVal, ok := s.connectedProxies.Load(pid)
+		if !ok {
+			continue
 		}
+		conn := connVal.(*proxyConnection)
+		if conn.capabilities == nil || conn.capabilities.SupportsCustomPorts == nil {
+			continue
+		}
+		if *conn.capabilities.SupportsCustomPorts {
+			return ptr(true)
+		}
+		hasCapabilities = true
 	}
-	return false
+	if hasCapabilities {
+		return ptr(false)
+	}
+	return nil
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
@@ -1091,3 +1102,5 @@ func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *
 
 	return fmt.Errorf("user not in allowed groups")
 }
+
+func ptr[T any](v T) *T { return &v }

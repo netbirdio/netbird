@@ -16,7 +16,7 @@ type Domain struct {
 	Validated     bool
 	// SupportsCustomPorts is populated at query time for free domains from the
 	// proxy cluster capabilities. Not persisted.
-	SupportsCustomPorts bool `gorm:"-"`
+	SupportsCustomPorts *bool `gorm:"-"`
 }
 
 // EventMeta returns activity event metadata for a domain

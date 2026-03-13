@@ -243,8 +243,8 @@ func (c *testProxyController) GetProxiesForCluster(_ string) []string {
 	return nil
 }
 
-func (c *testProxyController) ClusterSupportsCustomPorts(_ string) bool {
-	return false
+func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
+	return nil
 }
 
 // storeBackedServiceManager reads directly from the real store.

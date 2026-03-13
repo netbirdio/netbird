@@ -145,10 +145,10 @@ func (mr *MockControllerMockRecorder) GetOIDCValidationConfig() *gomock.Call {
 }
 
 // ClusterSupportsCustomPorts mocks base method.
-func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) bool {
+func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) *bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", clusterAddr)
-	ret0, _ := ret[0].(bool)
+	ret0, _ := ret[0].(*bool)
 	return ret0
 }
 

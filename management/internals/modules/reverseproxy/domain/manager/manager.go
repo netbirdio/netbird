@@ -34,7 +34,7 @@ type proxyManager interface {
 }
 
 type clusterCapabilities interface {
-	ClusterSupportsCustomPorts(clusterAddr string) bool
+	ClusterSupportsCustomPorts(clusterAddr string) *bool
 }
 
 type Manager struct {

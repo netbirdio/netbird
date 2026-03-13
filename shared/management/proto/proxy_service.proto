@@ -30,7 +30,7 @@ service ProxyService {
 // ProxyCapabilities describes what a proxy can handle.
 message ProxyCapabilities {
   // Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
-  bool supports_custom_ports = 1;
+  optional bool supports_custom_ports = 1;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
