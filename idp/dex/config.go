@@ -194,27 +194,32 @@ func (c *Connector) ToStorageConnector() (storage.Connector, error) {
 func mapConnectorToDex(connType string, config map[string]interface{}) (string, map[string]interface{}) {
 	switch connType {
 	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
-		augmented := make(map[string]interface{}, len(config)+4)
-		for k, v := range config {
-			augmented[k] = v
-		}
-		setDefault(augmented, "scopes", []string{"openid", "profile", "email"})
-		setDefault(augmented, "insecureEnableGroups", true)
-		setDefault(augmented, "insecureSkipEmailVerified", true)
-		switch connType {
-		case "zitadel":
-			setDefault(augmented, "getUserInfo", true)
-		case "entra":
-			setDefault(augmented, "claimMapping", map[string]string{"email": "preferred_username"})
-		case "okta", "pocketid":
-			augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
-		}
-		return "oidc", augmented
-	case "google", "microsoft":
-		return connType, config
+		return "oidc", applyOIDCDefaults(connType, config)
 	default:
 		return connType, config
 	}
+}
+
+// applyOIDCDefaults clones the config map, sets common OIDC defaults,
+// and applies provider-specific overrides.
+func applyOIDCDefaults(connType string, config map[string]interface{}) map[string]interface{} {
+	augmented := make(map[string]interface{}, len(config)+4)
+	for k, v := range config {
+		augmented[k] = v
+	}
+	setDefault(augmented, "scopes", []string{"openid", "profile", "email"})
+	setDefault(augmented, "insecureEnableGroups", true)
+	setDefault(augmented, "insecureSkipEmailVerified", true)
+
+	if connType == "zitadel" {
+		setDefault(augmented, "getUserInfo", true)
+	} else if connType == "entra" {
+		setDefault(augmented, "claimMapping", map[string]string{"email": "preferred_username"})
+	} else if connType == "okta" || connType == "pocketid" {
+		augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
+	}
+
+	return augmented
 }
 
 // setDefault sets a key in the map only if it doesn't already exist.
