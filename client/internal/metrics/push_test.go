@@ -78,7 +78,8 @@ func (m *mockMetrics) Export(w io.Writer) error {
 	return nil
 }
 
-func (m *mockMetrics) Reset() {
+func (m *mockMetrics) ExportAndReset(w io.Writer) error {
+	return m.Export(w)
 }
 
 func TestPush_OverrideIntervalPushes(t *testing.T) {

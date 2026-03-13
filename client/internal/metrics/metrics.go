@@ -55,11 +55,12 @@ type metricsImplementation interface {
 	// RecordSyncDuration records how long it took to process a sync message
 	RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration)
 
-	// Export exports metrics in Prometheus format
+	// Export exports metrics in Prometheus format (read-only, does not clear)
 	Export(w io.Writer) error
 
-	// Reset clears all collected metrics
-	Reset()
+	// ExportAndReset atomically exports metrics and clears the buffer,
+	// ensuring no samples recorded between export and clear are lost.
+	ExportAndReset(w io.Writer) error
 }
 
 type ClientMetrics struct {

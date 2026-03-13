@@ -116,7 +116,7 @@ func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentI
 	m.trimLocked()
 }
 
-// Export writes pending samples in InfluxDB line protocol format.
+// Export writes pending samples in InfluxDB line protocol format without clearing them.
 // Format: measurement,tag=val,tag=val field=val,field=val timestamp_ns
 func (m *influxDBMetrics) Export(w io.Writer) error {
 	m.mu.Lock()
@@ -124,6 +124,23 @@ func (m *influxDBMetrics) Export(w io.Writer) error {
 	copy(samples, m.samples)
 	m.mu.Unlock()
 
+	return writeSamples(w, samples)
+}
+
+// ExportAndReset atomically snapshots and clears pending samples, then writes
+// the snapshot in InfluxDB line protocol format. Samples recorded after the
+// swap are preserved for the next cycle.
+func (m *influxDBMetrics) ExportAndReset(w io.Writer) error {
+	m.mu.Lock()
+	samples := m.samples
+	m.samples = nil
+	m.mu.Unlock()
+
+	return writeSamples(w, samples)
+}
+
+// writeSamples writes samples in InfluxDB line protocol format.
+func writeSamples(w io.Writer, samples []influxSample) error {
 	for _, s := range samples {
 		if _, err := fmt.Fprintf(w, "%s,%s ", s.measurement, s.tags); err != nil {
 			return err
@@ -147,13 +164,6 @@ func (m *influxDBMetrics) Export(w io.Writer) error {
 		}
 	}
 	return nil
-}
-
-// Reset clears pending samples after a successful push
-func (m *influxDBMetrics) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.samples = m.samples[:0]
 }
 
 // trimLocked removes samples that exceed age or size limits.
