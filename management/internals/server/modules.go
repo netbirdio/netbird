@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/idp/migration"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -35,6 +36,16 @@ import (
 const (
 	geolocationDisabledKey = "NB_DISABLE_GEOLOCATION"
 )
+
+// migrationServer adapts BaseServer's store.Store and activity.Store
+// to the migration-specific MigrationStore/MigrationEventStore interfaces.
+type migrationServer struct {
+	store      migration.MigrationStore
+	eventStore migration.MigrationEventStore
+}
+
+func (m *migrationServer) Store() migration.MigrationStore        { return m.store }
+func (m *migrationServer) EventStore() migration.MigrationEventStore { return m.eventStore }
 
 func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	if os.Getenv(geolocationDisabledKey) == "true" {
@@ -113,13 +124,51 @@ func (s *BaseServer) AccountManager() account.Manager {
 	})
 }
 
+func (s *BaseServer) seedIDPConnectors() error {
+	if !migration.IsSeedInfoPresent() {
+		return nil
+	}
+
+	conn, err := migration.SeedConnectorFromEnv()
+	if err != nil {
+		log.Fatalf("failed to parse IDP_SEED_INFO: %v", err)
+	}
+
+	log.Infof("seeding IDP connector from environment: id=%s type=%s", conn.ID, conn.Type)
+	s.Config.EmbeddedIdP.StaticConnectors = append(s.Config.EmbeddedIdP.StaticConnectors, *conn)
+
+	s.AfterInit(func(s *BaseServer) {
+		ms, ok := s.Store().(migration.MigrationStore)
+		if !ok {
+			log.Fatalf("store does not support migration operations")
+		}
+		var mes migration.MigrationEventStore
+		if es, ok := s.EventStore().(migration.MigrationEventStore); ok {
+			mes = es
+		}
+		srv := &migrationServer{store: ms, eventStore: mes}
+		if err := migration.MigrateUsersToStaticConnectors(srv, conn); err != nil {
+			log.Fatalf("failed to migrate users to static connectors: %v", err)
+		}
+	})
+
+	return nil
+}
+
 func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
 		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
-		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
+		if embeddedEnabled {
+			err := s.seedIDPConnectors()
+			if err != nil {
+				log.Fatalf("failed to seed IDP connectors: %v", err)
+			}
+
 			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP service: %v", err)
