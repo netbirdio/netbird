@@ -43,7 +43,12 @@ func (v *Validator) ValidateWithCluster(ctx context.Context, domain string, acce
 		v.Resolver = net.DefaultResolver
 	}
 
-	lookupDomain := "validation." + domain
+	// For wildcard domains (e.g. *.example.com), validate at the apex (validation.example.com)
+	validationBase := domain
+	if strings.HasPrefix(domain, "*.") {
+		validationBase = domain[2:]
+	}
+	lookupDomain := "validation." + validationBase
 	log.WithFields(log.Fields{
 		"domain":       domain,
 		"lookupDomain": lookupDomain,

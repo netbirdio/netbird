@@ -33,6 +33,34 @@ If any authentication methods are registered for the Host domain, then the Proxy
 If the user is successfully authenticated, their request will be forwarded through to the Proxy to be proxied to the relevant Peer.
 Successful authentication does not guarantee a successful forwarding of the request as there may be failures behind the Proxy, such as with Peer connectivity or the underlying resource.
 
+## Custom Domains
+
+Custom domains allow services to be reached at your own domain name instead of a proxy-assigned subdomain.
+Both wildcard and non-wildcard custom domains are supported:
+
+- **Non-wildcard:** Register `example.com` and expose at the apex (`example.com`) or subdomains (`app.example.com`, `api.example.com`, etc.).
+- **Wildcard:** Register `*.example.com` to match any subdomain of `example.com` (e.g. `app.example.com`, `api.example.com`). When both a non-wildcard and a wildcard could match (e.g. `example.com` and `*.example.com`), the non-wildcard (exact) match is used.
+
+### DNS Setup for Custom Domains
+
+Ownership of a custom domain is verified via a CNAME record on the `validation` subdomain.
+For any custom domain (including apex and wildcard), create:
+
+```
+validation.example.com.  CNAME  <proxy-cluster-address>.
+```
+
+For a wildcard custom domain like `*.example.com`, use the same validation record at the apex: `validation.example.com` → `<proxy-cluster-address>`.
+
+To route traffic to the proxy, configure DNS for the service domain:
+
+- **Subdomains** (e.g., `app.example.com`): Create a CNAME record pointing to the proxy cluster address.
+- **Apex domains** (e.g., `example.com`): CNAME records at the zone apex are not permitted. Instead, use one of:
+  - An `A` / `AAAA` record pointing to the proxy's IP address.
+  - An `ALIAS` or `ANAME` record (if your DNS provider supports it) pointing to the proxy cluster address.
+
+When multiple custom domains could match a service domain (e.g., both `example.com` and `*.example.com`, or both `example.com` and `app.example.com`), the most specific match is used: exact (non-wildcard) matches take precedence over wildcard matches for the same apex, and longer suffixes win otherwise.
+
 ## TLS
 
 Due to the authentication provided, the Proxy uses HTTPS for its endpoint, even if the underlying service is HTTP.
