@@ -34,6 +34,7 @@ var (
 )
 
 var (
+	logLevel          string
 	debugLogs         bool
 	mgmtAddr          string
 	addr              string
@@ -69,7 +70,9 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", envStringOrDefault("NB_PROXY_LOG_LEVEL", "info"), "Log level: panic, fatal, error, warn, info, debug, trace")
 	rootCmd.PersistentFlags().BoolVar(&debugLogs, "debug", envBoolOrDefault("NB_PROXY_DEBUG_LOGS", false), "Enable debug logs")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("debug", "use --log-level instead")
 	rootCmd.Flags().StringVar(&mgmtAddr, "mgmt", envStringOrDefault("NB_PROXY_MANAGEMENT_ADDRESS", DefaultManagementURL), "Management address to connect to")
 	rootCmd.Flags().StringVar(&addr, "addr", envStringOrDefault("NB_PROXY_ADDRESS", ":443"), "Reverse proxy address to listen on")
 	rootCmd.Flags().StringVar(&proxyDomain, "domain", envStringOrDefault("NB_PROXY_DOMAIN", ""), "The Domain at which this proxy will be reached. e.g., netbird.example.com")
@@ -117,7 +120,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("proxy token is required: set %s environment variable", envProxyToken)
 	}
 
-	level := "error"
+	level := logLevel
 	if debugLogs {
 		level = "debug"
 	}

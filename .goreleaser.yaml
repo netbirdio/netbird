@@ -171,13 +171,12 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-deb
+    id: netbird_deb
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - deb
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -185,16 +184,18 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-rpm
+    id: netbird_rpm
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - rpm
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers:
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-amd64
@@ -876,7 +877,7 @@ brews:
 uploads:
   - name: debian
     ids:
-      - netbird-deb
+      - netbird_deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
@@ -884,7 +885,7 @@ uploads:
 
   - name: yum
     ids:
-      - netbird-rpm
+      - netbird_rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com

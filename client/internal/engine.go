@@ -51,7 +51,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
@@ -79,7 +79,6 @@ const (
 
 var ErrResetConnection = fmt.Errorf("reset connection")
 
-// EngineConfig is a config for the Engine
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
@@ -139,6 +138,17 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+}
+
+// EngineServices holds the external service dependencies required by the Engine.
+type EngineServices struct {
+	SignalClient   signal.Client
+	MgmClient      mgm.Client
+	RelayManager   *relayClient.Manager
+	StatusRecorder *peer.Status
+	Checks         []*mgmProto.Checks
+	StateManager   *statemanager.Manager
+	UpdateManager  *updater.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -209,7 +219,7 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// auto-update
-	updateManager *updatemanager.Manager
+	updateManager *updater.Manager
 
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
@@ -239,22 +249,17 @@ type localIpUpdater interface {
 func NewEngine(
 	clientCtx context.Context,
 	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
 	config *EngineConfig,
+	services EngineServices,
 	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-	stateManager *statemanager.Manager,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
-		signal:         signalClient,
-		signaler:       peer.NewSignaler(signalClient, config.WgPrivateKey),
-		mgmClient:      mgmClient,
-		relayManager:   relayManager,
+		signal:         services.SignalClient,
+		signaler:       peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
+		mgmClient:      services.MgmClient,
+		relayManager:   services.RelayManager,
 		peerStore:      peerstore.NewConnStore(),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
@@ -262,11 +267,12 @@ func NewEngine(
 		STUNs:          []*stun.URI{},
 		TURNs:          []*stun.URI{},
 		networkSerial:  0,
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		checks:         checks,
+		statusRecorder: services.StatusRecorder,
+		stateManager:   services.StateManager,
+		checks:         services.Checks,
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
+		updateManager:  services.UpdateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -309,7 +315,7 @@ func (e *Engine) Stop() error {
 	}
 
 	if e.updateManager != nil {
-		e.updateManager.Stop()
+		e.updateManager.SetDownloadOnly()
 	}
 
 	log.Info("cleaning up status recorder states")
@@ -559,13 +565,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	return nil
 }
 
-func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	e.handleAutoUpdateVersion(autoUpdateSettings, true)
-}
-
 func (e *Engine) createFirewall() error {
 	if e.config.DisableFirewall {
 		log.Infof("firewall is disabled")
@@ -793,39 +792,22 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
-func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings, initialCheck bool) {
+func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	if e.updateManager == nil {
+		return
+	}
+
 	if autoUpdateSettings == nil {
 		return
 	}
 
-	disabled := autoUpdateSettings.Version == disableAutoUpdate
-
-	// stop and cleanup if disabled
-	if e.updateManager != nil && disabled {
-		log.Infof("auto-update is disabled, stopping update manager")
-		e.updateManager.Stop()
-		e.updateManager = nil
+	if autoUpdateSettings.Version == disableAutoUpdate {
+		log.Infof("auto-update is disabled")
+		e.updateManager.SetDownloadOnly()
 		return
 	}
 
-	// Skip check unless AlwaysUpdate is enabled or this is the initial check at startup
-	if !autoUpdateSettings.AlwaysUpdate && !initialCheck {
-		log.Debugf("skipping auto-update check, AlwaysUpdate is false and this is not the initial check")
-		return
-	}
-
-	// Start manager if needed
-	if e.updateManager == nil {
-		log.Infof("starting auto-update manager")
-		updateManager, err := updatemanager.NewManager(e.statusRecorder, e.stateManager)
-		if err != nil {
-			return
-		}
-		e.updateManager = updateManager
-		e.updateManager.Start(e.ctx)
-	}
-	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
-	e.updateManager.SetVersion(autoUpdateSettings.Version)
+	e.updateManager.SetVersion(autoUpdateSettings.Version, autoUpdateSettings.AlwaysUpdate)
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
@@ -842,7 +824,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate, false)
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
 
 	if update.GetNetbirdConfig() != nil {
@@ -1315,8 +1297,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// Test received (upstream) servers for availability right away instead of upon usage.
 	// If no server of a server group responds this will disable the respective handler and retry later.
-	e.dnsServer.ProbeAvailability()
-
+	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 

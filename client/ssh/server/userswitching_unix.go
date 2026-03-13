@@ -146,32 +146,30 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 	}
 	gid := uint32(gid64)
 
-	groups, err := s.getSupplementaryGroups(localUser.Username)
-	if err != nil {
-		log.Warnf("failed to get supplementary groups for user %s: %v", localUser.Username, err)
+	groups, err := s.getSupplementaryGroups(localUser)
+	if err != nil || len(groups) == 0 {
+		if err != nil {
+			log.Warnf("failed to get supplementary groups for user %s: %v", localUser.Username, err)
+		}
 		groups = []uint32{gid}
 	}
 
 	return uid, gid, groups, nil
 }
 
-// getSupplementaryGroups retrieves supplementary group IDs for a user
-func (s *Server) getSupplementaryGroups(username string) ([]uint32, error) {
-	u, err := user.Lookup(username)
+// getSupplementaryGroups retrieves supplementary group IDs for a user.
+// Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds.
+func (s *Server) getSupplementaryGroups(u *user.User) ([]uint32, error) {
+	groupIDStrings, err := groupIdsWithFallback(u)
 	if err != nil {
-		return nil, fmt.Errorf("lookup user %s: %w", username, err)
-	}
-
-	groupIDStrings, err := u.GroupIds()
-	if err != nil {
-		return nil, fmt.Errorf("get group IDs for user %s: %w", username, err)
+		return nil, fmt.Errorf("get group IDs for user %s: %w", u.Username, err)
 	}
 
 	groups := make([]uint32, len(groupIDStrings))
 	for i, gidStr := range groupIDStrings {
 		gid64, err := strconv.ParseUint(gidStr, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("invalid group ID %s for user %s: %w", gidStr, username, err)
+			return nil, fmt.Errorf("invalid group ID %s for user %s: %w", gidStr, u.Username, err)
 		}
 		groups[i] = uint32(gid64)
 	}

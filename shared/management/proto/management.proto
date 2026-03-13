@@ -340,8 +340,8 @@ message PeerConfig {
 message AutoUpdateSettings {
   string version = 1;
   /*
-    alwaysUpdate = true → Updates happen automatically in the background
-    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+    alwaysUpdate = true → Updates are installed automatically in the background
+    alwaysUpdate = false → Updates require user interaction from the UI
    */
   bool alwaysUpdate = 2;
 }
