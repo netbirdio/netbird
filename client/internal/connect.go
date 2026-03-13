@@ -503,6 +503,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
+		DisableDefaultRoute: config.DisableDefaultRoute,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
 		BlockLANAccess:      config.BlockLANAccess,

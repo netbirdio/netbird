@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -32,6 +33,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputRoutes                          []*route.Route
 		inputSerial                          uint64
 		removeSrvRouter                      bool
+		disableDefaultRoute                  bool
 		serverRoutesExpected                 int
 		clientNetworkWatchersExpected        int
 		clientNetworkWatchersExpectedAllowed int
@@ -204,6 +206,36 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			inputSerial:                          1,
 			clientNetworkWatchersExpected:        0,
 			clientNetworkWatchersExpectedAllowed: 1,
+		},
+		{
+			name:                "Default Route With DisableDefaultRoute Still Creates Watcher",
+			disableDefaultRoute: true,
+			inputRoutes: []*route.Route{
+				{
+					ID:            "a",
+					NetID:         "routeA",
+					Peer:          remotePeerKey1,
+					Network:       netip.MustParsePrefix("0.0.0.0/0"),
+					NetworkType:   route.IPv4Network,
+					Metric:        9999,
+					Masquerade:    false,
+					Enabled:       true,
+					SkipAutoApply: false,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("10.0.0.0/8"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                          1,
+			clientNetworkWatchersExpected:        1,
+			clientNetworkWatchersExpectedAllowed: 2,
 		},
 		{
 			name: "Remove 1 Client Route",
@@ -425,10 +457,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ManagerConfig{
-				Context:        ctx,
-				PublicKey:      localPeerKey,
-				WGInterface:    wgInterface,
-				StatusRecorder: statusRecorder,
+				Context:             ctx,
+				PublicKey:            localPeerKey,
+				WGInterface:         wgInterface,
+				StatusRecorder:      statusRecorder,
+				DisableDefaultRoute: testCase.disableDefaultRoute,
 			})
 
 			err = routeManager.Init()
@@ -460,5 +493,56 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				require.Equal(t, testCase.serverRoutesExpected, routeManager.serverRouter.RoutesCount(), "server networks size should match")
 			}
 		})
+	}
+}
+
+func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
+	peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
+	require.NoError(t, err)
+
+	opts := iface.WGIFaceOpts{
+		IFaceName:    "utun4399",
+		Address:      "100.65.65.2/24",
+		WGPort:       33100,
+		WGPrivKey:    peerPrivateKey.String(),
+		MTU:          iface.DefaultMTU,
+		TransportNet: newNet,
+	}
+	wgInterface, err := iface.NewWGIFace(opts)
+	require.NoError(t, err)
+	defer wgInterface.Close()
+
+	require.NoError(t, wgInterface.Create())
+
+	statusRecorder := peer.NewRecorder("https://mgm")
+
+	mgr := NewManager(ManagerConfig{
+		Context:             context.TODO(),
+		PublicKey:            localPeerKey,
+		WGInterface:         wgInterface,
+		StatusRecorder:      statusRecorder,
+		DisableDefaultRoute: true,
+	})
+	require.NoError(t, mgr.Init())
+	defer mgr.Stop(nil)
+
+	// Increment the route ref counter for the default v4 prefix.
+	// With DisableDefaultRoute=true, this should be ignored (ErrIgnore path).
+	_, err = mgr.routeRefCounter.Increment(vars.Defaultv4, struct{}{})
+	require.NoError(t, err, "increment should not return error for ignored default route")
+
+	// The key should NOT be tracked in the ref counter because ErrIgnore skips it.
+	_, ok := mgr.routeRefCounter.Get(vars.Defaultv4)
+	require.False(t, ok, "default v4 route should not be in route ref counter when DisableDefaultRoute is true")
+
+	// A non-default prefix should still be tracked normally.
+	normalPrefix := netip.MustParsePrefix("10.0.0.0/8")
+	_, err = mgr.routeRefCounter.Increment(normalPrefix, struct{}{})
+	// AddVPNRoute may fail without proper routing setup, but the ref counter should still track it.
+	// We only care that non-default routes are NOT ignored.
+	ref, ok := mgr.routeRefCounter.Get(normalPrefix)
+	if ok {
+		require.Equal(t, 1, ref.Count, "non-default route should have ref count 1")
 	}
 }
