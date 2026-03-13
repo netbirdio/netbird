@@ -19,6 +19,7 @@ import (
 const (
 	// defaultPushInterval is the default interval for pushing metrics
 	defaultPushInterval = 5 * time.Minute
+	minPushInterval     = 1 * time.Second
 )
 
 // defaultMetricsServerURL is used as fallback when NB_METRICS_FORCE_SENDING is true
@@ -58,39 +59,39 @@ type remoteConfigProvider interface {
 type Push struct {
 	metrics       metricsImplementation
 	configManager remoteConfigProvider
-	config        PushConfig
 	agentVersion  *goversion.Version
 
 	peerID string
 	peerMu sync.RWMutex
 
-	client      *http.Client
-	envInterval time.Duration
-	envAddress  *url.URL
+	client          *http.Client
+	cfgForceSending bool
+	cfgInterval     time.Duration
+	cfgAddress      *url.URL
 }
 
 // NewPush creates a new Push instance with configuration resolution
 func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, config PushConfig, agentVersion string) (*Push, error) {
-	var envInterval time.Duration
-	var envAddress *url.URL
+	var cfgInterval time.Duration
+	var cfgAddress *url.URL
 
 	if config.ForceSending {
-		envInterval = config.Interval
+		cfgInterval = config.Interval
 		if config.Interval <= 0 {
-			envInterval = defaultPushInterval
+			cfgInterval = defaultPushInterval
 		}
 
-		envAddress = config.ServerAddress
-		if envAddress == nil {
-			envAddress = defaultMetricsServerURL
+		cfgAddress = config.ServerAddress
+		if cfgAddress == nil {
+			cfgAddress = defaultMetricsServerURL
 		}
 	} else {
-		envAddress = config.ServerAddress
+		cfgAddress = config.ServerAddress
 
 		if config.Interval < 0 {
 			log.Warnf("negative metrics push interval %s", config.Interval)
 		} else {
-			envInterval = config.Interval
+			cfgInterval = config.Interval
 		}
 	}
 
@@ -102,12 +103,12 @@ func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, 
 	}
 
 	return &Push{
-		metrics:       metrics,
-		configManager: configManager,
-		config:        config,
-		agentVersion:  parsedVersion,
-		envInterval:   envInterval,
-		envAddress:    envAddress,
+		metrics:         metrics,
+		configManager:   configManager,
+		agentVersion:    parsedVersion,
+		cfgForceSending: config.ForceSending,
+		cfgInterval:     cfgInterval,
+		cfgAddress:      cfgAddress,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -127,10 +128,10 @@ func (p *Push) SetPeerID(peerID string) {
 func (p *Push) Start(ctx context.Context) {
 	// Log initial state
 	switch {
-	case p.config.ForceSending:
-		log.Infof("started metrics push with force sending to %s, interval %s", p.envAddress, p.envInterval)
-	case p.config.ServerAddress != nil:
-		log.Infof("started metrics push with server URL override: %s", p.config.ServerAddress.String())
+	case p.cfgForceSending:
+		log.Infof("started metrics push with force sending to %s, interval %s", p.cfgAddress, p.cfgInterval)
+	case p.cfgAddress != nil:
+		log.Infof("started metrics push with server URL override: %s", p.cfgAddress.String())
 	default:
 		log.Infof("started metrics push, server URL will be resolved from remote config")
 	}
@@ -153,6 +154,9 @@ func (p *Push) Start(ctx context.Context) {
 			}
 		}
 
+		if interval < minPushInterval {
+			interval = defaultPushInterval
+		}
 		timer.Reset(interval)
 	}
 }
@@ -160,8 +164,8 @@ func (p *Push) Start(ctx context.Context) {
 // resolve returns the push URL and interval for the next cycle.
 // Returns empty pushURL to skip this cycle.
 func (p *Push) resolve(ctx context.Context) (pushURL string, interval time.Duration) {
-	if p.config.ForceSending {
-		return p.resolveServerURL(nil), p.envInterval
+	if p.cfgForceSending {
+		return p.resolveServerURL(nil), p.cfgInterval
 	}
 
 	config := p.configManager.RefreshIfNeeded(ctx)
@@ -170,9 +174,11 @@ func (p *Push) resolve(ctx context.Context) (pushURL string, interval time.Durat
 		return "", defaultPushInterval
 	}
 
-	interval = config.Interval
-	if p.envInterval > 0 {
-		interval = p.envInterval
+	// prefer env variables instead of remote config
+	if p.cfgInterval > 0 {
+		interval = p.cfgInterval
+	} else {
+		interval = config.Interval
 	}
 
 	if !isVersionInRange(p.agentVersion, config.VersionSince, config.VersionUntil) {
@@ -250,8 +256,8 @@ func (p *Push) push(ctx context.Context, pushURL string) error {
 // Precedence: envAddress (env var) > remote config server_url
 func (p *Push) resolveServerURL(remoteServerURL *url.URL) string {
 	var baseURL *url.URL
-	if p.envAddress != nil {
-		baseURL = p.envAddress
+	if p.cfgAddress != nil {
+		baseURL = p.cfgAddress
 	} else {
 		baseURL = remoteServerURL
 	}
