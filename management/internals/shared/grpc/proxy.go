@@ -493,16 +493,17 @@ func (s *ProxyServiceServer) perProxyMessage(update *proto.GetMappingUpdateRespo
 // should be set on the copy.
 func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	return &proto.ProxyMapping{
-		Type:             m.Type,
-		Id:               m.Id,
-		AccountId:        m.AccountId,
-		Domain:           m.Domain,
-		Path:             m.Path,
-		Auth:             m.Auth,
-		PassHostHeader:   m.PassHostHeader,
-		RewriteRedirects: m.RewriteRedirects,
-		Mode:             m.Mode,
-		ListenPort:       m.ListenPort,
+		Type:               m.Type,
+		Id:                 m.Id,
+		AccountId:          m.AccountId,
+		Domain:             m.Domain,
+		Path:               m.Path,
+		Auth:               m.Auth,
+		PassHostHeader:     m.PassHostHeader,
+		RewriteRedirects:   m.RewriteRedirects,
+		Mode:               m.Mode,
+		ListenPort:         m.ListenPort,
+		AccessRestrictions: m.AccessRestrictions,
 	}
 }
 
@@ -561,6 +562,8 @@ func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto
 		return s.authenticatePIN(ctx, req.GetId(), v, service.Auth.PinAuth)
 	case *proto.AuthenticateRequest_Password:
 		return s.authenticatePassword(ctx, req.GetId(), v, service.Auth.PasswordAuth)
+	case *proto.AuthenticateRequest_HeaderAuth:
+		return s.authenticateHeader(ctx, req.GetId(), v, service.Auth.HeaderAuths)
 	default:
 		return false, "", ""
 	}
@@ -592,6 +595,30 @@ func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID
 	}
 
 	return true, "password-user", proxyauth.MethodPassword
+}
+
+func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_HeaderAuth, auths []*rpservice.HeaderAuthConfig) (bool, string, proxyauth.Method) {
+	if len(auths) == 0 {
+		log.WithContext(ctx).Debugf("header authentication attempted but no header auths configured for service %s", serviceID)
+		return false, "", ""
+	}
+
+	var lastErr error
+	for _, auth := range auths {
+		if auth == nil || !auth.Enabled {
+			continue
+		}
+		if err := argon2id.Verify(req.HeaderAuth.GetHeaderValue(), auth.Value); err != nil {
+			lastErr = err
+			continue
+		}
+		return true, "header-user", proxyauth.MethodHeader
+	}
+
+	if lastErr != nil {
+		s.logAuthenticationError(ctx, lastErr, "Header")
+	}
+	return false, "", ""
 }
 
 func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err error, authType string) {
@@ -752,6 +779,9 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
 	}
+	if redirectURL.Scheme != "https" && redirectURL.Scheme != "http" {
+		return nil, status.Errorf(codes.InvalidArgument, "redirect URL must use http or https scheme")
+	}
 	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
 	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
 	if err != nil {
@@ -836,12 +866,9 @@ func (s *ProxyServiceServer) generateHMAC(input string) string {
 
 // ValidateState validates the state parameter from an OAuth callback.
 // Returns the original redirect URL if valid, or an error if invalid.
+// The HMAC is verified before consuming the PKCE verifier to prevent
+// an attacker from invalidating a legitimate user's auth flow.
 func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
-	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
-	if !ok {
-		return "", "", errors.New("no verifier for state")
-	}
-
 	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
 	if len(parts) != 3 {
@@ -863,6 +890,12 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 
 	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
 		return "", "", errors.New("invalid state signature")
+	}
+
+	// Consume the PKCE verifier only after HMAC validation passes.
+	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
+	if !ok {
+		return "", "", errors.New("no verifier for state")
 	}
 
 	return verifier, redirectURL, nil

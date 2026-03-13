@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
+	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -67,6 +68,8 @@ type Relay struct {
 	dialTimeout time.Duration
 	sessionTTL  time.Duration
 	maxSessions int
+	filter      *restrict.Filter
+	geo         restrict.GeoResolver
 
 	mu       sync.RWMutex
 	sessions map[clientAddr]*session
@@ -114,6 +117,10 @@ type RelayConfig struct {
 	SessionTTL  time.Duration
 	MaxSessions int
 	AccessLog   l4Logger
+	// Filter holds connection-level IP/geo restrictions. Nil means no restrictions.
+	Filter *restrict.Filter
+	// Geo is the geolocation lookup used for country-based restrictions.
+	Geo restrict.GeoResolver
 }
 
 // New creates a UDP relay for the given listener and backend target.
@@ -146,6 +153,8 @@ func New(parentCtx context.Context, cfg RelayConfig) *Relay {
 		dialTimeout: dialTimeout,
 		sessionTTL:  sessionTTL,
 		maxSessions: maxSessions,
+		filter:      cfg.Filter,
+		geo:         cfg.Geo,
 		sessions:    make(map[clientAddr]*session),
 		bufPool: sync.Pool{
 			New: func() any {
@@ -166,7 +175,16 @@ func (r *Relay) ServiceID() types.ServiceID {
 
 // SetObserver sets the session lifecycle observer. Must be called before Serve.
 func (r *Relay) SetObserver(obs SessionObserver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.observer = obs
+}
+
+// getObserver returns the current session lifecycle observer.
+func (r *Relay) getObserver() SessionObserver {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.observer
 }
 
 // Serve starts the relay loop. It blocks until the context is canceled
@@ -209,8 +227,8 @@ func (r *Relay) Serve() {
 		}
 		sess.bytesIn.Add(int64(nw))
 
-		if r.observer != nil {
-			r.observer.UDPPacketRelayed(types.RelayDirectionClientToBackend, nw)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPPacketRelayed(types.RelayDirectionClientToBackend, nw)
 		}
 		r.bufPool.Put(bufp)
 	}
@@ -234,6 +252,10 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 		return nil, r.ctx.Err()
 	}
 
+	if err := r.checkAccessRestrictions(addr); err != nil {
+		return nil, err
+	}
+
 	r.mu.Lock()
 
 	if sess, ok = r.sessions[key]; ok && sess != nil {
@@ -248,16 +270,16 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 
 	if len(r.sessions) >= r.maxSessions {
 		r.mu.Unlock()
-		if r.observer != nil {
-			r.observer.UDPSessionRejected(r.accountID)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPSessionRejected(r.accountID)
 		}
 		return nil, fmt.Errorf("session limit reached (%d)", r.maxSessions)
 	}
 
 	if !r.sessLimiter.Allow() {
 		r.mu.Unlock()
-		if r.observer != nil {
-			r.observer.UDPSessionRejected(r.accountID)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPSessionRejected(r.accountID)
 		}
 		return nil, fmt.Errorf("session creation rate limited")
 	}
@@ -274,8 +296,8 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 		r.mu.Lock()
 		delete(r.sessions, key)
 		r.mu.Unlock()
-		if r.observer != nil {
-			r.observer.UDPSessionDialError(r.accountID)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPSessionDialError(r.accountID)
 		}
 		return nil, fmt.Errorf("dial backend %s: %w", r.target, err)
 	}
@@ -293,8 +315,8 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 	r.sessions[key] = sess
 	r.mu.Unlock()
 
-	if r.observer != nil {
-		r.observer.UDPSessionStarted(r.accountID)
+	if obs := r.getObserver(); obs != nil {
+		obs.UDPSessionStarted(r.accountID)
 	}
 
 	r.sessWg.Go(func() {
@@ -303,6 +325,21 @@ func (r *Relay) getOrCreateSession(addr net.Addr) (*session, error) {
 
 	r.logger.Debugf("UDP session created for %s", addr)
 	return sess, nil
+}
+
+func (r *Relay) checkAccessRestrictions(addr net.Addr) error {
+	if r.filter == nil {
+		return nil
+	}
+	clientIP, err := addrFromUDPAddr(addr)
+	if err != nil {
+		return fmt.Errorf("parse client address %s for restriction check: %w", addr, err)
+	}
+	if v := r.filter.Check(clientIP, r.geo); v != restrict.Allow {
+		r.logDeny(clientIP, v)
+		return fmt.Errorf("access restricted for %s", addr)
+	}
+	return nil
 }
 
 // relayBackendToClient reads packets from the backend and writes them
@@ -332,8 +369,8 @@ func (r *Relay) relayBackendToClient(ctx context.Context, sess *session) {
 		}
 		sess.bytesOut.Add(int64(nw))
 
-		if r.observer != nil {
-			r.observer.UDPPacketRelayed(types.RelayDirectionBackendToClient, nw)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPPacketRelayed(types.RelayDirectionBackendToClient, nw)
 		}
 	}
 }
@@ -402,9 +439,10 @@ func (r *Relay) cleanupIdleSessions() {
 	}
 	r.mu.Unlock()
 
+	obs := r.getObserver()
 	for _, sess := range expired {
-		if r.observer != nil {
-			r.observer.UDPSessionEnded(r.accountID)
+		if obs != nil {
+			obs.UDPSessionEnded(r.accountID)
 		}
 		r.logSessionEnd(sess)
 	}
@@ -429,8 +467,8 @@ func (r *Relay) removeSession(sess *session) {
 	if removed {
 		r.logger.Debugf("UDP session %s ended (client→backend: %d bytes, backend→client: %d bytes)",
 			sess.addr, sess.bytesIn.Load(), sess.bytesOut.Load())
-		if r.observer != nil {
-			r.observer.UDPSessionEnded(r.accountID)
+		if obs := r.getObserver(); obs != nil {
+			obs.UDPSessionEnded(r.accountID)
 		}
 		r.logSessionEnd(sess)
 	}
@@ -456,6 +494,22 @@ func (r *Relay) logSessionEnd(sess *session) {
 		DurationMs:    time.Unix(0, sess.lastSeen.Load()).Sub(sess.createdAt).Milliseconds(),
 		BytesUpload:   sess.bytesIn.Load(),
 		BytesDownload: sess.bytesOut.Load(),
+	})
+}
+
+// logDeny sends an access log entry for a denied UDP packet.
+func (r *Relay) logDeny(clientIP netip.Addr, verdict restrict.Verdict) {
+	if r.accessLog == nil {
+		return
+	}
+
+	r.accessLog.LogL4(accesslog.L4Entry{
+		AccountID:  r.accountID,
+		ServiceID:  r.serviceID,
+		Protocol:   accesslog.ProtocolUDP,
+		Host:       r.domain,
+		SourceIP:   clientIP,
+		DenyReason: verdict.String(),
 	})
 }
 
@@ -485,12 +539,22 @@ func (r *Relay) Close() {
 	}
 	r.mu.Unlock()
 
+	obs := r.getObserver()
 	for _, sess := range closedSessions {
-		if r.observer != nil {
-			r.observer.UDPSessionEnded(r.accountID)
+		if obs != nil {
+			obs.UDPSessionEnded(r.accountID)
 		}
 		r.logSessionEnd(sess)
 	}
 
 	r.sessWg.Wait()
+}
+
+// addrFromUDPAddr extracts a netip.Addr from a net.Addr.
+func addrFromUDPAddr(addr net.Addr) (netip.Addr, error) {
+	ap, err := netip.ParseAddrPort(addr.String())
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return ap.Addr().Unmap(), nil
 }

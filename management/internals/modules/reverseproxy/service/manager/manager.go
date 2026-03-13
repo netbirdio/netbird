@@ -229,6 +229,12 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		return fmt.Errorf("hash secrets: %w", err)
 	}
 
+	for i, h := range service.Auth.HeaderAuths {
+		if h != nil && h.Enabled && h.Value == "" {
+			return status.Errorf(status.InvalidArgument, "header_auths[%d]: value is required", i)
+		}
+	}
+
 	keyPair, err := sessionkey.GenerateKeyPair()
 	if err != nil {
 		return fmt.Errorf("generate session keys: %w", err)
@@ -488,6 +494,9 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 		}
 
 		m.preserveExistingAuthSecrets(service, existingService)
+		if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
+			return err
+		}
 		m.preserveServiceMetadata(service, existingService)
 		m.preserveListenPort(service, existingService)
 		updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
@@ -544,18 +553,52 @@ func isHTTPFamily(mode string) bool {
 	return mode == "" || mode == "http"
 }
 
-func (m *Manager) preserveExistingAuthSecrets(service, existingService *service.Service) {
-	if service.Auth.PasswordAuth != nil && service.Auth.PasswordAuth.Enabled &&
+func (m *Manager) preserveExistingAuthSecrets(svc, existingService *service.Service) {
+	if svc.Auth.PasswordAuth != nil && svc.Auth.PasswordAuth.Enabled &&
 		existingService.Auth.PasswordAuth != nil && existingService.Auth.PasswordAuth.Enabled &&
-		service.Auth.PasswordAuth.Password == "" {
-		service.Auth.PasswordAuth = existingService.Auth.PasswordAuth
+		svc.Auth.PasswordAuth.Password == "" {
+		svc.Auth.PasswordAuth = existingService.Auth.PasswordAuth
 	}
 
-	if service.Auth.PinAuth != nil && service.Auth.PinAuth.Enabled &&
+	if svc.Auth.PinAuth != nil && svc.Auth.PinAuth.Enabled &&
 		existingService.Auth.PinAuth != nil && existingService.Auth.PinAuth.Enabled &&
-		service.Auth.PinAuth.Pin == "" {
-		service.Auth.PinAuth = existingService.Auth.PinAuth
+		svc.Auth.PinAuth.Pin == "" {
+		svc.Auth.PinAuth = existingService.Auth.PinAuth
 	}
+
+	preserveHeaderAuthHashes(svc.Auth.HeaderAuths, existingService.Auth.HeaderAuths)
+}
+
+// preserveHeaderAuthHashes fills in empty header auth values from the existing
+// service so that unchanged secrets are not lost on update.
+func preserveHeaderAuthHashes(headers, existing []*service.HeaderAuthConfig) {
+	if len(headers) == 0 || len(existing) == 0 {
+		return
+	}
+	existingByHeader := make(map[string]string, len(existing))
+	for _, h := range existing {
+		if h != nil && h.Value != "" {
+			existingByHeader[h.Header] = h.Value
+		}
+	}
+	for _, h := range headers {
+		if h != nil && h.Enabled && h.Value == "" {
+			if hash, ok := existingByHeader[h.Header]; ok {
+				h.Value = hash
+			}
+		}
+	}
+}
+
+// validateHeaderAuthValues checks that all enabled header auths have a value
+// (either freshly provided or preserved from the existing service).
+func validateHeaderAuthValues(headers []*service.HeaderAuthConfig) error {
+	for i, h := range headers {
+		if h != nil && h.Enabled && h.Value == "" {
+			return status.Errorf(status.InvalidArgument, "header_auths[%d]: value is required", i)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) preserveServiceMetadata(service, existingService *service.Service) {
@@ -605,6 +648,8 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 				}
 				return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
 			}
+		default:
+			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
 	}
 	return nil

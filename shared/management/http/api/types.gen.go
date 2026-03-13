@@ -1276,6 +1276,21 @@ func (e PutApiIntegrationsMspTenantsIdInviteJSONBodyValue) Valid() bool {
 	}
 }
 
+// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+type AccessRestrictions struct {
+	// AllowedCidrs CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
+	AllowedCidrs *[]string `json:"allowed_cidrs,omitempty"`
+
+	// AllowedCountries ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
+	AllowedCountries *[]string `json:"allowed_countries,omitempty"`
+
+	// BlockedCidrs CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
+	BlockedCidrs *[]string `json:"blocked_cidrs,omitempty"`
+
+	// BlockedCountries ISO 3166-1 alpha-2 country codes to block.
+	BlockedCountries *[]string `json:"blocked_countries,omitempty"`
+}
+
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
 	// CityName Commonly used English name of the city
@@ -1986,6 +2001,18 @@ type GroupRequest struct {
 	// Peers List of peers ids
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
+}
+
+// HeaderAuthConfig Static header-value authentication. The proxy checks that the named header matches the configured value.
+type HeaderAuthConfig struct {
+	// Enabled Whether header auth is enabled
+	Enabled bool `json:"enabled"`
+
+	// Header HTTP header name to check (e.g. "Authorization", "X-API-Key")
+	Header string `json:"header"`
+
+	// Value Expected header value. For Basic auth use "Basic base64(user:pass)". For Bearer use "Bearer token". Cleared in responses.
+	Value string `json:"value"`
 }
 
 // HuntressMatchAttributes Attribute conditions to match when approving agents
@@ -3324,6 +3351,9 @@ type ProxyAccessLog struct {
 	// StatusCode HTTP status code returned
 	StatusCode int `json:"status_code"`
 
+	// SubdivisionCode First-level administrative subdivision ISO code (e.g. state/province)
+	SubdivisionCode *string `json:"subdivision_code,omitempty"`
+
 	// Timestamp Timestamp when the request was made
 	Timestamp time.Time `json:"timestamp"`
 
@@ -3562,7 +3592,9 @@ type SentinelOneMatchAttributesNetworkStatus string
 
 // Service defines model for Service.
 type Service struct {
-	Auth ServiceAuthConfig `json:"auth"`
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               ServiceAuthConfig   `json:"auth"`
 
 	// Domain Domain for the service
 	Domain string `json:"domain"`
@@ -3605,6 +3637,7 @@ type ServiceMode string
 // ServiceAuthConfig defines model for ServiceAuthConfig.
 type ServiceAuthConfig struct {
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	HeaderAuths  *[]HeaderAuthConfig `json:"header_auths,omitempty"`
 	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
 	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
 	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
@@ -3627,7 +3660,9 @@ type ServiceMetaStatus string
 
 // ServiceRequest defines model for ServiceRequest.
 type ServiceRequest struct {
-	Auth *ServiceAuthConfig `json:"auth,omitempty"`
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               *ServiceAuthConfig  `json:"auth,omitempty"`
 
 	// Domain Domain for the service
 	Domain string `json:"domain"`

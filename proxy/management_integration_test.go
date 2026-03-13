@@ -490,7 +490,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 	logger := log.New()
 	logger.SetLevel(log.WarnLevel)
 
-	authMw := auth.NewMiddleware(logger, nil)
+	authMw := auth.NewMiddleware(logger, nil, nil)
 	proxyHandler := proxy.NewReverseProxy(nil, "auto", nil, logger)
 
 	clusterAddress := "test.proxy.io"
@@ -511,6 +511,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					0,
 					proxytypes.AccountID(mapping.GetAccountId()),
 					proxytypes.ServiceID(mapping.GetId()),
+					nil,
 				)
 				require.NoError(t, err)
 

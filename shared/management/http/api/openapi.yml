@@ -2826,6 +2826,10 @@ components:
           type: string
           description: "City name from geolocation"
           example: "San Francisco"
+        subdivision_code:
+          type: string
+          description: "First-level administrative subdivision ISO code (e.g. state/province)"
+          example: "CA"
         bytes_upload:
           type: integer
           format: int64
@@ -2952,26 +2956,32 @@ components:
         id:
           type: string
           description: Service ID
+          example: "cs8i4ug6lnn4g9hqv7mg"
         name:
           type: string
           description: Service name
+          example: "myapp.example.netbird.app"
         domain:
           type: string
           description: Domain for the service
+          example: "myapp.example.netbird.app"
         mode:
           type: string
           description: Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
           enum: [http, tcp, udp, tls]
           default: http
+          example: "http"
         listen_port:
           type: integer
           minimum: 0
           maximum: 65535
           description: Port the proxy listens on (L4/TLS only)
+          example: 8443
         port_auto_assigned:
           type: boolean
           description: Whether the listen port was auto-assigned
           readOnly: true
+          example: false
         proxy_cluster:
           type: string
           description: The proxy cluster handling this service (derived from domain)
@@ -2984,14 +2994,19 @@ components:
         enabled:
           type: boolean
           description: Whether the service is enabled
+          example: true
         pass_host_header:
           type: boolean
           description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+          example: false
         rewrite_redirects:
           type: boolean
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+          example: false
         auth:
           $ref: '#/components/schemas/ServiceAuthConfig'
+        access_restrictions:
+          $ref: '#/components/schemas/AccessRestrictions'
         meta:
           $ref: '#/components/schemas/ServiceMeta'
       required:
@@ -3035,19 +3050,23 @@ components:
         name:
           type: string
           description: Service name
+          example: "myapp.example.netbird.app"
         domain:
           type: string
           description: Domain for the service
+          example: "myapp.example.netbird.app"
         mode:
           type: string
           description: Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
           enum: [http, tcp, udp, tls]
           default: http
+          example: "http"
         listen_port:
           type: integer
           minimum: 0
           maximum: 65535
           description: Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+          example: 5432
         targets:
           type: array
           items:
@@ -3057,14 +3076,19 @@ components:
           type: boolean
           description: Whether the service is enabled
           default: true
+          example: true
         pass_host_header:
           type: boolean
           description: When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
+          example: false
         rewrite_redirects:
           type: boolean
           description: When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
+          example: false
         auth:
           $ref: '#/components/schemas/ServiceAuthConfig'
+        access_restrictions:
+          $ref: '#/components/schemas/AccessRestrictions'
       required:
         - name
         - domain
@@ -3075,13 +3099,16 @@ components:
         skip_tls_verify:
           type: boolean
           description: Skip TLS certificate verification for this backend
+          example: false
         request_timeout:
           type: string
           description: Per-target response timeout as a Go duration string (e.g. "30s", "2m")
+          example: "30s"
         path_rewrite:
           type: string
           description: Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
           enum: [preserve]
+          example: "preserve"
         custom_headers:
           type: object
           description: Extra headers sent to the backend. Hop-by-hop and proxy-managed headers (Host, Connection, Transfer-Encoding, etc.) are rejected.
@@ -3091,40 +3118,50 @@ components:
           additionalProperties:
             type: string
             pattern: '^[^\r\n]*$'
+          example: {"X-Custom-Header": "value"}
         proxy_protocol:
           type: boolean
           description: Send PROXY Protocol v2 header to this backend (TCP/TLS only)
+          example: false
         session_idle_timeout:
           type: string
           description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m"). Maximum 10m.
+          example: "2m"
     ServiceTarget:
       type: object
       properties:
         target_id:
           type: string
           description: Target ID
+          example: "cs8i4ug6lnn4g9hqv7mg"
         target_type:
           type: string
           description: Target type
           enum: [peer, host, domain, subnet]
+          example: "subnet"
         path:
           type: string
           description: URL path prefix for this target (HTTP only)
+          example: "/"
         protocol:
           type: string
           description: Protocol to use when connecting to the backend
           enum: [http, https, tcp, udp]
+          example: "http"
         host:
           type: string
           description: Backend ip or domain for this target
+          example: "10.10.0.1"
         port:
           type: integer
           minimum: 1
           maximum: 65535
           description: Backend port for this target
+          example: 8080
         enabled:
           type: boolean
           description: Whether this target is enabled
+          example: true
         options:
           $ref: '#/components/schemas/ServiceTargetOptions'
       required:
@@ -3144,15 +3181,73 @@ components:
           $ref: '#/components/schemas/BearerAuthConfig'
         link_auth:
           $ref: '#/components/schemas/LinkAuthConfig'
+        header_auths:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeaderAuthConfig'
+    HeaderAuthConfig:
+      type: object
+      description: Static header-value authentication. The proxy checks that the named header matches the configured value.
+      properties:
+        enabled:
+          type: boolean
+          description: Whether header auth is enabled
+          example: true
+        header:
+          type: string
+          description: HTTP header name to check (e.g. "Authorization", "X-API-Key")
+          example: "X-API-Key"
+        value:
+          type: string
+          description: Expected header value. For Basic auth use "Basic base64(user:pass)". For Bearer use "Bearer token". Cleared in responses.
+          example: "my-secret-api-key"
+      required:
+        - enabled
+        - header
+        - value
+    AccessRestrictions:
+      type: object
+      description: Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+      properties:
+        allowed_cidrs:
+          type: array
+          items:
+            type: string
+            format: cidr
+            example: "192.168.1.0/24"
+          description: CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
+        blocked_cidrs:
+          type: array
+          items:
+            type: string
+            format: cidr
+            example: "10.0.0.0/8"
+          description: CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
+        allowed_countries:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-zA-Z]{2}$'
+            example: "US"
+          description: ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
+        blocked_countries:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-zA-Z]{2}$'
+            example: "DE"
+          description: ISO 3166-1 alpha-2 country codes to block.
     PasswordAuthConfig:
       type: object
       properties:
         enabled:
           type: boolean
           description: Whether password auth is enabled
+          example: true
         password:
           type: string
           description: Auth password
+          example: "s3cret"
       required:
         - enabled
         - password
@@ -3162,9 +3257,11 @@ components:
         enabled:
           type: boolean
           description: Whether PIN auth is enabled
+          example: false
         pin:
           type: string
           description: PIN value
+          example: "1234"
       required:
         - enabled
         - pin
@@ -3174,10 +3271,12 @@ components:
         enabled:
           type: boolean
           description: Whether bearer auth is enabled
+          example: true
         distribution_groups:
           type: array
           items:
             type: string
+            example: "ch8i4ug6lnn4g9hqv7mg"
           description: List of group IDs that can use bearer auth
       required:
         - enabled
@@ -3187,6 +3286,7 @@ components:
         enabled:
           type: boolean
           description: Whether link auth is enabled
+          example: false
       required:
         - enabled
     ProxyCluster:
@@ -3217,20 +3317,25 @@ components:
         id:
           type: string
           description: Domain ID
+          example: "ds8i4ug6lnn4g9hqv7mg"
         domain:
           type: string
           description: Domain name
+          example: "example.netbird.app"
         validated:
           type: boolean
           description: Whether the domain has been validated
+          example: true
         type:
           $ref: '#/components/schemas/ReverseProxyDomainType'
         target_cluster:
           type: string
           description: The proxy cluster this domain is validated against (only for custom domains)
+          example: "eu.proxy.netbird.io"
         supports_custom_ports:
           type: boolean
           description: Whether the cluster supports binding arbitrary TCP/UDP ports
+          example: true
       required:
         - id
         - domain
@@ -3242,9 +3347,11 @@ components:
         domain:
           type: string
           description: Domain name
+          example: "myapp.example.com"
         target_cluster:
           type: string
           description: The proxy cluster this domain should be validated against
+          example: "eu.proxy.netbird.io"
       required:
         - domain
         - target_cluster
