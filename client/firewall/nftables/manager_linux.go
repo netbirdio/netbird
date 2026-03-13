@@ -95,7 +95,9 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.initNoTrackChains(workTable); err != nil {
-		return fmt.Errorf("init notrack chains: %w", err)
+		log.Warnf("failed to init notrack chains, eBPF proxy traffic may not work correctly: %v", err)
+		m.notrackOutputChain = nil
+		m.notrackPreroutingChain = nil
 	}
 
 	stateManager.RegisterState(&ShutdownState{})

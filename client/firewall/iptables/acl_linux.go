@@ -36,6 +36,7 @@ type aclManager struct {
 	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
+	ipsetSupported  bool
 
 	stateManager *statemanager.Manager
 }
@@ -47,6 +48,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
+		ipsetSupported:  true,
 	}, nil
 }
 
@@ -80,6 +82,12 @@ func (m *aclManager) AddPeerFiltering(
 ) ([]firewall.Rule, error) {
 	chain := chainNameInputRules
 
+	// If ipset is not supported on this system (e.g. missing ip_set kernel module),
+	// clear the ipset name so rules fall back to individual IP matching (-s ip).
+	if !m.ipsetSupported {
+		ipsetName = ""
+	}
+
 	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
 	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
 
@@ -109,21 +117,30 @@ func (m *aclManager) AddPeerFiltering(
 		}
 
 		if err := m.flushIPSet(ipsetName); err != nil {
-			if errors.Is(err, ipset.ErrSetNotExist) {
-				log.Debugf("flush ipset %s before use: %v", ipsetName, err)
-			} else {
-				log.Errorf("flush ipset %s before use: %v", ipsetName, err)
-			}
+			log.Debugf("flush ipset %s before use: %v", ipsetName, err)
 		}
 		if err := m.createIPSet(ipsetName); err != nil {
-			return nil, fmt.Errorf("create ipset: %w", err)
-		}
-		if err := m.addToIPSet(ipsetName, ip); err != nil {
-			return nil, fmt.Errorf("add IP to ipset: %w", err)
-		}
+			log.Warnf("ipset not supported, falling back to individual IP rules: %v", err)
+			m.ipsetSupported = false
+			ipsetName = ""
 
-		ipList := newIpList(ip.String())
-		m.ipsetStore.addIpList(ipsetName, ipList)
+			// Regenerate specs without ipset
+			specs = filterRuleSpecs(ip, string(protocol), sPort, dPort, action, "")
+			mangleSpecs = slices.Clone(specs)
+			mangleSpecs = append(mangleSpecs,
+				"-i", m.wgIface.Name(),
+				"-m", "addrtype", "--dst-type", "LOCAL",
+				"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+			)
+			specs = append(specs, "-j", actionToStr(action))
+		} else {
+			if err := m.addToIPSet(ipsetName, ip); err != nil {
+				return nil, fmt.Errorf("add IP to ipset: %w", err)
+			}
+
+			ipList := newIpList(ip.String())
+			m.ipsetStore.addIpList(ipsetName, ipList)
+		}
 	}
 
 	ok, err := m.iptablesClient.Exists(tableFilter, chain, specs...)
