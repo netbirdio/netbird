@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s/DNS"
-	netbirdDNSStateKeyIndexedFormat     = "State:/Network/Service/NetBird-%s-%d/DNS"
+	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s-%s/DNS"
+	netbirdDNSStateKeyIndexedFormat     = "State:/Network/Service/NetBird-%s-%s-%d/DNS"
 	globalIPv4State                     = "State:/Network/Global/IPv4"
 	primaryServiceStateKeyFormat        = "State:/Network/Service/%s/DNS"
 	keySupplementalMatchDomains         = "SupplementalMatchDomains"
@@ -51,14 +51,19 @@ const (
 type systemConfigurator struct {
 	createdKeys       map[string]struct{}
 	systemDNSSettings SystemDNSSettings
+	interfaceName     string
 
 	mu              sync.RWMutex
 	origNameservers []netip.Addr
 }
 
-func newHostManager() (*systemConfigurator, error) {
+func newHostManager(interfaceName string) (*systemConfigurator, error) {
+	if interfaceName == "" {
+		return nil, fmt.Errorf("interfaceName must not be empty")
+	}
 	return &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
+		createdKeys:   make(map[string]struct{}),
+		interfaceName: interfaceName,
 	}, nil
 }
 
@@ -67,6 +72,12 @@ func (s *systemConfigurator) supportCustomPort() bool {
 }
 
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+	if err := stateManager.UpdateState(&ShutdownState{
+		InterfaceName: s.interfaceName,
+	}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
+	}
+
 	var (
 		searchDomains []string
 		matchDomains  []string
@@ -123,7 +134,10 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 }
 
 func (s *systemConfigurator) updateState(stateManager *statemanager.Manager) {
-	if err := stateManager.UpdateState(&ShutdownState{CreatedKeys: maps.Keys(s.createdKeys)}); err != nil {
+	if err := stateManager.UpdateState(&ShutdownState{
+		InterfaceName: s.interfaceName,
+		CreatedKeys:   maps.Keys(s.createdKeys),
+	}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
 }
@@ -167,6 +181,7 @@ func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
 
 // discoverExistingKeys probes scutil for all NetBird DNS keys that may exist.
 // This handles the case where createdKeys is empty (e.g., state file lost after unclean shutdown).
+// It also discovers legacy-format keys from older versions for upgrade migration.
 func (s *systemConfigurator) discoverExistingKeys() []string {
 	dnsKeys, err := getSystemDNSKeys()
 	if err != nil {
@@ -176,20 +191,41 @@ func (s *systemConfigurator) discoverExistingKeys() []string {
 
 	var keys []string
 
+	// Current format: interface-scoped named keys
 	for _, suffix := range []string{searchSuffix, matchSuffix, localSuffix} {
-		key := getKeyWithInput(netbirdDNSStateKeyFormat, suffix)
+		key := getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, suffix)
 		if strings.Contains(dnsKeys, key) {
 			keys = append(keys, key)
 		}
 	}
 
+	// Current format: interface-scoped indexed keys
 	for _, suffix := range []string{searchSuffix, matchSuffix} {
 		for i := 0; ; i++ {
-			key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
+			key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, s.interfaceName, suffix, i)
 			if !strings.Contains(dnsKeys, key) {
 				break
 			}
 			keys = append(keys, key)
+		}
+	}
+
+	// Legacy format: non-interface-scoped keys from older versions
+	for _, suffix := range []string{searchSuffix, matchSuffix, localSuffix} {
+		legacyKey := fmt.Sprintf("State:/Network/Service/NetBird-%s/DNS", suffix)
+		if strings.Contains(dnsKeys, legacyKey) {
+			log.Infof("discovered legacy DNS key (no interface scope): %s", legacyKey)
+			keys = append(keys, legacyKey)
+		}
+	}
+	for _, suffix := range []string{searchSuffix, matchSuffix} {
+		for i := 0; ; i++ {
+			legacyKey := fmt.Sprintf("State:/Network/Service/NetBird-%s-%d/DNS", suffix, i)
+			if !strings.Contains(dnsKeys, legacyKey) {
+				break
+			}
+			log.Infof("discovered legacy indexed DNS key (no interface scope): %s", legacyKey)
+			keys = append(keys, legacyKey)
 		}
 	}
 
@@ -224,7 +260,7 @@ func (s *systemConfigurator) addLocalDNS() error {
 			return fmt.Errorf("recordSystemDNSSettings(): %w", err)
 		}
 	}
-	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
+	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, localSuffix)
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		log.Info("Not enabling local DNS server")
 		return nil
@@ -258,7 +294,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	if err != nil || primaryServiceKey == "" {
 		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
 	}
-	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
+	dnsServiceKey := fmt.Sprintf(primaryServiceStateKeyFormat, primaryServiceKey)
 	line := buildCommandLine("show", dnsServiceKey, "")
 	stdinCommands := wrapCommand(line)
 
@@ -385,7 +421,7 @@ func (s *systemConfigurator) addBatchedDomains(suffix string, domains []string, 
 	batches := splitDomainsIntoBatches(domains)
 
 	for i, batch := range batches {
-		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, suffix, i)
+		key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, s.interfaceName, suffix, i)
 		domainsStr := strings.Join(batch, " ")
 
 		if err := s.addDNSState(key, domainsStr, ip, port, enableSearch); err != nil {
@@ -469,8 +505,8 @@ func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
 	return nil
 }
 
-func getKeyWithInput(format, key string) string {
-	return fmt.Sprintf(format, key)
+func getKeyWithInput(format, iface, key string) string {
+	return fmt.Sprintf(format, iface, key)
 }
 
 func buildAddCommandLine(key, value string) string {

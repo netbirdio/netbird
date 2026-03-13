@@ -4,10 +4,13 @@ package dns
 
 import (
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type ShutdownState struct {
-	CreatedKeys []string
+	InterfaceName string   `json:"interface_name,omitempty"`
+	CreatedKeys   []string `json:"created_keys,omitempty"`
 }
 
 func (s *ShutdownState) Name() string {
@@ -15,7 +18,14 @@ func (s *ShutdownState) Name() string {
 }
 
 func (s *ShutdownState) Cleanup() error {
-	manager, err := newHostManager()
+	if s.InterfaceName == "" {
+		// State file from an older version without interface name — skip cleanup
+		// rather than fail; legacy keys will be cleaned up on next successful start.
+		log.Warn("dns shutdown state has no interface name, skipping cleanup of legacy scutil keys")
+		return nil
+	}
+
+	manager, err := newHostManager(s.InterfaceName)
 	if err != nil {
 		return fmt.Errorf("create host manager: %w", err)
 	}
