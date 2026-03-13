@@ -19,7 +19,6 @@ import (
 const (
 	// defaultPushInterval is the default interval for pushing metrics
 	defaultPushInterval = 5 * time.Minute
-	minPushInterval     = 1 * time.Second
 )
 
 // defaultMetricsServerURL is used as fallback when NB_METRICS_FORCE_SENDING is true
@@ -154,7 +153,7 @@ func (p *Push) Start(ctx context.Context) {
 			}
 		}
 
-		if interval < minPushInterval {
+		if interval <= 0 {
 			interval = defaultPushInterval
 		}
 		timer.Reset(interval)
