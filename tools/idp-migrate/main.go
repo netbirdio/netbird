@@ -105,61 +105,75 @@ func run(configPath, dataDirOverride, idpSeedInfo string, dryRun, force, skipCon
 
 	log.Infof("resolved connector: type=%s, id=%s, name=%s", conn.Type, conn.ID, conn.Name)
 
-	ctx := context.Background()
+	if err := migrateDB(cfg, effectiveDataDir, conn, dryRun, force); err != nil {
+		return err
+	}
 
-	// Open main store
+	if skipConfig {
+		log.Info("skipping config generation (--skip-config)")
+		return nil
+	}
+
+	return generateConfig(configPath, conn, cfg, dryRun)
+}
+
+// openStores opens the main and activity stores, returning migration-specific interfaces.
+// The caller must call the returned cleanup function to close the stores.
+func openStores(ctx context.Context, cfg *nbconfig.Config, dataDir string) (migration.MigrationStore, migration.MigrationEventStore, func(), error) {
 	engine := cfg.StoreConfig.Engine
 	if engine == "" {
 		engine = types.SqliteStoreEngine
 	}
 
-	mainStore, err := store.NewStore(ctx, engine, effectiveDataDir, nil, true)
+	mainStore, err := store.NewStore(ctx, engine, dataDir, nil, true)
 	if err != nil {
-		return fmt.Errorf("open main store: %w", err)
+		return nil, nil, nil, fmt.Errorf("open main store: %w", err)
 	}
-	defer func() { _ = mainStore.Close(ctx) }()
 
 	if cfg.DataStoreEncryptionKey != "" {
 		fieldEncrypt, err := crypt.NewFieldEncrypt(cfg.DataStoreEncryptionKey)
 		if err != nil {
-			return fmt.Errorf("init field encryption: %w", err)
+			_ = mainStore.Close(ctx)
+			return nil, nil, nil, fmt.Errorf("init field encryption: %w", err)
 		}
 		mainStore.SetFieldEncrypt(fieldEncrypt)
 	}
 
-	// Type-assert to migration-specific interfaces (SqlStore implements these via duck typing)
 	migStore, ok := mainStore.(migration.MigrationStore)
 	if !ok {
-		return fmt.Errorf("store does not support migration operations (ListUsers/UpdateUserID)")
+		_ = mainStore.Close(ctx)
+		return nil, nil, nil, fmt.Errorf("store does not support migration operations (ListUsers/UpdateUserID)")
 	}
 
-	// Open activity store (non-fatal if it fails — events.db may not exist)
+	cleanup := func() { _ = mainStore.Close(ctx) }
+
 	var migEventStore migration.MigrationEventStore
-	actStore, err := activitystore.NewSqlStore(ctx, effectiveDataDir, cfg.DataStoreEncryptionKey)
+	actStore, err := activitystore.NewSqlStore(ctx, dataDir, cfg.DataStoreEncryptionKey)
 	if err != nil {
 		log.Warnf("could not open activity store (events.db may not exist): %v", err)
 	} else {
-		migEventStore = actStore // *activitystore.Store satisfies MigrationEventStore via duck typing
-		defer func() { _ = actStore.Close(ctx) }()
+		migEventStore = actStore
+		prevCleanup := cleanup
+		cleanup = func() { _ = actStore.Close(ctx); prevCleanup() }
 	}
 
-	// Preview: count pending vs already-migrated users
-	users, err := migStore.ListUsers(ctx)
+	return migStore, migEventStore, cleanup, nil
+}
+
+// migrateDB opens the stores, previews pending users, and runs the DB migration.
+func migrateDB(cfg *nbconfig.Config, dataDir string, conn *dex.Connector, dryRun, force bool) error {
+	ctx := context.Background()
+
+	migStore, migEventStore, cleanup, err := openStores(ctx, cfg, dataDir)
 	if err != nil {
-		return fmt.Errorf("list users: %w", err)
+		return err
 	}
+	defer cleanup()
 
-	var pending, alreadyMigrated int
-	for _, u := range users {
-		if _, _, decErr := dex.DecodeDexUserID(u.Id); decErr == nil {
-			alreadyMigrated++
-		} else {
-			pending++
-		}
+	pending, err := previewUsers(ctx, migStore)
+	if err != nil {
+		return err
 	}
-
-	log.Infof("found %d total users: %d pending migration, %d already migrated", len(users), pending, alreadyMigrated)
-
 	if pending == 0 {
 		log.Info("no users need migration — all done")
 		return nil
@@ -173,21 +187,13 @@ func run(configPath, dataDirOverride, idpSeedInfo string, dryRun, force, skipCon
 	}
 
 	if !dryRun && !force {
-		fmt.Printf("About to migrate %d users. This cannot be easily undone. Continue? [y/N] ", pending)
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
+		if !confirmPrompt(pending) {
 			log.Info("migration cancelled by user")
 			return nil
 		}
 	}
 
-	srv := &migrationServer{
-		store:      migStore,
-		eventStore: migEventStore,
-	}
-
+	srv := &migrationServer{store: migStore, eventStore: migEventStore}
 	if err := migration.MigrateUsersToStaticConnectors(srv, conn); err != nil {
 		return fmt.Errorf("migrate users: %w", err)
 	}
@@ -195,18 +201,37 @@ func run(configPath, dataDirOverride, idpSeedInfo string, dryRun, force, skipCon
 	if !dryRun {
 		log.Info("DB migration completed successfully")
 	}
-
-	// Config generation
-	if skipConfig {
-		log.Info("skipping config generation (--skip-config)")
-		return nil
-	}
-
-	if err := generateConfig(configPath, conn, cfg, dryRun); err != nil {
-		return fmt.Errorf("generate config: %w", err)
-	}
-
 	return nil
+}
+
+// previewUsers counts pending vs already-migrated users and logs a summary.
+// Returns the number of users still needing migration.
+func previewUsers(ctx context.Context, migStore migration.MigrationStore) (int, error) {
+	users, err := migStore.ListUsers(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list users: %w", err)
+	}
+
+	var pending, alreadyMigrated int
+	for _, u := range users {
+		if _, _, decErr := dex.DecodeDexUserID(u.Id); decErr == nil {
+			alreadyMigrated++
+		} else {
+			pending++
+		}
+	}
+
+	log.Infof("found %d total users: %d pending migration, %d already migrated", len(users), pending, alreadyMigrated)
+	return pending, nil
+}
+
+// confirmPrompt asks the user for interactive confirmation. Returns true if they accept.
+func confirmPrompt(pending int) bool {
+	fmt.Printf("About to migrate %d users. This cannot be easily undone. Continue? [y/N] ", pending)
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer == "y" || answer == "yes"
 }
 
 // loadConfig reads management.json into the management config struct.
