@@ -24,8 +24,8 @@ const (
 	EnvMetricsServerURL = "NB_METRICS_SERVER_URL"
 
 	// EnvMetricsInterval overrides the push interval from the remote config.
-	// When set, metrics are always pushed at this interval, ignoring remote config's
-	// period_minutes and version range filtering.
+	// Only affects how often metrics are pushed; remote config availability
+	// and version range checks are still respected.
 	// Format: duration string like "1h", "30m", "4h"
 	EnvMetricsInterval = "NB_METRICS_INTERVAL"
 
