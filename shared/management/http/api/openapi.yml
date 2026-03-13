@@ -3181,21 +3181,25 @@ components:
           type: array
           items:
             type: string
+            format: cidr
           description: CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
         blocked_cidrs:
           type: array
           items:
             type: string
+            format: cidr
           description: CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
         allowed_countries:
           type: array
           items:
             type: string
+            pattern: '^[a-zA-Z]{2}$'
           description: ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
         blocked_countries:
           type: array
           items:
             type: string
+            pattern: '^[a-zA-Z]{2}$'
           description: ISO 3166-1 alpha-2 country codes to block.
     PasswordAuthConfig:
       type: object

@@ -24,6 +24,7 @@ const (
 	mmdbInnerName = "GeoLite2-City.mmdb"
 
 	downloadTimeout = 2 * time.Minute
+	maxMMDBSize     = 256 << 20 // 256 MB
 )
 
 // ensureMMDB checks for an existing MMDB file in dataDir. If none is found,
@@ -211,18 +212,49 @@ func extractMMDBFromTarGZ(tarGZPath, destPath string) error {
 		}
 
 		if hdr.Typeflag == tar.TypeReg && filepath.Base(hdr.Name) == mmdbInnerName {
-			out, err := os.Create(destPath) //nolint:gosec
-			if err != nil {
+			if hdr.Size < 0 || hdr.Size > maxMMDBSize {
+				return fmt.Errorf("mmdb entry size %d exceeds limit %d", hdr.Size, maxMMDBSize)
+			}
+			if err := extractToFileAtomic(io.LimitReader(tr, hdr.Size), destPath); err != nil {
 				return err
 			}
-			_, copyErr := io.Copy(out, tr) //nolint:gosec // G110: archive size bounded by MaxMind DB
-			closeErr := out.Close()
-			if copyErr != nil {
-				return copyErr
-			}
-			return closeErr
+			return nil
 		}
 	}
 
 	return fmt.Errorf("%s not found in archive", mmdbInnerName)
+}
+
+// extractToFileAtomic writes r to a temporary file in the same directory as
+// destPath, then renames it into place so a crash never leaves a truncated file.
+func extractToFileAtomic(r io.Reader, destPath string) error {
+	dir := filepath.Dir(destPath)
+	tmp, err := os.CreateTemp(dir, ".mmdb-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := io.Copy(tmp, r); err != nil { //nolint:gosec // G110: caller bounds with LimitReader
+		if closeErr := tmp.Close(); closeErr != nil {
+			log.Debugf("failed to close temp file %s: %v", tmpPath, closeErr)
+		}
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			log.Debugf("failed to remove temp file %s: %v", tmpPath, removeErr)
+		}
+		return fmt.Errorf("write mmdb: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			log.Debugf("failed to remove temp file %s: %v", tmpPath, removeErr)
+		}
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		if removeErr := os.Remove(tmpPath); removeErr != nil {
+			log.Debugf("failed to remove temp file %s: %v", tmpPath, removeErr)
+		}
+		return fmt.Errorf("rename to %s: %w", destPath, err)
+	}
+	return nil
 }

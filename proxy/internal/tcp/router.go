@@ -152,6 +152,7 @@ func (r *Router) HTTPListener() net.Listener {
 // stored and resolved by priority at lookup time (HTTP > TCP).
 // Empty host is ignored to prevent conflicts with ECH/ESNI fallback.
 func (r *Router) AddRoute(host SNIHost, route Route) {
+	host = SNIHost(strings.ToLower(string(host)))
 	if host == "" {
 		return
 	}
@@ -174,6 +175,8 @@ func (r *Router) AddRoute(host SNIHost, route Route) {
 // Active relay connections for the service are closed immediately.
 // If other routes remain for the host, they are preserved.
 func (r *Router) RemoveRoute(host SNIHost, svcID types.ServiceID) {
+	host = SNIHost(strings.ToLower(string(host)))
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

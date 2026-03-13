@@ -233,6 +233,7 @@ func envDurationOrDefault(key string, def time.Duration) time.Duration {
 	}
 	parsed, err := time.ParseDuration(v)
 	if err != nil {
+		log.Warnf("parse %s=%q: %v, using default %s", key, v, err, def)
 		return def
 	}
 	return parsed

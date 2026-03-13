@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/xid"
@@ -74,6 +75,7 @@ type Logger struct {
 
 	logSem        chan struct{}
 	cleanupCancel context.CancelFunc
+	dropped       atomic.Int64
 }
 
 // NewLogger creates a new access log Logger. The trustedProxies parameter
@@ -220,7 +222,8 @@ func (l *Logger) log(entry logEntry) {
 	select {
 	case l.logSem <- struct{}{}:
 	default:
-		l.logger.Debug("access log send dropped: worker limit reached")
+		total := l.dropped.Add(1)
+		l.logger.Debugf("access log send dropped: worker limit reached (total dropped: %d)", total)
 		return
 	}
 	go func() {

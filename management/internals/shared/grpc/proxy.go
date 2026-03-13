@@ -603,17 +603,21 @@ func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID s
 		return false, "", ""
 	}
 
+	var lastErr error
 	for _, auth := range auths {
 		if auth == nil || !auth.Enabled {
 			continue
 		}
 		if err := argon2id.Verify(req.HeaderAuth.GetHeaderValue(), auth.Value); err != nil {
-			s.logAuthenticationError(ctx, err, "Header")
+			lastErr = err
 			continue
 		}
 		return true, "header-user", proxyauth.MethodHeader
 	}
 
+	if lastErr != nil {
+		s.logAuthenticationError(ctx, lastErr, "Header")
+	}
 	return false, "", ""
 }
 

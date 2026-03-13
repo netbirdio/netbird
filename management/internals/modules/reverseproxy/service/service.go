@@ -550,7 +550,9 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 		s.Auth = authFromAPI(req.Auth)
 	}
 
-	s.Restrictions = restrictionsFromAPI(req.AccessRestrictions)
+	if req.AccessRestrictions != nil {
+		s.Restrictions = restrictionsFromAPI(req.AccessRestrictions)
+	}
 
 	return nil
 }
@@ -799,6 +801,9 @@ func (s *Service) validateL4Target(target *Target) error {
 	}
 	if target.Path != nil && *target.Path != "" && *target.Path != "/" {
 		return errors.New("path is not supported for L4 services")
+	}
+	if target.Options.SessionIdleTimeout < 0 {
+		return errors.New("session_idle_timeout must be positive for L4 services")
 	}
 	return nil
 }
