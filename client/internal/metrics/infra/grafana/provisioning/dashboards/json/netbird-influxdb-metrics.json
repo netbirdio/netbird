@@ -1,0 +1,219 @@
+{
+  "uid": "netbird-influxdb-metrics",
+  "title": "NetBird Client Metrics (InfluxDB)",
+  "tags": ["netbird", "connections", "influxdb"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 5,
+      "title": "Sync Duration Extremes",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
+          "refId": "A"
+        },
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Total Connection Time Extremes",
+      "type": "stat",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
+          "refId": "A"
+        },
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 1,
+      "title": "Sync Duration",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> set(key: \"_field\", value: \"Sync Duration\")",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "ICE vs Relay",
+      "type": "piechart",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> drop(columns: [\"deployment_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\"])\n  |> group(columns: [\"connection_pair_id\"])\n  |> last()\n  |> group(columns: [\"connection_type\"])\n  |> count()",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Connection Stage Durations (avg)",
+      "type": "bargauge",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"signaling_to_connection_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Signaling to Connection\"})",
+          "refId": "A"
+        },
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"connection_to_wg_handshake_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Connection to WG Handshake\"})",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Total Connection Time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> set(key: \"_field\", value: \"Total Connection Time\")",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 27,
+  "version": 1,
+  "refresh": "30s"
+}

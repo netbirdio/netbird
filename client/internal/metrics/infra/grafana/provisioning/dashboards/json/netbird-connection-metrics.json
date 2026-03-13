@@ -1,0 +1,131 @@
+{
+  "uid": "netbird-connection-metrics",
+  "title": "NetBird Client Connection Metrics",
+  "tags": ["netbird", "connections"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 8,
+      "title": "Sync Duration",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "netbird_sync_duration_seconds_sum / netbird_sync_duration_seconds_count * 1000",
+          "legendFormat": "{{deployment_type}}/{{os}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "id": 1,
+      "title": "Connection Stage Durations",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "netbird_peer_connection_stage_signaling_received_to_connection_sum / netbird_peer_connection_stage_signaling_received_to_connection_count * 1000",
+          "legendFormat": "1. SignalingReceived→Connection ({{deployment_type}}/{{connection_type}})",
+          "refId": "A"
+        },
+        {
+          "expr": "netbird_peer_connection_stage_connection_to_wg_handshake_sum / netbird_peer_connection_stage_connection_to_wg_handshake_count * 1000",
+          "legendFormat": "2. Connection→WG Handshake ({{deployment_type}}/{{connection_type}})",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Total Connection Time",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "expr": "netbird_peer_connection_total_creation_to_wg_handshake_sum / netbird_peer_connection_total_creation_to_wg_handshake_count * 1000",
+          "legendFormat": "{{deployment_type}}/{{connection_type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "ICE vs Relay",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "expr": "sum(netbird_peer_connection_total_creation_to_wg_handshake_count{connection_type=\"ice\"})",
+          "legendFormat": "ICE",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(netbird_peer_connection_total_creation_to_wg_handshake_count{connection_type=\"relay\"})",
+          "legendFormat": "Relay",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["sum"]
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "schemaVersion": 27,
+  "version": 12,
+  "refresh": "30s"
+}

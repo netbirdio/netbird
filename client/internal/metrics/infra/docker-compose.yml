@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  ingest:
+    container_name: ingest
+    build:
+      context: ./ingest
+    ports:
+      - "8087:8087"
+    environment:
+      - INGEST_LISTEN_ADDR=:8087
+      - INFLUXDB_URL=http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:?required}
+      - CONFIG_METRICS_SERVER_URL=${CONFIG_METRICS_SERVER_URL:-}
+      - CONFIG_VERSION_SINCE=${CONFIG_VERSION_SINCE:-0.0.0}
+      - CONFIG_VERSION_UNTIL=${CONFIG_VERSION_UNTIL:-99.99.99}
+      - CONFIG_PERIOD_MINUTES=${CONFIG_PERIOD_MINUTES:-5}
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+    networks:
+      - metrics
+
+  influxdb:
+    container_name: influxdb
+    image: influxdb:2
+    # No ports exposed — only accessible within the metrics network
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - ./influxdb/scripts:/docker-entrypoint-initdb.d
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_ADMIN_PASSWORD:?required}
+      - DOCKER_INFLUXDB_INIT_ORG=netbird
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+      - DOCKER_INFLUXDB_INIT_RETENTION=365d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN:-}
+    restart: unless-stopped
+    networks:
+      - metrics
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:11.6.0
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+      - INFLUXDB_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN:-}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+    networks:
+      - metrics
+
+volumes:
+  influxdb-data:
+  grafana-data:
+
+networks:
+  metrics:
+    driver: bridge
