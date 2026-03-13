@@ -1,0 +1,51 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title prefix
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const allowedTags = [
+              'management',
+              'client',
+              'signal',
+              'proxy',
+              'relay',
+              'misc',
+              'infrastructure',
+              'self-hosted',
+              'doc',
+            ];
+
+            const pattern = /^\[([^\]]+)\]\s+.+/;
+            const match = title.match(pattern);
+
+            if (!match) {
+              core.setFailed(
+                `PR title must start with a tag in brackets.\n` +
+                `Example: [client] fix something\n` +
+                `Allowed tags: ${allowedTags.join(', ')}`
+              );
+              return;
+            }
+
+            const tags = match[1].split(',').map(t => t.trim().toLowerCase());
+
+            const invalid = tags.filter(t => !allowedTags.includes(t));
+            if (invalid.length > 0) {
+              core.setFailed(
+                `Invalid tag(s): ${invalid.join(', ')}\n` +
+                `Allowed tags: ${allowedTags.join(', ')}`
+              );
+              return;
+            }
+
+            console.log(`Valid PR title tags: [${tags.join(', ')}]`);

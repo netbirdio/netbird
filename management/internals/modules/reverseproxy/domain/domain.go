@@ -15,3 +15,12 @@ type Domain struct {
 	Type          Type   `gorm:"-"`
 	Validated     bool
 }
+
+// EventMeta returns activity event metadata for a domain
+func (d *Domain) EventMeta() map[string]any {
+	return map[string]any{
+		"domain":         d.Domain,
+		"target_cluster": d.TargetCluster,
+		"validated":      d.Validated,
+	}
+}

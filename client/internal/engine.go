@@ -28,14 +28,15 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/device"
+	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -53,13 +54,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/shared/management/domain"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
-
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
@@ -75,7 +74,6 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
-	connInitLimit            = 200
 	disableAutoUpdate        = "disabled"
 )
 
@@ -208,7 +206,6 @@ type Engine struct {
 	syncRespMux         sync.RWMutex
 	persistSyncResponse bool
 	latestSyncResponse  *mgmProto.SyncResponse
-	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
 	// auto-update
@@ -224,6 +221,8 @@ type Engine struct {
 
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
+
+	exposeManager *expose.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -266,7 +265,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
 		checks:         checks,
-		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 		jobExecutor:    jobexec.NewExecutor(),
 	}
@@ -419,6 +417,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.cancel()
 	}
 	e.ctx, e.cancel = context.WithCancel(e.clientCtx)
+	e.exposeManager = expose.NewManager(e.ctx, e.mgmClient)
 
 	wgIface, err := e.newWgIface()
 	if err != nil {
@@ -801,7 +800,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 
 	disabled := autoUpdateSettings.Version == disableAutoUpdate
 
-	// Stop and cleanup if disabled
+	// stop and cleanup if disabled
 	if e.updateManager != nil && disabled {
 		log.Infof("auto-update is disabled, stopping update manager")
 		e.updateManager.Stop()
@@ -1316,8 +1315,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// Test received (upstream) servers for availability right away instead of upon usage.
 	// If no server of a server group responds this will disable the respective handler and retry later.
-	e.dnsServer.ProbeAvailability()
-
+	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 
@@ -1539,7 +1537,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		IFaceDiscover:  e.mobileDep.IFaceDiscover,
 		RelayManager:   e.relayManager,
 		SrWatcher:      e.srWatcher,
-		Semaphore:      e.connSemaphore,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1562,8 +1559,10 @@ func (e *Engine) receiveSignalEvents() {
 		defer e.shutdownWg.Done()
 		// connect to a stream of messages coming from the signal server
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
+			start := time.Now()
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
+			gotLock := time.Since(start)
 
 			// Check context INSIDE lock to ensure atomicity with shutdown
 			if e.ctx.Err() != nil {
@@ -1586,6 +1585,8 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)
@@ -1820,9 +1821,16 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 	return e.routeManager
 }
 
-// GetFirewallManager returns the firewall manager
+// GetFirewallManager returns the firewall manager.
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
+}
+
+// GetExposeManager returns the expose session manager.
+func (e *Engine) GetExposeManager() *expose.Manager {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	return e.exposeManager
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

@@ -208,6 +208,25 @@ const (
 	ServiceUpdated Activity = 109
 	ServiceDeleted Activity = 110
 
+	// PeerServiceExposed indicates that a peer exposed a service via the reverse proxy
+	PeerServiceExposed Activity = 111
+	// PeerServiceUnexposed indicates that a peer-exposed service was removed
+	PeerServiceUnexposed Activity = 112
+	// PeerServiceExposeExpired indicates that a peer-exposed service was removed due to TTL expiration
+	PeerServiceExposeExpired Activity = 113
+
+	// AccountPeerExposeEnabled indicates that a user enabled peer expose for the account
+	AccountPeerExposeEnabled Activity = 114
+	// AccountPeerExposeDisabled indicates that a user disabled peer expose for the account
+	AccountPeerExposeDisabled Activity = 115
+
+	// DomainAdded indicates that a user added a custom domain
+	DomainAdded Activity = 118
+	// DomainDeleted indicates that a user deleted a custom domain
+	DomainDeleted Activity = 119
+	// DomainValidated indicates that a custom domain was validated
+	DomainValidated Activity = 120
+
 	AccountDeleted Activity = 99999
 )
 
@@ -345,6 +364,17 @@ var activityMap = map[Activity]Code{
 	ServiceCreated: {"Service created", "service.create"},
 	ServiceUpdated: {"Service updated", "service.update"},
 	ServiceDeleted: {"Service deleted", "service.delete"},
+
+	PeerServiceExposed:       {"Peer exposed service", "service.peer.expose"},
+	PeerServiceUnexposed:     {"Peer unexposed service", "service.peer.unexpose"},
+	PeerServiceExposeExpired: {"Peer exposed service expired", "service.peer.expose.expire"},
+
+	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
+	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	DomainAdded:     {"Domain added", "domain.add"},
+	DomainDeleted:   {"Domain deleted", "domain.delete"},
+	DomainValidated: {"Domain validated", "domain.validate"},
 }
 
 // StringCode returns a string code of the activity

@@ -42,6 +42,8 @@ var (
 	acmeCerts         bool
 	acmeAddr          string
 	acmeDir           string
+	acmeEABKID        string
+	acmeEABHMACKey    string
 	acmeChallengeType string
 	debugEndpoint     bool
 	debugEndpointAddr string
@@ -51,8 +53,10 @@ var (
 	certFile          string
 	certKeyFile       string
 	certLockMethod    string
+	wildcardCertDir   string
 	wgPort            int
 	proxyProtocol     bool
+	preSharedKey      string
 )
 
 var rootCmd = &cobra.Command{
@@ -73,6 +77,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&acmeCerts, "acme-certs", envBoolOrDefault("NB_PROXY_ACME_CERTIFICATES", false), "Generate ACME certificates automatically")
 	rootCmd.Flags().StringVar(&acmeAddr, "acme-addr", envStringOrDefault("NB_PROXY_ACME_ADDRESS", ":80"), "HTTP address for ACME HTTP-01 challenges (only used when acme-challenge-type is http-01)")
 	rootCmd.Flags().StringVar(&acmeDir, "acme-dir", envStringOrDefault("NB_PROXY_ACME_DIRECTORY", acme.LetsEncryptURL), "URL of ACME challenge directory")
+	rootCmd.Flags().StringVar(&acmeEABKID, "acme-eab-kid", envStringOrDefault("NB_PROXY_ACME_EAB_KID", ""), "ACME EAB KID for account registration")
+	rootCmd.Flags().StringVar(&acmeEABHMACKey, "acme-eab-hmac-key", envStringOrDefault("NB_PROXY_ACME_EAB_HMAC_KEY", ""), "ACME EAB HMAC key for account registration")
 	rootCmd.Flags().StringVar(&acmeChallengeType, "acme-challenge-type", envStringOrDefault("NB_PROXY_ACME_CHALLENGE_TYPE", "tls-alpn-01"), "ACME challenge type: tls-alpn-01 (default, port 443 only) or http-01 (requires port 80)")
 	rootCmd.Flags().BoolVar(&debugEndpoint, "debug-endpoint", envBoolOrDefault("NB_PROXY_DEBUG_ENDPOINT", false), "Enable debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&debugEndpointAddr, "debug-endpoint-addr", envStringOrDefault("NB_PROXY_DEBUG_ENDPOINT_ADDRESS", "localhost:8444"), "Address for the debug HTTP endpoint")
@@ -82,8 +88,10 @@ func init() {
 	rootCmd.Flags().StringVar(&certFile, "cert-file", envStringOrDefault("NB_PROXY_CERTIFICATE_FILE", "tls.crt"), "TLS certificate filename within the certificate directory")
 	rootCmd.Flags().StringVar(&certKeyFile, "cert-key-file", envStringOrDefault("NB_PROXY_CERTIFICATE_KEY_FILE", "tls.key"), "TLS certificate key filename within the certificate directory")
 	rootCmd.Flags().StringVar(&certLockMethod, "cert-lock-method", envStringOrDefault("NB_PROXY_CERT_LOCK_METHOD", "auto"), "Certificate lock method for cross-replica coordination: auto, flock, or k8s-lease")
+	rootCmd.Flags().StringVar(&wildcardCertDir, "wildcard-cert-dir", envStringOrDefault("NB_PROXY_WILDCARD_CERT_DIR", ""), "Directory containing wildcard certificate pairs (<name>.crt/<name>.key). Wildcard patterns are extracted from SANs automatically")
 	rootCmd.Flags().IntVar(&wgPort, "wg-port", envIntOrDefault("NB_PROXY_WG_PORT", 0), "WireGuard listen port (0 = random). Fixed port only works with single-account deployments")
 	rootCmd.Flags().BoolVar(&proxyProtocol, "proxy-protocol", envBoolOrDefault("NB_PROXY_PROXY_PROTOCOL", false), "Enable PROXY protocol on TCP listeners to preserve client IPs behind L4 proxies")
+	rootCmd.Flags().StringVar(&preSharedKey, "preshared-key", envStringOrDefault("NB_PROXY_PRESHARED_KEY", ""), "Define a pre-shared key for the tunnel between proxy and peers")
 }
 
 // Execute runs the root command.
@@ -147,6 +155,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 		GenerateACMECertificates: acmeCerts,
 		ACMEChallengeAddress:     acmeAddr,
 		ACMEDirectory:            acmeDir,
+		ACMEEABKID:               acmeEABKID,
+		ACMEEABHMACKey:           acmeEABHMACKey,
 		ACMEChallengeType:        acmeChallengeType,
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
@@ -154,8 +164,10 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
+		WildcardCertDir:          wildcardCertDir,
 		WireguardPort:            wgPort,
 		ProxyProtocol:            proxyProtocol,
+		PreSharedKey:             preSharedKey,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

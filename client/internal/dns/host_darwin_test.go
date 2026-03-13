@@ -3,7 +3,10 @@
 package dns
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
 	"net/netip"
 	"os/exec"
 	"path/filepath"
@@ -49,17 +52,22 @@ func TestDarwinDNSUncleanShutdownCleanup(t *testing.T) {
 
 	require.NoError(t, sm.PersistState(context.Background()))
 
-	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
-	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
 	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
 
+	// Collect all created keys for cleanup verification
+	createdKeys := make([]string, 0, len(configurator.createdKeys))
+	for key := range configurator.createdKeys {
+		createdKeys = append(createdKeys, key)
+	}
+
 	defer func() {
-		for _, key := range []string{searchKey, matchKey, localKey} {
+		for _, key := range createdKeys {
 			_ = removeTestDNSKey(key)
 		}
+		_ = removeTestDNSKey(localKey)
 	}()
 
-	for _, key := range []string{searchKey, matchKey, localKey} {
+	for _, key := range createdKeys {
 		exists, err := checkDNSKeyExists(key)
 		require.NoError(t, err)
 		if exists {
@@ -83,10 +91,220 @@ func TestDarwinDNSUncleanShutdownCleanup(t *testing.T) {
 	err = shutdownState.Cleanup()
 	require.NoError(t, err)
 
-	for _, key := range []string{searchKey, matchKey, localKey} {
+	for _, key := range createdKeys {
 		exists, err := checkDNSKeyExists(key)
 		require.NoError(t, err)
 		assert.False(t, exists, "Key %s should NOT exist after cleanup", key)
+	}
+}
+
+// generateShortDomains generates domains like a.com, b.com, ..., aa.com, ab.com, etc.
+func generateShortDomains(count int) []string {
+	domains := make([]string, 0, count)
+	for i := range count {
+		label := ""
+		n := i
+		for {
+			label = string(rune('a'+n%26)) + label
+			n = n/26 - 1
+			if n < 0 {
+				break
+			}
+		}
+		domains = append(domains, label+".com")
+	}
+	return domains
+}
+
+// generateLongDomains generates domains like subdomain-000.department.organization-name.example.com
+func generateLongDomains(count int) []string {
+	domains := make([]string, 0, count)
+	for i := range count {
+		domains = append(domains, fmt.Sprintf("subdomain-%03d.department.organization-name.example.com", i))
+	}
+	return domains
+}
+
+// readDomainsFromKey reads the SupplementalMatchDomains array back from scutil for a given key.
+func readDomainsFromKey(t *testing.T, key string) []string {
+	t.Helper()
+
+	cmd := exec.Command(scutilPath)
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("open\nshow %s\nquit\n", key))
+	out, err := cmd.Output()
+	require.NoError(t, err, "scutil show should succeed")
+
+	var domains []string
+	inArray := false
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "SupplementalMatchDomains") && strings.Contains(line, "<array>") {
+			inArray = true
+			continue
+		}
+		if inArray {
+			if line == "}" {
+				break
+			}
+			// lines look like: "0 : a.com"
+			parts := strings.SplitN(line, " : ", 2)
+			if len(parts) == 2 {
+				domains = append(domains, parts[1])
+			}
+		}
+	}
+	require.NoError(t, scanner.Err())
+	return domains
+}
+
+func TestSplitDomainsIntoBatches(t *testing.T) {
+	tests := []struct {
+		name            string
+		domains         []string
+		expectedCount   int
+		checkAllPresent bool
+	}{
+		{
+			name:          "empty",
+			domains:       nil,
+			expectedCount: 0,
+		},
+		{
+			name:            "under_limit",
+			domains:         generateShortDomains(10),
+			expectedCount:   1,
+			checkAllPresent: true,
+		},
+		{
+			name:            "at_element_limit",
+			domains:         generateShortDomains(50),
+			expectedCount:   1,
+			checkAllPresent: true,
+		},
+		{
+			name:            "over_element_limit",
+			domains:         generateShortDomains(51),
+			expectedCount:   2,
+			checkAllPresent: true,
+		},
+		{
+			name:            "triple_element_limit",
+			domains:         generateShortDomains(150),
+			expectedCount:   3,
+			checkAllPresent: true,
+		},
+		{
+			name:            "long_domains_hit_byte_limit",
+			domains:         generateLongDomains(50),
+			checkAllPresent: true,
+		},
+		{
+			name:            "500_short_domains",
+			domains:         generateShortDomains(500),
+			expectedCount:   10,
+			checkAllPresent: true,
+		},
+		{
+			name:            "500_long_domains",
+			domains:         generateLongDomains(500),
+			checkAllPresent: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			batches := splitDomainsIntoBatches(tc.domains)
+
+			if tc.expectedCount > 0 {
+				assert.Len(t, batches, tc.expectedCount, "expected %d batches", tc.expectedCount)
+			}
+
+			// Verify each batch respects limits
+			for i, batch := range batches {
+				assert.LessOrEqual(t, len(batch), maxDomainsPerResolverEntry,
+					"batch %d exceeds element limit", i)
+
+				totalBytes := 0
+				for j, d := range batch {
+					if j > 0 {
+						totalBytes++
+					}
+					totalBytes += len(d)
+				}
+				assert.LessOrEqual(t, totalBytes, maxDomainBytesPerResolverEntry,
+					"batch %d exceeds byte limit (%d bytes)", i, totalBytes)
+			}
+
+			if tc.checkAllPresent {
+				var all []string
+				for _, batch := range batches {
+					all = append(all, batch...)
+				}
+				assert.Equal(t, tc.domains, all, "all domains should be present in order")
+			}
+		})
+	}
+}
+
+// TestMatchDomainBatching writes increasing numbers of domains via the batching mechanism
+// and verifies all domains are readable across multiple scutil keys.
+func TestMatchDomainBatching(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping scutil integration test in short mode")
+	}
+
+	testCases := []struct {
+		name      string
+		count     int
+		generator func(int) []string
+	}{
+		{"short_10", 10, generateShortDomains},
+		{"short_50", 50, generateShortDomains},
+		{"short_100", 100, generateShortDomains},
+		{"short_200", 200, generateShortDomains},
+		{"short_500", 500, generateShortDomains},
+		{"long_10", 10, generateLongDomains},
+		{"long_50", 50, generateLongDomains},
+		{"long_100", 100, generateLongDomains},
+		{"long_200", 200, generateLongDomains},
+		{"long_500", 500, generateLongDomains},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configurator := &systemConfigurator{
+				createdKeys: make(map[string]struct{}),
+			}
+
+			defer func() {
+				for key := range configurator.createdKeys {
+					_ = removeTestDNSKey(key)
+				}
+			}()
+
+			domains := tc.generator(tc.count)
+			err := configurator.addBatchedDomains(matchSuffix, domains, netip.MustParseAddr("100.64.0.1"), 53, false)
+			require.NoError(t, err)
+
+			batches := splitDomainsIntoBatches(domains)
+			t.Logf("wrote %d domains across %d batched keys", tc.count, len(batches))
+
+			// Read back all domains from all batched keys
+			var got []string
+			for i := range batches {
+				key := fmt.Sprintf(netbirdDNSStateKeyIndexedFormat, matchSuffix, i)
+				exists, err := checkDNSKeyExists(key)
+				require.NoError(t, err)
+				require.True(t, exists, "key %s should exist", key)
+
+				got = append(got, readDomainsFromKey(t, key)...)
+			}
+
+			t.Logf("read back %d/%d domains from %d keys", len(got), tc.count, len(batches))
+			assert.Equal(t, tc.count, len(got), "all domains should be readable")
+			assert.Equal(t, domains, got, "domains should match in order")
+		})
 	}
 }
 
@@ -158,15 +376,15 @@ func setupTestConfigurator(t *testing.T) (*systemConfigurator, *statemanager.Man
 		createdKeys: make(map[string]struct{}),
 	}
 
-	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
-	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
-	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
-
 	cleanup := func() {
 		_ = sm.Stop(context.Background())
-		for _, key := range []string{searchKey, matchKey, localKey} {
+		for key := range configurator.createdKeys {
 			_ = removeTestDNSKey(key)
 		}
+		// Also clean up old-format keys and local key in case they exist
+		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix))
+		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix))
+		_ = removeTestDNSKey(getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix))
 	}
 
 	return configurator, sm, cleanup

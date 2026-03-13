@@ -140,6 +140,23 @@ func initializeConfig() error {
 			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
 		}
 	}
+	if file := config.Server.Store.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
+
+	if engine := config.Server.ActivityStore.Engine; engine != "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
+		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
+	}
+	if file := config.Server.ActivityStore.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	}
 
 	log.Infof("Starting combined NetBird server")
 	logConfig(config)
@@ -476,9 +493,6 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*mgmtServer.BaseServer, error) {
 	mgmt := cfg.Management
 
-	dnsDomain := mgmt.DnsDomain
-	singleAccModeDomain := dnsDomain
-
 	// Extract port from listen address
 	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
 	if err != nil {
@@ -490,8 +504,9 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	mgmtSrv := mgmtServer.NewServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
-			DNSDomain:               dnsDomain,
-			MgmtSingleAccModeDomain: singleAccModeDomain,
+			DNSDomain:               "",
+			MgmtSingleAccModeDomain: "",
+			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,
@@ -668,8 +683,11 @@ func logEnvVars() {
 		if strings.HasPrefix(env, "NB_") {
 			key, _, _ := strings.Cut(env, "=")
 			value := os.Getenv(key)
-			if strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") {
+			keyLower := strings.ToLower(key)
+			if strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "key") || strings.Contains(keyLower, "password") {
 				value = maskSecret(value)
+			} else if strings.Contains(keyLower, "dsn") {
+				value = maskDSNPassword(value)
 			}
 			log.Infof("  %s=%s", key, value)
 			found = true

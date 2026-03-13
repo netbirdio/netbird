@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
@@ -11,13 +12,65 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+type testProxyController struct {
+	mu             sync.Mutex
+	clusterProxies map[string]map[string]struct{}
+}
+
+func newTestProxyController() *testProxyController {
+	return &testProxyController{
+		clusterProxies: make(map[string]map[string]struct{}),
+	}
+}
+
+func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
+}
+
+func (c *testProxyController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{}
+}
+
+func (c *testProxyController) RegisterProxyToCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.clusterProxies[clusterAddr]; !ok {
+		c.clusterProxies[clusterAddr] = make(map[string]struct{})
+	}
+	c.clusterProxies[clusterAddr][proxyID] = struct{}{}
+	return nil
+}
+
+func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clusterAddr, proxyID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if proxies, ok := c.clusterProxies[clusterAddr]; ok {
+		delete(proxies, proxyID)
+	}
+	return nil
+}
+
+func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	proxies, ok := c.clusterProxies[clusterAddr]
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(proxies))
+	for id := range proxies {
+		result = append(result, id)
+	}
+	return result
+}
+
 // registerFakeProxy adds a fake proxy connection to the server's internal maps
 // and returns the channel where messages will be received.
-func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.ProxyMapping {
-	ch := make(chan *proto.ProxyMapping, 10)
+func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan *proto.GetMappingUpdateResponse {
+	ch := make(chan *proto.GetMappingUpdateResponse, 10)
 	conn := &proxyConnection{
 		proxyID:  proxyID,
 		address:  clusterAddr,
@@ -25,13 +78,12 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 	}
 	s.connectedProxies.Store(proxyID, conn)
 
-	proxySet, _ := s.clusterProxies.LoadOrStore(clusterAddr, &sync.Map{})
-	proxySet.(*sync.Map).Store(proxyID, struct{}{})
+	_ = s.proxyController.RegisterProxyToCluster(context.Background(), clusterAddr, proxyID)
 
 	return ch
 }
 
-func drainChannel(ch chan *proto.ProxyMapping) *proto.ProxyMapping {
+func drainChannel(ch chan *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
 	select {
 	case msg := <-ch:
 		return msg
@@ -41,24 +93,29 @@ func drainChannel(ch chan *proto.ProxyMapping) *proto.ProxyMapping {
 }
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	const numProxies = 3
 
-	channels := make([]chan *proto.ProxyMapping, numProxies)
+	channels := make([]chan *proto.GetMappingUpdateResponse, numProxies)
 	for i := range numProxies {
 		id := "proxy-" + string(rune('a'+i))
 		channels[i] = registerFakeProxy(s, id, cluster)
 	}
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-1",
 		AccountId: "account-1",
@@ -68,14 +125,16 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 		},
 	}
 
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
 	tokens := make([]string, numProxies)
 	for i, ch := range channels {
-		msg := drainChannel(ch)
-		require.NotNil(t, msg, "proxy %d should receive a message", i)
-		assert.Equal(t, update.Domain, msg.Domain)
-		assert.Equal(t, update.Id, msg.Id)
+		resp := drainChannel(ch)
+		require.NotNil(t, resp, "proxy %d should receive a message", i)
+		require.Len(t, resp.Mapping, 1, "proxy %d should receive exactly one mapping", i)
+		msg := resp.Mapping[0]
+		assert.Equal(t, mapping.Domain, msg.Domain)
+		assert.Equal(t, mapping.Id, msg.Id)
 		assert.NotEmpty(t, msg.AuthToken, "proxy %d should have a non-empty token", i)
 		tokens[i] = msg.AuthToken
 	}
@@ -96,66 +155,84 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	const cluster = "proxy.example.com"
 	ch1 := registerFakeProxy(s, "proxy-a", cluster)
 	ch2 := registerFakeProxy(s, "proxy-b", cluster)
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED,
 		Id:        "service-1",
 		AccountId: "account-1",
 		Domain:    "test.example.com",
 	}
 
-	s.SendServiceUpdateToCluster(update, cluster)
+	s.SendServiceUpdateToCluster(context.Background(), mapping, cluster)
 
-	msg1 := drainChannel(ch1)
-	msg2 := drainChannel(ch2)
-	require.NotNil(t, msg1)
-	require.NotNil(t, msg2)
+	resp1 := drainChannel(ch1)
+	resp2 := drainChannel(ch2)
+	require.NotNil(t, resp1)
+	require.NotNil(t, resp2)
+	require.Len(t, resp1.Mapping, 1)
+	require.Len(t, resp2.Mapping, 1)
 
 	// Delete operations should not generate tokens
-	assert.Empty(t, msg1.AuthToken)
-	assert.Empty(t, msg2.AuthToken)
-
-	// No tokens should have been created
-	assert.Equal(t, 0, tokenStore.GetTokenCount())
+	assert.Empty(t, resp1.Mapping[0].AuthToken)
+	assert.Empty(t, resp2.Mapping[0].AuthToken)
 }
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
-	tokenStore := NewOneTimeTokenStore(time.Hour)
-	defer tokenStore.Close()
+	ctx := context.Background()
+	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
 
 	s := &ProxyServiceServer{
-		tokenStore:  tokenStore,
-		updatesChan: make(chan *proto.ProxyMapping, 100),
+		tokenStore:        tokenStore,
+		pkceVerifierStore: pkceStore,
 	}
+	s.SetProxyController(newTestProxyController())
 
 	// Register proxies in different clusters (SendServiceUpdate broadcasts to all)
 	ch1 := registerFakeProxy(s, "proxy-a", "cluster-a")
 	ch2 := registerFakeProxy(s, "proxy-b", "cluster-b")
 
-	update := &proto.ProxyMapping{
+	mapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-1",
 		AccountId: "account-1",
 		Domain:    "test.example.com",
 	}
 
+	update := &proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{mapping},
+	}
+
 	s.SendServiceUpdate(update)
 
-	msg1 := drainChannel(ch1)
-	msg2 := drainChannel(ch2)
-	require.NotNil(t, msg1)
-	require.NotNil(t, msg2)
+	resp1 := drainChannel(ch1)
+	resp2 := drainChannel(ch2)
+	require.NotNil(t, resp1)
+	require.NotNil(t, resp2)
+	require.Len(t, resp1.Mapping, 1)
+	require.Len(t, resp2.Mapping, 1)
+
+	msg1 := resp1.Mapping[0]
+	msg2 := resp2.Mapping[0]
 
 	assert.NotEmpty(t, msg1.AuthToken)
 	assert.NotEmpty(t, msg2.AuthToken)
@@ -178,10 +255,15 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 }
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	redirectURL := "https://app.example.com/callback"
@@ -202,31 +284,43 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 }
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	s.pkceVerifiers.Store("base64url|hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+	err = s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	require.NoError(t, err)
 
-	_, _, err := s.ValidateState("base64url|hmac")
+	_, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
 }
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
+	ctx := context.Background()
+	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
 			HMACKey: []byte("test-hmac-key"),
 		},
+		pkceVerifierStore: pkceStore,
 	}
 
 	// Store with tampered HMAC
-	s.pkceVerifiers.Store("dGVzdA==|nonce|wrong-hmac", pkceEntry{verifier: "test", createdAt: time.Now()})
+	err = s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	require.NoError(t, err)
 
-	_, _, err := s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
 }

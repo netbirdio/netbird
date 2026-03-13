@@ -409,11 +409,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: download mysql image
         if: matrix.store == 'mysql'
@@ -497,15 +504,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: Test
         run: |
@@ -586,15 +596,18 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Login to Docker hub
-        if: matrix.store == 'mysql' && (github.repository == github.head.repo.full_name || !github.head_ref)
-        uses: docker/login-action@v1
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: download mysql image
-        if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
+      - name: docker login for root user
+        if: github.event.pull_request && github.event.pull_request.head.repo && github.event.pull_request.head.repo.full_name == '' || github.repository == github.event.pull_request.head.repo.full_name || !github.head_ref
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sudo docker login --username "$DOCKER_USER" --password-stdin
 
       - name: Test
         run: |

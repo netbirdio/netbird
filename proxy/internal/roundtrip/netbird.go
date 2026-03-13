@@ -2,6 +2,7 @@ package roundtrip
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -52,9 +53,12 @@ type domainNotification struct {
 type clientEntry struct {
 	client    *embed.Client
 	transport *http.Transport
-	domains   map[domain.Domain]domainInfo
-	createdAt time.Time
-	started   bool
+	// insecureTransport is a clone of transport with TLS verification disabled,
+	// used when per-target skip_tls_verify is set.
+	insecureTransport *http.Transport
+	domains           map[domain.Domain]domainInfo
+	createdAt         time.Time
+	started           bool
 	// Per-backend in-flight limiting keyed by target host:port.
 	// TODO: clean up stale entries when backend targets change.
 	inflightMu  sync.Mutex
@@ -86,6 +90,13 @@ func (e *clientEntry) acquireInflight(backend backendKey) (release func(), ok bo
 	}
 }
 
+// ClientConfig holds configuration for the embedded NetBird client.
+type ClientConfig struct {
+	MgmtAddr     string
+	WGPort       int
+	PreSharedKey string
+}
+
 type statusNotifier interface {
 	NotifyStatus(ctx context.Context, accountID, serviceID, domain string, connected bool) error
 }
@@ -98,10 +109,9 @@ type managementClient interface {
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple domains to share the same connection.
 type NetBird struct {
-	mgmtAddr     string
 	proxyID      string
 	proxyAddr    string
-	wgPort       int
+	clientCfg    ClientConfig
 	logger       *log.Logger
 	mgmtClient   managementClient
 	transportCfg transportConfig
@@ -123,6 +133,9 @@ type ClientDebugInfo struct {
 
 // accountIDContextKey is the context key for storing the account ID.
 type accountIDContextKey struct{}
+
+// skipTLSVerifyContextKey is the context key for requesting insecure TLS.
+type skipTLSVerifyContextKey struct{}
 
 // AddPeer registers a domain for an account. If the account doesn't have a client yet,
 // one is created by authenticating with the management server using the provided token.
@@ -229,11 +242,12 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// The peer has already been created via CreateProxyPeer RPC with the public key.
 	client, err := embed.New(embed.Options{
 		DeviceName:    deviceNamePrefix + n.proxyID,
-		ManagementURL: n.mgmtAddr,
+		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  true,
-		WireguardPort: &n.wgPort,
+		WireguardPort: &n.clientCfg.WGPort,
+		PreSharedKey:  n.clientCfg.PreSharedKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)
@@ -242,27 +256,33 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// Create a transport using the client dialer. We do this instead of using
 	// the client's HTTPClient to avoid issues with request validation that do
 	// not work with reverse proxied requests.
+	transport := &http.Transport{
+		DialContext:           client.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          n.transportCfg.maxIdleConns,
+		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
+		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
+		IdleConnTimeout:       n.transportCfg.idleConnTimeout,
+		TLSHandshakeTimeout:   n.transportCfg.tlsHandshakeTimeout,
+		ExpectContinueTimeout: n.transportCfg.expectContinueTimeout,
+		ResponseHeaderTimeout: n.transportCfg.responseHeaderTimeout,
+		WriteBufferSize:       n.transportCfg.writeBufferSize,
+		ReadBufferSize:        n.transportCfg.readBufferSize,
+		DisableCompression:    n.transportCfg.disableCompression,
+	}
+
+	insecureTransport := transport.Clone()
+	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+
 	return &clientEntry{
-		client:  client,
-		domains: map[domain.Domain]domainInfo{d: {serviceID: serviceID}},
-		transport: &http.Transport{
-			DialContext:           client.DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          n.transportCfg.maxIdleConns,
-			MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
-			MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
-			IdleConnTimeout:       n.transportCfg.idleConnTimeout,
-			TLSHandshakeTimeout:   n.transportCfg.tlsHandshakeTimeout,
-			ExpectContinueTimeout: n.transportCfg.expectContinueTimeout,
-			ResponseHeaderTimeout: n.transportCfg.responseHeaderTimeout,
-			WriteBufferSize:       n.transportCfg.writeBufferSize,
-			ReadBufferSize:        n.transportCfg.readBufferSize,
-			DisableCompression:    n.transportCfg.disableCompression,
-		},
-		createdAt:   time.Now(),
-		started:     false,
-		inflightMap: make(map[backendKey]chan struct{}),
-		maxInflight: n.transportCfg.maxInflight,
+		client:            client,
+		domains:           map[domain.Domain]domainInfo{d: {serviceID: serviceID}},
+		transport:         transport,
+		insecureTransport: insecureTransport,
+		createdAt:         time.Now(),
+		started:           false,
+		inflightMap:       make(map[backendKey]chan struct{}),
+		maxInflight:       n.transportCfg.maxInflight,
 	}, nil
 }
 
@@ -366,6 +386,7 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 
 	client := entry.client
 	transport := entry.transport
+	insecureTransport := entry.insecureTransport
 	delete(n.clients, accountID)
 	n.clientsMux.Unlock()
 
@@ -380,6 +401,7 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, d d
 	}
 
 	transport.CloseIdleConnections()
+	insecureTransport.CloseIdleConnections()
 
 	if err := client.Stop(ctx); err != nil {
 		n.logger.WithFields(log.Fields{
@@ -408,6 +430,9 @@ func (n *NetBird) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	client := entry.client
 	transport := entry.transport
+	if skipTLSVerifyFromContext(req.Context()) {
+		transport = entry.insecureTransport
+	}
 	n.clientsMux.RUnlock()
 
 	release, ok := entry.acquireInflight(req.URL.Host)
@@ -450,6 +475,7 @@ func (n *NetBird) StopAll(ctx context.Context) error {
 	var merr *multierror.Error
 	for accountID, entry := range n.clients {
 		entry.transport.CloseIdleConnections()
+		entry.insecureTransport.CloseIdleConnections()
 		if err := entry.client.Stop(ctx); err != nil {
 			n.logger.WithFields(log.Fields{
 				"account_id": accountID,
@@ -536,18 +562,17 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 	return result
 }
 
-// NewNetBird creates a new NetBird transport. Set wgPort to 0 for a random
+// NewNetBird creates a new NetBird transport. Set clientCfg.WGPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(mgmtAddr, proxyID, proxyAddr string, wgPort int, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
-		mgmtAddr:       mgmtAddr,
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
-		wgPort:         wgPort,
+		clientCfg:      clientCfg,
 		logger:         logger,
 		clients:        make(map[types.AccountID]*clientEntry),
 		statusNotifier: notifier,
@@ -572,4 +597,15 @@ func AccountIDFromContext(ctx context.Context) types.AccountID {
 		return ""
 	}
 	return accountID
+}
+
+// WithSkipTLSVerify marks the context to use an insecure transport that skips
+// TLS certificate verification for the backend connection.
+func WithSkipTLSVerify(ctx context.Context) context.Context {
+	return context.WithValue(ctx, skipTLSVerifyContextKey{}, true)
+}
+
+func skipTLSVerifyFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(skipTLSVerifyContextKey{}).(bool)
+	return v
 }

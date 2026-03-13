@@ -188,7 +188,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		reactivated = true
 	}
 
-	resolver.ProbeAvailability()
+	resolver.ProbeAvailability(context.TODO())
 
 	if !failed {
 		t.Errorf("expected that resolving was deactivated")
