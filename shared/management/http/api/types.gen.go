@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 const (
@@ -658,6 +659,24 @@ func (e NetworkResourceType) Valid() bool {
 	case NetworkResourceTypeHost:
 		return true
 	case NetworkResourceTypeSubnet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NotificationChannelType.
+const (
+	NotificationChannelTypeEmail   NotificationChannelType = "email"
+	NotificationChannelTypeWebhook NotificationChannelType = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the NotificationChannelType enum.
+func (e NotificationChannelType) Valid() bool {
+	switch e {
+	case NotificationChannelTypeEmail:
+		return true
+	case NotificationChannelTypeWebhook:
 		return true
 	default:
 		return false
@@ -1878,6 +1897,12 @@ type EDRSentinelOneResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// EmailTarget Target configuration for email notification channels.
+type EmailTarget struct {
+	// Emails List of email addresses to send notifications to.
+	Emails []openapi_types.Email `json:"emails"`
+}
+
 // ErrorResponse Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
 type ErrorResponse struct {
 	// Message A human-readable error message.
@@ -2638,6 +2663,67 @@ type NetworkTrafficUser struct {
 	// Name Name of the user who initiated the event (if any).
 	Name string `json:"name"`
 }
+
+// NotificationChannelRequest Request body for creating or updating a notification channel.
+type NotificationChannelRequest struct {
+	// Enabled Whether this notification channel is active.
+	Enabled bool `json:"enabled"`
+
+	// EventTypes List of activity event type codes this channel subscribes to.
+	EventTypes []NotificationEventType `json:"event_types"`
+
+	// Target Channel-specific target configuration. The shape depends on the `type` field:
+	// - `email`: requires an `EmailTarget` object
+	// - `webhook`: requires a `WebhookTarget` object
+	Target *NotificationChannelRequest_Target `json:"target,omitempty"`
+
+	// Type The type of notification channel.
+	Type NotificationChannelType `json:"type"`
+}
+
+// NotificationChannelRequest_Target Channel-specific target configuration. The shape depends on the `type` field:
+// - `email`: requires an `EmailTarget` object
+// - `webhook`: requires a `WebhookTarget` object
+type NotificationChannelRequest_Target struct {
+	union json.RawMessage
+}
+
+// NotificationChannelResponse A notification channel configuration.
+type NotificationChannelResponse struct {
+	// Enabled Whether this notification channel is active.
+	Enabled bool `json:"enabled"`
+
+	// EventTypes List of activity event type codes this channel subscribes to.
+	EventTypes []NotificationEventType `json:"event_types"`
+
+	// Id Unique identifier of the notification channel.
+	Id *string `json:"id,omitempty"`
+
+	// Target Channel-specific target configuration. The shape depends on the `type` field:
+	// - `email`: an `EmailTarget` object
+	// - `webhook`: a `WebhookTarget` object
+	Target *NotificationChannelResponse_Target `json:"target,omitempty"`
+
+	// Type The type of notification channel.
+	Type NotificationChannelType `json:"type"`
+}
+
+// NotificationChannelResponse_Target Channel-specific target configuration. The shape depends on the `type` field:
+// - `email`: an `EmailTarget` object
+// - `webhook`: a `WebhookTarget` object
+type NotificationChannelResponse_Target struct {
+	union json.RawMessage
+}
+
+// NotificationChannelType The type of notification channel.
+type NotificationChannelType string
+
+// NotificationEventType An activity event type code. See `GET /api/integrations/notifications/types` for the full list
+// of supported event types and their human-readable descriptions.
+type NotificationEventType = string
+
+// NotificationTypeEntry A map of event type codes to their human-readable descriptions.
+type NotificationTypeEntry map[string]string
 
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
@@ -4173,6 +4259,16 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// WebhookTarget Target configuration for webhook notification channels.
+type WebhookTarget struct {
+	// Headers Custom HTTP headers sent with each webhook request.
+	// Values are write-only; in GET responses all values are masked.
+	Headers *map[string]string `json:"headers,omitempty"`
+
+	// Url The webhook endpoint URL to send notifications to.
+	Url string `json:"url"`
+}
+
 // WorkloadRequest defines model for WorkloadRequest.
 type WorkloadRequest struct {
 	union json.RawMessage
@@ -4526,6 +4622,12 @@ type PostApiIntegrationsMspTenantsIdSubscriptionJSONRequestBody PostApiIntegrati
 // PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody defines body for PostApiIntegrationsMspTenantsIdUnlink for application/json ContentType.
 type PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody PostApiIntegrationsMspTenantsIdUnlinkJSONBody
 
+// CreateNotificationChannelJSONRequestBody defines body for CreateNotificationChannel for application/json ContentType.
+type CreateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
+// UpdateNotificationChannelJSONRequestBody defines body for UpdateNotificationChannel for application/json ContentType.
+type UpdateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
 // CreateSCIMIntegrationJSONRequestBody defines body for CreateSCIMIntegration for application/json ContentType.
 type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
 
@@ -4621,6 +4723,130 @@ type PutApiUsersUserIdPasswordJSONRequestBody = PasswordChangeRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest
+
+// AsEmailTarget returns the union data inside the NotificationChannelRequest_Target as a EmailTarget
+func (t NotificationChannelRequest_Target) AsEmailTarget() (EmailTarget, error) {
+	var body EmailTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEmailTarget overwrites any union data inside the NotificationChannelRequest_Target as the provided EmailTarget
+func (t *NotificationChannelRequest_Target) FromEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEmailTarget performs a merge with any union data inside the NotificationChannelRequest_Target, using the provided EmailTarget
+func (t *NotificationChannelRequest_Target) MergeEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWebhookTarget returns the union data inside the NotificationChannelRequest_Target as a WebhookTarget
+func (t NotificationChannelRequest_Target) AsWebhookTarget() (WebhookTarget, error) {
+	var body WebhookTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWebhookTarget overwrites any union data inside the NotificationChannelRequest_Target as the provided WebhookTarget
+func (t *NotificationChannelRequest_Target) FromWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWebhookTarget performs a merge with any union data inside the NotificationChannelRequest_Target, using the provided WebhookTarget
+func (t *NotificationChannelRequest_Target) MergeWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t NotificationChannelRequest_Target) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *NotificationChannelRequest_Target) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsEmailTarget returns the union data inside the NotificationChannelResponse_Target as a EmailTarget
+func (t NotificationChannelResponse_Target) AsEmailTarget() (EmailTarget, error) {
+	var body EmailTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEmailTarget overwrites any union data inside the NotificationChannelResponse_Target as the provided EmailTarget
+func (t *NotificationChannelResponse_Target) FromEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEmailTarget performs a merge with any union data inside the NotificationChannelResponse_Target, using the provided EmailTarget
+func (t *NotificationChannelResponse_Target) MergeEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWebhookTarget returns the union data inside the NotificationChannelResponse_Target as a WebhookTarget
+func (t NotificationChannelResponse_Target) AsWebhookTarget() (WebhookTarget, error) {
+	var body WebhookTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWebhookTarget overwrites any union data inside the NotificationChannelResponse_Target as the provided WebhookTarget
+func (t *NotificationChannelResponse_Target) FromWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWebhookTarget performs a merge with any union data inside the NotificationChannelResponse_Target, using the provided WebhookTarget
+func (t *NotificationChannelResponse_Target) MergeWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t NotificationChannelResponse_Target) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *NotificationChannelResponse_Target) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // AsBundleWorkloadRequest returns the union data inside the WorkloadRequest as a BundleWorkloadRequest
 func (t WorkloadRequest) AsBundleWorkloadRequest() (BundleWorkloadRequest, error) {

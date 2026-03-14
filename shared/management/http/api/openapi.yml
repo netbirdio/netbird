@@ -89,6 +89,10 @@ tags:
   - name: Event Streaming Integrations
     description: Manage event streaming integrations.
     x-cloud-only: true
+  - name: Notifications
+    description: Manage notification channels for account event alerts.
+    x-cloud-only: true
+
 
 components:
   schemas:
@@ -4274,6 +4278,123 @@ components:
           type: string
           description: The newly generated SCIM API token
           example: "nbs_F3f0d..."
+    NotificationChannelType:
+      type: string
+      description: The type of notification channel.
+      enum:
+        - email
+        - webhook
+      example: "email"
+    NotificationEventType:
+      type: string
+      description: |
+        An activity event type code. See `GET /api/integrations/notifications/types` for the full list
+        of supported event types and their human-readable descriptions.
+      example: "user.join"
+    EmailTarget:
+      type: object
+      description: Target configuration for email notification channels.
+      properties:
+        emails:
+          type: array
+          description: List of email addresses to send notifications to.
+          minItems: 1
+          items:
+            type: string
+            format: email
+          example: [ "admin@example.com", "ops@example.com" ]
+      required:
+        - emails
+    WebhookTarget:
+      type: object
+      description: Target configuration for webhook notification channels.
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The webhook endpoint URL to send notifications to.
+          example: "https://hooks.example.com/netbird"
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Custom HTTP headers sent with each webhook request.
+            Values are write-only; in GET responses all values are masked.
+          example:
+            Authorization: "Bearer token"
+            X-Webhook-Secret: "secret"
+      required:
+        - url
+    NotificationChannelRequest:
+      type: object
+      description: Request body for creating or updating a notification channel.
+      properties:
+        type:
+          $ref: '#/components/schemas/NotificationChannelType'
+        target:
+          description: |
+            Channel-specific target configuration. The shape depends on the `type` field:
+            - `email`: requires an `EmailTarget` object
+            - `webhook`: requires a `WebhookTarget` object
+          oneOf:
+            - $ref: '#/components/schemas/EmailTarget'
+            - $ref: '#/components/schemas/WebhookTarget'
+        event_types:
+          type: array
+          description: List of activity event type codes this channel subscribes to.
+          items:
+            $ref: '#/components/schemas/NotificationEventType'
+          example: [ "user.join", "peer.user.add", "peer.login.expire" ]
+        enabled:
+          type: boolean
+          description: Whether this notification channel is active.
+          example: true
+      required:
+        - type
+        - event_types
+        - enabled
+    NotificationChannelResponse:
+      type: object
+      description: A notification channel configuration.
+      properties:
+        id:
+          type: string
+          description: Unique identifier of the notification channel.
+          readOnly: true
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        type:
+          $ref: '#/components/schemas/NotificationChannelType'
+        target:
+          description: |
+            Channel-specific target configuration. The shape depends on the `type` field:
+            - `email`: an `EmailTarget` object
+            - `webhook`: a `WebhookTarget` object
+          oneOf:
+            - $ref: '#/components/schemas/EmailTarget'
+            - $ref: '#/components/schemas/WebhookTarget'
+        event_types:
+          type: array
+          description: List of activity event type codes this channel subscribes to.
+          items:
+            $ref: '#/components/schemas/NotificationEventType'
+          example: [ "user.join", "peer.user.add", "peer.login.expire" ]
+        enabled:
+          type: boolean
+          description: Whether this notification channel is active.
+          example: true
+      required:
+        - id
+        - type
+        - event_types
+        - enabled
+    NotificationTypeEntry:
+      type: object
+      description: A map of event type codes to their human-readable descriptions.
+      additionalProperties:
+        type: string
+      example:
+        user.join: "User joined"
     BypassResponse:
       type: object
       description: Response for bypassed peer operations.
@@ -9941,6 +10062,175 @@ paths:
       responses:
         '202':
           description: Reverse proxy custom domain validation triggered
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/integrations/notifications/types:
+    get:
+      tags:
+        - Notifications
+      summary: List Notification Event Types
+      description: |
+        Returns a map of all supported activity event type codes to their
+        human-readable descriptions. Use these codes when configuring
+        `event_types` on notification channels.
+      operationId: listNotificationEventTypes
+      responses:
+        '200':
+          description: A map of event type codes to descriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationTypeEntry'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/integrations/notifications/channels:
+    get:
+      tags:
+        - Notifications
+      summary: List Notification Channels
+      description: Retrieves all notification channels configured for the authenticated account.
+      operationId: listNotificationChannels
+      responses:
+        '200':
+          description: A list of notification channels.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationChannelResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      tags:
+        - Notifications
+      summary: Create Notification Channel
+      description: |
+        Creates a new notification channel for the authenticated account.
+        Supported channel types are `email` and `webhook`.
+      operationId: createNotificationChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelRequest'
+      responses:
+        '200':
+          description: Notification channel created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannelResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/integrations/notifications/channels/{channelId}:
+    parameters:
+      - name: channelId
+        in: path
+        required: true
+        description: The unique identifier of the notification channel.
+        schema:
+          type: string
+          example: "ch8i4ug6lnn4g9hqv7m0"
+    get:
+      tags:
+        - Notifications
+      summary: Get Notification Channel
+      description: Retrieves a specific notification channel by its ID.
+      operationId: getNotificationChannel
+      responses:
+        '200':
+          description: Successfully retrieved the notification channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannelResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      tags:
+        - Notifications
+      summary: Update Notification Channel
+      description: Updates an existing notification channel.
+      operationId: updateNotificationChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelRequest'
+      responses:
+        '200':
+          description: Notification channel updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannelResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      tags:
+        - Notifications
+      summary: Delete Notification Channel
+      description: Deletes a notification channel by its ID.
+      operationId: deleteNotificationChannel
+      responses:
+        '200':
+          description: Notification channel deleted successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
