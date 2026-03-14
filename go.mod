@@ -1,8 +1,6 @@
 module github.com/netbirdio/netbird
 
-go 1.25
-
-toolchain go1.25.5
+go 1.25.5
 
 require (
 	cunicu.li/go-rosenpass v0.4.0
@@ -125,7 +123,7 @@ require (
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
-	gvisor.dev/gvisor v0.0.0-20251031020517-ecfcdd2f171c
+	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8
 )
 
 require (
