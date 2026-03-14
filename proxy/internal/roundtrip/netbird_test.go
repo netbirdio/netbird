@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -27,16 +26,15 @@ type mockStatusNotifier struct {
 }
 
 type statusCall struct {
-	accountID string
-	serviceID string
-	domain    string
+	accountID types.AccountID
+	serviceID types.ServiceID
 	connected bool
 }
 
-func (m *mockStatusNotifier) NotifyStatus(_ context.Context, accountID, serviceID, domain string, connected bool) error {
+func (m *mockStatusNotifier) NotifyStatus(_ context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statuses = append(m.statuses, statusCall{accountID, serviceID, domain, connected})
+	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected})
 	return nil
 }
 
@@ -62,36 +60,34 @@ func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
 
 	// Initially no client exists.
 	assert.False(t, nb.HasClient(accountID), "should not have client before AddPeer")
-	assert.Equal(t, 0, nb.DomainCount(accountID), "domain count should be 0")
+	assert.Equal(t, 0, nb.ServiceCount(accountID), "service count should be 0")
 
-	// Add first domain - this should create a new client.
-	// Note: This will fail to actually connect since we use an invalid URL,
-	// but the client entry should still be created.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add first service - this should create a new client.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
 
 	assert.True(t, nb.HasClient(accountID), "should have client after AddPeer")
-	assert.Equal(t, 1, nb.DomainCount(accountID), "domain count should be 1")
+	assert.Equal(t, 1, nb.ServiceCount(accountID), "service count should be 1")
 }
 
 func TestNetBird_AddPeer_ReuseClientForSameAccount(t *testing.T) {
 	nb := mockNetBird()
 	accountID := types.AccountID("account-1")
 
-	// Add first domain.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add first service.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
-	assert.Equal(t, 1, nb.DomainCount(accountID))
+	assert.Equal(t, 1, nb.ServiceCount(accountID))
 
-	// Add second domain for the same account - should reuse existing client.
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "setup-key-1", "proxy-2")
+	// Add second service for the same account - should reuse existing client.
+	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "setup-key-1", types.ServiceID("proxy-2"))
 	require.NoError(t, err)
-	assert.Equal(t, 2, nb.DomainCount(accountID), "domain count should be 2 after adding second domain")
+	assert.Equal(t, 2, nb.ServiceCount(accountID), "service count should be 2 after adding second service")
 
-	// Add third domain.
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain3.test"), "setup-key-1", "proxy-3")
+	// Add third service.
+	err = nb.AddPeer(context.Background(), accountID, "domain3.test", "setup-key-1", types.ServiceID("proxy-3"))
 	require.NoError(t, err)
-	assert.Equal(t, 3, nb.DomainCount(accountID), "domain count should be 3 after adding third domain")
+	assert.Equal(t, 3, nb.ServiceCount(accountID), "service count should be 3 after adding third service")
 
 	// Still only one client.
 	assert.True(t, nb.HasClient(accountID))
@@ -102,64 +98,62 @@ func TestNetBird_AddPeer_SeparateClientsForDifferentAccounts(t *testing.T) {
 	account1 := types.AccountID("account-1")
 	account2 := types.AccountID("account-2")
 
-	// Add domain for account 1.
-	err := nb.AddPeer(context.Background(), account1, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add service for account 1.
+	err := nb.AddPeer(context.Background(), account1, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
 
-	// Add domain for account 2.
-	err = nb.AddPeer(context.Background(), account2, domain.Domain("domain2.test"), "setup-key-2", "proxy-2")
+	// Add service for account 2.
+	err = nb.AddPeer(context.Background(), account2, "domain2.test", "setup-key-2", types.ServiceID("proxy-2"))
 	require.NoError(t, err)
 
 	// Both accounts should have their own clients.
 	assert.True(t, nb.HasClient(account1), "account1 should have client")
 	assert.True(t, nb.HasClient(account2), "account2 should have client")
-	assert.Equal(t, 1, nb.DomainCount(account1), "account1 domain count should be 1")
-	assert.Equal(t, 1, nb.DomainCount(account2), "account2 domain count should be 1")
+	assert.Equal(t, 1, nb.ServiceCount(account1), "account1 service count should be 1")
+	assert.Equal(t, 1, nb.ServiceCount(account2), "account2 service count should be 1")
 }
 
-func TestNetBird_RemovePeer_KeepsClientWhenDomainsRemain(t *testing.T) {
+func TestNetBird_RemovePeer_KeepsClientWhenServicesRemain(t *testing.T) {
 	nb := mockNetBird()
 	accountID := types.AccountID("account-1")
 
-	// Add multiple domains.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add multiple services.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "setup-key-1", "proxy-2")
+	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "setup-key-1", types.ServiceID("proxy-2"))
 	require.NoError(t, err)
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain3.test"), "setup-key-1", "proxy-3")
+	err = nb.AddPeer(context.Background(), accountID, "domain3.test", "setup-key-1", types.ServiceID("proxy-3"))
 	require.NoError(t, err)
-	assert.Equal(t, 3, nb.DomainCount(accountID))
+	assert.Equal(t, 3, nb.ServiceCount(accountID))
 
-	// Remove one domain - client should remain.
+	// Remove one service - client should remain.
 	err = nb.RemovePeer(context.Background(), accountID, "domain1.test")
 	require.NoError(t, err)
-	assert.True(t, nb.HasClient(accountID), "client should remain after removing one domain")
-	assert.Equal(t, 2, nb.DomainCount(accountID), "domain count should be 2")
+	assert.True(t, nb.HasClient(accountID), "client should remain after removing one service")
+	assert.Equal(t, 2, nb.ServiceCount(accountID), "service count should be 2")
 
-	// Remove another domain - client should still remain.
+	// Remove another service - client should still remain.
 	err = nb.RemovePeer(context.Background(), accountID, "domain2.test")
 	require.NoError(t, err)
-	assert.True(t, nb.HasClient(accountID), "client should remain after removing second domain")
-	assert.Equal(t, 1, nb.DomainCount(accountID), "domain count should be 1")
+	assert.True(t, nb.HasClient(accountID), "client should remain after removing second service")
+	assert.Equal(t, 1, nb.ServiceCount(accountID), "service count should be 1")
 }
 
-func TestNetBird_RemovePeer_RemovesClientWhenLastDomainRemoved(t *testing.T) {
+func TestNetBird_RemovePeer_RemovesClientWhenLastServiceRemoved(t *testing.T) {
 	nb := mockNetBird()
 	accountID := types.AccountID("account-1")
 
-	// Add single domain.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add single service.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
 	assert.True(t, nb.HasClient(accountID))
 
-	// Remove the only domain - client should be removed.
-	// Note: Stop() may fail since the client never actually connected,
-	// but the entry should still be removed from the map.
+	// Remove the only service - client should be removed.
 	_ = nb.RemovePeer(context.Background(), accountID, "domain1.test")
 
-	// After removing all domains, client should be gone.
-	assert.False(t, nb.HasClient(accountID), "client should be removed after removing last domain")
-	assert.Equal(t, 0, nb.DomainCount(accountID), "domain count should be 0")
+	// After removing all services, client should be gone.
+	assert.False(t, nb.HasClient(accountID), "client should be removed after removing last service")
+	assert.Equal(t, 0, nb.ServiceCount(accountID), "service count should be 0")
 }
 
 func TestNetBird_RemovePeer_NonExistentAccountIsNoop(t *testing.T) {
@@ -171,21 +165,21 @@ func TestNetBird_RemovePeer_NonExistentAccountIsNoop(t *testing.T) {
 	assert.NoError(t, err, "removing from non-existent account should not error")
 }
 
-func TestNetBird_RemovePeer_NonExistentDomainIsNoop(t *testing.T) {
+func TestNetBird_RemovePeer_NonExistentServiceIsNoop(t *testing.T) {
 	nb := mockNetBird()
 	accountID := types.AccountID("account-1")
 
-	// Add one domain.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "setup-key-1", "proxy-1")
+	// Add one service.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "setup-key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
 
-	// Remove non-existent domain - should not affect existing domain.
-	err = nb.RemovePeer(context.Background(), accountID, domain.Domain("nonexistent.test"))
+	// Remove non-existent service - should not affect existing service.
+	err = nb.RemovePeer(context.Background(), accountID, "nonexistent.test")
 	require.NoError(t, err)
 
-	// Original domain should still be registered.
+	// Original service should still be registered.
 	assert.True(t, nb.HasClient(accountID))
-	assert.Equal(t, 1, nb.DomainCount(accountID), "original domain should remain")
+	assert.Equal(t, 1, nb.ServiceCount(accountID), "original service should remain")
 }
 
 func TestWithAccountID_AndAccountIDFromContext(t *testing.T) {
@@ -216,19 +210,17 @@ func TestNetBird_StopAll_StopsAllClients(t *testing.T) {
 	account2 := types.AccountID("account-2")
 	account3 := types.AccountID("account-3")
 
-	// Add domains for multiple accounts.
-	err := nb.AddPeer(context.Background(), account1, domain.Domain("domain1.test"), "key-1", "proxy-1")
+	// Add services for multiple accounts.
+	err := nb.AddPeer(context.Background(), account1, "domain1.test", "key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
-	err = nb.AddPeer(context.Background(), account2, domain.Domain("domain2.test"), "key-2", "proxy-2")
+	err = nb.AddPeer(context.Background(), account2, "domain2.test", "key-2", types.ServiceID("proxy-2"))
 	require.NoError(t, err)
-	err = nb.AddPeer(context.Background(), account3, domain.Domain("domain3.test"), "key-3", "proxy-3")
+	err = nb.AddPeer(context.Background(), account3, "domain3.test", "key-3", types.ServiceID("proxy-3"))
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, nb.ClientCount(), "should have 3 clients")
 
 	// Stop all clients.
-	// Note: StopAll may return errors since clients never actually connected,
-	// but the clients should still be removed from the map.
 	_ = nb.StopAll(context.Background())
 
 	assert.Equal(t, 0, nb.ClientCount(), "should have 0 clients after StopAll")
@@ -243,18 +235,18 @@ func TestNetBird_ClientCount(t *testing.T) {
 	assert.Equal(t, 0, nb.ClientCount(), "should start with 0 clients")
 
 	// Add clients for different accounts.
-	err := nb.AddPeer(context.Background(), types.AccountID("account-1"), domain.Domain("domain1.test"), "key-1", "proxy-1")
+	err := nb.AddPeer(context.Background(), types.AccountID("account-1"), "domain1.test", "key-1", types.ServiceID("proxy-1"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, nb.ClientCount())
 
-	err = nb.AddPeer(context.Background(), types.AccountID("account-2"), domain.Domain("domain2.test"), "key-2", "proxy-2")
+	err = nb.AddPeer(context.Background(), types.AccountID("account-2"), "domain2.test", "key-2", types.ServiceID("proxy-2"))
 	require.NoError(t, err)
 	assert.Equal(t, 2, nb.ClientCount())
 
-	// Adding domain to existing account should not increase count.
-	err = nb.AddPeer(context.Background(), types.AccountID("account-1"), domain.Domain("domain1b.test"), "key-1", "proxy-1b")
+	// Adding service to existing account should not increase count.
+	err = nb.AddPeer(context.Background(), types.AccountID("account-1"), "domain1b.test", "key-1", types.ServiceID("proxy-1b"))
 	require.NoError(t, err)
-	assert.Equal(t, 2, nb.ClientCount(), "adding domain to existing account should not increase client count")
+	assert.Equal(t, 2, nb.ClientCount(), "adding service to existing account should not increase client count")
 }
 
 func TestNetBird_RoundTrip_RequiresAccountIDInContext(t *testing.T) {
@@ -293,8 +285,8 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
-	// Add first domain — creates a new client entry.
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "key-1", "svc-1")
+	// Add first service — creates a new client entry.
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "key-1", types.ServiceID("svc-1"))
 	require.NoError(t, err)
 
 	// Manually mark client as started to simulate background startup completing.
@@ -302,15 +294,14 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	nb.clients[accountID].started = true
 	nb.clientsMux.Unlock()
 
-	// Add second domain — should notify immediately since client is already started.
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "key-1", "svc-2")
+	// Add second service — should notify immediately since client is already started.
+	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
 	calls := notifier.calls()
 	require.Len(t, calls, 1)
-	assert.Equal(t, string(accountID), calls[0].accountID)
-	assert.Equal(t, "svc-2", calls[0].serviceID)
-	assert.Equal(t, "domain2.test", calls[0].domain)
+	assert.Equal(t, accountID, calls[0].accountID)
+	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
 }
 
@@ -323,18 +314,18 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	}, nil, notifier, &mockMgmtClient{})
 	accountID := types.AccountID("account-1")
 
-	err := nb.AddPeer(context.Background(), accountID, domain.Domain("domain1.test"), "key-1", "svc-1")
+	err := nb.AddPeer(context.Background(), accountID, "domain1.test", "key-1", types.ServiceID("svc-1"))
 	require.NoError(t, err)
-	err = nb.AddPeer(context.Background(), accountID, domain.Domain("domain2.test"), "key-1", "svc-2")
+	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
-	// Remove one domain — client stays, but disconnection notification fires.
+	// Remove one service — client stays, but disconnection notification fires.
 	err = nb.RemovePeer(context.Background(), accountID, "domain1.test")
 	require.NoError(t, err)
 	assert.True(t, nb.HasClient(accountID))
 
 	calls := notifier.calls()
 	require.Len(t, calls, 1)
-	assert.Equal(t, "domain1.test", calls[0].domain)
+	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
 	assert.False(t, calls[0].connected)
 }

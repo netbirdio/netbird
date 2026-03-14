@@ -803,8 +803,8 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		mgr, testStore := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
@@ -826,9 +826,9 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		mgr, _ := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     80,
-			Protocol: "http",
-			Domain:   "example.com",
+			Port:   80,
+			Mode:   "http",
+			Domain: "example.com",
 		}
 
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
@@ -847,8 +847,8 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		require.NoError(t, err)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 
 		_, err = mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
@@ -860,8 +860,8 @@ func TestCreateServiceFromPeer(t *testing.T) {
 		mgr, _ := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     0,
-			Protocol: "http",
+			Port: 0,
+			Mode: "http",
 		}
 
 		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
@@ -878,62 +878,52 @@ func TestExposeServiceRequestValidate(t *testing.T) {
 	}{
 		{
 			name:    "valid http request",
-			req:     rpservice.ExposeServiceRequest{Port: 8080, Protocol: "http"},
+			req:     rpservice.ExposeServiceRequest{Port: 8080, Mode: "http"},
 			wantErr: "",
 		},
 		{
-			name:    "valid https request with pin",
-			req:     rpservice.ExposeServiceRequest{Port: 443, Protocol: "https", Pin: "123456"},
-			wantErr: "",
+			name:    "https mode rejected",
+			req:     rpservice.ExposeServiceRequest{Port: 443, Mode: "https", Pin: "123456"},
+			wantErr: "unsupported mode",
 		},
 		{
 			name:    "port zero rejected",
-			req:     rpservice.ExposeServiceRequest{Port: 0, Protocol: "http"},
+			req:     rpservice.ExposeServiceRequest{Port: 0, Mode: "http"},
 			wantErr: "port must be between 1 and 65535",
 		},
 		{
-			name:    "negative port rejected",
-			req:     rpservice.ExposeServiceRequest{Port: -1, Protocol: "http"},
-			wantErr: "port must be between 1 and 65535",
-		},
-		{
-			name:    "port above 65535 rejected",
-			req:     rpservice.ExposeServiceRequest{Port: 65536, Protocol: "http"},
-			wantErr: "port must be between 1 and 65535",
-		},
-		{
-			name:    "unsupported protocol",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "tcp"},
-			wantErr: "unsupported protocol",
+			name:    "unsupported mode",
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "ftp"},
+			wantErr: "unsupported mode",
 		},
 		{
 			name:    "invalid pin format",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "abc"},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", Pin: "abc"},
 			wantErr: "invalid pin",
 		},
 		{
 			name:    "pin too short",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "12345"},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", Pin: "12345"},
 			wantErr: "invalid pin",
 		},
 		{
 			name:    "valid 6-digit pin",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", Pin: "000000"},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", Pin: "000000"},
 			wantErr: "",
 		},
 		{
 			name:    "empty user group name",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", UserGroups: []string{"valid", ""}},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", UserGroups: []string{"valid", ""}},
 			wantErr: "user group name cannot be empty",
 		},
 		{
 			name:    "invalid name prefix",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", NamePrefix: "INVALID"},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", NamePrefix: "INVALID"},
 			wantErr: "invalid name prefix",
 		},
 		{
 			name:    "valid name prefix",
-			req:     rpservice.ExposeServiceRequest{Port: 80, Protocol: "http", NamePrefix: "my-service"},
+			req:     rpservice.ExposeServiceRequest{Port: 80, Mode: "http", NamePrefix: "my-service"},
 			wantErr: "",
 		},
 	}
@@ -966,14 +956,14 @@ func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
 
 		// First create a service
 		req := &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		// Delete by domain using unexported method
-		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain, false)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, svcID, false)
 		require.NoError(t, err)
 
 		// Verify service is deleted
@@ -982,16 +972,17 @@ func TestDeleteServiceFromPeer_ByDomain(t *testing.T) {
 	})
 
 	t.Run("expire uses correct activity", func(t *testing.T) {
-		mgr, _ := setupIntegrationTest(t)
+		mgr, testStore := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain, true)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.deleteServiceFromPeer(ctx, testAccountID, testPeerID, svcID, true)
 		require.NoError(t, err)
 	})
 }
@@ -1003,13 +994,14 @@ func TestStopServiceFromPeer(t *testing.T) {
 		mgr, testStore := setupIntegrationTest(t)
 
 		req := &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, req)
 		require.NoError(t, err)
 
-		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.StopServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 		require.NoError(t, err)
 
 		_, err = testStore.GetServiceByDomain(ctx, resp.Domain)
@@ -1022,8 +1014,8 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	mgr, testStore := setupIntegrationTest(t)
 
 	resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-		Port:     8080,
-		Protocol: "http",
+		Port: 8080,
+		Mode: "http",
 	})
 	require.NoError(t, err)
 
@@ -1042,8 +1034,8 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	assert.Equal(t, int64(0), count, "ephemeral service should be deleted after API delete")
 
 	_, err = mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-		Port:     9090,
-		Protocol: "http",
+		Port: 9090,
+		Mode: "http",
 	})
 	assert.NoError(t, err, "new expose should succeed after API delete")
 }
@@ -1054,8 +1046,8 @@ func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
 
 	for i := range 3 {
 		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-			Port:     8080 + i,
-			Protocol: "http",
+			Port: uint16(8080 + i),
+			Mode: "http",
 		})
 		require.NoError(t, err)
 	}
@@ -1076,21 +1068,22 @@ func TestRenewServiceFromPeer(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("renews tracked expose", func(t *testing.T) {
-		mgr, _ := setupIntegrationTest(t)
+		mgr, testStore := setupIntegrationTest(t)
 
 		resp, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		})
 		require.NoError(t, err)
 
-		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, resp.Domain)
+		svcID := resolveServiceIDByDomain(t, testStore, resp.Domain)
+		err = mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, svcID)
 		require.NoError(t, err)
 	})
 
 	t.Run("fails for untracked domain", func(t *testing.T) {
 		mgr, _ := setupIntegrationTest(t)
-		err := mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, "nonexistent.com")
+		err := mgr.RenewServiceFromPeer(ctx, testAccountID, testPeerID, "nonexistent-service-id")
 		require.Error(t, err)
 	})
 }
@@ -1190,4 +1183,34 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	targets, err := sqlStore.GetTargetsByServiceID(ctx, store.LockingStrengthNone, accountID, service.ID)
 	require.NoError(t, err)
 	assert.Len(t, targets, 0, "All targets should be deleted when service is deleted")
+}
+
+func TestValidateProtocolChange(t *testing.T) {
+	tests := []struct {
+		name    string
+		oldP    string
+		newP    string
+		wantErr bool
+	}{
+		{"empty to http", "", "http", false},
+		{"http to http", "http", "http", false},
+		{"same protocol", "tcp", "tcp", false},
+		{"empty new proto", "tcp", "", false},
+		{"http to tcp", "http", "tcp", true},
+		{"tcp to udp", "tcp", "udp", true},
+		{"tls to http", "tls", "http", true},
+		{"udp to tls", "udp", "tls", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateProtocolChange(tt.oldP, tt.newP)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot change mode")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

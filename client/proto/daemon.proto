@@ -85,6 +85,10 @@ service DaemonService {
 
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
 
+  // TriggerUpdate initiates installation of the pending enforced version.
+  // Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+  rpc TriggerUpdate(TriggerUpdateRequest) returns (TriggerUpdateResponse) {}
+
   // GetPeerSSHHostKey retrieves SSH host key for a specific peer
   rpc GetPeerSSHHostKey(GetPeerSSHHostKeyRequest) returns (GetPeerSSHHostKeyResponse) {}
 
@@ -226,7 +230,7 @@ message WaitSSOLoginResponse {
 message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
-  optional bool autoUpdate = 3;
+  reserved 3;
 }
 
 message UpResponse {}
@@ -725,6 +729,13 @@ message GetFeaturesResponse{
   bool disable_update_settings = 2;
 }
 
+message TriggerUpdateRequest {}
+
+message TriggerUpdateResponse {
+  bool success = 1;
+  string errorMsg = 2;
+}
+
 // GetPeerSSHHostKeyRequest for retrieving SSH host key for a specific peer
 message GetPeerSSHHostKeyRequest {
   // peer IP address or FQDN to get SSH host key for
@@ -810,6 +821,7 @@ enum ExposeProtocol {
   EXPOSE_HTTPS = 1;
   EXPOSE_TCP = 2;
   EXPOSE_UDP = 3;
+  EXPOSE_TLS = 4;
 }
 
 message ExposeServiceRequest {
@@ -820,6 +832,7 @@ message ExposeServiceRequest {
   repeated string user_groups = 5;
   string domain = 6;
   string name_prefix = 7;
+  uint32 listen_port = 8;
 }
 
 message ExposeServiceEvent {
@@ -832,4 +845,5 @@ message ExposeServiceReady {
   string service_name = 1;
   string service_url = 2;
   string domain = 3;
+  bool port_auto_assigned = 4;
 }

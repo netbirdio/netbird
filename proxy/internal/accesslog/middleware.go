@@ -67,23 +67,24 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		entry := logEntry{
 			ID:            requestID,
 			ServiceId:     capturedData.GetServiceId(),
-			AccountID:     string(capturedData.GetAccountId()),
+			AccountID:     capturedData.GetAccountId(),
 			Host:          host,
 			Path:          r.URL.Path,
 			DurationMs:    duration.Milliseconds(),
 			Method:        r.Method,
 			ResponseCode:  int32(sw.status),
-			SourceIp:      sourceIp,
+			SourceIP:      sourceIp,
 			AuthMechanism: capturedData.GetAuthMethod(),
 			UserId:        capturedData.GetUserID(),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
 			BytesUpload:   bytesUpload,
 			BytesDownload: bytesDownload,
+			Protocol:      ProtocolHTTP,
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
 			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceId(), capturedData.GetAccountId())
 
-		l.log(r.Context(), entry)
+		l.log(entry)
 
 		// Track usage for cost monitoring (upload + download) by domain
 		l.trackUsage(host, bytesUpload+bytesDownload)

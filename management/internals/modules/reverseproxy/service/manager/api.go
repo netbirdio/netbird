@@ -11,19 +11,22 @@ import (
 	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type handler struct {
-	manager rpservice.Manager
+	manager            rpservice.Manager
+	permissionsManager permissions.Manager
 }
 
 // RegisterEndpoints registers all service HTTP endpoints.
-func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
+func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, permissionsManager permissions.Manager, router *mux.Router) {
 	h := &handler{
-		manager: manager,
+		manager:            manager,
+		permissionsManager: permissionsManager,
 	}
 
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()

@@ -30,8 +30,9 @@ type PathTarget struct {
 	CustomHeaders  map[string]string
 }
 
+// Mapping describes how a domain is routed by the HTTP reverse proxy.
 type Mapping struct {
-	ID               string
+	ID               types.ServiceID
 	AccountID        types.AccountID
 	Host             string
 	Paths            map[string]*PathTarget
@@ -42,7 +43,7 @@ type Mapping struct {
 type targetResult struct {
 	target           *PathTarget
 	matchedPath      string
-	serviceID        string
+	serviceID        types.ServiceID
 	accountID        types.AccountID
 	passHostHeader   bool
 	rewriteRedirects bool
@@ -101,8 +102,13 @@ func (p *ReverseProxy) AddMapping(m Mapping) {
 	p.mappings[m.Host] = m
 }
 
-func (p *ReverseProxy) RemoveMapping(m Mapping) {
+// RemoveMapping removes the mapping for the given host and reports whether it existed.
+func (p *ReverseProxy) RemoveMapping(m Mapping) bool {
 	p.mappingsMux.Lock()
 	defer p.mappingsMux.Unlock()
+	if _, ok := p.mappings[m.Host]; !ok {
+		return false
+	}
 	delete(p.mappings, m.Host)
+	return true
 }

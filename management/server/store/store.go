@@ -261,10 +261,12 @@ type Store interface {
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 
-	RenewEphemeralService(ctx context.Context, accountID, peerID, domain string) error
+	RenewEphemeralService(ctx context.Context, accountID, peerID, serviceID string) error
 	GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*rpservice.Service, error)
 	CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error)
 	EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error)
+	GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error)
+	GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)

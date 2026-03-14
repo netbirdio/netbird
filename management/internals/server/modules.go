@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -211,6 +212,9 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
+		s.AfterInit(func(s *BaseServer) {
+			m.SetClusterCapabilities(s.ServiceProxyController())
+		})
 		return &m
 	})
 }

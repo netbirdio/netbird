@@ -65,6 +65,7 @@ type upstreamResolverBase struct {
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
+	wg               sync.WaitGroup
 
 	deactivate     func(error)
 	reactivate     func()
@@ -115,6 +116,11 @@ func (u *upstreamResolverBase) MatchSubdomains() bool {
 func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
+
+	u.mutex.Lock()
+	u.wg.Wait()
+	u.mutex.Unlock()
+
 }
 
 // ServeDNS handles a DNS request
@@ -260,15 +266,9 @@ func formatFailures(failures []upstreamFailure) string {
 
 // ProbeAvailability tests all upstream servers simultaneously and
 // disables the resolver if none work
-func (u *upstreamResolverBase) ProbeAvailability() {
+func (u *upstreamResolverBase) ProbeAvailability(ctx context.Context) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
-
-	select {
-	case <-u.ctx.Done():
-		return
-	default:
-	}
 
 	// avoid probe if upstreams could resolve at least one query
 	if u.successCount.Load() > 0 {
@@ -279,31 +279,39 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	var errors *multierror.Error
+	var errs *multierror.Error
 	for _, upstream := range u.upstreamServers {
-		upstream := upstream
-
 		wg.Add(1)
-		go func() {
+		go func(upstream netip.AddrPort) {
 			defer wg.Done()
-			err := u.testNameserver(upstream, 500*time.Millisecond)
+			err := u.testNameserver(u.ctx, ctx, upstream, 500*time.Millisecond)
 			if err != nil {
-				errors = multierror.Append(errors, err)
+				mu.Lock()
+				errs = multierror.Append(errs, err)
+				mu.Unlock()
 				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
 				return
 			}
 
 			mu.Lock()
-			defer mu.Unlock()
 			success = true
-		}()
+			mu.Unlock()
+		}(upstream)
 	}
 
 	wg.Wait()
 
+	select {
+	case <-ctx.Done():
+		return
+	case <-u.ctx.Done():
+		return
+	default:
+	}
+
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
-		u.disable(errors.ErrorOrNil())
+		u.disable(errs.ErrorOrNil())
 
 		if u.statusRecorder == nil {
 			return
@@ -339,7 +347,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		for _, upstream := range u.upstreamServers {
-			if err := u.testNameserver(upstream, probeTimeout); err != nil {
+			if err := u.testNameserver(u.ctx, nil, upstream, probeTimeout); err != nil {
 				log.Tracef("upstream check for %s: %s", upstream, err)
 			} else {
 				// at least one upstream server is available, stop probing
@@ -364,7 +372,9 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
 	u.successCount.Add(1)
 	u.reactivate()
+	u.mutex.Lock()
 	u.disabled = false
+	u.mutex.Unlock()
 }
 
 // isTimeout returns true if the given error is a network timeout error.
@@ -387,7 +397,11 @@ func (u *upstreamResolverBase) disable(err error) {
 	u.successCount.Store(0)
 	u.deactivate(err)
 	u.disabled = true
-	go u.waitUntilResponse()
+	u.wg.Add(1)
+	go func() {
+		defer u.wg.Done()
+		u.waitUntilResponse()
+	}()
 }
 
 func (u *upstreamResolverBase) upstreamServersString() string {
@@ -398,13 +412,18 @@ func (u *upstreamResolverBase) upstreamServersString() string {
 	return strings.Join(servers, ", ")
 }
 
-func (u *upstreamResolverBase) testNameserver(server netip.AddrPort, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(u.ctx, timeout)
+func (u *upstreamResolverBase) testNameserver(baseCtx context.Context, externalCtx context.Context, server netip.AddrPort, timeout time.Duration) error {
+	mergedCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
+
+	if externalCtx != nil {
+		stop2 := context.AfterFunc(externalCtx, cancel)
+		defer stop2()
+	}
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchange(ctx, server.String(), r)
+	_, _, err := u.upstreamClient.exchange(mergedCtx, server.String(), r)
 	return err
 }
 

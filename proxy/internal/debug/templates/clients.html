@@ -12,14 +12,14 @@
   <table>
     <tr>
       <th>Account ID</th>
-      <th>Domains</th>
+      <th>Services</th>
       <th>Age</th>
       <th>Status</th>
     </tr>
     {{range .Clients}}
     <tr>
       <td><a href="/debug/clients/{{.AccountID}}/tools">{{.AccountID}}</a></td>
-      <td>{{.Domains}}</td>
+      <td>{{.Services}}</td>
       <td>{{.Age}}</td>
       <td>{{.Status}}</td>
     </tr>

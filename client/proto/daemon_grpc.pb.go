@@ -64,6 +64,9 @@ type DaemonServiceClient interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	GetFeatures(ctx context.Context, in *GetFeaturesRequest, opts ...grpc.CallOption) (*GetFeaturesResponse, error)
+	// TriggerUpdate initiates installation of the pending enforced version.
+	// Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+	TriggerUpdate(ctx context.Context, in *TriggerUpdateRequest, opts ...grpc.CallOption) (*TriggerUpdateResponse, error)
 	// GetPeerSSHHostKey retrieves SSH host key for a specific peer
 	GetPeerSSHHostKey(ctx context.Context, in *GetPeerSSHHostKeyRequest, opts ...grpc.CallOption) (*GetPeerSSHHostKeyResponse, error)
 	// RequestJWTAuth initiates JWT authentication flow for SSH
@@ -363,6 +366,15 @@ func (c *daemonServiceClient) GetFeatures(ctx context.Context, in *GetFeaturesRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) TriggerUpdate(ctx context.Context, in *TriggerUpdateRequest, opts ...grpc.CallOption) (*TriggerUpdateResponse, error) {
+	out := new(TriggerUpdateResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/TriggerUpdate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) GetPeerSSHHostKey(ctx context.Context, in *GetPeerSSHHostKeyRequest, opts ...grpc.CallOption) (*GetPeerSSHHostKeyResponse, error) {
 	out := new(GetPeerSSHHostKeyResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetPeerSSHHostKey", in, out, opts...)
@@ -508,6 +520,9 @@ type DaemonServiceServer interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error)
+	// TriggerUpdate initiates installation of the pending enforced version.
+	// Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+	TriggerUpdate(context.Context, *TriggerUpdateRequest) (*TriggerUpdateResponse, error)
 	// GetPeerSSHHostKey retrieves SSH host key for a specific peer
 	GetPeerSSHHostKey(context.Context, *GetPeerSSHHostKeyRequest) (*GetPeerSSHHostKeyResponse, error)
 	// RequestJWTAuth initiates JWT authentication flow for SSH
@@ -612,6 +627,9 @@ func (UnimplementedDaemonServiceServer) Logout(context.Context, *LogoutRequest) 
 }
 func (UnimplementedDaemonServiceServer) GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFeatures not implemented")
+}
+func (UnimplementedDaemonServiceServer) TriggerUpdate(context.Context, *TriggerUpdateRequest) (*TriggerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerUpdate not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetPeerSSHHostKey(context.Context, *GetPeerSSHHostKeyRequest) (*GetPeerSSHHostKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerSSHHostKey not implemented")
@@ -1157,6 +1175,24 @@ func _DaemonService_GetFeatures_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_TriggerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).TriggerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/TriggerUpdate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).TriggerUpdate(ctx, req.(*TriggerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_GetPeerSSHHostKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPeerSSHHostKeyRequest)
 	if err := dec(in); err != nil {
@@ -1418,6 +1454,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetFeatures",
 			Handler:    _DaemonService_GetFeatures_Handler,
+		},
+		{
+			MethodName: "TriggerUpdate",
+			Handler:    _DaemonService_TriggerUpdate_Handler,
 		},
 		{
 			MethodName: "GetPeerSSHHostKey",

@@ -12,9 +12,10 @@ const renewTimeout = 10 * time.Second
 
 // Response holds the response from exposing a service.
 type Response struct {
-	ServiceName string
-	ServiceURL  string
-	Domain      string
+	ServiceName      string
+	ServiceURL       string
+	Domain           string
+	PortAutoAssigned bool
 }
 
 type Request struct {
@@ -25,6 +26,7 @@ type Request struct {
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 type ManagementClient interface {
