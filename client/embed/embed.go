@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -81,6 +82,12 @@ type Options struct {
 	BlockInbound bool
 	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
 	WireguardPort *int
+	// MTU is the MTU for the WireGuard interface.
+	// Valid values are in the range 576..8192 bytes.
+	// If non-nil, this value overrides any value stored in the config file.
+	// If nil, the existing config MTU (if non-zero) is preserved; otherwise it defaults to 1280.
+	// Set to a higher value (e.g. 1400) if carrying QUIC or other protocols that require larger datagrams.
+	MTU *uint16
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -110,6 +117,12 @@ func (opts *Options) validateCredentials() error {
 func New(opts Options) (*Client, error) {
 	if err := opts.validateCredentials(); err != nil {
 		return nil, err
+	}
+
+	if opts.MTU != nil {
+		if err := iface.ValidateMTU(*opts.MTU); err != nil {
+			return nil, fmt.Errorf("invalid MTU: %w", err)
+		}
 	}
 
 	if opts.LogOutput != nil {
@@ -151,6 +164,7 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 		BlockInbound:        &opts.BlockInbound,
 		WireguardPort:       opts.WireguardPort,
+		MTU:                 opts.MTU,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
