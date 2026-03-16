@@ -361,7 +361,7 @@ configure_reverse_proxy() {
   if [[ -n "$CI_REVERSE_PROXY_TYPE" ]]; then
     if [[ ! "$CI_REVERSE_PROXY_TYPE" =~ ^[0-6]$ ]]; then
       echo "Invalid CI_REVERSE_PROXY_TYPE: $CI_REVERSE_PROXY_TYPE. Must be 0-6." > /dev/stderr
-      REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+      exit 1
     else
       REVERSE_PROXY_TYPE="$CI_REVERSE_PROXY_TYPE"
     fi
@@ -393,7 +393,13 @@ configure_reverse_proxy() {
   # Handle port binding for external proxy options (2-6)
   if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
     if [[ -n "$CI_BIND_LOCALHOST_ONLY" ]]; then
-      BIND_LOCALHOST_ONLY="$CI_BIND_LOCALHOST_ONLY"
+      local ci_bind_val
+      ci_bind_val=$(echo "$CI_BIND_LOCALHOST_ONLY" | tr '[:upper:]' '[:lower:]')
+      if [[ "$ci_bind_val" == "true" ]]; then
+        BIND_LOCALHOST_ONLY="true"
+      else
+        BIND_LOCALHOST_ONLY="false"
+      fi
     else
       BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
     fi
@@ -409,7 +415,7 @@ configure_reverse_proxy() {
         CI_BUNKERWEB_MODE=$(echo "$CI_BUNKERWEB_MODE" | tr '[:lower:]' '[:upper:]')
         if [[ ! "$CI_BUNKERWEB_MODE" =~ ^[AB]$ ]]; then
           echo "Invalid CI_BUNKERWEB_MODE: $CI_BUNKERWEB_MODE. Must be A or B." > /dev/stderr
-          BUNKERWEB_MODE=$(read_bunkerweb_mode)
+          exit 1
         else
           BUNKERWEB_MODE="$CI_BUNKERWEB_MODE"
         fi
@@ -425,6 +431,9 @@ configure_reverse_proxy() {
       else
         if [[ -n "$CI_EXTERNAL_PROXY_NETWORK" ]]; then
           EXTERNAL_PROXY_NETWORK="$CI_EXTERNAL_PROXY_NETWORK"
+        elif [[ -n "$CI_BUNKERWEB_MODE" ]]; then
+          echo "CI_EXTERNAL_PROXY_NETWORK is required when CI_BUNKERWEB_MODE is B." > /dev/stderr
+          exit 1
         else
           EXTERNAL_PROXY_NETWORK=$(read_bunkerweb_autoconf_network)
         fi
