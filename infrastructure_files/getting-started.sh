@@ -397,8 +397,11 @@ configure_reverse_proxy() {
       ci_bind_val=$(echo "$CI_BIND_LOCALHOST_ONLY" | tr '[:upper:]' '[:lower:]')
       if [[ "$ci_bind_val" == "true" ]]; then
         BIND_LOCALHOST_ONLY="true"
-      else
+      elif [[ "$ci_bind_val" == "false" ]]; then
         BIND_LOCALHOST_ONLY="false"
+      else
+        echo "Invalid CI_BIND_LOCALHOST_ONLY: $CI_BIND_LOCALHOST_ONLY. Must be true or false." > /dev/stderr
+        exit 1
       fi
     else
       BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
@@ -1385,6 +1388,7 @@ services:
     restart: unless-stopped
     networks: [$network_name]
     ports:
+      - '127.0.0.1:${MANAGEMENT_HOST_PORT}:80'
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
       - netbird_data:/var/lib/netbird
