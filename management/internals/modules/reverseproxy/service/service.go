@@ -698,7 +698,7 @@ func (s *Service) Validate() error {
 	if err := validateHeaderAuths(s.Auth.HeaderAuths); err != nil {
 		return err
 	}
-	if err := validateAccessRestrictions(s.Restrictions); err != nil {
+	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
 		return err
 	}
 
@@ -982,7 +982,9 @@ const (
 	maxCountryEntries = 50
 )
 
-func validateAccessRestrictions(r AccessRestrictions) error {
+// validateAccessRestrictions validates and normalizes access restriction
+// entries. Country codes are uppercased in place.
+func validateAccessRestrictions(r *AccessRestrictions) error {
 	if len(r.AllowedCIDRs) > maxCIDREntries {
 		return fmt.Errorf("allowed_cidrs: exceeds maximum of %d entries", maxCIDREntries)
 	}
