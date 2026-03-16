@@ -143,7 +143,7 @@ func downloadToFile(client *http.Client, url, dest string) error {
 	defer f.Close()
 
 	// Cap download at 256 MB to prevent unbounded reads from a compromised server.
-	if _, err := io.Copy(f, io.LimitReader(resp.Body, 256<<20)); err != nil {
+	if _, err := io.Copy(f, io.LimitReader(resp.Body, maxMMDBSize)); err != nil {
 		return err
 	}
 	return nil
