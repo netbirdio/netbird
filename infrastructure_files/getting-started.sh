@@ -170,7 +170,7 @@ read_proxy_docker_network() {
 read_bunkerweb_mode() {
   echo "" > /dev/stderr
   echo "How will BunkerWeb discover NetBird services?" > /dev/stderr
-  echo "  [A] Config file (generates a BunkerWeb custom config to include)" > /dev/stderr
+  echo "  [A] Config file (generates BunkerWeb settings to apply)" > /dev/stderr
   echo "  [B] Docker autoconf labels (adds BunkerWeb labels to docker-compose)" > /dev/stderr
   echo "" > /dev/stderr
   echo -n "Enter choice [A/B] (default: A): " > /dev/stderr
@@ -1704,10 +1704,10 @@ print_bunkerweb_instructions() {
     echo "Docker Compose is configured with BunkerWeb autoconf labels."
     echo "Native gRPC support is enabled via USE_GRPC and GRPC_* labels."
     echo ""
-    echo "$MSG_NEXT_STEPS"
-    echo "  1. Ensure BunkerWeb and bw-autoconf are running on the '$EXTERNAL_PROXY_NETWORK' network"
-    echo "  2. Start the NetBird containers (they will be auto-discovered)"
-    echo "  3. BunkerWeb will automatically configure the reverse proxy"
+    echo "NetBird containers are running and will be auto-discovered by BunkerWeb."
+    echo ""
+    echo "Prerequisites:"
+    echo "  - BunkerWeb and bw-autoconf must be running on the '$EXTERNAL_PROXY_NETWORK' network"
     echo ""
     echo "TLS/HTTPS is configured on the BunkerWeb instance, not on these containers."
     echo ""
