@@ -163,6 +163,7 @@ message AuthenticateRequest {
 
 message HeaderAuthRequest {
   string header_value = 1;
+  string header_name = 2;
 }
 
 message PasswordRequest {

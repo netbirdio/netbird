@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -603,9 +604,14 @@ func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID s
 		return false, "", ""
 	}
 
+	headerName := http.CanonicalHeaderKey(req.HeaderAuth.GetHeaderName())
+
 	var lastErr error
 	for _, auth := range auths {
 		if auth == nil || !auth.Enabled {
+			continue
+		}
+		if headerName != "" && http.CanonicalHeaderKey(auth.Header) != headerName {
 			continue
 		}
 		if err := argon2id.Verify(req.HeaderAuth.GetHeaderValue(), auth.Value); err != nil {

@@ -1209,6 +1209,7 @@ func (*AuthenticateRequest_HeaderAuth) isAuthenticateRequest_Request() {}
 type HeaderAuthRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HeaderValue   string                 `protobuf:"bytes,1,opt,name=header_value,json=headerValue,proto3" json:"header_value,omitempty"`
+	HeaderName    string                 `protobuf:"bytes,2,opt,name=header_name,json=headerName,proto3" json:"header_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1246,6 +1247,13 @@ func (*HeaderAuthRequest) Descriptor() ([]byte, []int) {
 func (x *HeaderAuthRequest) GetHeaderValue() string {
 	if x != nil {
 		return x.HeaderValue
+	}
+	return ""
+}
+
+func (x *HeaderAuthRequest) GetHeaderName() string {
+	if x != nil {
+		return x.HeaderName
 	}
 	return ""
 }
@@ -1958,9 +1966,11 @@ const file_proxy_service_proto_rawDesc = "" +
 	"\x03pin\x18\x04 \x01(\v2\x16.management.PinRequestH\x00R\x03pin\x12@\n" +
 	"\vheader_auth\x18\x05 \x01(\v2\x1d.management.HeaderAuthRequestH\x00R\n" +
 	"headerAuthB\t\n" +
-	"\arequest\"6\n" +
+	"\arequest\"W\n" +
 	"\x11HeaderAuthRequest\x12!\n" +
-	"\fheader_value\x18\x01 \x01(\tR\vheaderValue\"-\n" +
+	"\fheader_value\x18\x01 \x01(\tR\vheaderValue\x12\x1f\n" +
+	"\vheader_name\x18\x02 \x01(\tR\n" +
+	"headerName\"-\n" +
 	"\x0fPasswordRequest\x12\x1a\n" +
 	"\bpassword\x18\x01 \x01(\tR\bpassword\"\x1e\n" +
 	"\n" +

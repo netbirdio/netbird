@@ -290,6 +290,18 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		s.geo = geoLookup
 	}
 
+	var startupOK bool
+	defer func() {
+		if startupOK {
+			return
+		}
+		if s.geoRaw != nil {
+			if err := s.geoRaw.Close(); err != nil {
+				s.Logger.Debugf("close geolocation on startup failure: %v", err)
+			}
+		}
+	}()
+
 	// Configure the authentication middleware with session validator for OIDC group checks.
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
 
@@ -337,6 +349,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		IdleTimeout:       httpIdleTimeout,
 		ErrorLog:          newHTTPServerLogger(s.Logger, logtagValueHTTPS),
 	}
+
+	startupOK = true
 
 	httpsErr := make(chan error, 1)
 	go func() {
@@ -734,17 +748,17 @@ func (s *Server) shutdownServices() {
 	// Wait for per-port router serve goroutines to exit.
 	s.portRouterWg.Wait()
 
-	if s.geoRaw != nil {
-		if err := s.geoRaw.Close(); err != nil {
-			s.Logger.Debugf("close geolocation: %v", err)
-		}
-	}
+	wg.Wait()
 
 	if s.accessLog != nil {
 		s.accessLog.Close()
 	}
 
-	wg.Wait()
+	if s.geoRaw != nil {
+		if err := s.geoRaw.Close(); err != nil {
+			s.Logger.Debugf("close geolocation: %v", err)
+		}
+	}
 }
 
 // resolveDialFunc returns a DialContextFunc that dials through the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -578,12 +579,12 @@ func preserveHeaderAuthHashes(headers, existing []*service.HeaderAuthConfig) {
 	existingByHeader := make(map[string]string, len(existing))
 	for _, h := range existing {
 		if h != nil && h.Value != "" {
-			existingByHeader[h.Header] = h.Value
+			existingByHeader[http.CanonicalHeaderKey(h.Header)] = h.Value
 		}
 	}
 	for _, h := range headers {
 		if h != nil && h.Enabled && h.Value == "" {
-			if hash, ok := existingByHeader[h.Header]; ok {
+			if hash, ok := existingByHeader[http.CanonicalHeaderKey(h.Header)]; ok {
 				h.Value = hash
 			}
 		}

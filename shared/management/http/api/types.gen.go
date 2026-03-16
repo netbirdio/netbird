@@ -3737,7 +3737,7 @@ type ServiceTargetOptions struct {
 	// RequestTimeout Per-target response timeout as a Go duration string (e.g. "30s", "2m")
 	RequestTimeout *string `json:"request_timeout,omitempty"`
 
-	// SessionIdleTimeout Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m"). Maximum 10m.
+	// SessionIdleTimeout Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m").
 	SessionIdleTimeout *string `json:"session_idle_timeout,omitempty"`
 
 	// SkipTlsVerify Skip TLS certificate verification for this backend

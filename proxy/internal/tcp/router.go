@@ -22,6 +22,10 @@ import (
 // timeout is configured.
 const defaultDialTimeout = 30 * time.Second
 
+// errAccessRestricted is returned by relayTCP for access restriction
+// denials so callers can skip warn-level logging (already logged at debug).
+var errAccessRestricted = errors.New("rejected by access restrictions")
+
 // SNIHost is a typed key for SNI hostname lookups.
 type SNIHost string
 
@@ -319,11 +323,13 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	if err := r.relayTCP(ctx, wrapped, host, route); err != nil {
-		r.logger.WithFields(log.Fields{
-			"sni":        host,
-			"service_id": route.ServiceID,
-			"target":     route.Target,
-		}).Warnf("TCP relay: %v", err)
+		if !errors.Is(err, errAccessRestricted) {
+			r.logger.WithFields(log.Fields{
+				"sni":        host,
+				"service_id": route.ServiceID,
+				"target":     route.Target,
+			}).Warnf("TCP relay: %v", err)
+		}
 		_ = wrapped.Close()
 	}
 }
@@ -347,10 +353,12 @@ func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
 
 	if fb != nil {
 		if err := r.relayTCP(ctx, conn, SNIHost("fallback"), *fb); err != nil {
-			r.logger.WithFields(log.Fields{
-				"service_id": fb.ServiceID,
-				"target":     fb.Target,
-			}).Warnf("TCP relay (fallback): %v", err)
+			if !errors.Is(err, errAccessRestricted) {
+				r.logger.WithFields(log.Fields{
+					"service_id": fb.ServiceID,
+					"target":     fb.Target,
+				}).Warnf("TCP relay (fallback): %v", err)
+			}
 			_ = conn.Close()
 		}
 		return
@@ -473,7 +481,7 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni SNIHost, route
 	if verdict := r.checkRestrictions(conn, route); verdict != restrict.Allow {
 		r.logger.Debugf("connection from %s rejected by access restrictions: %s", conn.RemoteAddr(), verdict)
 		r.logL4Deny(route, conn, verdict)
-		return errors.New("rejected by access restrictions")
+		return errAccessRestricted
 	}
 
 	svcCtx, err := r.acquireRelay(ctx, route)

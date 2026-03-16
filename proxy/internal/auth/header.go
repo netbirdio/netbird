@@ -53,6 +53,7 @@ func (h Header) Authenticate(r *http.Request) (string, string, error) {
 		Request: &proto.AuthenticateRequest_HeaderAuth{
 			HeaderAuth: &proto.HeaderAuthRequest{
 				HeaderValue: value,
+				HeaderName:  h.headerName,
 			},
 		},
 	})

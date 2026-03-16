@@ -3125,7 +3125,7 @@ components:
           example: false
         session_idle_timeout:
           type: string
-          description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m"). Maximum 10m.
+          description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m").
           example: "2m"
     ServiceTarget:
       type: object

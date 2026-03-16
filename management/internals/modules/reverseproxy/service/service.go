@@ -805,6 +805,18 @@ func (s *Service) validateL4Target(target *Target) error {
 	if target.Options.SessionIdleTimeout < 0 {
 		return errors.New("session_idle_timeout must be positive for L4 services")
 	}
+	if target.Options.RequestTimeout < 0 {
+		return errors.New("request_timeout must be positive for L4 services")
+	}
+	if target.Options.SkipTLSVerify {
+		return errors.New("skip_tls_verify is not supported for L4 services")
+	}
+	if target.Options.PathRewrite != "" {
+		return errors.New("path_rewrite is not supported for L4 services")
+	}
+	if len(target.Options.CustomHeaders) > 0 {
+		return errors.New("custom_headers is not supported for L4 services")
+	}
 	return nil
 }
 
@@ -1098,6 +1110,9 @@ func (s *Service) Copy() *Service {
 	if len(s.Auth.HeaderAuths) > 0 {
 		authCopy.HeaderAuths = make([]*HeaderAuthConfig, len(s.Auth.HeaderAuths))
 		for i, h := range s.Auth.HeaderAuths {
+			if h == nil {
+				continue
+			}
 			hCopy := *h
 			authCopy.HeaderAuths[i] = &hCopy
 		}
