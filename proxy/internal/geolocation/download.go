@@ -107,6 +107,10 @@ func fetchRemoteFilename(client *http.Client, url string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HEAD request: HTTP %d", resp.StatusCode)
+	}
+
 	cd := resp.Header.Get("Content-Disposition")
 	if cd == "" {
 		return "", errors.New("no Content-Disposition header")
