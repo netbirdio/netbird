@@ -258,7 +258,7 @@ jobs:
 
       # Test BunkerWeb config file mode (mode A)
       - name: run getting-started.sh with BunkerWeb config file mode
-        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=6 CI_BUNKERWEB_MODE=A CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK="" bash -x infrastructure_files/getting-started.sh || true
+        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=5 CI_BUNKERWEB_MODE=A CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK="" bash -x infrastructure_files/getting-started.sh || true
 
       - name: test bunkerweb config file generated
         run: test -f bunkerweb-netbird.conf
@@ -295,7 +295,7 @@ jobs:
 
       # Test BunkerWeb Docker autoconf mode (mode B)
       - name: run getting-started.sh with BunkerWeb autoconf mode
-        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=6 CI_BUNKERWEB_MODE=B CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK=bw-services bash -x infrastructure_files/getting-started.sh || true
+        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=5 CI_BUNKERWEB_MODE=B CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK=bw-services bash -x infrastructure_files/getting-started.sh || true
 
       - name: test docker-compose file generated (autoconf mode)
         run: test -f docker-compose.yml

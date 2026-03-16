@@ -90,8 +90,8 @@ read_reverse_proxy_type() {
   echo "  [2] Nginx (generates config template)" > /dev/stderr
   echo "  [3] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
   echo "  [4] External Caddy (generates Caddyfile snippet)" > /dev/stderr
-  echo "  [5] Other/Manual (displays setup documentation)" > /dev/stderr
-  echo "  [6] BunkerWeb (WAF + reverse proxy, config file or Docker autoconf)" > /dev/stderr
+  echo "  [5] BunkerWeb (WAF + reverse proxy, config file or Docker autoconf)" > /dev/stderr
+  echo "  [6] Other/Manual (displays setup documentation)" > /dev/stderr
   echo "" > /dev/stderr
   echo -n "Enter choice [0-6] (default: 0): " > /dev/stderr
   read -r CHOICE < /dev/tty
@@ -399,7 +399,7 @@ configure_reverse_proxy() {
     2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
     3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
-    6)
+    5)
       if [[ -n "$CI_BUNKERWEB_MODE" ]]; then
         BUNKERWEB_MODE="$CI_BUNKERWEB_MODE"
       else
@@ -468,15 +468,15 @@ generate_configuration_files() {
       render_external_caddyfile > caddyfile-netbird.txt
       ;;
     5)
-      render_docker_compose_exposed_ports > docker-compose.yml
-      ;;
-    6)
       if [[ "$BUNKERWEB_MODE" == "B" ]]; then
         render_docker_compose_bunkerweb_autoconf > docker-compose.yml
       else
         render_docker_compose_exposed_ports > docker-compose.yml
         render_bunkerweb_conf > bunkerweb-netbird.conf
       fi
+      ;;
+    6)
+      render_docker_compose_exposed_ports > docker-compose.yml
       ;;
     *)
       echo "Invalid reverse proxy type: $REVERSE_PROXY_TYPE" > /dev/stderr
@@ -565,7 +565,7 @@ start_services_and_show_instructions() {
     echo ""
     echo "NetBird containers are running. Configure NPM as shown above, then access:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
-  elif [[ "$REVERSE_PROXY_TYPE" == "6" && "$BUNKERWEB_MODE" == "B" ]]; then
+  elif [[ "$REVERSE_PROXY_TYPE" == "5" && "$BUNKERWEB_MODE" == "B" ]]; then
     # BunkerWeb autoconf - start containers first (BunkerWeb discovers them via labels)
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
@@ -1736,10 +1736,10 @@ print_post_setup_instructions() {
       print_external_caddy_instructions
       ;;
     5)
-      print_manual_instructions
+      print_bunkerweb_instructions
       ;;
     6)
-      print_bunkerweb_instructions
+      print_manual_instructions
       ;;
     *)
       echo "Unknown reverse proxy type: $REVERSE_PROXY_TYPE" > /dev/stderr
