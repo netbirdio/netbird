@@ -377,7 +377,16 @@ configure_reverse_proxy() {
       TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
     fi
     if [[ -n "$CI_ENABLE_PROXY" ]]; then
-      ENABLE_PROXY="$CI_ENABLE_PROXY"
+      local ci_proxy_val
+      ci_proxy_val=$(echo "$CI_ENABLE_PROXY" | tr '[:upper:]' '[:lower:]')
+      if [[ "$ci_proxy_val" == "true" || "$ci_proxy_val" == "1" || "$ci_proxy_val" == "yes" ]]; then
+        ENABLE_PROXY="true"
+      elif [[ "$ci_proxy_val" == "false" || "$ci_proxy_val" == "0" || "$ci_proxy_val" == "no" ]]; then
+        ENABLE_PROXY="false"
+      else
+        echo "Invalid CI_ENABLE_PROXY: $CI_ENABLE_PROXY. Must be true/false, yes/no, or 1/0." > /dev/stderr
+        exit 1
+      fi
     else
       ENABLE_PROXY=$(read_enable_proxy)
     fi
@@ -1364,6 +1373,7 @@ EOF
 
 render_docker_compose_bunkerweb_autoconf() {
   local network_name="${EXTERNAL_PROXY_NETWORK:-bw-services}"
+  local bind_addr=$(get_bind_address)
 
   cat <<EOF
 services:
@@ -1388,7 +1398,7 @@ services:
     restart: unless-stopped
     networks: [$network_name]
     ports:
-      - '127.0.0.1:${MANAGEMENT_HOST_PORT}:80'
+      - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
       - netbird_data:/var/lib/netbird
