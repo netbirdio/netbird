@@ -258,7 +258,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.mgmtClient = proto.NewProxyServiceClient(mgmtConn)
 	runCtx, runCancel := context.WithCancel(ctx)
 	defer runCancel()
-	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
 	// Initialize the netbird client, this is required to build peer connections
 	// to proxy over.
@@ -267,6 +266,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		WGPort:       s.WireguardPort,
 		PreSharedKey: s.PreSharedKey,
 	}, s.Logger, s, s.mgmtClient)
+
+	// Create health checker before the mapping worker so it can track
+	// management connectivity from the first stream connection.
+	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
+
+	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
 	tlsConfig, err := s.configureTLS(ctx)
 	if err != nil {
@@ -290,8 +295,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Configure Access logs to management server.
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
-
-	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
 
 	s.startDebugEndpoint()
 
