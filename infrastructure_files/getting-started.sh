@@ -359,7 +359,12 @@ configure_domain() {
 configure_reverse_proxy() {
   # Prompt for reverse proxy type (CI override supported)
   if [[ -n "$CI_REVERSE_PROXY_TYPE" ]]; then
-    REVERSE_PROXY_TYPE="$CI_REVERSE_PROXY_TYPE"
+    if [[ ! "$CI_REVERSE_PROXY_TYPE" =~ ^[0-6]$ ]]; then
+      echo "Invalid CI_REVERSE_PROXY_TYPE: $CI_REVERSE_PROXY_TYPE. Must be 0-6." > /dev/stderr
+      REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+    else
+      REVERSE_PROXY_TYPE="$CI_REVERSE_PROXY_TYPE"
+    fi
   else
     REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
   fi
@@ -401,7 +406,13 @@ configure_reverse_proxy() {
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
     5)
       if [[ -n "$CI_BUNKERWEB_MODE" ]]; then
-        BUNKERWEB_MODE="$CI_BUNKERWEB_MODE"
+        CI_BUNKERWEB_MODE=$(echo "$CI_BUNKERWEB_MODE" | tr '[:lower:]' '[:upper:]')
+        if [[ ! "$CI_BUNKERWEB_MODE" =~ ^[AB]$ ]]; then
+          echo "Invalid CI_BUNKERWEB_MODE: $CI_BUNKERWEB_MODE. Must be A or B." > /dev/stderr
+          BUNKERWEB_MODE=$(read_bunkerweb_mode)
+        else
+          BUNKERWEB_MODE="$CI_BUNKERWEB_MODE"
+        fi
       else
         BUNKERWEB_MODE=$(read_bunkerweb_mode)
       fi
@@ -609,6 +620,12 @@ init_environment() {
 
   check_existing_installation
   generate_configuration_files
+
+  if [[ "${CI_SKIP_START:-false}" == "true" ]]; then
+    echo "CI_SKIP_START is set, skipping service startup."
+    return 0
+  fi
+
   start_services_and_show_instructions
   return 0
 }
