@@ -211,18 +211,38 @@ jobs:
       - name: Clean up GPG key
         if: always()
         run: rm -f /tmp/gpg-rpm-signing-key.asc
-      - name: Tag and push PR images (amd64 only)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      - name: Tag and push images (amd64 only)
+        if: |
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
         run: |
-          PR_TAG="pr-${{ github.event.pull_request.number }}"
+          resolve_tags() {
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "pr-${{ github.event.pull_request.number }}"
+            else
+              local pr_num
+              pr_num=$(git log -1 --pretty=%s | grep -oP '(?<=Merge pull request #)\d+' || true)
+              [[ -n "$pr_num" ]] && echo "main main-pr${pr_num}" || echo "main"
+            fi
+          }
+
+          tag_and_push() {
+            local src="$1" img_name tag dst
+            img_name="${src%%:*}"
+            for tag in $(resolve_tags); do
+              dst="${img_name}:${tag}"
+              echo "Tagging ${src} -> ${dst}"
+              docker tag "$src" "$dst"
+              docker push "$dst"
+            done
+          }
+
+          export -f tag_and_push resolve_tags
+
           echo '${{ steps.goreleaser.outputs.artifacts }}' | \
             jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name' | \
             grep '^ghcr.io/' | while read -r SRC; do
-              IMG_NAME="${SRC%%:*}"
-              DST="${IMG_NAME}:${PR_TAG}"
-              echo "Tagging ${SRC} -> ${DST}"
-              docker tag "$SRC" "$DST"
-              docker push "$DST"
+              tag_and_push "$SRC"
             done
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v4
