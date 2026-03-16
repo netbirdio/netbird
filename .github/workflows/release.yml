@@ -220,9 +220,7 @@ jobs:
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               echo "pr-${{ github.event.pull_request.number }}"
             else
-              local pr_num
-              pr_num=$(git log -1 --pretty=%s | grep -oP '(?<=Merge pull request #)\d+' || true)
-              [[ -n "$pr_num" ]] && echo "main main-pr${pr_num}" || echo "main"
+              echo "main sha-$(git rev-parse --short HEAD)"
             fi
           }
 
