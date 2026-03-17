@@ -993,7 +993,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		log.Infof("peer IP address changed from %s to %s, restarting client", e.wgInterface.Address().String(), conf.Address)
 		_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
 		e.clientCancel()
-		return nil
+		return ErrResetConnection
 	}
 
 	if conf.GetSshConfig() != nil {
