@@ -5444,8 +5444,7 @@ func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string
 func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error) {
 	var clusters []proxy.Cluster
 
-	result := s.db.WithContext(ctx).
-		Model(&proxy.Proxy{}).
+	result := s.db.Model(&proxy.Proxy{}).
 		Select("cluster_address as address, COUNT(*) as connected_proxies").
 		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
 		Group("cluster_address").
