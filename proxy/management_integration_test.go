@@ -208,7 +208,7 @@ func (m *testProxyManager) Disconnect(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *testProxyManager) Heartbeat(_ context.Context, _ string) error {
+func (m *testProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
