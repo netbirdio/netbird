@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	_ "github.com/netbirdio/netbird/util/pprof"
 )
 
 const (
