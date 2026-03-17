@@ -1795,19 +1795,58 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 	return cancel
 }
 
-func openURL(url string) error {
+// desktopUser returns the username of the logged-in desktop user, even when the
+// process is running as root. On darwin it queries /dev/console; on Linux/FreeBSD
+// it checks the SUDO_USER environment variable, falling back to LOGNAME/USER.
+// Returns an empty string if the desktop user cannot be determined.
+func desktopUser() string {
+	switch runtime.GOOS {
+	case "darwin":
+		out, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output()
+		if err == nil {
+			u := strings.TrimSpace(string(out))
+			if u != "" && u != "root" {
+				return u
+			}
+		}
+	case "linux", "freebsd":
+		if u := os.Getenv("SUDO_USER"); u != "" && u != "root" {
+			return u
+		}
+		if u := os.Getenv("LOGNAME"); u != "" && u != "root" {
+			return u
+		}
+		if u := os.Getenv("USER"); u != "" && u != "root" {
+			return u
+		}
+	}
+	return ""
+}
+
+// openURLAsUser opens rawURL using browserCmd, running it as the desktop user
+// when the process is running as root so that the user's default browser is respected.
+func openURLAsUser(browserCmd, rawURL string) error {
+	if os.Getuid() == 0 {
+		if u := desktopUser(); u != "" {
+			return exec.Command("sudo", "-u", u, browserCmd, rawURL).Start()
+		}
+	}
+	return exec.Command(browserCmd, rawURL).Start()
+}
+
+func openURL(rawURL string) error {
 	if browser := os.Getenv("BROWSER"); browser != "" {
-		return exec.Command(browser, url).Start()
+		return exec.Command(browser, rawURL).Start()
 	}
 
 	var err error
 	switch runtime.GOOS {
 	case "windows":
-		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL).Start()
 	case "darwin":
-		err = exec.Command("open", url).Start()
+		err = openURLAsUser("open", rawURL)
 	case "linux", "freebsd":
-		err = exec.Command("xdg-open", url).Start()
+		err = openURLAsUser("xdg-open", rawURL)
 	default:
 		err = fmt.Errorf("unsupported platform")
 	}
