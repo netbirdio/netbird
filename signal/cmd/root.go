@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	_ "github.com/netbirdio/netbird/util/pprof"
 	"github.com/netbirdio/netbird/version"
 )
 
