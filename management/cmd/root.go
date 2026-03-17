@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	_ "github.com/netbirdio/netbird/util/pprof"
 	"github.com/netbirdio/netbird/version"
 )
 
