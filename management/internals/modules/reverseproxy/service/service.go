@@ -790,7 +790,7 @@ func (s *Service) validateL4Target(target *Target) error {
 		return errors.New("target_id is required for L4 services")
 	}
 	switch target.TargetType {
-	case TargetTypePeer, TargetTypeHost:
+	case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
 		// OK
 	case TargetTypeSubnet:
 		if target.Host == "" {

@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -1213,4 +1214,61 @@ func TestValidateProtocolChange(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateTargetReferences_ResourceTypeMismatch(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	tests := []struct {
+		name         string
+		targetType   rpservice.TargetType
+		resourceType resourcetypes.NetworkResourceType
+		wantErr      bool
+	}{
+		{"host matches host", rpservice.TargetTypeHost, resourcetypes.Host, false},
+		{"domain matches domain", rpservice.TargetTypeDomain, resourcetypes.Domain, false},
+		{"subnet matches subnet", rpservice.TargetTypeSubnet, resourcetypes.Subnet, false},
+		{"host but resource is domain", rpservice.TargetTypeHost, resourcetypes.Domain, true},
+		{"domain but resource is host", rpservice.TargetTypeDomain, resourcetypes.Host, true},
+		{"host but resource is subnet", rpservice.TargetTypeHost, resourcetypes.Subnet, true},
+		{"subnet but resource is domain", rpservice.TargetTypeSubnet, resourcetypes.Domain, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore.EXPECT().
+				GetNetworkResourceByID(gomock.Any(), store.LockingStrengthShare, accountID, "resource-1").
+				Return(&resourcetypes.NetworkResource{Type: tt.resourceType}, nil)
+
+			targets := []*rpservice.Target{
+				{TargetId: "resource-1", TargetType: tt.targetType, Host: "10.0.0.1"},
+			}
+			err := validateTargetReferences(ctx, mockStore, accountID, targets)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "target_type")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTargetReferences_PeerValid(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	mockStore.EXPECT().
+		GetPeerByID(gomock.Any(), store.LockingStrengthShare, accountID, "peer-1").
+		Return(&nbpeer.Peer{}, nil)
+
+	targets := []*rpservice.Target{
+		{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer},
+	}
+	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets))
 }
