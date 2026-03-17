@@ -123,7 +123,7 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.proxyManager.CleanupStale(ctx, 10*time.Minute); err != nil {
+			if err := s.proxyManager.CleanupStale(ctx, 1*time.Hour); err != nil {
 				log.WithContext(ctx).Debugf("Failed to cleanup stale proxies: %v", err)
 			}
 		}
@@ -215,7 +215,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	go s.sender(conn, errChan)
 
 	// Start heartbeat goroutine
-	go s.heartbeat(connCtx, proxyID)
+	go s.heartbeat(connCtx, proxyID, proxyAddress, peerInfo)
 
 	select {
 	case err := <-errChan:
@@ -226,14 +226,14 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 }
 
 // heartbeat updates the proxy's last_seen timestamp every minute
-func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := s.proxyManager.Heartbeat(ctx, proxyID); err != nil {
+			if err := s.proxyManager.Heartbeat(ctx, proxyID, clusterAddress, ipAddress); err != nil {
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", proxyID, err)
 			}
 		case <-ctx.Done():

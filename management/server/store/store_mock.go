@@ -2924,17 +2924,17 @@ func (mr *MockStoreMockRecorder) UpdateGroups(ctx, accountID, groups interface{}
 }
 
 // UpdateProxyHeartbeat mocks base method.
-func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, proxyID string) error {
+func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateProxyHeartbeat", ctx, proxyID)
+	ret := m.ctrl.Call(m, "UpdateProxyHeartbeat", ctx, proxyID, clusterAddress, ipAddress)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateProxyHeartbeat indicates an expected call of UpdateProxyHeartbeat.
-func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, proxyID interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, proxyID, clusterAddress, ipAddress interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, proxyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, proxyID, clusterAddress, ipAddress)
 }
 
 // UpdateService mocks base method.

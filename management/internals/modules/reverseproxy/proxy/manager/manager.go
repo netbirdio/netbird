@@ -13,7 +13,7 @@ import (
 // store defines the interface for proxy persistence operations
 type store interface {
 	SaveProxy(ctx context.Context, p *proxy.Proxy) error
-	UpdateProxyHeartbeat(ctx context.Context, proxyID string) error
+	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 }
@@ -86,11 +86,13 @@ func (m Manager) Disconnect(ctx context.Context, proxyID string) error {
 }
 
 // Heartbeat updates the proxy's last seen timestamp
-func (m Manager) Heartbeat(ctx context.Context, proxyID string) error {
-	if err := m.store.UpdateProxyHeartbeat(ctx, proxyID); err != nil {
+func (m Manager) Heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+	if err := m.store.UpdateProxyHeartbeat(ctx, proxyID, clusterAddress, ipAddress); err != nil {
 		log.WithContext(ctx).Debugf("failed to update proxy %s heartbeat: %v", proxyID, err)
 		return err
 	}
+
+	log.WithContext(ctx).Tracef("updated heartbeat for proxy %s", proxyID)
 	m.metrics.IncrementProxyHeartbeatCount()
 	return nil
 }
