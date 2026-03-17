@@ -623,11 +623,17 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 
 	configContent.WriteString(fmt.Sprintf("DNSRouteInterval: %s\n", g.internalConfig.DNSRouteInterval))
 
-	if g.internalConfig.ClientCertPath != "" {
-		configContent.WriteString(fmt.Sprintf("ClientCertPath: %s\n", g.internalConfig.ClientCertPath))
+	if g.internalConfig.IDPClientCert.CertPath != "" {
+		configContent.WriteString(fmt.Sprintf("IDPClientCertPath: %s\n", g.internalConfig.IDPClientCert.CertPath))
 	}
-	if g.internalConfig.ClientCertKeyPath != "" {
-		configContent.WriteString(fmt.Sprintf("ClientCertKeyPath: %s\n", g.internalConfig.ClientCertKeyPath))
+	if g.internalConfig.IDPClientCert.KeyPath != "" {
+		configContent.WriteString(fmt.Sprintf("IDPClientCertKeyPath: %s\n", g.internalConfig.IDPClientCert.KeyPath))
+	}
+	if g.internalConfig.MgmtClientCert.CertPath != "" {
+		configContent.WriteString(fmt.Sprintf("MgmtClientCertPath: %s\n", g.internalConfig.MgmtClientCert.CertPath))
+	}
+	if g.internalConfig.MgmtClientCert.KeyPath != "" {
+		configContent.WriteString(fmt.Sprintf("MgmtClientCertKeyPath: %s\n", g.internalConfig.MgmtClientCert.KeyPath))
 	}
 
 	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
