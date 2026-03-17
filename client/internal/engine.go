@@ -989,10 +989,11 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
-	// Cannot update the IP address without restarting the engine because
-	// the firewall, route manager, and other components cache the old address
 	if e.wgInterface.Address().String() != conf.Address {
-		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
+		log.Infof("peer IP address changed from %s to %s, restarting client", e.wgInterface.Address().String(), conf.Address)
+		_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+		e.clientCancel()
+		return nil
 	}
 
 	if conf.GetSshConfig() != nil {
