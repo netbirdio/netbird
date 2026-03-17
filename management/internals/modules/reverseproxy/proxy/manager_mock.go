@@ -93,6 +93,21 @@ func (mr *MockManagerMockRecorder) GetActiveClusterAddresses(ctx interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusterAddresses", reflect.TypeOf((*MockManager)(nil).GetActiveClusterAddresses), ctx)
 }
 
+// GetActiveClusters mocks base method.
+func (m *MockManager) GetActiveClusters(ctx context.Context) ([]Cluster, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveClusters", ctx)
+	ret0, _ := ret[0].([]Cluster)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveClusters indicates an expected call of GetActiveClusters.
+func (mr *MockManagerMockRecorder) GetActiveClusters(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusters", reflect.TypeOf((*MockManager)(nil).GetActiveClusters), ctx)
+}
+
 // Heartbeat mocks base method.
 func (m *MockManager) Heartbeat(ctx context.Context, proxyID string) error {
 	m.ctrl.T.Helper()
@@ -130,20 +145,6 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
-// GetOIDCValidationConfig mocks base method.
-func (m *MockController) GetOIDCValidationConfig() OIDCValidationConfig {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOIDCValidationConfig")
-	ret0, _ := ret[0].(OIDCValidationConfig)
-	return ret0
-}
-
-// GetOIDCValidationConfig indicates an expected call of GetOIDCValidationConfig.
-func (mr *MockControllerMockRecorder) GetOIDCValidationConfig() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOIDCValidationConfig", reflect.TypeOf((*MockController)(nil).GetOIDCValidationConfig))
-}
-
 // ClusterSupportsCustomPorts mocks base method.
 func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -156,6 +157,20 @@ func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) *bool {
 func (mr *MockControllerMockRecorder) ClusterSupportsCustomPorts(clusterAddr interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockController)(nil).ClusterSupportsCustomPorts), clusterAddr)
+}
+
+// GetOIDCValidationConfig mocks base method.
+func (m *MockController) GetOIDCValidationConfig() OIDCValidationConfig {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOIDCValidationConfig")
+	ret0, _ := ret[0].(OIDCValidationConfig)
+	return ret0
+}
+
+// GetOIDCValidationConfig indicates an expected call of GetOIDCValidationConfig.
+func (mr *MockControllerMockRecorder) GetOIDCValidationConfig() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOIDCValidationConfig", reflect.TypeOf((*MockController)(nil).GetOIDCValidationConfig))
 }
 
 // GetProxiesForCluster mocks base method.

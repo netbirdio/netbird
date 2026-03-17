@@ -15,6 +15,7 @@ type Manager interface {
 	Disconnect(ctx context.Context, proxyID string) error
 	Heartbeat(ctx context.Context, proxyID string) error
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveClusters(ctx context.Context) ([]Cluster, error)
 	CleanupStale(ctx context.Context, inactivityDuration time.Duration) error
 }
 

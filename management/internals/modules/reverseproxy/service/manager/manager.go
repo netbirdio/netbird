@@ -100,6 +100,19 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 	m.exposeReaper.StartExposeReaper(ctx)
 }
 
+// GetActiveClusters returns all active proxy clusters with their connected proxy count.
+func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return m.store.GetActiveProxyClusters(ctx)
+}
+
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {

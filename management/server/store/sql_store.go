@@ -5440,6 +5440,25 @@ func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string
 	return addresses, nil
 }
 
+// GetActiveProxyClusters returns all active proxy clusters with their connected proxy count.
+func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error) {
+	var clusters []proxy.Cluster
+
+	result := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select("cluster_address as address, COUNT(*) as connected_proxies").
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Group("cluster_address").
+		Scan(&clusters)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy clusters: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "get active proxy clusters")
+	}
+
+	return clusters, nil
+}
+
 // CleanupStaleProxies deletes proxies that haven't sent heartbeat in the specified duration
 func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error {
 	cutoffTime := time.Now().Add(-inactivityDuration)

@@ -15,6 +15,7 @@ type store interface {
 	SaveProxy(ctx context.Context, p *proxy.Proxy) error
 	UpdateProxyHeartbeat(ctx context.Context, proxyID string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 }
 
@@ -103,6 +104,16 @@ func (m Manager) GetActiveClusterAddresses(ctx context.Context) ([]string, error
 		return nil, err
 	}
 	return addresses, nil
+}
+
+// GetActiveClusters returns all active proxy clusters with their connected proxy count.
+func (m Manager) GetActiveClusters(ctx context.Context) ([]proxy.Cluster, error) {
+	clusters, err := m.store.GetActiveProxyClusters(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy clusters: %v", err)
+		return nil, err
+	}
+	return clusters, nil
 }
 
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration
