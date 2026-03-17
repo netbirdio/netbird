@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/util"
+	_ "github.com/netbirdio/netbird/util/pprof"
 )
 
 type Config struct {
