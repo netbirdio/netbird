@@ -849,12 +849,13 @@ func TestValidate_TLSSubnetValid(t *testing.T) {
 
 func TestValidate_L4DomainTargetValid(t *testing.T) {
 	modes := []struct {
-		mode string
-		port uint16
+		mode  string
+		port  uint16
+		proto string
 	}{
-		{"tcp", 5432},
-		{"tls", 443},
-		{"udp", 5432},
+		{"tcp", 5432, "tcp"},
+		{"tls", 443, "tcp"},
+		{"udp", 5432, "udp"},
 	}
 	for _, m := range modes {
 		t.Run(m.mode, func(t *testing.T) {
@@ -864,7 +865,7 @@ func TestValidate_L4DomainTargetValid(t *testing.T) {
 				Domain:     "cluster.test",
 				ListenPort: m.port,
 				Targets: []*Target{
-					{TargetId: "resource-1", TargetType: TargetTypeDomain, Protocol: "tcp", Port: m.port, Enabled: true},
+					{TargetId: "resource-1", TargetType: TargetTypeDomain, Protocol: m.proto, Port: m.port, Enabled: true},
 				},
 			}
 			require.NoError(t, rp.Validate())

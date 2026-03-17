@@ -638,21 +638,11 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 	for _, target := range targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
-			if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
-				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
-					return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
-				}
-				return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
+			if err := validatePeerTarget(ctx, transaction, accountID, target); err != nil {
+				return err
 			}
 		case service.TargetTypeHost, service.TargetTypeSubnet, service.TargetTypeDomain:
-			resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId)
-			if err != nil {
-				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
-					return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
-				}
-				return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
-			}
-			if err := validateResourceTargetType(target, resource); err != nil {
+			if err := validateResourceTarget(ctx, transaction, accountID, target); err != nil {
 				return err
 			}
 		default:
@@ -660,6 +650,27 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 		}
 	}
 	return nil
+}
+
+func validatePeerTarget(ctx context.Context, transaction store.Store, accountID string, target *service.Target) error {
+	if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
+		}
+		return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
+	}
+	return nil
+}
+
+func validateResourceTarget(ctx context.Context, transaction store.Store, accountID string, target *service.Target) error {
+	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId)
+	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
+		}
+		return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
+	}
+	return validateResourceTargetType(target, resource)
 }
 
 // validateResourceTargetType checks that target_type matches the actual network resource type.
