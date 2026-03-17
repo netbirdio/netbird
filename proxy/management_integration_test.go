@@ -216,6 +216,10 @@ func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]strin
 	return nil, nil
 }
 
+func (m *testProxyManager) GetActiveClusters(_ context.Context) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
+
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
 	return nil
 }
@@ -322,6 +326,10 @@ func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _,
 }
 
 func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
 
 func strPtr(s string) *string {
 	return &s
