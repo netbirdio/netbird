@@ -30,9 +30,8 @@ func TestMaxRecvMsgSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.envValue != "" {
-				t.Setenv(EnvMaxRecvMsgSize, tt.envValue)
-			} else {
+			t.Setenv(EnvMaxRecvMsgSize, tt.envValue)
+			if tt.envValue == "" {
 				os.Unsetenv(EnvMaxRecvMsgSize)
 			}
 			assert.Equal(t, tt.expected, MaxRecvMsgSize())
