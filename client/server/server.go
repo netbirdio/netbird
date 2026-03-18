@@ -30,6 +30,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -89,6 +91,8 @@ type Server struct {
 
 	sleepHandler *sleephandler.SleepHandler
 
+	updateManager *updater.Manager
+
 	jwtCache *jwtCache
 }
 
@@ -133,6 +137,12 @@ func (s *Server) Start() error {
 
 	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if s.updateManager == nil {
+		stateMgr := statemanager.New(s.profileManager.GetStatePath())
+		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
+		s.updateManager.CheckUpdateSuccess(s.rootCtx)
 	}
 
 	// if current state contains any error, return it
@@ -192,14 +202,14 @@ func (s *Server) Start() error {
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, false, s.clientRunningChan, s.clientGiveUpChan)
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	return nil
 }
 
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
-func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, doInitialAutoUpdate bool, runningChan chan struct{}, giveUpChan chan struct{}) {
+func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
 		s.mutex.Lock()
 		s.clientRunning = false
@@ -207,7 +217,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, doInitialAutoUpdate, runningChan); err != nil {
+		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
@@ -236,8 +246,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	runOperation := func() error {
-		err := s.connect(ctx, profileConfig, statusRecorder, doInitialAutoUpdate, runningChan)
-		doInitialAutoUpdate = false
+		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
@@ -717,11 +726,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 
-	var doAutoUpdate bool
-	if msg != nil && msg.AutoUpdate != nil && *msg.AutoUpdate {
-		doAutoUpdate = true
-	}
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, doAutoUpdate, s.clientRunningChan, s.clientGiveUpChan)
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 
 	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
@@ -849,14 +854,26 @@ func (s *Server) cleanupConnection() error {
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
+
+	// Capture the engine reference before cancelling the context.
+	// After actCancel(), the connectWithRetryRuns goroutine wakes up
+	// and sets connectClient.engine = nil, causing connectClient.Stop()
+	// to skip the engine shutdown entirely.
+	var engine *internal.Engine
+	if s.connectClient != nil {
+		engine = s.connectClient.Engine()
+	}
+
 	s.actCancel()
 
 	if s.connectClient == nil {
 		return nil
 	}
 
-	if err := s.connectClient.Stop(); err != nil {
-		return err
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return err
+		}
 	}
 
 	s.connectClient = nil
@@ -1361,9 +1378,10 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	if err := srv.Send(&proto.ExposeServiceEvent{
 		Event: &proto.ExposeServiceEvent_Ready{
 			Ready: &proto.ExposeServiceReady{
-				ServiceName: result.ServiceName,
-				ServiceUrl:  result.ServiceURL,
-				Domain:      result.Domain,
+				ServiceName:      result.ServiceName,
+				ServiceUrl:       result.ServiceURL,
+				Domain:           result.Domain,
+				PortAutoAssigned: result.PortAutoAssigned,
 			},
 		},
 	}); err != nil {
@@ -1611,11 +1629,17 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
-func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, doInitialAutoUpdate bool, runningChan chan struct{}) error {
+func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, doInitialAutoUpdate)
-	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
+	client := internal.NewConnectClient(ctx, config, statusRecorder)
+	client.SetUpdateManager(s.updateManager)
+	client.SetSyncResponsePersistence(s.persistSyncResponse)
+
+	s.mutex.Lock()
+	s.connectClient = client
+	s.mutex.Unlock()
+
+	if err := client.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil
@@ -1637,6 +1661,14 @@ func (s *Server) checkUpdateSettingsDisabled() bool {
 	}
 
 	return false
+}
+
+func (s *Server) startUpdateManagerForGUI() {
+	if s.updateManager == nil {
+		return
+	}
+	s.updateManager.Start(s.rootCtx)
+	s.updateManager.NotifyUI()
 }
 
 func (s *Server) onSessionExpire() {

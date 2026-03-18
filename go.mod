@@ -1,8 +1,6 @@
 module github.com/netbirdio/netbird
 
-go 1.25
-
-toolchain go1.25.5
+go 1.25.5
 
 require (
 	cunicu.li/go-rosenpass v0.4.0
@@ -125,7 +123,7 @@ require (
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
-	gvisor.dev/gvisor v0.0.0-20251031020517-ecfcdd2f171c
+	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
 )
 
 require (
@@ -257,7 +255,7 @@ require (
 	github.com/russellhaering/goxmldsig v1.5.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
-	github.com/shoenig/go-m1cpu v0.1.6 // indirect
+	github.com/shoenig/go-m1cpu v0.2.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect

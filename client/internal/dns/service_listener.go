@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -69,7 +70,7 @@ func (s *serviceViaListener) Listen() error {
 		return fmt.Errorf("eval listen address: %w", err)
 	}
 	s.listenIP = s.listenIP.Unmap()
-	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
+	s.server.Addr = net.JoinHostPort(s.listenIP.String(), strconv.Itoa(int(s.listenPort)))
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
 		s.setListenerStatus(true)
@@ -186,7 +187,7 @@ func (s *serviceViaListener) testFreePort(port int) (netip.Addr, bool) {
 }
 
 func (s *serviceViaListener) tryToBind(ip netip.Addr, port int) bool {
-	addrString := fmt.Sprintf("%s:%d", ip, port)
+	addrString := net.JoinHostPort(ip.String(), strconv.Itoa(port))
 	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
 	probeListener, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {

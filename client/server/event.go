@@ -14,6 +14,7 @@ func (s *Server) SubscribeEvents(req *proto.SubscribeRequest, stream proto.Daemo
 	}()
 
 	log.Debug("client subscribed to events")
+	s.startUpdateManagerForGUI()
 
 	for {
 		select {

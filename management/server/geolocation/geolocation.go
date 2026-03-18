@@ -44,6 +44,12 @@ type Record struct {
 		GeonameID uint   `maxminddb:"geoname_id"`
 		ISOCode   string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
+	Subdivisions []struct {
+		ISOCode string `maxminddb:"iso_code"`
+		Names   struct {
+			En string `maxminddb:"en"`
+		} `maxminddb:"names"`
+	} `maxminddb:"subdivisions"`
 }
 
 type City struct {

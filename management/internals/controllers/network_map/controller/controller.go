@@ -87,9 +87,14 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		newNetworkMapBuilder = false
 	}
 
-	compactedNetworkMap, err := strconv.ParseBool(os.Getenv(types.EnvNewNetworkMapCompacted))
-	if err != nil {
-		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", types.EnvNewNetworkMapCompacted, err)
+	compactedNetworkMap := true
+	compactedEnv := os.Getenv(types.EnvNewNetworkMapCompacted)
+	parsedCompactedNmap, err := strconv.ParseBool(compactedEnv)
+	if err != nil && len(compactedEnv) > 0 {
+		log.WithContext(ctx).Warnf("failed to parse %s, using default value true: %v", types.EnvNewNetworkMapCompacted, err)
+	}
+	if err == nil && !parsedCompactedNmap {
+		log.WithContext(ctx).Info("disabling compacted mode")
 		compactedNetworkMap = false
 	}
 

@@ -152,6 +152,8 @@ func (n *Network) CurrentSerial() uint64 {
 }
 
 func (n *Network) Copy() *Network {
+	n.Mu.Lock()
+	defer n.Mu.Unlock()
 	return &Network{
 		Identifier: n.Identifier,
 		Net:        n.Net,

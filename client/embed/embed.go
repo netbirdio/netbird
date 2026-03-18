@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -21,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -81,6 +83,14 @@ type Options struct {
 	BlockInbound bool
 	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
 	WireguardPort *int
+	// MTU is the MTU for the WireGuard interface.
+	// Valid values are in the range 576..8192 bytes.
+	// If non-nil, this value overrides any value stored in the config file.
+	// If nil, the existing config MTU (if non-zero) is preserved; otherwise it defaults to 1280.
+	// Set to a higher value (e.g. 1400) if carrying QUIC or other protocols that require larger datagrams.
+	MTU *uint16
+	// DNSLabels defines additional DNS labels configured in the peer.
+	DNSLabels []string
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -112,6 +122,12 @@ func New(opts Options) (*Client, error) {
 		return nil, err
 	}
 
+	if opts.MTU != nil {
+		if err := iface.ValidateMTU(*opts.MTU); err != nil {
+			return nil, fmt.Errorf("invalid MTU: %w", err)
+		}
+	}
+
 	if opts.LogOutput != nil {
 		logrus.SetOutput(opts.LogOutput)
 	}
@@ -140,9 +156,14 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
+	var err error
+	var parsedLabels domain.List
+	if parsedLabels, err = domain.FromStringList(opts.DNSLabels); err != nil {
+		return nil, fmt.Errorf("invalid dns labels: %w", err)
+	}
+
 	t := true
 	var config *profilemanager.Config
-	var err error
 	input := profilemanager.ConfigInput{
 		ConfigPath:          opts.ConfigPath,
 		ManagementURL:       opts.ManagementURL,
@@ -151,6 +172,8 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 		BlockInbound:        &opts.BlockInbound,
 		WireguardPort:       opts.WireguardPort,
+		MTU:                 opts.MTU,
+		DNSLabels:           parsedLabels,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)
@@ -202,7 +225,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	client := internal.NewConnectClient(ctx, c.config, c.recorder, false)
+	client := internal.NewConnectClient(ctx, c.config, c.recorder)
 	client.SetSyncResponsePersistence(true)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)

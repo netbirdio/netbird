@@ -1,4 +1,4 @@
-// Package updatemanager provides automatic update management for the NetBird client.
+// Package updater provides automatic update management for the NetBird client.
 // It monitors for new versions, handles update triggers from management server directives,
 // and orchestrates the download and installation of client updates.
 //
@@ -32,4 +32,4 @@
 //
 // This enables verification of successful updates and appropriate user notification
 // after the client restarts with the new version.
-package updatemanager
+package updater

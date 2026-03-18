@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -31,22 +33,32 @@ type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
 }
 
-type Manager struct {
-	store              store
-	validator          domain.Validator
-	proxyManager       proxyManager
-	permissionsManager permissions.Manager
+type clusterCapabilities interface {
+	ClusterSupportsCustomPorts(clusterAddr string) *bool
 }
 
-func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager) Manager {
+type Manager struct {
+	store               store
+	validator           domain.Validator
+	proxyManager        proxyManager
+	clusterCapabilities clusterCapabilities
+	permissionsManager  permissions.Manager
+	accountManager     account.Manager
+}
+
+func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
 	return Manager{
-		store:        store,
-		proxyManager: proxyMgr,
-		validator: domain.Validator{
-			Resolver: net.DefaultResolver,
-		},
+		store:              store,
+		proxyManager:       proxyMgr,
+		validator:          domain.Validator{Resolver: net.DefaultResolver},
 		permissionsManager: permissionsManager,
+		accountManager:     accountManager,
 	}
+}
+
+// SetClusterCapabilities sets the cluster capabilities provider for domain queries.
+func (m *Manager) SetClusterCapabilities(caps clusterCapabilities) {
+	m.clusterCapabilities = caps
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
@@ -78,24 +90,32 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	}).Debug("getting domains with proxy allow list")
 
 	for _, cluster := range allowList {
-		ret = append(ret, &domain.Domain{
+		d := &domain.Domain{
 			Domain:    cluster,
 			AccountID: accountID,
 			Type:      domain.TypeFree,
 			Validated: true,
-		})
+		}
+		if m.clusterCapabilities != nil {
+			d.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(cluster)
+		}
+		ret = append(ret, d)
 	}
 
 	// Add custom domains.
 	for _, d := range domains {
-		ret = append(ret, &domain.Domain{
+		cd := &domain.Domain{
 			ID:            d.ID,
 			Domain:        d.Domain,
 			AccountID:     accountID,
 			TargetCluster: d.TargetCluster,
 			Type:          domain.TypeCustom,
 			Validated:     d.Validated,
-		})
+		}
+		if m.clusterCapabilities != nil && d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(d.TargetCluster)
+		}
+		ret = append(ret, cd)
 	}
 
 	return ret, nil
@@ -136,6 +156,9 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	if err != nil {
 		return d, fmt.Errorf("create domain in store: %w", err)
 	}
+
+	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
+
 	return d, nil
 }
 
@@ -148,10 +171,18 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 		return status.NewPermissionDeniedError()
 	}
 
+	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
+	if err != nil {
+		return fmt.Errorf("get domain from store: %w", err)
+	}
+
 	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
 		// TODO: check for "no records" type error. Because that is a success condition.
 		return fmt.Errorf("delete domain from store: %w", err)
 	}
+
+	m.accountManager.StoreEvent(ctx, userID, domainID, accountID, activity.DomainDeleted, d.EventMeta())
+
 	return nil
 }
 
@@ -218,6 +249,8 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 			}).WithError(err).Error("update custom domain in store")
 			return
 		}
+
+		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
 	} else {
 		log.WithFields(log.Fields{
 			"accountID":     accountID,
@@ -283,7 +316,7 @@ func extractClusterFromCustomDomains(domain string, customDomains []*domain.Doma
 // It matches the domain suffix against available clusters and returns the matching cluster.
 func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
 	for _, cluster := range availableClusters {
-		if strings.HasSuffix(domain, "."+cluster) {
+		if domain == cluster || strings.HasSuffix(domain, "."+cluster) {
 			return cluster, true
 		}
 	}

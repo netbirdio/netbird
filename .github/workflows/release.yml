@@ -10,7 +10,7 @@ on:
 
 env:
   SIGN_PIPE_VER: "v0.1.1"
-  GORELEASER_VER: "v2.3.2"
+  GORELEASER_VER: "v2.14.3"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
 
@@ -169,6 +169,13 @@ jobs:
       - name: Install OS build dependencies
         run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 
+      - name: Decode GPG signing key
+        env:
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
       - name: Install goversioninfo
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@233067e
       - name: Generate windows syso amd64
@@ -186,18 +193,54 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-      - name: Tag and push PR images (amd64 only)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+          NFPM_NETBIRD_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+      - name: Verify RPM signatures
         run: |
-          PR_TAG="pr-${{ github.event.pull_request.number }}"
+          docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
+            dnf install -y -q rpm-sign curl >/dev/null 2>&1
+            curl -sSL https://pkgs.netbird.io/yum/repodata/repomd.xml.key -o /tmp/rpm-pub.key
+            rpm --import /tmp/rpm-pub.key
+            echo "=== Verifying RPM signatures ==="
+            for rpm_file in /dist/*amd64*.rpm; do
+              [ -f "$rpm_file" ] || continue
+              echo "--- $(basename $rpm_file) ---"
+              rpm -K "$rpm_file"
+            done
+          '
+      - name: Clean up GPG key
+        if: always()
+        run: rm -f /tmp/gpg-rpm-signing-key.asc
+      - name: Tag and push images (amd64 only)
+        if: |
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        run: |
+          resolve_tags() {
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "pr-${{ github.event.pull_request.number }}"
+            else
+              echo "main sha-$(git rev-parse --short HEAD)"
+            fi
+          }
+
+          tag_and_push() {
+            local src="$1" img_name tag dst
+            img_name="${src%%:*}"
+            for tag in $(resolve_tags); do
+              dst="${img_name}:${tag}"
+              echo "Tagging ${src} -> ${dst}"
+              docker tag "$src" "$dst"
+              docker push "$dst"
+            done
+          }
+
+          export -f tag_and_push resolve_tags
+
           echo '${{ steps.goreleaser.outputs.artifacts }}' | \
             jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name' | \
             grep '^ghcr.io/' | while read -r SRC; do
-              IMG_NAME="${SRC%%:*}"
-              DST="${IMG_NAME}:${PR_TAG}"
-              echo "Tagging ${SRC} -> ${DST}"
-              docker tag "$SRC" "$DST"
-              docker push "$DST"
+              tag_and_push "$SRC"
             done
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v4
@@ -265,6 +308,13 @@ jobs:
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libappindicator3-dev gir1.2-appindicator3-0.1 libxxf86vm-dev gcc-mingw-w64-x86-64
 
+      - name: Decode GPG signing key
+        env:
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_RPM_PRIVATE_KEY" | base64 -d > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> $GITHUB_ENV
+
       - name: Install LLVM-MinGW for ARM64 cross-compilation
         run: |
           cd /tmp
@@ -289,6 +339,24 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+          NFPM_NETBIRD_UI_RPM_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+      - name: Verify RPM signatures
+        run: |
+          docker run --rm -v $(pwd)/dist:/dist fedora:41 bash -c '
+            dnf install -y -q rpm-sign curl >/dev/null 2>&1
+            curl -sSL https://pkgs.netbird.io/yum/repodata/repomd.xml.key -o /tmp/rpm-pub.key
+            rpm --import /tmp/rpm-pub.key
+            echo "=== Verifying RPM signatures ==="
+            for rpm_file in /dist/*.rpm; do
+              [ -f "$rpm_file" ] || continue
+              echo "--- $(basename $rpm_file) ---"
+              rpm -K "$rpm_file"
+            done
+          '
+      - name: Clean up GPG key
+        if: always()
+        run: rm -f /tmp/gpg-rpm-signing-key.asc
       - name: upload non tags for debug purposes
         uses: actions/upload-artifact@v4
         with:

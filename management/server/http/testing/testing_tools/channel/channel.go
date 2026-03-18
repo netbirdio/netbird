@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -98,17 +99,22 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	if err != nil {
 		t.Fatalf("Failed to create proxy token store: %v", err)
 	}
+	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create PKCE verifier store: %v", err)
+	}
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
-	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
-	domainManager := manager.NewManager(store, proxyMgr, permissionsManager)
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
+	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
+	domainManager.SetClusterCapabilities(serviceProxyController)
 	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, domainManager)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)

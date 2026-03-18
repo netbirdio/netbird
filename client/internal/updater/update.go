@@ -1,4 +1,4 @@
-package updatemanager
+package updater
 
 import v "github.com/hashicorp/go-version"
 

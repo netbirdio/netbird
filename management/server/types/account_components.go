@@ -368,7 +368,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string,
 	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
 	peerInGroups := false
-	filteredPeerIDs := make([]string, 0, len(a.Peers))
+	filteredPeerIDs := make([]string, 0, len(groups))
 	seenPeerIds := make(map[string]struct{}, len(groups))
 
 	for _, gid := range groups {
@@ -378,7 +378,7 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 		}
 
 		if group.IsGroupAll() || len(groups) == 1 {
-			filteredPeerIDs = filteredPeerIDs[:0]
+			filteredPeerIDs = make([]string, 0, len(group.Peers))
 			peerInGroups = false
 			for _, pid := range group.Peers {
 				peer, ok := a.Peers[pid]

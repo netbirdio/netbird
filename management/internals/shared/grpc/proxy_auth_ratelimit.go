@@ -115,9 +115,9 @@ func (l *authFailureLimiter) stop() {
 	l.cancel()
 }
 
-// peerIPFromContext extracts the client IP from the gRPC context.
+// PeerIPFromContext extracts the client IP from the gRPC context.
 // Uses realip (from trusted proxy headers) first, falls back to the transport peer address.
-func peerIPFromContext(ctx context.Context) clientIP {
+func PeerIPFromContext(ctx context.Context) string {
 	if addr, ok := realip.FromContext(ctx); ok {
 		return addr.String()
 	}

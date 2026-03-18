@@ -27,7 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"

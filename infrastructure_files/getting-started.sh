@@ -182,44 +182,6 @@ read_enable_proxy() {
   return 0
 }
 
-read_proxy_domain() {
-  local suggested_proxy="proxy.${BASE_DOMAIN}"
-
-  echo "" > /dev/stderr
-  echo "NOTE: The proxy domain must be different from the management domain ($NETBIRD_DOMAIN)" > /dev/stderr
-  echo "to avoid TLS certificate conflicts." > /dev/stderr
-  echo "" > /dev/stderr
-  echo "You also need to add a wildcard DNS record for the proxy domain," > /dev/stderr
-  echo "e.g. *.${suggested_proxy} pointing to the same server domain as $NETBIRD_DOMAIN with a CNAME record." > /dev/stderr
-  echo "" > /dev/stderr
-  echo -n "Enter the domain for the NetBird Proxy (e.g. ${suggested_proxy}): " > /dev/stderr
-  read -r READ_PROXY_DOMAIN < /dev/tty
-
-  if [[ -z "$READ_PROXY_DOMAIN" ]]; then
-    echo "The proxy domain cannot be empty." > /dev/stderr
-    read_proxy_domain
-    return
-  fi
-
-  if [[ "$READ_PROXY_DOMAIN" == "$NETBIRD_DOMAIN" ]]; then
-    echo "" > /dev/stderr
-    echo "WARNING: The proxy domain cannot be the same as the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
-    read_proxy_domain
-    return
-  fi
-
-  echo ${READ_PROXY_DOMAIN} | grep ${NETBIRD_DOMAIN} > /dev/null
-  if [[ $? -eq 0 ]]; then
-    echo "" > /dev/stderr
-    echo "WARNING: The proxy domain cannot be a subdomain of the management domain ($NETBIRD_DOMAIN)." > /dev/stderr
-    read_proxy_domain
-    return
-  fi
-
-  echo "$READ_PROXY_DOMAIN"
-  return 0
-}
-
 read_traefik_acme_email() {
   echo "" > /dev/stderr
   echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
@@ -334,7 +296,6 @@ initialize_default_values() {
 
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
-  PROXY_DOMAIN=""
   PROXY_TOKEN=""
   return 0
 }
@@ -364,9 +325,6 @@ configure_reverse_proxy() {
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
     TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
     ENABLE_PROXY=$(read_enable_proxy)
-    if [[ "$ENABLE_PROXY" == "true" ]]; then
-      PROXY_DOMAIN=$(read_proxy_domain)
-    fi
   fi
 
   # Handle external Traefik-specific prompts (option 1)
@@ -813,7 +771,7 @@ NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
 # Allow insecure gRPC connection to management (required for internal Docker network)
 NB_PROXY_ALLOW_INSECURE=true
 # Public URL where this proxy is reachable (used for cluster registration)
-NB_PROXY_DOMAIN=$PROXY_DOMAIN
+NB_PROXY_DOMAIN=$NETBIRD_DOMAIN
 NB_PROXY_ADDRESS=:8443
 NB_PROXY_TOKEN=$PROXY_TOKEN
 NB_PROXY_CERTIFICATE_DIRECTORY=/certs
@@ -1203,8 +1161,7 @@ print_builtin_traefik_instructions() {
     echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
     echo "  Point your proxy domain to this server's domain address like in the examples below:"
     echo ""
-    echo "  $PROXY_DOMAIN      CNAME    $NETBIRD_DOMAIN"
-    echo "  *.$PROXY_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo "  *.$NETBIRD_DOMAIN    CNAME    $NETBIRD_DOMAIN"
     echo ""
   fi
   return 0

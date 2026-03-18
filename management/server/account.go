@@ -335,7 +335,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
-			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
 			updateAccountPeers = true
 		}
 
@@ -376,6 +377,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
@@ -490,6 +492,16 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
 			"version": newSettings.AutoUpdateVersion,
 		})
+	}
+}
+
+func (am *DefaultAccountManager) handleAutoUpdateAlwaysSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+		if newSettings.AutoUpdateAlways {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysDisabled, nil)
+		}
 	}
 }
 
@@ -1379,9 +1391,10 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
-		userAuth.Domain = am.singleAccountModeDomain
-		userAuth.DomainCategory = types.PrivateCategory
-		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+		err := am.updateUserAuthWithSingleMode(ctx, &userAuth)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, userAuth)
@@ -1412,6 +1425,35 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	}
 
 	return accountID, user.Id, nil
+}
+
+// updateUserAuthWithSingleMode modifies the userAuth with the single account domain, or if there is an existing account, with the domain of that account
+func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Context, userAuth *auth.UserAuth) error {
+	userAuth.DomainCategory = types.PrivateCategory
+	userAuth.Domain = am.singleAccountModeDomain
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		if e, ok := status.FromError(err); !ok || e.Type() != status.NotFound {
+			return err
+		}
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	if accountID == "" {
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	domain, _, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	userAuth.Domain = domain
+
+	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+	return nil
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,

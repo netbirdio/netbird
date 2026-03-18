@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/downloader"
+	"github.com/netbirdio/netbird/client/internal/updater/downloader"
 )
 
 const (

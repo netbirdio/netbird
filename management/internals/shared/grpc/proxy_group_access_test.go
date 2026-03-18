@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -89,6 +90,10 @@ func (m *mockReverseProxyManager) StopServiceFromPeer(_ context.Context, _, _, _
 }
 
 func (m *mockReverseProxyManager) StartExposeReaper(_ context.Context) {}
+
+func (m *mockReverseProxyManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
+	return nil, nil
+}
 
 type mockUsersManager struct {
 	users map[string]*types.User

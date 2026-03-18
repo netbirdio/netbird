@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -193,6 +194,9 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
+	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
 	usersManager := users.NewManager(testStore)
 
 	oidcConfig := nbgrpc.ProxyOIDCConfig{
@@ -206,6 +210,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
+		pkceStore,
 		oidcConfig,
 		nil,
 		usersManager,
@@ -428,6 +433,10 @@ func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ stri
 }
 
 func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *testServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
 
 func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL string) string {
 	t.Helper()
