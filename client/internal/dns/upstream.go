@@ -129,6 +129,7 @@ func (u *upstreamResolverBase) MatchSubdomains() bool {
 func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
+
 	u.wg.Wait()
 }
 
@@ -293,6 +294,7 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 	}
 
 	var success bool
+	var probedAny bool
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -304,12 +306,10 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 		// be exercised normally once real DNS queries arrive.
 		if isNetBirdOverlayAddr(upstream) {
 			log.Debugf("skipping probe for NetBird overlay nameserver %s (tunnel not yet established)", upstream)
-			mu.Lock()
-			success = true
-			mu.Unlock()
 			continue
 		}
 
+		probedAny = true
 		wg.Add(1)
 		go func(upstream netip.AddrPort) {
 			defer wg.Done()
@@ -334,6 +334,12 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 	case <-u.ctx.Done():
 		return
 	default:
+	}
+
+	// All upstreams were overlay addresses — skip startup disable/warning.
+	// They will be exercised by real DNS queries once the tunnel is established.
+	if !probedAny {
+		return
 	}
 
 	// didn't find a working upstream server, let's disable and try later

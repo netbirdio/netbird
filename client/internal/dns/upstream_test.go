@@ -541,9 +541,9 @@ func TestIsNetBirdOverlayAddr(t *testing.T) {
 }
 
 // TestProbeAvailability_SkipsOverlayAddresses verifies that ProbeAvailability
-// does not fire the "probe failed" warning event when all nameservers are
-// NetBird overlay addresses (100.64.0.0/10). These are unreachable at engine
-// startup because the WireGuard tunnel has not yet been established.
+// does not probe or deactivate when all nameservers are NetBird overlay
+// addresses (100.64.0.0/10). These are unreachable at engine startup because
+// the WireGuard tunnel has not yet been established.
 func TestProbeAvailability_SkipsOverlayAddresses(t *testing.T) {
 	overlayUpstream := netip.MustParseAddrPort("100.110.145.54:53")
 
@@ -650,8 +650,8 @@ func TestProbeAvailability_MixedOverlayAndLAN(t *testing.T) {
 }
 
 // TestProbeAvailability_OnlyOverlay_NoDeactivation verifies that a nameserver
-// group containing only overlay addresses is never deactivated, even though
-// no actual probe is performed.
+// group containing only overlay addresses is never deactivated. The probedAny
+// flag ensures we return early without triggering the disable path.
 func TestProbeAvailability_OnlyOverlay_NoDeactivation(t *testing.T) {
 	overlay1 := netip.MustParseAddrPort("100.110.145.54:53")
 	overlay2 := netip.MustParseAddrPort("100.64.0.1:53")
@@ -673,6 +673,37 @@ func TestProbeAvailability_OnlyOverlay_NoDeactivation(t *testing.T) {
 
 	assert.False(t, deactivated, "resolver should not be deactivated for overlay-only nameserver group")
 	assert.False(t, resolver.disabled, "resolver should not be disabled")
+}
+
+// TestProbeAvailability_MixedOverlayAndLAN_LANFails verifies that when a
+// nameserver group contains both overlay and LAN addresses, and the LAN probe
+// fails, the resolver is deactivated. The overlay skip must not mask a genuine
+// LAN failure.
+func TestProbeAvailability_MixedOverlayAndLAN_LANFails(t *testing.T) {
+	overlayUpstream := netip.MustParseAddrPort("100.110.145.54:53")
+	lanUpstream := netip.MustParseAddrPort("192.168.1.5:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			overlayUpstream.String(): {err: fmt.Errorf("tunnel not up")},
+			lanUpstream.String():     {err: fmt.Errorf("connection refused")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	deactivated := false
+	resolver := &upstreamResolverBase{
+		ctx:             context.Background(),
+		upstreamClient:  mockClient,
+		upstreamServers: []netip.AddrPort{overlayUpstream, lanUpstream},
+		upstreamTimeout: UpstreamTimeout,
+		deactivate:      func(error) { deactivated = true },
+		reactivate:      func() {},
+	}
+
+	resolver.ProbeAvailability()
+
+	assert.True(t, deactivated, "resolver should be deactivated when LAN probe fails even with overlay present")
 }
 
 // trackingUpstreamClient records whether any probe was attempted, regardless of address.
