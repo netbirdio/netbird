@@ -14,7 +14,7 @@ Metrics collection is always active (for debug bundles). Push to backend is:
 
 ### Layer Separation
 
-```
+```text
 Daemon Layer (connect.go)
   ├─ Creates ClientMetrics instance once
   ├─ Starts/stops push lifecycle
@@ -29,16 +29,16 @@ Engine Layer (engine.go)
 
 Clients do not talk to InfluxDB directly. An ingest server sits between clients and InfluxDB:
 
-```
+```text
 Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
                   │
                   ├─ Validates line protocol
-                  ├─ Whitelists measurements & fields
+                  ├─ Allowlists measurements, fields, and tags
                   ├─ Rejects out-of-bound values
                   └─ Serves remote config at /config
 ```
 
-- **No client-side auth required** — the ingest server holds the InfluxDB token server-side
+- **No secret/token-based client auth** — the ingest server holds the InfluxDB token server-side. Clients must send a hashed peer ID via `X-Peer-ID` header.
 - **InfluxDB is not exposed** — only accessible within the docker network
 - Source: `ingest/main.go`
 
@@ -155,7 +155,7 @@ docker compose up -d
 ```
 
 This starts:
-- **Ingest server** on http://localhost:8087 — accepts client metrics (no auth needed)
+- **Ingest server** on http://localhost:8087 — accepts client metrics (requires `X-Peer-ID` header, no secret/token auth)
 - **InfluxDB** — internal only, not exposed to host
 - **Grafana** on http://localhost:3001
 

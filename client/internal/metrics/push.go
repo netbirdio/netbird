@@ -122,8 +122,8 @@ func (p *Push) SetPeerID(peerID string) {
 }
 
 // Start starts the periodic push loop.
-// If overrideInterval is set (via env var), pushes unconditionally at that interval.
-// Otherwise, fetches remote config to determine push period and version eligibility.
+// The env interval override controls tick frequency but does not bypass remote config
+// version gating. Use ForceSending to skip remote config entirely.
 func (p *Push) Start(ctx context.Context) {
 	// Log initial state
 	switch {
