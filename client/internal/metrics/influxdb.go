@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -129,14 +131,15 @@ func (m *influxDBMetrics) Export(w io.Writer) error {
 			return err
 		}
 
+		sortedKeys := slices.Sorted(maps.Keys(s.fields))
 		first := true
-		for k, v := range s.fields {
+		for _, k := range sortedKeys {
 			if !first {
 				if _, err := fmt.Fprint(w, ","); err != nil {
 					return err
 				}
 			}
-			if _, err := fmt.Fprintf(w, "%s=%g", k, v); err != nil {
+			if _, err := fmt.Fprintf(w, "%s=%g", k, s.fields[k]); err != nil {
 				return err
 			}
 			first = false
@@ -169,7 +172,7 @@ func (m *influxDBMetrics) trimLocked() {
 	if cutoff > 0 {
 		copy(m.samples, m.samples[cutoff:])
 		m.samples = m.samples[:len(m.samples)-cutoff]
-		log.Warnf("influxdb metrics: dropped %d samples older than %s", cutoff, maxSampleAge)
+		log.Debugf("influxdb metrics: dropped %d samples older than %s", cutoff, maxSampleAge)
 	}
 
 	// drop oldest samples if estimated size exceeds maxBufferSize
@@ -178,6 +181,6 @@ func (m *influxDBMetrics) trimLocked() {
 		drop := len(m.samples) - maxSamples
 		copy(m.samples, m.samples[drop:])
 		m.samples = m.samples[:maxSamples]
-		log.Warnf("influxdb metrics: dropped %d oldest samples to stay under %d MB size limit", drop, maxBufferSize/(1024*1024))
+		log.Debugf("influxdb metrics: dropped %d oldest samples to stay under %d MB size limit", drop, maxBufferSize/(1024*1024))
 	}
 }

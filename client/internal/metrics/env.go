@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	// EnvMetricsEnabled is the environment variable to enable metrics push (default: disabled)
-	EnvMetricsEnabled = "NB_METRICS_ENABLED"
+	// EnvMetricsPushEnabled controls whether collected metrics are pushed to the backend.
+	// Metrics collection itself is always active (for debug bundles).
+	// Disabled by default. Set NB_METRICS_PUSH_ENABLED=true to enable push.
+	EnvMetricsPushEnabled = "NB_METRICS_PUSH_ENABLED"
 
 	// EnvMetricsForceSending if set to true, skips remote configuration fetch and forces metric sending
 	EnvMetricsForceSending = "NB_METRICS_FORCE_SENDING"
@@ -29,13 +31,13 @@ const (
 	// Format: duration string like "1h", "30m", "4h"
 	EnvMetricsInterval = "NB_METRICS_INTERVAL"
 
-	defaultMetricsConfigURL = "https://ingest.stage.npeer.io/config"
+	defaultMetricsConfigURL = "https://ingest.netbird.io/config"
 )
 
-// IsMetricsPushEnabled returns true if metrics push is enabled via NB_METRICS_ENABLED env var
-// Disabled by default. Set NB_METRICS_ENABLED=true to enable
+// IsMetricsPushEnabled returns true if metrics push is enabled via NB_METRICS_PUSH_ENABLED env var.
+// Disabled by default. Metrics collection is always active for debug bundles.
 func IsMetricsPushEnabled() bool {
-	enabled, _ := strconv.ParseBool(os.Getenv(EnvMetricsEnabled))
+	enabled, _ := strconv.ParseBool(os.Getenv(EnvMetricsPushEnabled))
 	return enabled
 }
 

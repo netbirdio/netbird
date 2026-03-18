@@ -29,7 +29,9 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	var clientMetrics debug.MetricsExporter
 	if s.connectClient != nil {
 		if engine := s.connectClient.Engine(); engine != nil {
-			clientMetrics = engine.GetClientMetrics()
+			if cm := engine.GetClientMetrics(); cm != nil {
+				clientMetrics = cm
+			}
 		}
 	}
 

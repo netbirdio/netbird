@@ -6,8 +6,8 @@ Internal documentation for the NetBird client metrics system.
 
 Client metrics track connection performance and sync durations using InfluxDB line protocol (`influxdb.go`). Each event is pushed once then cleared.
 
-Metrics are:
-- Disabled by default (opt-in via `NB_METRICS_ENABLED=true`)
+Metrics collection is always active (for debug bundles). Push to backend is:
+- Disabled by default (opt-in via `NB_METRICS_PUSH_ENABLED=true`)
 - Managed at daemon layer (survives engine restarts)
 
 ## Architecture
@@ -88,11 +88,11 @@ The InfluxDB backend limits in-memory sample storage to prevent unbounded growth
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NB_METRICS_ENABLED` | `false` | Enable metrics push |
-| `NB_METRICS_SERVER_URL` | *(from remote config)* | Ingest server URL (e.g., `https://ingest.npeer.io`) |
+| `NB_METRICS_PUSH_ENABLED` | `false` | Enable metrics push to backend |
+| `NB_METRICS_SERVER_URL` | *(from remote config)* | Ingest server URL (e.g., `https://ingest.netbird.io`) |
 | `NB_METRICS_INTERVAL` | *(from remote config)* | Push interval (e.g., "1m", "30m", "4h") |
 | `NB_METRICS_FORCE_SENDING` | `false` | Skip remote config, push unconditionally |
-| `NB_METRICS_CONFIG_URL` | `https://api.netbird.io/client-metrics-config.json` | Remote push config URL |
+| `NB_METRICS_CONFIG_URL` | `https://ingest.netbird.io/config` | Remote push config URL |
 
 ### Ingest Server Environment Variables
 
@@ -132,7 +132,8 @@ Samples are collected with exact timestamps, pushed once, then cleared. No data 
 
 ```bash
 # From this directory (client/internal/metrics/infra)
-# Edit .env to change INFLUXDB_ADMIN_PASSWORD and INFLUXDB_ADMIN_TOKEN
+cp .env.example .env
+# Edit .env to set INFLUXDB_ADMIN_PASSWORD, INFLUXDB_ADMIN_TOKEN, and GRAFANA_ADMIN_PASSWORD
 docker compose up -d
 ```
 
@@ -144,7 +145,7 @@ This starts:
 ### 2. Configure Client
 
 ```bash
-export NB_METRICS_ENABLED=true
+export NB_METRICS_PUSH_ENABLED=true
 export NB_METRICS_FORCE_SENDING=true
 export NB_METRICS_SERVER_URL=http://localhost:8087
 export NB_METRICS_INTERVAL=1m

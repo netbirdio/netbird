@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -42,7 +43,7 @@ func main() {
 		log.Fatal("INFLUXDB_TOKEN is required")
 	}
 
-	client := &http.Client{Timeout: 10 * 1e9} // 10 seconds
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	http.HandleFunc("/", handleIngest(client, influxURL, influxToken))
 
@@ -133,17 +134,17 @@ func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client
 	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
-// validateAuth checks that the Authorization header contains a valid hashed peer ID.
+// validateAuth checks that the X-Peer-ID header contains a valid hashed peer ID.
 func validateAuth(r *http.Request) error {
-	peerID := r.Header.Get("Authorization")
+	peerID := r.Header.Get("X-Peer-ID")
 	if peerID == "" {
-		return fmt.Errorf("missing Authorization header")
+		return fmt.Errorf("missing X-Peer-ID header")
 	}
 	if len(peerID) != peerIDLength {
-		return fmt.Errorf("invalid Authorization header length")
+		return fmt.Errorf("invalid X-Peer-ID header length")
 	}
 	if _, err := hex.DecodeString(peerID); err != nil {
-		return fmt.Errorf("invalid Authorization header format")
+		return fmt.Errorf("invalid X-Peer-ID header format")
 	}
 	return nil
 }

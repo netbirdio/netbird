@@ -55,7 +55,7 @@ type metricsImplementation interface {
 	// RecordSyncDuration records how long it took to process a sync message
 	RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration)
 
-	// Export exports metrics in Prometheus format
+	// Export exports metrics in InfluxDB line protocol format
 	Export(w io.Writer) error
 
 	// Reset clears all collected metrics

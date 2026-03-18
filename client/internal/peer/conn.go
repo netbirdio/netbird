@@ -131,7 +131,7 @@ type Conn struct {
 
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
-	metricsStages   MetricsStages
+	metricsStages   *MetricsStages
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -174,8 +174,8 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		return nil
 	}
 
-	// Record the start time - beginning of connection attempt
-	conn.metricsStages = MetricsStages{}
+	// Allocate new metrics stages so old goroutines don't corrupt new state
+	conn.metricsStages = &MetricsStages{}
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
@@ -188,7 +188,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	}
 	conn.workerICE = workerICE
 
-	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, &conn.metricsStages)
+	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
 	if !isForceRelayed() {

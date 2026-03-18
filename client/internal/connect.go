@@ -144,9 +144,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 	nbnet.Init()
 
-	// Initialize metrics once at startup
+	// Initialize metrics once at startup (always active for debug bundles)
 	if c.clientMetrics == nil {
-		// Start with unknown deployment type, will be updated on first successful connection
 		agentInfo := metrics.AgentInfo{
 			DeploymentType: metrics.DeploymentTypeUnknown,
 			Version:        version.NetbirdVersion(),

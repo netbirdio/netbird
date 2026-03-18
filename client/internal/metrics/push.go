@@ -97,7 +97,7 @@ func NewPush(metrics metricsImplementation, configManager remoteConfigProvider, 
 	parsedVersion, err := goversion.NewVersion(agentVersion)
 	if err != nil {
 		if !config.ForceSending {
-			return nil, fmt.Errorf("failed to parse agent version %q: %w", agentVersion, err)
+			return nil, fmt.Errorf("parse agent version %q: %w", agentVersion, err)
 		}
 	}
 
@@ -225,7 +225,7 @@ func (p *Push) push(ctx context.Context, pushURL string) error {
 	peerID := p.peerID
 	p.peerMu.RUnlock()
 	if peerID != "" {
-		req.Header.Set("Authorization", peerID)
+		req.Header.Set("X-Peer-ID", peerID)
 	}
 
 	// Send request
@@ -273,8 +273,8 @@ func (p *Push) resolveServerURL(remoteServerURL *url.URL) string {
 func gzipCompress(data []byte) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	defer func() { _ = gz.Close() }()
 	if _, err := gz.Write(data); err != nil {
+		_ = gz.Close()
 		return nil, err
 	}
 	if err := gz.Close(); err != nil {
