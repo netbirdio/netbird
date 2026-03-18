@@ -475,3 +475,224 @@ func TestFormatFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestIsNetBirdOverlayAddr verifies that the CGNAT range check correctly
+// identifies NetBird overlay addresses vs regular addresses.
+func TestIsNetBirdOverlayAddr(t *testing.T) {
+	testCases := []struct {
+		name     string
+		addr     string
+		expected bool
+	}{
+		{
+			name:     "NetBird overlay address at start of range",
+			addr:     "100.64.0.1:53",
+			expected: true,
+		},
+		{
+			name:     "NetBird overlay address mid-range",
+			addr:     "100.110.145.54:53",
+			expected: true,
+		},
+		{
+			name:     "NetBird overlay address end of range",
+			addr:     "100.127.255.254:53",
+			expected: true,
+		},
+		{
+			name:     "LAN address",
+			addr:     "192.168.1.5:53",
+			expected: false,
+		},
+		{
+			name:     "LAN address secondary DC",
+			addr:     "192.168.1.30:53",
+			expected: false,
+		},
+		{
+			name:     "public DNS address",
+			addr:     "8.8.8.8:53",
+			expected: false,
+		},
+		{
+			name:     "address just below CGNAT range",
+			addr:     "100.63.255.255:53",
+			expected: false,
+		},
+		{
+			name:     "address just above CGNAT range",
+			addr:     "100.128.0.0:53",
+			expected: false,
+		},
+		{
+			name:     "loopback address",
+			addr:     "127.0.0.1:53",
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := netip.MustParseAddrPort(tc.addr)
+			result := isNetBirdOverlayAddr(addr)
+			assert.Equal(t, tc.expected, result, "isNetBirdOverlayAddr(%s)", tc.addr)
+		})
+	}
+}
+
+// TestProbeAvailability_SkipsOverlayAddresses verifies that ProbeAvailability
+// does not fire the "probe failed" warning event when all nameservers are
+// NetBird overlay addresses (100.64.0.0/10). These are unreachable at engine
+// startup because the WireGuard tunnel has not yet been established.
+func TestProbeAvailability_SkipsOverlayAddresses(t *testing.T) {
+	overlayUpstream := netip.MustParseAddrPort("100.110.145.54:53")
+
+	probed := false
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			overlayUpstream.String(): {err: fmt.Errorf("tunnel not up")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	trackingClient := &trackingUpstreamClient{
+		inner:  mockClient,
+		probed: &probed,
+	}
+
+	deactivated := false
+	resolver := &upstreamResolverBase{
+		ctx:             context.Background(),
+		upstreamClient:  trackingClient,
+		upstreamServers: []netip.AddrPort{overlayUpstream},
+		upstreamTimeout: UpstreamTimeout,
+		deactivate:      func(error) { deactivated = true },
+		reactivate:      func() {},
+	}
+
+	resolver.ProbeAvailability()
+
+	assert.False(t, probed, "overlay address should not have been probed")
+	assert.False(t, deactivated, "resolver should not have been deactivated for overlay address")
+	assert.False(t, resolver.disabled, "resolver should not be disabled")
+}
+
+// TestProbeAvailability_ProbesLANAddresses verifies that ProbeAvailability
+// still probes non-overlay (LAN/public) nameservers normally.
+func TestProbeAvailability_ProbesLANAddresses(t *testing.T) {
+	lanUpstream := netip.MustParseAddrPort("192.168.1.5:53")
+
+	probed := false
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			lanUpstream.String(): {err: fmt.Errorf("connection refused")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	trackingClient := &trackingUpstreamClient{
+		inner:  mockClient,
+		probed: &probed,
+	}
+
+	deactivated := false
+	resolver := &upstreamResolverBase{
+		ctx:             context.Background(),
+		upstreamClient:  trackingClient,
+		upstreamServers: []netip.AddrPort{lanUpstream},
+		upstreamTimeout: UpstreamTimeout,
+		deactivate:      func(error) { deactivated = true },
+		reactivate:      func() {},
+	}
+
+	resolver.ProbeAvailability()
+
+	assert.True(t, probed, "LAN address should have been probed")
+	assert.True(t, deactivated, "resolver should have been deactivated when LAN probe fails")
+}
+
+// TestProbeAvailability_MixedOverlayAndLAN verifies that when a nameserver
+// group contains both overlay and LAN addresses, the overlay is skipped but
+// the LAN address is still probed. A successful LAN probe prevents deactivation.
+func TestProbeAvailability_MixedOverlayAndLAN(t *testing.T) {
+	overlayUpstream := netip.MustParseAddrPort("100.110.145.54:53")
+	lanUpstream := netip.MustParseAddrPort("192.168.1.5:53")
+
+	probedAddrs := make(map[string]bool)
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			overlayUpstream.String(): {err: fmt.Errorf("tunnel not up")},
+			lanUpstream.String():     {msg: &dns.Msg{MsgHdr: dns.MsgHdr{Response: true}}},
+		},
+		rtt: time.Millisecond,
+	}
+
+	trackingClient := &trackingUpstreamClientPerAddr{
+		inner:       mockClient,
+		probedAddrs: probedAddrs,
+	}
+
+	deactivated := false
+	resolver := &upstreamResolverBase{
+		ctx:             context.Background(),
+		upstreamClient:  trackingClient,
+		upstreamServers: []netip.AddrPort{overlayUpstream, lanUpstream},
+		upstreamTimeout: UpstreamTimeout,
+		deactivate:      func(error) { deactivated = true },
+		reactivate:      func() {},
+	}
+
+	resolver.ProbeAvailability()
+
+	assert.False(t, probedAddrs[overlayUpstream.String()], "overlay address should not have been probed")
+	assert.True(t, probedAddrs[lanUpstream.String()], "LAN address should have been probed")
+	assert.False(t, deactivated, "resolver should not be deactivated when LAN probe succeeds")
+}
+
+// TestProbeAvailability_OnlyOverlay_NoDeactivation verifies that a nameserver
+// group containing only overlay addresses is never deactivated, even though
+// no actual probe is performed.
+func TestProbeAvailability_OnlyOverlay_NoDeactivation(t *testing.T) {
+	overlay1 := netip.MustParseAddrPort("100.110.145.54:53")
+	overlay2 := netip.MustParseAddrPort("100.64.0.1:53")
+
+	deactivated := false
+	resolver := &upstreamResolverBase{
+		ctx: context.Background(),
+		// upstreamClient intentionally nil — it must never be called
+		upstreamServers: []netip.AddrPort{overlay1, overlay2},
+		upstreamTimeout: UpstreamTimeout,
+		deactivate:      func(error) { deactivated = true },
+		reactivate:      func() {},
+	}
+
+	// Should not panic (nil client never called) and should not deactivate
+	require.NotPanics(t, func() {
+		resolver.ProbeAvailability()
+	})
+
+	assert.False(t, deactivated, "resolver should not be deactivated for overlay-only nameserver group")
+	assert.False(t, resolver.disabled, "resolver should not be disabled")
+}
+
+// trackingUpstreamClient records whether any probe was attempted, regardless of address.
+type trackingUpstreamClient struct {
+	inner  *mockUpstreamResolverPerServer
+	probed *bool
+}
+
+func (t *trackingUpstreamClient) exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error) {
+	*t.probed = true
+	return t.inner.exchange(ctx, upstream, r)
+}
+
+// trackingUpstreamClientPerAddr records which addresses were probed.
+type trackingUpstreamClientPerAddr struct {
+	inner       *mockUpstreamResolverPerServer
+	probedAddrs map[string]bool
+}
+
+func (t *trackingUpstreamClientPerAddr) exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error) {
+	t.probedAddrs[upstream] = true
+	return t.inner.exchange(ctx, upstream, r)
+}
