@@ -387,6 +387,9 @@ func (m *Manager) initNoTrackChain() error {
 func (m *Manager) cleanupNoTrackChain() error {
 	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
 	if err != nil {
+		if !m.rawSupported {
+			return nil
+		}
 		return fmt.Errorf("check chain exists: %w", err)
 	}
 	if !exists {
