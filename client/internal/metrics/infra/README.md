@@ -111,6 +111,8 @@ The InfluxDB backend limits in-memory sample storage to prevent unbounded growth
 | `NB_METRICS_FORCE_SENDING` | `false` | Skip remote config, push unconditionally |
 | `NB_METRICS_CONFIG_URL` | `https://ingest.netbird.io/config` | Remote push config URL |
 
+`NB_METRICS_SERVER_URL` and `NB_METRICS_INTERVAL` override their respective values but do not bypass remote config eligibility checks (version range). Use `NB_METRICS_FORCE_SENDING=true` to skip all remote config gating.
+
 ### Ingest Server Environment Variables
 
 | Variable | Default | Description |
