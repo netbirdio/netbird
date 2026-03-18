@@ -80,9 +80,13 @@ func getMetricsServerURL() *url.URL {
 	if envURL == "" {
 		return nil
 	}
-	parsed, err := url.Parse(envURL)
-	if err != nil {
-		log.Warnf("invalid metrics server URL from env: %v", err)
+	parsed, err := url.ParseRequestURI(envURL)
+	if err != nil || parsed.Host == "" {
+		log.Warnf("invalid metrics server URL %q: must be an absolute HTTP(S) URL", envURL)
+		return nil
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		log.Warnf("invalid metrics server URL %q: unsupported scheme %q", envURL, parsed.Scheme)
 		return nil
 	}
 	return parsed
