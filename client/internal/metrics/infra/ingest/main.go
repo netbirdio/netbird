@@ -19,18 +19,55 @@ const (
 	defaultListenAddr  = ":8087"
 	defaultInfluxDBURL = "http://influxdb:8086/api/v2/write?org=netbird&bucket=metrics&precision=ns"
 	maxBodySize        = 50 * 1024 * 1024 // 50 MB max request body
-	maxTotalSeconds    = 300.0            // reject total_seconds > 5 minutes
+	maxDurationSeconds = 300.0            // reject any duration field > 5 minutes
 	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
+	maxTagValueLength  = 64               // reject tag values longer than this
 )
 
-var allowedMeasurements = map[string]map[string]bool{
+type measurementSpec struct {
+	allowedFields map[string]bool
+	allowedTags   map[string]bool
+}
+
+var allowedMeasurements = map[string]measurementSpec{
 	"netbird_peer_connection": {
-		"signaling_to_connection_seconds":    true,
-		"connection_to_wg_handshake_seconds": true,
-		"total_seconds":                      true,
+		allowedFields: map[string]bool{
+			"signaling_to_connection_seconds":    true,
+			"connection_to_wg_handshake_seconds": true,
+			"total_seconds":                      true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type":     true,
+			"connection_type":     true,
+			"attempt_type":        true,
+			"version":             true,
+			"os":                  true,
+			"peer_id":             true,
+			"connection_pair_id":  true,
+		},
 	},
 	"netbird_sync": {
-		"duration_seconds": true,
+		allowedFields: map[string]bool{
+			"duration_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"version":         true,
+			"os":              true,
+			"peer_id":         true,
+		},
+	},
+	"netbird_login": {
+		allowedFields: map[string]bool{
+			"duration_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"result":          true,
+			"version":         true,
+			"os":              true,
+			"peer_id":         true,
+		},
 	},
 }
 
@@ -198,20 +235,45 @@ func validateLine(line string) error {
 		return fmt.Errorf("invalid line protocol: %q", truncate(line, 100))
 	}
 
-	measurement := parts[0]
-	if idx := strings.IndexByte(measurement, ','); idx >= 0 {
-		measurement = measurement[:idx]
-	}
+	// parts[0] is "measurement,tag=val,tag=val"
+	measurementAndTags := strings.Split(parts[0], ",")
+	measurement := measurementAndTags[0]
 
-	allowedFields, ok := allowedMeasurements[measurement]
+	spec, ok := allowedMeasurements[measurement]
 	if !ok {
 		return fmt.Errorf("unknown measurement: %q", measurement)
 	}
 
-	for _, pair := range strings.Split(parts[1], ",") {
-		if err := validateField(pair, measurement, allowedFields); err != nil {
+	// Validate tags (everything after measurement name in parts[0])
+	for _, tagPair := range measurementAndTags[1:] {
+		if err := validateTag(tagPair, measurement, spec.allowedTags); err != nil {
 			return err
 		}
+	}
+
+	// Validate fields
+	for _, pair := range strings.Split(parts[1], ",") {
+		if err := validateField(pair, measurement, spec.allowedFields); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateTag(pair, measurement string, allowedTags map[string]bool) error {
+	kv := strings.SplitN(pair, "=", 2)
+	if len(kv) != 2 {
+		return fmt.Errorf("invalid tag: %q", pair)
+	}
+
+	tagName := kv[0]
+	if !allowedTags[tagName] {
+		return fmt.Errorf("unknown tag %q in measurement %q", tagName, measurement)
+	}
+
+	if len(kv[1]) > maxTagValueLength {
+		return fmt.Errorf("tag value too long for %q: %d > %d", tagName, len(kv[1]), maxTagValueLength)
 	}
 
 	return nil
@@ -235,8 +297,8 @@ func validateField(pair, measurement string, allowedFields map[string]bool) erro
 	if val < 0 {
 		return fmt.Errorf("negative value for %q: %g", fieldName, val)
 	}
-	if fieldName == "total_seconds" && val > maxTotalSeconds {
-		return fmt.Errorf("total_seconds too large: %g > %g", val, maxTotalSeconds)
+	if strings.HasSuffix(fieldName, "_seconds") && val > maxDurationSeconds {
+		return fmt.Errorf("%q too large: %g > %g", fieldName, val, maxDurationSeconds)
 	}
 
 	return nil

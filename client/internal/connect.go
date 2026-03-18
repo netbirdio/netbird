@@ -264,8 +264,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
+		loginStarted := time.Now()
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
+			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
@@ -274,6 +276,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			}
 			return wrapErr(err)
 		}
+		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
 
 		localPeerState := peer.LocalPeerState{

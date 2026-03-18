@@ -158,6 +158,50 @@ func TestInfluxDBMetrics_TrimByAge(t *testing.T) {
 	assert.Equal(t, 0, remaining, "old samples should be trimmed")
 }
 
+func TestInfluxDBMetrics_RecordLoginDuration(t *testing.T) {
+	m := newInfluxDBMetrics().(*influxDBMetrics)
+
+	agentInfo := AgentInfo{
+		DeploymentType: DeploymentTypeCloud,
+		Version:        "1.0.0",
+		OS:             "linux",
+		peerID:         "abc123",
+	}
+
+	m.RecordLoginDuration(context.Background(), agentInfo, 2500*time.Millisecond, true)
+
+	var buf bytes.Buffer
+	err := m.Export(&buf)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "netbird_login,")
+	assert.Contains(t, output, "duration_seconds=2.5")
+	assert.Contains(t, output, "result=success")
+}
+
+func TestInfluxDBMetrics_RecordLoginDurationFailure(t *testing.T) {
+	m := newInfluxDBMetrics().(*influxDBMetrics)
+
+	agentInfo := AgentInfo{
+		DeploymentType: DeploymentTypeSelfHosted,
+		Version:        "1.0.0",
+		OS:             "darwin",
+		peerID:         "xyz789",
+	}
+
+	m.RecordLoginDuration(context.Background(), agentInfo, 5*time.Second, false)
+
+	var buf bytes.Buffer
+	err := m.Export(&buf)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "netbird_login,")
+	assert.Contains(t, output, "result=failure")
+	assert.Contains(t, output, "deployment_type=selfhosted")
+}
+
 func TestInfluxDBMetrics_TrimBySize(t *testing.T) {
 	m := newInfluxDBMetrics().(*influxDBMetrics)
 

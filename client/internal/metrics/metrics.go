@@ -55,6 +55,9 @@ type metricsImplementation interface {
 	// RecordSyncDuration records how long it took to process a sync message
 	RecordSyncDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration)
 
+	// RecordLoginDuration records how long the login to management took
+	RecordLoginDuration(ctx context.Context, agentInfo AgentInfo, duration time.Duration, success bool)
+
 	// Export exports metrics in InfluxDB line protocol format
 	Export(w io.Writer) error
 
@@ -121,6 +124,18 @@ func (c *ClientMetrics) RecordSyncDuration(ctx context.Context, duration time.Du
 	c.mu.RUnlock()
 
 	c.impl.RecordSyncDuration(ctx, agentInfo, duration)
+}
+
+// RecordLoginDuration records how long the login to management server took
+func (c *ClientMetrics) RecordLoginDuration(ctx context.Context, duration time.Duration, success bool) {
+	if c == nil {
+		return
+	}
+	c.mu.RLock()
+	agentInfo := c.agentInfo
+	c.mu.RUnlock()
+
+	c.impl.RecordLoginDuration(ctx, agentInfo, duration, success)
 }
 
 // UpdateAgentInfo updates the agent information (e.g., when switching profiles).

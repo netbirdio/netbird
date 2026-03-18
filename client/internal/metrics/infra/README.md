@@ -76,6 +76,20 @@ Tags:
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 
+### Login Duration
+
+Measurement: `netbird_login`
+
+| Field | Description |
+|-------|-------------|
+| `duration_seconds` | Time to complete the login/auth exchange with management server |
+
+Tags:
+- `deployment_type`: "cloud" | "selfhosted" | "unknown"
+- `result`: "success" | "failure"
+- `version`: NetBird version string
+- `os`: Operating system (linux, darwin, windows, android, ios, etc.)
+
 ## Buffer Limits
 
 The InfluxDB backend limits in-memory sample storage to prevent unbounded growth when pushes fail:

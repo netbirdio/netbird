@@ -118,6 +118,36 @@ func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentI
 	m.trimLocked()
 }
 
+func (m *influxDBMetrics) RecordLoginDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration, success bool) {
+	result := "success"
+	if !success {
+		result = "failure"
+	}
+
+	tags := fmt.Sprintf("deployment_type=%s,result=%s,version=%s,os=%s,peer_id=%s",
+		agentInfo.DeploymentType.String(),
+		result,
+		agentInfo.Version,
+		agentInfo.OS,
+		agentInfo.peerID,
+	)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.samples = append(m.samples, influxSample{
+		measurement: "netbird_login",
+		tags:        tags,
+		fields: map[string]float64{
+			"duration_seconds": duration.Seconds(),
+		},
+		timestamp: time.Now(),
+	})
+	m.trimLocked()
+
+	log.Tracef("login metrics [%s, %s]: duration=%.3fs", agentInfo.DeploymentType.String(), result, duration.Seconds())
+}
+
 // Export writes pending samples in InfluxDB line protocol format.
 // Format: measurement,tag=val,tag=val field=val,field=val timestamp_ns
 func (m *influxDBMetrics) Export(w io.Writer) error {
