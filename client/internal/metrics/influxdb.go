@@ -65,12 +65,13 @@ func (m *influxDBMetrics) RecordConnectionStages(
 	}
 
 	connTypeStr := connectionType.String()
-	tags := fmt.Sprintf("deployment_type=%s,connection_type=%s,attempt_type=%s,version=%s,os=%s,peer_id=%s,connection_pair_id=%s",
+	tags := fmt.Sprintf("deployment_type=%s,connection_type=%s,attempt_type=%s,version=%s,os=%s,arch=%s,peer_id=%s,connection_pair_id=%s",
 		agentInfo.DeploymentType.String(),
 		connTypeStr,
 		attemptType,
 		agentInfo.Version,
 		agentInfo.OS,
+		agentInfo.Arch,
 		agentInfo.peerID,
 		connectionPairID,
 	)
@@ -97,10 +98,11 @@ func (m *influxDBMetrics) RecordConnectionStages(
 }
 
 func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration) {
-	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,peer_id=%s",
+	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,arch=%s,peer_id=%s",
 		agentInfo.DeploymentType.String(),
 		agentInfo.Version,
 		agentInfo.OS,
+		agentInfo.Arch,
 		agentInfo.peerID,
 	)
 
@@ -124,11 +126,12 @@ func (m *influxDBMetrics) RecordLoginDuration(_ context.Context, agentInfo Agent
 		result = "failure"
 	}
 
-	tags := fmt.Sprintf("deployment_type=%s,result=%s,version=%s,os=%s,peer_id=%s",
+	tags := fmt.Sprintf("deployment_type=%s,result=%s,version=%s,os=%s,arch=%s,peer_id=%s",
 		agentInfo.DeploymentType.String(),
 		result,
 		agentInfo.Version,
 		agentInfo.OS,
+		agentInfo.Arch,
 		agentInfo.peerID,
 	)
 

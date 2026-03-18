@@ -60,6 +60,7 @@ Tags:
 - `attempt_type`: "initial" | "reconnection"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
+- `arch`: CPU architecture (amd64, arm64, etc.)
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It excludes the potentially unbounded wait for the remote peer to come online.
 
@@ -75,6 +76,7 @@ Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
+- `arch`: CPU architecture (amd64, arm64, etc.)
 
 ### Login Duration
 
@@ -89,6 +91,7 @@ Tags:
 - `result`: "success" | "failure"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
+- `arch`: CPU architecture (amd64, arm64, etc.)
 
 ## Buffer Limits
 

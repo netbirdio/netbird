@@ -18,6 +18,7 @@ func TestInfluxDBMetrics_RecordAndExport(t *testing.T) {
 		DeploymentType: DeploymentTypeCloud,
 		Version:        "1.0.0",
 		OS:             "linux",
+		Arch:           "amd64",
 		peerID:         "abc123",
 	}
 
@@ -47,6 +48,7 @@ func TestInfluxDBMetrics_ExportDeterministicFieldOrder(t *testing.T) {
 		DeploymentType: DeploymentTypeCloud,
 		Version:        "1.0.0",
 		OS:             "linux",
+		Arch:           "amd64",
 		peerID:         "abc123",
 	}
 
@@ -92,6 +94,7 @@ func TestInfluxDBMetrics_RecordSyncDuration(t *testing.T) {
 		DeploymentType: DeploymentTypeSelfHosted,
 		Version:        "2.0.0",
 		OS:             "darwin",
+		Arch:           "arm64",
 		peerID:         "def456",
 	}
 
@@ -114,6 +117,7 @@ func TestInfluxDBMetrics_Reset(t *testing.T) {
 		DeploymentType: DeploymentTypeCloud,
 		Version:        "1.0.0",
 		OS:             "linux",
+		Arch:           "amd64",
 		peerID:         "abc123",
 	}
 
@@ -165,6 +169,7 @@ func TestInfluxDBMetrics_RecordLoginDuration(t *testing.T) {
 		DeploymentType: DeploymentTypeCloud,
 		Version:        "1.0.0",
 		OS:             "linux",
+		Arch:           "amd64",
 		peerID:         "abc123",
 	}
 
@@ -187,6 +192,7 @@ func TestInfluxDBMetrics_RecordLoginDurationFailure(t *testing.T) {
 		DeploymentType: DeploymentTypeSelfHosted,
 		Version:        "1.0.0",
 		OS:             "darwin",
+		Arch:           "arm64",
 		peerID:         "xyz789",
 	}
 

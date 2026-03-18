@@ -19,6 +19,7 @@ type AgentInfo struct {
 	DeploymentType DeploymentType
 	Version        string
 	OS             string // runtime.GOOS (linux, darwin, windows, etc.)
+	Arch           string // runtime.GOARCH (amd64, arm64, etc.)
 	peerID         string // anonymised peer identifier (SHA-256 of WireGuard public key)
 }
 

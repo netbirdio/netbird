@@ -150,6 +150,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			DeploymentType: metrics.DeploymentTypeUnknown,
 			Version:        version.NetbirdVersion(),
 			OS:             runtime.GOOS,
+			Arch:           runtime.GOARCH,
 		}
 		c.clientMetrics = metrics.NewClientMetrics(agentInfo)
 		log.Debugf("initialized client metrics")
@@ -253,6 +254,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			DeploymentType: deploymentType,
 			Version:        version.NetbirdVersion(),
 			OS:             runtime.GOOS,
+			Arch:           runtime.GOARCH,
 		}
 		c.clientMetrics.UpdateAgentInfo(agentInfo, myPrivateKey.PublicKey().String())
 
