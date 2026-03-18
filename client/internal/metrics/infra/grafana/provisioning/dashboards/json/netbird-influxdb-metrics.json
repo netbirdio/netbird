@@ -20,11 +20,11 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
           "refId": "A"
         },
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
           "refId": "B"
         }
       ],
@@ -59,11 +59,11 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\", \"connection_pair_id\"])\n  |> min()\n  |> set(key: \"_field\", value: \"Min\")",
           "refId": "A"
         },
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\", \"connection_pair_id\"])\n  |> max()\n  |> set(key: \"_field\", value: \"Max\")",
           "refId": "B"
         }
       ],
@@ -98,7 +98,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"peer_id\"])\n  |> set(key: \"_field\", value: \"Sync Duration\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_sync\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> set(key: \"_field\", value: \"Sync Duration\")",
           "refId": "A"
         }
       ],
@@ -129,7 +129,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> drop(columns: [\"deployment_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\"])\n  |> group(columns: [\"connection_pair_id\"])\n  |> last()\n  |> group(columns: [\"connection_type\"])\n  |> count()",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> drop(columns: [\"deployment_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> group(columns: [\"connection_pair_id\"])\n  |> last()\n  |> group(columns: [\"connection_type\"])\n  |> count()",
           "refId": "A"
         }
       ],
@@ -159,11 +159,11 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"signaling_to_connection_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Signaling to Connection\"})",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"signaling_to_connection_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Signaling to Connection\"})",
           "refId": "A"
         },
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"connection_to_wg_handshake_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Connection to WG Handshake\"})",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"connection_to_wg_handshake_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\", \"connection_pair_id\"])\n  |> mean()\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"_time\", \"_field\"])\n  |> rename(columns: {_value: \"Avg Connection to WG Handshake\"})",
           "refId": "B"
         }
       ],
@@ -197,7 +197,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"peer_id\", \"connection_pair_id\"])\n  |> set(key: \"_field\", value: \"Total Connection Time\")",
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_peer_connection\" and r._field == \"total_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"connection_type\", \"attempt_type\", \"version\", \"os\", \"arch\", \"peer_id\", \"connection_pair_id\"])\n  |> set(key: \"_field\", value: \"Total Connection Time\")",
           "refId": "A"
         }
       ],
@@ -211,9 +211,70 @@
           }
         }
       }
+    },
+    {
+      "id": 7,
+      "title": "Login Duration",
+      "type": "timeseries",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_login\" and r._field == \"duration_seconds\")\n  |> map(fn: (r) => ({r with _value: r._value * 1000.0}))\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> set(key: \"_field\", value: \"Login Duration\")",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Login Success vs Failure",
+      "type": "piechart",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"metrics\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"netbird_login\" and r._field == \"duration_seconds\")\n  |> drop(columns: [\"deployment_type\", \"version\", \"os\", \"arch\", \"peer_id\"])\n  |> group(columns: [\"result\"])\n  |> count()",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "schemaVersion": 27,
-  "version": 1,
+  "version": 2,
   "refresh": "30s"
 }
