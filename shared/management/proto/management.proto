@@ -335,6 +335,9 @@ message PeerConfig {
 
   // Auto-update config
   AutoUpdateSettings autoUpdate = 8;
+
+  // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
+  bytes address_v6 = 9;
 }
 
 message AutoUpdateSettings {
@@ -567,7 +570,8 @@ enum RuleAction {
 
 // FirewallRule represents a firewall rule
 message FirewallRule {
-  string PeerIP = 1;
+  // Use peer_ips instead.
+  string PeerIP = 1 [deprecated = true];
   RuleDirection Direction = 2;
   RuleAction Action = 3;
   RuleProtocol Protocol = 4;
@@ -576,6 +580,13 @@ message FirewallRule {
 
   // PolicyID is the ID of the policy that this rule belongs to
   bytes PolicyID = 7;
+
+  // CustomProtocol is a custom protocol ID when Protocol is CUSTOM.
+  uint32 customProtocol = 8;
+
+  // Compact IP prefixes for this rule, supersedes PeerIP.
+  // Each entry is 5 bytes (v4) or 17 bytes (v6): [IP bytes][1 byte prefix_len].
+  repeated bytes peer_ips = 9;
 }
 
 message NetworkAddress {
