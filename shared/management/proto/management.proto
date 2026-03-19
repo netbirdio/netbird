@@ -570,7 +570,7 @@ enum RuleAction {
 
 // FirewallRule represents a firewall rule
 message FirewallRule {
-  // Use peer_prefixes instead.
+  // Use source_prefixes instead.
   string PeerIP = 1 [deprecated = true];
   RuleDirection Direction = 2;
   RuleAction Action = 3;
@@ -584,9 +584,9 @@ message FirewallRule {
   // CustomProtocol is a custom protocol ID when Protocol is CUSTOM.
   uint32 customProtocol = 8;
 
-  // Compact IP prefixes for this rule, supersedes PeerIP.
+  // Compact source IP prefixes for this rule, supersedes PeerIP.
   // Each entry is 5 bytes (v4) or 17 bytes (v6): [IP bytes][1 byte prefix_len].
-  repeated bytes peer_prefixes = 9;
+  repeated bytes source_prefixes = 9;
 }
 
 message NetworkAddress {
