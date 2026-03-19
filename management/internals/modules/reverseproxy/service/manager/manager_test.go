@@ -1272,3 +1272,69 @@ func TestValidateTargetReferences_PeerValid(t *testing.T) {
 	}
 	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets))
 }
+
+func TestValidateSubdomainRequirement(t *testing.T) {
+	ptrBool := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name             string
+		domain           string
+		cluster          string
+		requireSubdomain *bool
+		wantErr          bool
+	}{
+		{
+			name:             "subdomain present, require_subdomain true",
+			domain:           "app.eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          false,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain true",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          true,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain false",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(false),
+			wantErr:          false,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain nil (default)",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: nil,
+			wantErr:          false,
+		},
+		{
+			name:             "custom domain apex is not the cluster",
+			domain:           "example.com",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			mockCtrl := proxy.NewMockController(ctrl)
+			mockCtrl.EXPECT().ClusterRequireSubdomain(tc.cluster).Return(tc.requireSubdomain).AnyTimes()
+
+			mgr := &Manager{proxyController: mockCtrl}
+			err := mgr.validateSubdomainRequirement(tc.domain, tc.cluster)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires a subdomain label")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

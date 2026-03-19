@@ -3406,6 +3406,9 @@ type ReverseProxyDomain struct {
 	// Id Domain ID
 	Id string `json:"id"`
 
+	// RequireSubdomain Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
+	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
+
 	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
 	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
 

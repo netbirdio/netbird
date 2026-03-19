@@ -537,6 +537,35 @@ func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) *boo
 	return nil
 }
 
+// ClusterRequireSubdomain returns whether any connected proxy in the given
+// cluster reports that a subdomain is required. Returns nil if no proxy has
+// reported the capability (defaults to not required).
+func (s *ProxyServiceServer) ClusterRequireSubdomain(clusterAddr string) *bool {
+	if s.proxyController == nil {
+		return nil
+	}
+
+	var hasCapabilities bool
+	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
+		connVal, ok := s.connectedProxies.Load(pid)
+		if !ok {
+			continue
+		}
+		conn := connVal.(*proxyConnection)
+		if conn.capabilities == nil || conn.capabilities.RequireSubdomain == nil {
+			continue
+		}
+		if *conn.capabilities.RequireSubdomain {
+			return ptr(true)
+		}
+		hasCapabilities = true
+	}
+	if hasCapabilities {
+		return ptr(false)
+	}
+	return nil
+}
+
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 	service, err := s.serviceManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {

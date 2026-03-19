@@ -77,6 +77,12 @@ func (c *GRPCController) ClusterSupportsCustomPorts(clusterAddr string) *bool {
 	return c.proxyGRPCServer.ClusterSupportsCustomPorts(clusterAddr)
 }
 
+// ClusterRequireSubdomain returns whether the cluster requires a subdomain label.
+// Returns nil when no proxy has reported the capability (defaults to false).
+func (c *GRPCController) ClusterRequireSubdomain(clusterAddr string) *bool {
+	return c.proxyGRPCServer.ClusterRequireSubdomain(clusterAddr)
+}
+
 // GetProxiesForCluster returns all proxy IDs registered for a specific cluster.
 func (c *GRPCController) GetProxiesForCluster(clusterAddr string) []string {
 	proxySet, ok := c.clusterProxies.Load(clusterAddr)

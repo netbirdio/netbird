@@ -17,6 +17,9 @@ type Domain struct {
 	// SupportsCustomPorts is populated at query time for free domains from the
 	// proxy cluster capabilities. Not persisted.
 	SupportsCustomPorts *bool `gorm:"-"`
+	// RequireSubdomain is populated at query time. When true, the domain
+	// cannot be used bare and a subdomain label must be prepended. Not persisted.
+	RequireSubdomain *bool `gorm:"-"`
 }
 
 // EventMeta returns activity event metadata for a domain

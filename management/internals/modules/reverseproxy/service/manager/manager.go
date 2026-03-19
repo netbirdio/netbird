@@ -236,6 +236,10 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 			return status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", service.Domain, err)
 		}
 		service.ProxyCluster = proxyCluster
+
+		if err := m.validateSubdomainRequirement(service.Domain, proxyCluster); err != nil {
+			return err
+		}
 	}
 
 	service.AccountID = accountID
@@ -258,6 +262,20 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 	service.SessionPrivateKey = keyPair.PrivateKey
 	service.SessionPublicKey = keyPair.PublicKey
 
+	return nil
+}
+
+// validateSubdomainRequirement checks whether the domain can be used bare
+// (without a subdomain label) on the given cluster. If the cluster reports
+// require_subdomain=true and the domain equals the cluster domain, it rejects.
+func (m *Manager) validateSubdomainRequirement(domain, cluster string) error {
+	if domain != cluster {
+		return nil
+	}
+	requireSub := m.proxyController.ClusterRequireSubdomain(cluster)
+	if requireSub != nil && *requireSub {
+		return status.Errorf(status.InvalidArgument, "domain %s requires a subdomain label", domain)
+	}
 	return nil
 }
 
@@ -547,6 +565,9 @@ func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Stor
 			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
 		} else {
 			svc.ProxyCluster = newCluster
+			if err := m.validateSubdomainRequirement(svc.Domain, newCluster); err != nil {
+				return err
+			}
 		}
 	}
 

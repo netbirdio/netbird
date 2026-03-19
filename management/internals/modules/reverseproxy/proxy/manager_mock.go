@@ -159,6 +159,20 @@ func (mr *MockControllerMockRecorder) ClusterSupportsCustomPorts(clusterAddr int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockController)(nil).ClusterSupportsCustomPorts), clusterAddr)
 }
 
+// ClusterRequireSubdomain mocks base method.
+func (m *MockController) ClusterRequireSubdomain(clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterRequireSubdomain", clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterRequireSubdomain indicates an expected call of ClusterRequireSubdomain.
+func (mr *MockControllerMockRecorder) ClusterRequireSubdomain(clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterRequireSubdomain", reflect.TypeOf((*MockController)(nil).ClusterRequireSubdomain), clusterAddr)
+}
+
 // GetOIDCValidationConfig mocks base method.
 func (m *MockController) GetOIDCValidationConfig() OIDCValidationConfig {
 	m.ctrl.T.Helper()

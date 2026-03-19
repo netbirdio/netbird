@@ -3336,6 +3336,10 @@ components:
           type: boolean
           description: Whether the cluster supports binding arbitrary TCP/UDP ports
           example: true
+        require_subdomain:
+          type: boolean
+          description: Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
+          example: false
       required:
         - id
         - domain
