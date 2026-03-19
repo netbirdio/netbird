@@ -251,6 +251,10 @@ func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
 	return nil
 }
 
+func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
+	return nil
+}
+
 // storeBackedServiceManager reads directly from the real store.
 type storeBackedServiceManager struct {
 	store      store.Store
