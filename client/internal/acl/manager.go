@@ -216,6 +216,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	r *mgmProto.FirewallRule,
 	ipsetName string,
 ) (id.RuleID, []firewall.Rule, error) {
+	//nolint:staticcheck // PeerIP used for backward compatibility with old management
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")

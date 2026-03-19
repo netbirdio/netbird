@@ -284,7 +284,8 @@ func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule 
 
 		fwRule := &proto.FirewallRule{
 			PolicyID:  []byte(rule.PolicyID),
-			PeerIP:    rule.PeerIP,
+			PeerIP:    rule.PeerIP, //nolint:staticcheck // populated for backward compatibility
+
 			Direction: getProtoDirection(rule.Direction),
 			Action:    getProtoAction(rule.Action),
 			Protocol:  getProtoProtocol(rule.Protocol),

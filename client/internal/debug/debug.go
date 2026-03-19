@@ -1231,8 +1231,9 @@ func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.An
 		return
 	}
 
+	//nolint:staticcheck // PeerIP used for backward compatibility
 	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
-		rule.PeerIP = anonymizer.AnonymizeIP(addr).String()
+		rule.PeerIP = anonymizer.AnonymizeIP(addr).String() //nolint:staticcheck
 	}
 }
 
