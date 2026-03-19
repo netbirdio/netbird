@@ -17,19 +17,7 @@ import (
 // The address is always unmapped before encoding.
 func EncodePrefix(p netip.Prefix) []byte {
 	addr := p.Addr().Unmap()
-	raw := addr.As16()
-
-	if addr.Is4() {
-		b := make([]byte, 5)
-		copy(b, raw[12:16])
-		b[4] = byte(p.Bits())
-		return b
-	}
-
-	b := make([]byte, 17)
-	copy(b, raw[:])
-	b[16] = byte(p.Bits())
-	return b
+	return append(addr.AsSlice(), byte(p.Bits()))
 }
 
 // DecodePrefix decodes compact bytes into a netip.Prefix.
