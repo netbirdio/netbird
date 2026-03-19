@@ -307,12 +307,18 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 }
 
 func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
+	bestCluster := ""
+	bestLen := -1
 	for _, cd := range customDomains {
-		if serviceDomain == cd.Domain || strings.HasSuffix(serviceDomain, "."+cd.Domain) {
-			return cd.TargetCluster, true
+		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		if l := len(cd.Domain); l > bestLen {
+			bestLen = l
+			bestCluster = cd.TargetCluster
 		}
 	}
-	return "", false
+	return bestCluster, bestLen >= 0
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.

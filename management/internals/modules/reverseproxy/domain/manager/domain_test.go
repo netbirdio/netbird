@@ -128,3 +128,45 @@ func TestExtractClusterFromCustomDomains(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractClusterFromCustomDomains_OverlappingDomains(t *testing.T) {
+	customDomains := []*domain.Domain{
+		{Domain: "example.com", TargetCluster: "cluster-generic"},
+		{Domain: "app.example.com", TargetCluster: "cluster-app"},
+	}
+
+	tests := []struct {
+		name    string
+		domain  string
+		wantVal string
+	}{
+		{
+			name:    "exact match on more specific domain",
+			domain:  "app.example.com",
+			wantVal: "cluster-app",
+		},
+		{
+			name:    "subdomain of more specific domain",
+			domain:  "api.app.example.com",
+			wantVal: "cluster-app",
+		},
+		{
+			name:    "subdomain of generic domain",
+			domain:  "other.example.com",
+			wantVal: "cluster-generic",
+		},
+		{
+			name:    "bare generic domain",
+			domain:  "example.com",
+			wantVal: "cluster-generic",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster, ok := extractClusterFromCustomDomains(tc.domain, customDomains)
+			assert.True(t, ok)
+			assert.Equal(t, tc.wantVal, cluster)
+		})
+	}
+}

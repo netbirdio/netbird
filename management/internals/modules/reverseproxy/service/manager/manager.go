@@ -527,6 +527,10 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 			service.ProxyCluster = existingService.ProxyCluster
 		}
 
+		if err := m.validateSubdomainRequirement(service.Domain, service.ProxyCluster); err != nil {
+			return err
+		}
+
 		m.preserveExistingAuthSecrets(service, existingService)
 		if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
 			return err
@@ -565,9 +569,6 @@ func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Stor
 			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
 		} else {
 			svc.ProxyCluster = newCluster
-			if err := m.validateSubdomainRequirement(svc.Domain, newCluster); err != nil {
-				return err
-			}
 		}
 	}
 
