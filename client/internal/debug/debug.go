@@ -31,7 +31,6 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -418,7 +417,10 @@ func (g *BundleGenerator) addStatus() error {
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
-		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
+			Anonymize:   g.anonymize,
+			ProfileName: profName,
+		})
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)

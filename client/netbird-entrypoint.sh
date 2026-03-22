@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -eEuo pipefail
 
-: ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="5"}
-: ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="5"}
+: ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="30"}
+: ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="30"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"console,/var/log/netbird/client.log"}"
 service_pids=()
-log_file_path=""
 
 _log() {
   # mimic Go logger's output for easier parsing
@@ -33,60 +32,50 @@ on_exit() {
   fi
 }
 
-wait_for_message() {
-  local timeout="${1}" message="${2}"
-  if test "${timeout}" -eq 0; then
-    info "not waiting for log line ${message@Q} due to zero timeout."
-  elif test -n "${log_file_path}"; then
-    info "waiting for log line ${message@Q} for ${timeout} seconds..."
-    grep -E -q "${message}" <(timeout "${timeout}" tail -F "${log_file_path}" 2>/dev/null)
-  else
-    info "log file unsupported, sleeping for ${timeout} seconds..."
-    sleep "${timeout}"
-  fi
-}
-
-locate_log_file() {
-  local log_files_string="${1}"
-
-  while read -r log_file; do
-    case "${log_file}" in
-    console | syslog) ;;
-    *)
-      log_file_path="${log_file}"
-      return
-      ;;
-    esac
-  done < <(sed 's#,#\n#g' <<<"${log_files_string}")
-
-  warn "log files parsing for ${log_files_string@Q} is not supported by debug bundles"
-  warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."
-}
-
 wait_for_daemon_startup() {
   local timeout="${1}"
-
-  if test -n "${log_file_path}"; then
-    if ! wait_for_message "${timeout}" "started daemon server"; then
-      warn "log line containing 'started daemon server' not found after ${timeout} seconds"
-      warn "daemon failed to start, exiting..."
-      exit 1
-    fi
-  else
-    warn "daemon service startup not discovered, sleeping ${timeout} instead"
-    sleep "${timeout}"
+  if [[ "${timeout}" -eq 0 ]]; then
+    info "not waiting for daemon startup due to zero timeout."
+    return
   fi
+
+  local deadline=$((SECONDS + timeout))
+  while [[ "${SECONDS}" -lt "${deadline}" ]]; do
+    if "${NETBIRD_BIN}" status --check live 2>/dev/null; then
+      return
+    fi
+    sleep 1
+  done
+
+  warn "daemon did not become responsive after ${timeout} seconds, exiting..."
+  exit 1
 }
 
 login_if_needed() {
   local timeout="${1}"
 
-  if test -n "${log_file_path}" && wait_for_message "${timeout}" 'peer has been successfully registered|management connection state READY'; then
+  if "${NETBIRD_BIN}" status --check ready 2>/dev/null; then
     info "already logged in, skipping 'netbird up'..."
-  else
+    return
+  fi
+
+  if [[ "${timeout}" -eq 0 ]]; then
     info "logging in..."
     "${NETBIRD_BIN}" up
+    return
   fi
+
+  local deadline=$((SECONDS + timeout))
+  while [[ "${SECONDS}" -lt "${deadline}" ]]; do
+    if "${NETBIRD_BIN}" status --check ready 2>/dev/null; then
+      info "already logged in, skipping 'netbird up'..."
+      return
+    fi
+    sleep 1
+  done
+
+  info "logging in..."
+  "${NETBIRD_BIN}" up
 }
 
 main() {
@@ -95,7 +84,6 @@ main() {
   service_pids+=("$!")
   info "registered new service process 'netbird service run', currently running: ${service_pids[@]@Q}"
 
-  locate_log_file "${NB_LOG_FILE}"
   wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
   login_if_needed "${NB_ENTRYPOINT_LOGIN_TIMEOUT}"
 

@@ -25,6 +25,38 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// DaemonStatus represents the current state of the NetBird daemon.
+// These values mirror internal.StatusType but are defined here to avoid an import cycle.
+type DaemonStatus string
+
+const (
+	DaemonStatusIdle           DaemonStatus = "Idle"
+	DaemonStatusConnecting     DaemonStatus = "Connecting"
+	DaemonStatusConnected      DaemonStatus = "Connected"
+	DaemonStatusNeedsLogin     DaemonStatus = "NeedsLogin"
+	DaemonStatusLoginFailed    DaemonStatus = "LoginFailed"
+	DaemonStatusSessionExpired DaemonStatus = "SessionExpired"
+)
+
+// ParseDaemonStatus converts a raw status string to DaemonStatus.
+// Unrecognized values are preserved as-is to remain visible during version skew.
+func ParseDaemonStatus(s string) DaemonStatus {
+	return DaemonStatus(s)
+}
+
+// ConvertOptions holds parameters for ConvertToStatusOutputOverview.
+type ConvertOptions struct {
+	Anonymize            bool
+	DaemonVersion        string
+	DaemonStatus         DaemonStatus
+	StatusFilter         string
+	PrefixNamesFilter    []string
+	PrefixNamesFilterMap map[string]struct{}
+	IPsFilter            map[string]struct{}
+	ConnectionTypeFilter string
+	ProfileName          string
+}
+
 type PeerStateDetailOutput struct {
 	FQDN                   string           `json:"fqdn" yaml:"fqdn"`
 	IP                     string           `json:"netbirdIp" yaml:"netbirdIp"`
@@ -102,6 +134,7 @@ type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
 	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	DaemonStatus            DaemonStatus               `json:"daemonStatus" yaml:"daemonStatus"`
 	ManagementState         ManagementStateOutput      `json:"management" yaml:"management"`
 	SignalState             SignalStateOutput          `json:"signal" yaml:"signal"`
 	Relays                  RelayStateOutput           `json:"relays" yaml:"relays"`
@@ -120,7 +153,8 @@ type OutputOverview struct {
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
 }
 
-func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, anon bool, daemonVersion string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
+// ConvertToStatusOutputOverview converts protobuf status to the output overview.
+func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertOptions) OutputOverview {
 	managementState := pbFullStatus.GetManagementState()
 	managementOverview := ManagementStateOutput{
 		URL:       managementState.GetURL(),
@@ -137,12 +171,13 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, anon bool, da
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
-	peersOverview := mapPeers(pbFullStatus.GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
+	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
 		CliVersion:              version.NetbirdVersion(),
-		DaemonVersion:           daemonVersion,
+		DaemonVersion:           opts.DaemonVersion,
+		DaemonStatus:            opts.DaemonStatus,
 		ManagementState:         managementOverview,
 		SignalState:             signalOverview,
 		Relays:                  relayOverview,
@@ -157,11 +192,11 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, anon bool, da
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
-		ProfileName:             profName,
+		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
 	}
 
-	if anon {
+	if opts.Anonymize {
 		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 		anonymizeOverview(anonymizer, &overview)
 	}

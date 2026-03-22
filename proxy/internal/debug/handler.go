@@ -409,17 +409,13 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	}
 
 	pbStatus := nbstatus.ToProtoFullStatus(fullStatus)
-	overview := nbstatus.ConvertToStatusOutputOverview(
-		pbStatus,
-		false,
-		version.NetbirdVersion(),
-		statusFilter,
-		prefixNamesFilter,
-		prefixNamesFilterMap,
-		ipsFilterMap,
-		connectionTypeFilter,
-		"",
-	)
+	overview := nbstatus.ConvertToStatusOutputOverview(pbStatus, nbstatus.ConvertOptions{
+		StatusFilter:         statusFilter,
+		PrefixNamesFilter:    prefixNamesFilter,
+		PrefixNamesFilterMap: prefixNamesFilterMap,
+		IPsFilter:            ipsFilterMap,
+		ConnectionTypeFilter: connectionTypeFilter,
+	})
 
 	if wantJSON {
 		h.writeJSON(w, map[string]interface{}{
