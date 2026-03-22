@@ -218,7 +218,7 @@ func runHealthCheck(cmd *cobra.Command) error {
 	ctx := internal.CtxInitState(cmd.Context())
 
 	isStartup := check == "startup"
-	resp, err := getStatus(ctx, isStartup, isStartup)
+	resp, err := getStatus(ctx, isStartup, false)
 	if err != nil {
 		return err
 	}

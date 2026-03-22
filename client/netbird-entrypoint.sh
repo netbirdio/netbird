@@ -2,7 +2,6 @@
 set -eEuo pipefail
 
 : ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="30"}
-: ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="30"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"console,/var/log/netbird/client.log"}"
 service_pids=()
@@ -51,31 +50,10 @@ wait_for_daemon_startup() {
   exit 1
 }
 
-login_if_needed() {
-  local timeout="${1}"
-
-  if "${NETBIRD_BIN}" status --check ready 2>/dev/null; then
-    info "already logged in, skipping 'netbird up'..."
-    return
-  fi
-
-  if [[ "${timeout}" -eq 0 ]]; then
-    info "logging in..."
-    "${NETBIRD_BIN}" up
-    return
-  fi
-
-  local deadline=$((SECONDS + timeout))
-  while [[ "${SECONDS}" -lt "${deadline}" ]]; do
-    if "${NETBIRD_BIN}" status --check ready 2>/dev/null; then
-      info "already logged in, skipping 'netbird up'..."
-      return
-    fi
-    sleep 1
-  done
-
-  info "logging in..."
+connect() {
+  info "running 'netbird up'..."
   "${NETBIRD_BIN}" up
+  return $?
 }
 
 main() {
@@ -85,7 +63,7 @@ main() {
   info "registered new service process 'netbird service run', currently running: ${service_pids[@]@Q}"
 
   wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
-  login_if_needed "${NB_ENTRYPOINT_LOGIN_TIMEOUT}"
+  connect
 
   wait "${service_pids[@]}"
 }
