@@ -345,8 +345,16 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 	}
 	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
-		log.Debugf("Failed to get route for %s: %v", ip, err)
-		return Nexthop{}, vars.ErrRouteNotFound
+		// Fallback to netlink.RouteGet() which respects policy routing tables.
+		// go-netroute only reads the main table, but devices like UniFi gateways
+		// keep the default route in a separate policy routing table.
+		log.Debugf("Failed to get route for %s via go-netroute: %v, trying netlink fallback", ip, err)
+		nexthop, nlErr := getNextHopViaNetlink(ip)
+		if nlErr != nil {
+			log.Debugf("Netlink fallback also failed for %s: %v", ip, nlErr)
+			return Nexthop{}, vars.ErrRouteNotFound
+		}
+		return nexthop, nil
 	}
 
 	log.Debugf("Route for %s: interface %v nexthop %v, preferred source %v", ip, intf, gateway, preferredSrc)
