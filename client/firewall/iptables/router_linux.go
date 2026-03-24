@@ -259,16 +259,21 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
-	if !pair.Masquerade {
-		return nil
-	}
+	if pair.Masquerade {
+		if err := r.addNatRule(pair); err != nil {
+			return fmt.Errorf("add nat rule: %w", err)
+		}
 
-	if err := r.addNatRule(pair); err != nil {
-		return fmt.Errorf("add nat rule: %w", err)
-	}
-
-	if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
-		return fmt.Errorf("add inverse nat rule: %w", err)
+		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("add inverse nat rule: %w", err)
+		}
+	} else {
+		// Insert a RETURN rule at the head of the postrouting NAT chain for this
+		// destination, preventing the exit node's catch-all masquerade from
+		// rewriting the source IP for routes with masquerade disabled.
+		if err := r.addNoMasqPostRoutingRule(pair); err != nil {
+			return fmt.Errorf("add no-masquerade postrouting rule: %w", err)
+		}
 	}
 
 	r.updateState()
@@ -285,6 +290,19 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 
 		if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
 			return fmt.Errorf("remove inverse nat rule: %w", err)
+		}
+	} else {
+		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+		if rule, exists := r.rules[ruleKey]; exists {
+			if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
+				return fmt.Errorf("remove no-masquerade return rule: %w", err)
+			}
+			delete(r.rules, ruleKey)
+			if err := r.decrementSetCounter(rule); err != nil {
+				return fmt.Errorf("decrement ipset counter: %w", err)
+			}
+		} else {
+			log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
 		}
 	}
 
@@ -500,6 +518,31 @@ func (r *router) cleanupDataPlaneMark() error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// addNoMasqPostRoutingRule inserts a RETURN rule at position 1 of the postrouting
+// NAT chain for the given destination. This ensures routes with masquerade=false
+// are not masqueraded by the exit node's catch-all mark-based masquerade rule.
+func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+	if _, exists := r.rules[ruleKey]; exists {
+		return nil
+	}
+
+	destExp, err := r.applyNetwork("-d", pair.Destination, nil)
+	if err != nil {
+		return fmt.Errorf("apply destination: %w", err)
+	}
+
+	rule := append(destExp, "-j", "RETURN")
+
+	if err := r.iptablesClient.Insert(tableNat, chainRTNAT, 1, rule...); err != nil {
+		return fmt.Errorf("add no-masquerade return rule for %s: %w", pair.Destination, err)
+	}
+
+	r.rules[ruleKey] = rule
+	r.updateState()
+	return nil
 }
 
 func (r *router) addPostroutingRules() error {

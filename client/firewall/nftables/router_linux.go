@@ -662,6 +662,14 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
 			return fmt.Errorf("add inverse nat rule: %w", err)
 		}
+	} else {
+		// Insert a return verdict in the postrouting NAT chain for this destination.
+		// This prevents the exit node's catch-all masquerade rule (which marks all wt0
+		// traffic with PreroutingFwmarkMasquerade) from rewriting the source IP for
+		// routes that explicitly have masquerade disabled.
+		if err := r.addNoMasqPostRoutingRule(pair); err != nil {
+			return fmt.Errorf("add no-masquerade postrouting rule: %w", err)
+		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
@@ -756,6 +764,35 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chains[chainNameManglePrerouting],
+		Exprs:    exprs,
+		UserData: []byte(ruleKey),
+	})
+
+	return nil
+}
+
+// addNoMasqPostRoutingRule inserts a return verdict at the head of the postrouting
+// NAT chain for the given destination. This ensures that when an exit node
+// (0.0.0.0/0, masquerade=true) is active alongside routes with masquerade=false,
+// the exit node's catch-all mark rule does not cause those destinations to be
+// masqueraded. The return fires before the blanket masquerade rule because
+// InsertRule places it at chain position 0.
+func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
+	destExp, err := r.applyNetwork(pair.Destination, nil, false)
+	if err != nil {
+		return fmt.Errorf("apply destination: %w", err)
+	}
+
+	exprs := append(destExp, &expr.Verdict{Kind: expr.VerdictReturn})
+
+	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+	if _, exists := r.rules[ruleKey]; exists {
+		return nil
+	}
+
+	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingNat],
 		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
@@ -1374,6 +1411,20 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 
 		if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove inverse prerouting rule: %w", err))
+		}
+	} else {
+		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+		if rule, exists := r.rules[ruleKey]; exists {
+			if err := r.conn.DelRule(rule); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("remove no-masquerade postrouting rule: %w", err))
+			} else {
+				delete(r.rules, ruleKey)
+				if err := r.decrementSetCounter(rule); err != nil {
+					merr = multierror.Append(merr, fmt.Errorf("decrement set counter for no-masq rule: %w", err))
+				}
+			}
+		} else {
+			log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
 		}
 	}
 

@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	ForwardingFormatPrefix = "netbird-fwd-"
-	ForwardingFormat       = "netbird-fwd-%s-%t"
-	PreroutingFormat       = "netbird-prerouting-%s-%t"
-	NatFormat              = "netbird-nat-%s-%t"
+	ForwardingFormatPrefix  = "netbird-fwd-"
+	ForwardingFormat        = "netbird-fwd-%s-%t"
+	PreroutingFormat        = "netbird-prerouting-%s-%t"
+	NatFormat               = "netbird-nat-%s-%t"
+	NoMasqPostRoutingFormat = "netbird-no-masq-postrouting-%s-%t"
 )
 
 // Rule abstraction should be implemented by each firewall manager
