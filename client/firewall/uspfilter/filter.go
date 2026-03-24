@@ -1657,7 +1657,8 @@ func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
 	}
 
 	// traffic to our other local interfaces (not NetBird IP) - always forward
-	if dstIP != m.wgIface.Address().IP {
+	addr := m.wgIface.Address()
+	if dstIP != addr.IP && (!addr.IPv6.IsValid() || dstIP != addr.IPv6) {
 		return true
 	}
 

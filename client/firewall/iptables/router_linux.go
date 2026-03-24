@@ -52,8 +52,10 @@ const (
 	snatSuffix = "_snat"
 	fwdSuffix  = "_fwd"
 
-	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
-	ipTCPHeaderMinSize = 40
+	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
+	ipv4TCPHeaderSize = 40
+	// ipv6TCPHeaderSize is the minimum IPv6 (40) + TCP (20) header size for MSS calculation.
+	ipv6TCPHeaderSize = 60
 )
 
 type ruleInfo struct {
@@ -84,6 +86,7 @@ type router struct {
 	wgIface          iFaceMapper
 	legacyManagement bool
 	mtu              uint16
+	v6               bool
 
 	stateManager *statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
@@ -95,6 +98,7 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,
 		mtu:            mtu,
+		v6:             iptablesClient.Proto() == iptables.ProtocolIPv6,
 		ipFwdState:     ipfwdstate.NewIPForwardingState(),
 	}
 
@@ -182,6 +186,11 @@ func (r *router) AddRouteFiltering(
 	r.updateState()
 
 	return ruleKey, nil
+}
+
+func (r *router) hasRule(id string) bool {
+	_, ok := r.rules[id]
+	return ok
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
@@ -423,6 +432,12 @@ func (r *router) createContainers() error {
 		{chainRTRDR, tableNat},
 		{chainRTMSSCLAMP, tableMangle},
 	} {
+		// Fallback: clear chains that survived an unclean shutdown.
+		if ok, _ := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain); ok {
+			if err := r.iptablesClient.ClearAndDeleteChain(chainInfo.table, chainInfo.chain); err != nil {
+				log.Warnf("clear stale chain %s in %s: %v", chainInfo.chain, chainInfo.table, err)
+			}
+		}
 		if err := r.iptablesClient.NewChain(chainInfo.table, chainInfo.chain); err != nil {
 			return fmt.Errorf("create chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err)
 		}
@@ -529,9 +544,12 @@ func (r *router) addPostroutingRules() error {
 }
 
 // addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
-// TODO: Add IPv6 support
 func (r *router) addMSSClampingRules() error {
-	mss := r.mtu - ipTCPHeaderMinSize
+	overhead := uint16(ipv4TCPHeaderSize)
+	if r.v6 {
+		overhead = ipv6TCPHeaderSize
+	}
+	mss := r.mtu - overhead
 
 	// Add jump rule from FORWARD chain in mangle table to our custom chain
 	jumpRule := []string{
@@ -716,8 +734,13 @@ func (r *router) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
-	currentState.RouteRules = r.rules
-	currentState.RouteIPsetCounter = r.ipsetCounter
+	if r.v6 {
+		currentState.RouteRules6 = r.rules
+		currentState.RouteIPsetCounter6 = r.ipsetCounter
+	} else {
+		currentState.RouteRules = r.rules
+		currentState.RouteIPsetCounter = r.ipsetCounter
+	}
 
 	if err := r.stateManager.UpdateState(currentState); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -845,7 +868,7 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	}
 
 	if fwdRule, exists := r.rules[ruleKey+fwdSuffix]; exists {
-		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDIN, fwdRule...); err != nil {
+		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDOUT, fwdRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
 		}
 		delete(r.rules, ruleKey+fwdSuffix)
@@ -872,7 +895,7 @@ func (r *router) genRouteRuleSpec(params routeFilteringRuleParams, sources []net
 	rule = append(rule, destExp...)
 
 	if params.Proto != firewall.ProtocolALL {
-		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))
+		rule = append(rule, "-p", strings.ToLower(protoForFamily(params.Proto, r.v6)))
 		rule = append(rule, applyPort("--sport", params.SPort)...)
 		rule = append(rule, applyPort("--dport", params.DPort)...)
 	}
@@ -889,11 +912,12 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 	}
 
 	if network.IsSet() {
-		if _, err := r.ipsetCounter.Increment(network.Set.HashedName(), prefixes); err != nil {
+		name := r.ipsetName(network.Set.HashedName())
+		if _, err := r.ipsetCounter.Increment(name, prefixes); err != nil {
 			return nil, fmt.Errorf("create or get ipset: %w", err)
 		}
 
-		return []string{"-m", "set", matchSet, network.Set.HashedName(), direction}, nil
+		return []string{"-m", "set", matchSet, name, direction}, nil
 	}
 	if network.IsPrefix() {
 		return []string{flag, network.Prefix.String()}, nil
@@ -904,19 +928,15 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 }
 
 func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	name := r.ipsetName(set.HashedName())
 	var merr *multierror.Error
 	for _, prefix := range prefixes {
-		// TODO: Implement IPv6 support
-		if prefix.Addr().Is6() {
-			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
-			continue
-		}
-		if err := r.addPrefixToIPSet(set.HashedName(), prefix); err != nil {
+		if err := r.addPrefixToIPSet(name, prefix); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add prefix to ipset: %w", err))
 		}
 	}
 	if merr == nil {
-		log.Debugf("updated set %s with prefixes %v", set.HashedName(), prefixes)
+		log.Debugf("updated set %s with prefixes %v", name, prefixes)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -932,7 +952,7 @@ func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol
 
 	dnatRule := []string{
 		"-i", r.wgIface.Name(),
-		"-p", strings.ToLower(string(protocol)),
+		"-p", strings.ToLower(protoForFamily(protocol, r.v6)),
 		"--dport", strconv.Itoa(int(sourcePort)),
 		"-d", localAddr.String(),
 		"-m", "addrtype", "--dst-type", "LOCAL",
@@ -990,9 +1010,21 @@ func applyPort(flag string, port *firewall.Port) []string {
 	return []string{flag, strconv.Itoa(int(port.Values[0]))}
 }
 
+// ipsetName returns the ipset name, suffixed with "-v6" for the v6 router
+// to avoid collisions since ipsets are global in the kernel.
+func (r *router) ipsetName(name string) string {
+	if r.v6 {
+		return name + "-v6"
+	}
+	return name
+}
+
 func (r *router) createIPSet(name string) error {
 	opts := ipset.CreateOptions{
 		Replace: true,
+	}
+	if r.v6 {
+		opts.Family = ipset.FamilyIPV6
 	}
 
 	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {

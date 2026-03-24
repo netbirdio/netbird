@@ -146,8 +146,7 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 		if useNewDNSRoute {
 			destination.Set = firewall.NewDomainSet(route.Domains)
 		} else {
-			// TODO: add ipv6 additionally
-			destination = getDefaultPrefix(destination.Prefix)
+			destination = getDefaultPrefix(route.Network)
 		}
 	} else {
 		destination.Prefix = route.Network.Masked()

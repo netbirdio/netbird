@@ -787,10 +787,10 @@ func isUnixSocket(path string) bool {
 	return strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./")
 }
 
-// normalizeLocalHost converts "*" to "0.0.0.0" for binding to all interfaces.
+// normalizeLocalHost converts "*" to "" for binding to all interfaces (dual-stack).
 func normalizeLocalHost(host string) string {
 	if host == "*" {
-		return "0.0.0.0"
+		return ""
 	}
 	return host
 }

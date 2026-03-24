@@ -1393,6 +1393,43 @@ func TestShouldForward(t *testing.T) {
 		},
 	}
 
+	// Add IPv6 to the interface and test dual-stack cases
+	wgIPv6 := netip.MustParseAddr("fd00::1")
+	otherIPv6 := netip.MustParseAddr("fd00::2")
+	ifaceMock.AddressFunc = func() wgaddr.Address {
+		return wgaddr.Address{
+			IP:      wgIP,
+			Network: netip.PrefixFrom(wgIP, 24),
+			IPv6:    wgIPv6,
+			IPv6Net: netip.PrefixFrom(wgIPv6, 64),
+		}
+	}
+
+	// Re-create manager to pick up the new address with IPv6
+	require.NoError(t, manager.Close(nil))
+	manager, err = Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+
+	v6Cases := []struct {
+		name        string
+		dstIP       netip.Addr
+		expected    bool
+		description string
+	}{
+		{"v6 traffic to other address", otherIPv6, true, "should forward v6 traffic not destined to our v6 address"},
+		{"v6 traffic to our v6 IP", wgIPv6, false, "should not forward traffic destined to our v6 address"},
+		{"v4 traffic to other with v6 configured", otherIP, true, "should forward v4 traffic when v6 configured"},
+		{"v4 traffic to our v4 IP with v6 configured", wgIP, false, "should not forward traffic to our v4 address"},
+	}
+	for _, tt := range v6Cases {
+		t.Run(tt.name, func(t *testing.T) {
+			manager.localForwarding = true
+			decoder := createTCPDecoder(8080)
+			result := manager.shouldForward(decoder, tt.dstIP)
+			require.Equal(t, tt.expected, result, tt.description)
+		})
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Configure manager

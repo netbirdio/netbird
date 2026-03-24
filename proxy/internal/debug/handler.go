@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -528,7 +529,7 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
 
 	conn, err := client.Dial(ctx, "tcp", address)
