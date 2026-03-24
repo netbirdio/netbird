@@ -158,6 +158,16 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, f.handleICMP)
+	// TODO: gvisor's IPv6 network layer (ipv6/icmp.go) replies to ICMPv6 echo
+	// requests at the network layer before our transport handler fires. Unlike
+	// IPv4, it has no localAddressTemporary check or DeliverTransportPacket call
+	// before replying. With promiscuous mode, this means gvisor replies to ALL
+	// ICMPv6 echo (including routed traffic) with local latency.
+	// Not fixed as of gvisor 20260320.
+	// Fix: handle ICMPv6 echo in the USP filter before passing to the forwarder,
+	// similar to how v4 ICMP worked before the forwarder existed. The forwarder
+	// is needed for TCP (full proxy) and UDP (endpoint tracking), but ICMP can
+	// be handled directly since it's stateless request/reply.
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, f.handleICMPv6)
 
 	f.checkICMPCapability()
@@ -210,14 +220,14 @@ func (f *Forwarder) Stop() {
 	f.stack.Wait()
 }
 
-func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
+func (f *Forwarder) determineDialAddr(addr tcpip.Address) netip.Addr {
 	if f.netstack && f.ip.Equal(addr) {
-		return net.IPv4(127, 0, 0, 1)
+		return netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	}
 	if f.netstack && f.ipv6.Equal(addr) {
-		return net.IPv6loopback
+		return netip.IPv6Loopback()
 	}
-	return addr.AsSlice()
+	return addrToNetipAddr(addr)
 }
 
 func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {

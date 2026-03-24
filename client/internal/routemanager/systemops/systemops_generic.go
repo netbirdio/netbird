@@ -222,15 +222,20 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 			return err
 		}
 
-		// TODO: remove once IPv6 is supported on the interface
-		if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			return fmt.Errorf("add unreachable route split 1: %w", err)
-		}
-		if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+		// When the interface has no v6, add v6 split-default as blackhole so
+		// unroutable v6 goes to WG (dropped, no AllowedIPs) instead of leaking
+		// to the system default route. When v6 is active, management sends ::/0
+		// as a separate route that the dedicated handler adds.
+		// Soft-fail: v6 blackhole is best-effort, don't abort v4 routing on failure.
+		if !r.wgInterface.Address().HasIPv6() {
+			if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
+				log.Warnf("Failed to add v6 blackhole split 1: %s", err)
+			} else if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
+				log.Warnf("Failed to add v6 blackhole split 2: %s", err)
+				if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
+					log.Warnf("Failed to rollback v6 blackhole: %s", err2)
+				}
 			}
-			return fmt.Errorf("add unreachable route split 2: %w", err)
 		}
 
 		return nil
@@ -266,12 +271,13 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 			result = multierror.Append(result, err)
 		}
 
-		// TODO: remove once IPv6 is supported on the interface
-		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-		if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
+		if !r.wgInterface.Address().HasIPv6() {
+			if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
+				result = multierror.Append(result, err)
+			}
+			if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
+				result = multierror.Append(result, err)
+			}
 		}
 
 		return nberrors.FormatErrorOrNil(result)

@@ -2,9 +2,9 @@ package forwarder
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 
 	"github.com/google/uuid"
@@ -32,7 +32,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 		}
 	}()
 
-	dialAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
+	dialAddr := net.JoinHostPort(f.determineDialAddr(id.LocalAddress).String(), strconv.Itoa(int(id.LocalPort)))
 
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {

@@ -19,11 +19,7 @@ import (
 
 type upstreamResolverIOS struct {
 	*upstreamResolverBase
-	lIP           netip.Addr
-	lNet          netip.Prefix
-	lIPv6         netip.Addr
-	lNetV6        netip.Prefix
-	interfaceName string
+	wgIface WGIface
 }
 
 func newUpstreamResolver(
@@ -37,11 +33,7 @@ func newUpstreamResolver(
 
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
-		lIP:                  wgIface.Address().IP,
-		lNet:                 wgIface.Address().Network,
-		lIPv6:                wgIface.Address().IPv6,
-		lNetV6:               wgIface.Address().IPv6Net,
-		interfaceName:        wgIface.Name(),
+		wgIface:              wgIface,
 	}
 	ios.upstreamClient = ios
 
@@ -69,24 +61,15 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	} else {
 		upstreamIP = upstreamIP.Unmap()
 	}
-	needsPrivate := u.lNet.Contains(upstreamIP) ||
-		u.lNetV6.Contains(upstreamIP) ||
+	addr := u.wgIface.Address()
+	needsPrivate := addr.Network.Contains(upstreamIP) ||
+		addr.IPv6Net.Contains(upstreamIP) ||
 		(u.routeMatch != nil && u.routeMatch(upstreamIP))
 	if needsPrivate {
-		var bindIP netip.Addr
-		switch {
-		case upstreamIP.Is6() && u.lIPv6.IsValid():
-			bindIP = u.lIPv6
-		case upstreamIP.Is4() && u.lIP.IsValid():
-			bindIP = u.lIP
-		}
-
-		if bindIP.IsValid() {
-			log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
-			client, err = GetClientPrivate(bindIP, u.interfaceName, timeout)
-			if err != nil {
-				return nil, 0, fmt.Errorf("create private client: %s", err)
-			}
+		log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
+		client, err = GetClientPrivate(u.wgIface, upstreamIP, timeout)
+		if err != nil {
+			return nil, 0, fmt.Errorf("create private client: %s", err)
 		}
 	}
 
@@ -94,23 +77,29 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	return ExchangeWithFallback(nil, client, r, upstream)
 }
 
-// GetClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
-// This method is needed for iOS
-func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
-	index, err := getInterfaceIndex(interfaceName)
+// GetClientPrivate returns a new DNS client bound to the local IP of the Netbird interface.
+// It selects the v6 bind address when the upstream is IPv6 and the interface has one, otherwise v4.
+func GetClientPrivate(iface privateClientIface, upstreamIP netip.Addr, dialTimeout time.Duration) (*dns.Client, error) {
+	index, err := getInterfaceIndex(iface.Name())
 	if err != nil {
-		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
+		log.Debugf("unable to get interface index for %s: %s", iface.Name(), err)
 		return nil, err
 	}
 
+	addr := iface.Address()
+	bindIP := addr.IP
+	if upstreamIP.Is6() && addr.HasIPv6() {
+		bindIP = addr.IPv6
+	}
+
 	proto, opt := unix.IPPROTO_IP, unix.IP_BOUND_IF
-	if ip.Is6() {
+	if bindIP.Is6() {
 		proto, opt = unix.IPPROTO_IPV6, unix.IPV6_BOUND_IF
 	}
 
 	dialer := &net.Dialer{
-		LocalAddr: net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, 0)),
-		Timeout: dialTimeout,
+		LocalAddr: net.UDPAddrFromAddrPort(netip.AddrPortFrom(bindIP, 0)),
+		Timeout:   dialTimeout,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var operr error
 			fn := func(s uintptr) {

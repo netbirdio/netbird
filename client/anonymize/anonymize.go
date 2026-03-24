@@ -26,8 +26,9 @@ type Anonymizer struct {
 }
 
 func DefaultAddresses() (netip.Addr, netip.Addr) {
-	// 198.51.100.0, 100::
-	return netip.AddrFrom4([4]byte{198, 51, 100, 0}), netip.AddrFrom16([16]byte{0x01})
+	// 198.51.100.0 (RFC 5737 TEST-NET-2), 2001:db8:ffff:: (RFC 3849 documentation, last /48)
+	// The old start 100:: (discard, RFC 6666) is now used for fake IPs on Android.
+	return netip.AddrFrom4([4]byte{198, 51, 100, 0}), netip.MustParseAddr("2001:db8:ffff::")
 }
 
 func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {

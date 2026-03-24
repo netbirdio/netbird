@@ -53,6 +53,8 @@ const (
 
 	// ipv4ForwardingPath is the path to the file containing the IP forwarding setting.
 	ipv4ForwardingPath = "net.ipv4.ip_forward"
+	// ipv6ForwardingPath is the path to the file containing the IPv6 forwarding setting.
+	ipv6ForwardingPath = "net.ipv6.conf.all.forwarding"
 )
 
 var ErrTableIDExists = errors.New("ID exists with different name")
@@ -185,10 +187,11 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 
 	// No need to check if routes exist as main table takes precedence over the VPN table via Rule 1
 
-	// TODO remove this once we have ipv6 support
-	if prefix == vars.Defaultv4 {
+	// When the peer has no IPv6, blackhole v6 to prevent leaking.
+	// When IPv6 is enabled, management sends ::/0 as a separate route.
+	if prefix == vars.Defaultv4 && (r.wgInterface == nil || !r.wgInterface.Address().HasIPv6()) {
 		if err := addUnreachableRoute(vars.Defaultv6, NetbirdVPNTableID); err != nil {
-			return fmt.Errorf("add blackhole: %w", err)
+			return fmt.Errorf("add v6 blackhole: %w", err)
 		}
 	}
 	if err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
@@ -206,10 +209,9 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}
 
-	// TODO remove this once we have ipv6 support
-	if prefix == vars.Defaultv4 {
+	if prefix == vars.Defaultv4 && (r.wgInterface == nil || !r.wgInterface.Address().HasIPv6()) {
 		if err := removeUnreachableRoute(vars.Defaultv6, NetbirdVPNTableID); err != nil {
-			return fmt.Errorf("remove unreachable route: %w", err)
+			log.Debugf("remove v6 blackhole: %v", err)
 		}
 	}
 	if err := removeRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
@@ -762,8 +764,13 @@ func flushRoutes(tableID, family int) error {
 }
 
 func EnableIPForwarding() error {
-	_, err := sysctl.Set(ipv4ForwardingPath, 1, false)
-	return err
+	if _, err := sysctl.Set(ipv4ForwardingPath, 1, false); err != nil {
+		return err
+	}
+	if _, err := sysctl.Set(ipv6ForwardingPath, 1, false); err != nil {
+		log.Warnf("failed to enable IPv6 forwarding: %v", err)
+	}
+	return nil
 }
 
 // entryExists checks if the specified ID or name already exists in the rt_tables file

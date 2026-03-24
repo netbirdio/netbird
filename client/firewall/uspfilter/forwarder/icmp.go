@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os/exec"
 	"runtime"
 	"time"
@@ -82,7 +83,7 @@ func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []by
 	}
 
 	dstIP := f.determineDialAddr(id.LocalAddress)
-	dst := &net.IPAddr{IP: dstIP}
+	dst := &net.IPAddr{IP: dstIP.AsSlice()}
 
 	if _, err = conn.WriteTo(payload, dst); err != nil {
 		if closeErr := conn.Close(); closeErr != nil {
@@ -273,14 +274,11 @@ func (f *Forwarder) synthesizeICMPv6EchoReply(id stack.TransportEndpointID, icmp
 	replyHdr := header.ICMPv6(replyICMP)
 	replyHdr.SetType(header.ICMPv6EchoReply)
 	replyHdr.SetChecksum(0)
-	// ICMPv6 checksum requires a pseudo-header
-	psum := header.PseudoHeaderChecksum(header.ICMPv6ProtocolNumber, id.LocalAddress, id.RemoteAddress, uint16(len(replyICMP)))
+	// ICMPv6 checksum includes a pseudo-header computed internally by ICMPv6Checksum
 	replyHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-		Header:      replyHdr,
-		Src:         id.LocalAddress,
-		Dst:         id.RemoteAddress,
-		PayloadCsum: psum,
-		PayloadLen:  len(replyICMP) - header.ICMPv6MinimumSize,
+		Header: replyHdr,
+		Src:    id.LocalAddress,
+		Dst:    id.RemoteAddress,
 	}))
 
 	return f.injectICMPv6Reply(id, replyICMP)
@@ -317,13 +315,13 @@ const (
 
 // buildPingCommand creates a platform-specific ping command.
 // Most platforms auto-detect IPv6 from raw addresses. macOS/iOS/OpenBSD require ping6.
-func buildPingCommand(ctx context.Context, target net.IP, timeout time.Duration) *exec.Cmd {
+func buildPingCommand(ctx context.Context, target netip.Addr, timeout time.Duration) *exec.Cmd {
 	timeoutSec := int(timeout.Seconds())
 	if timeoutSec < 1 {
 		timeoutSec = 1
 	}
 
-	isV6 := target.To4() == nil
+	isV6 := target.Is6()
 	timeoutStr := fmt.Sprintf("%d", timeoutSec)
 
 	switch runtime.GOOS {
