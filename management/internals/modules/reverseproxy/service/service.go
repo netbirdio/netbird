@@ -850,7 +850,7 @@ func IsPortBasedProtocol(mode string) bool {
 }
 
 const (
-	maxCustomHeaders = 16
+	maxCustomHeaders  = 16
 	maxHeaderKeyLen   = 128
 	maxHeaderValueLen = 4096
 )
@@ -947,7 +947,6 @@ func containsCRLF(s string) bool {
 }
 
 func validateHeaderAuths(headers []*HeaderAuthConfig) error {
-	seen := make(map[string]struct{})
 	for i, h := range headers {
 		if h == nil || !h.Enabled {
 			continue
@@ -968,10 +967,6 @@ func validateHeaderAuths(headers []*HeaderAuthConfig) error {
 		if canonical == "Host" {
 			return fmt.Errorf("header_auths[%d]: Host header cannot be used for auth", i)
 		}
-		if _, dup := seen[canonical]; dup {
-			return fmt.Errorf("header_auths[%d]: duplicate header %q (same canonical form already configured)", i, h.Header)
-		}
-		seen[canonical] = struct{}{}
 		if len(h.Value) > maxHeaderValueLen {
 			return fmt.Errorf("header_auths[%d]: value exceeds maximum length of %d", i, maxHeaderValueLen)
 		}
