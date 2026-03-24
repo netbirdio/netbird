@@ -49,8 +49,13 @@ type Manager struct {
 	rConn   *nftables.Conn
 	wgIface iFaceMapper
 
-	router                 *router
-	aclManager             *AclManager
+	router     *router
+	aclManager *AclManager
+
+	// IPv6 counterparts, nil when no v6 overlay
+	router6     *router
+	aclManager6 *AclManager
+
 	notrackOutputChain     *nftables.Chain
 	notrackPreroutingChain *nftables.Chain
 }
@@ -62,7 +67,8 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable := &nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4}
+	tableName := getTableName()
+	workTable := &nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4}
 
 	var err error
 	m.router, err = newRouter(workTable, wgIface, mtu)
@@ -75,7 +81,52 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
 
+	if wgIface.Address().HasIPv6() {
+		if err := m.createIPv6Components(tableName, wgIface, mtu); err != nil {
+			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
+		}
+	}
+
 	return m, nil
+}
+
+func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mtu uint16) error {
+	workTable6 := &nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6}
+
+	var err error
+	m.router6, err = newRouter(workTable6, wgIface, mtu)
+	if err != nil {
+		return fmt.Errorf("create v6 router: %w", err)
+	}
+
+	m.aclManager6, err = newAclManager(workTable6, wgIface, chainNameRoutingFw)
+	if err != nil {
+		return fmt.Errorf("create v6 acl manager: %w", err)
+	}
+
+	return nil
+}
+
+// hasIPv6 reports whether the manager has IPv6 components initialized.
+func (m *Manager) hasIPv6() bool {
+	return m.router6 != nil
+}
+
+func (m *Manager) initIPv6() error {
+	workTable6, err := m.createWorkTableFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return fmt.Errorf("create v6 work table: %w", err)
+	}
+
+	if err := m.router6.init(workTable6); err != nil {
+		return fmt.Errorf("v6 router init: %w", err)
+	}
+
+	if err := m.aclManager6.init(workTable6); err != nil {
+		return fmt.Errorf("v6 acl manager init: %w", err)
+	}
+
+	return nil
 }
 
 // Init nftables firewall manager
@@ -92,6 +143,13 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	if err := m.aclManager.init(workTable); err != nil {
 		// TODO: cleanup router
 		return fmt.Errorf("acl manager init: %w", err)
+	}
+
+	if m.hasIPv6() {
+		if err := m.initIPv6(); err != nil {
+			// Peer has a v6 address: v6 firewall MUST work or we risk fail-open.
+			return fmt.Errorf("init IPv6 firewall (required because peer has IPv6 address): %w", err)
+		}
 	}
 
 	if err := m.initNoTrackChains(workTable); err != nil {
@@ -141,12 +199,14 @@ func (m *Manager) AddPeerFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	rawIP := ip.To4()
-	if rawIP == nil {
-		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
+	if ip.To4() != nil {
+		return m.aclManager.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 	}
 
-	return m.aclManager.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
+	if !m.hasIPv6() {
+		return nil, fmt.Errorf("IPv6 not initialized, cannot add rule for %s", ip)
+	}
+	return m.aclManager6.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
@@ -160,8 +220,11 @@ func (m *Manager) AddRouteFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if destination.IsPrefix() && !destination.Prefix.Addr().Is4() {
-		return nil, fmt.Errorf("unsupported IP version: %s", destination.Prefix.Addr().String())
+	if isIPv6RouteRule(sources, destination) {
+		if !m.hasIPv6() {
+			return nil, fmt.Errorf("IPv6 not initialized, cannot add route rule")
+		}
+		return m.router6.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
 
 	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
@@ -172,14 +235,38 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && isIPv6Rule(rule) {
+		return m.aclManager6.DeletePeerRule(rule)
+	}
 	return m.aclManager.DeletePeerRule(rule)
 }
 
-// DeleteRouteRule deletes a routing rule
+func isIPv6Rule(rule firewall.Rule) bool {
+	r, ok := rule.(*Rule)
+	return ok && r.nftRule != nil && r.nftRule.Table != nil && r.nftRule.Table.Family == nftables.TableFamilyIPv6
+}
+
+// isIPv6RouteRule determines whether a route rule belongs to the v6 table.
+// For static routes, the destination prefix determines the family. For dynamic
+// routes (DomainSet), the sources determine the family since management
+// duplicates dynamic rules per family.
+func isIPv6RouteRule(sources []netip.Prefix, destination firewall.Network) bool {
+	if destination.IsPrefix() {
+		return destination.Prefix.Addr().Is6()
+	}
+	return len(sources) > 0 && sources[0].Addr().Is6()
+}
+
+// DeleteRouteRule deletes a routing rule.
+// Route rules are keyed by content hash, so the rule exists in exactly one
+// router. We check v4 first; if the key isn't there, try v6.
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && !m.router.hasRule(rule.ID()) {
+		return m.router6.DeleteRouteRule(rule)
+	}
 	return m.router.DeleteRouteRule(rule)
 }
 
@@ -195,14 +282,54 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.AddNatRule(pair)
+	if pair.Destination.IsPrefix() && pair.Destination.Prefix.Addr().Is6() {
+		if !m.hasIPv6() {
+			return fmt.Errorf("IPv6 not initialized, cannot add NAT rule")
+		}
+		return m.router6.AddNatRule(pair)
+	}
+
+	if err := m.router.AddNatRule(pair); err != nil {
+		return err
+	}
+
+	// Dynamic routes (DomainSet) need NAT in both tables since resolved IPs
+	// can be either v4 or v6.
+	if m.hasIPv6() && pair.Destination.IsSet() {
+		v6Pair := pair
+		v6Pair.Source = firewall.Network{Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 0)}
+		if err := m.router6.AddNatRule(v6Pair); err != nil {
+			return fmt.Errorf("add v6 NAT rule: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.RemoveNatRule(pair)
+	if pair.Destination.IsPrefix() && pair.Destination.Prefix.Addr().Is6() {
+		if !m.hasIPv6() {
+			return nil
+		}
+		return m.router6.RemoveNatRule(pair)
+	}
+
+	if err := m.router.RemoveNatRule(pair); err != nil {
+		return err
+	}
+
+	if m.hasIPv6() && pair.Destination.IsSet() {
+		v6Pair := pair
+		v6Pair.Source = firewall.Network{Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 0)}
+		if err := m.router6.RemoveNatRule(v6Pair); err != nil {
+			return fmt.Errorf("remove v6 NAT rule: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // AllowNetbird allows netbird interface traffic
@@ -217,6 +344,11 @@ func (m *Manager) AllowNetbird() error {
 	if err := m.aclManager.createDefaultAllowRules(); err != nil {
 		return fmt.Errorf("create default allow rules: %w", err)
 	}
+	if m.hasIPv6() {
+		if err := m.aclManager6.createDefaultAllowRules(); err != nil {
+			return fmt.Errorf("create v6 default allow rules: %w", err)
+		}
+	}
 	if err := m.rConn.Flush(); err != nil {
 		return fmt.Errorf("flush allow input netbird rules: %w", err)
 	}
@@ -226,7 +358,13 @@ func (m *Manager) AllowNetbird() error {
 
 // SetLegacyManagement sets the route manager to use legacy management
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {
-	return firewall.SetLegacyManagement(m.router, isLegacy)
+	if err := firewall.SetLegacyManagement(m.router, isLegacy); err != nil {
+		return err
+	}
+	if m.hasIPv6() {
+		return firewall.SetLegacyManagement(m.router6, isLegacy)
+	}
+	return nil
 }
 
 // Close closes the firewall manager
@@ -236,6 +374,12 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 
 	if err := m.router.Reset(); err != nil {
 		return fmt.Errorf("reset router: %v", err)
+	}
+
+	if m.hasIPv6() {
+		if err := m.router6.Reset(); err != nil {
+			return fmt.Errorf("reset v6 router: %v", err)
+		}
 	}
 
 	if err := m.cleanupNetbirdTables(); err != nil {
@@ -299,6 +443,12 @@ func (m *Manager) Flush() error {
 		return err
 	}
 
+	if m.hasIPv6() {
+		if err := m.aclManager6.Flush(); err != nil {
+			return fmt.Errorf("flush v6 acl: %w", err)
+		}
+	}
+
 	if err := m.refreshNoTrackChains(); err != nil {
 		log.Errorf("failed to refresh notrack chains: %v", err)
 	}
@@ -311,6 +461,9 @@ func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && rule.TranslatedAddress.Is6() {
+		return m.router6.AddDNATRule(rule)
+	}
 	return m.router.AddDNATRule(rule)
 }
 
@@ -319,6 +472,9 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && !m.router.hasDNATRule(rule.ID()) {
+		return m.router6.DeleteDNATRule(rule)
+	}
 	return m.router.DeleteDNATRule(rule)
 }
 
@@ -327,7 +483,26 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.UpdateSet(set, prefixes)
+	var v4Prefixes, v6Prefixes []netip.Prefix
+	for _, p := range prefixes {
+		if p.Addr().Is6() {
+			v6Prefixes = append(v6Prefixes, p)
+		} else {
+			v4Prefixes = append(v4Prefixes, p)
+		}
+	}
+
+	if err := m.router.UpdateSet(set, v4Prefixes); err != nil {
+		return err
+	}
+
+	if m.hasIPv6() && len(v6Prefixes) > 0 {
+		if err := m.router6.UpdateSet(set, v6Prefixes); err != nil {
+			return fmt.Errorf("update v6 set: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
@@ -335,6 +510,9 @@ func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protoco
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && localAddr.Is6() {
+		return m.router6.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	}
 	return m.router.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
@@ -343,6 +521,9 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if m.hasIPv6() && localAddr.Is6() {
+		return m.router6.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	}
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
@@ -517,7 +698,11 @@ func (m *Manager) refreshNoTrackChains() error {
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {
-	tables, err := m.rConn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	return m.createWorkTableFamily(nftables.TableFamilyIPv4)
+}
+
+func (m *Manager) createWorkTableFamily(family nftables.TableFamily) (*nftables.Table, error) {
+	tables, err := m.rConn.ListTablesOfFamily(family)
 	if err != nil {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
@@ -529,7 +714,7 @@ func (m *Manager) createWorkTable() (*nftables.Table, error) {
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: family})
 	err = m.rConn.Flush()
 	return table, err
 }

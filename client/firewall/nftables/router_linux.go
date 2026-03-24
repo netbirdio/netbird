@@ -46,8 +46,10 @@ const (
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
 
-	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
-	ipTCPHeaderMinSize = 40
+	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
+	ipv4TCPHeaderSize = 40
+	// ipv6TCPHeaderSize is the minimum IPv6 (40) + TCP (20) header size for MSS calculation.
+	ipv6TCPHeaderSize = 60
 
 	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
 	maxPrefixesSet       = 1500
@@ -72,6 +74,7 @@ type router struct {
 	rules        map[string]*nftables.Rule
 	ipsetCounter *refcounter.Counter[string, setInput, *nftables.Set]
 
+	af               addrFamily
 	wgIface          iFaceMapper
 	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
@@ -84,6 +87,7 @@ func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*rou
 		workTable:  workTable,
 		chains:     make(map[string]*nftables.Chain),
 		rules:      make(map[string]*nftables.Rule),
+		af:         familyForAddr(workTable.Family == nftables.TableFamilyIPv4),
 		wgIface:    wgIface,
 		ipFwdState: ipfwdstate.NewIPForwardingState(),
 		mtu:        mtu,
@@ -142,7 +146,7 @@ func (r *router) Reset() error {
 func (r *router) removeNatPreroutingRules() error {
 	table := &nftables.Table{
 		Name:   tableNat,
-		Family: nftables.TableFamilyIPv4,
+		Family: r.af.tableFamily,
 	}
 	chain := &nftables.Chain{
 		Name:     chainNameNatPrerouting,
@@ -175,7 +179,7 @@ func (r *router) removeNatPreroutingRules() error {
 }
 
 func (r *router) loadFilterTable() (*nftables.Table, error) {
-	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
+	tables, err := r.conn.ListTablesOfFamily(r.af.tableFamily)
 	if err != nil {
 		return nil, fmt.Errorf("list tables: %w", err)
 	}
@@ -407,7 +411,7 @@ func (r *router) AddRouteFiltering(
 
 	// Handle protocol
 	if proto != firewall.ProtocolALL {
-		protoNum, err := protoToInt(proto)
+		protoNum, err := r.af.protoNum(proto)
 		if err != nil {
 			return nil, fmt.Errorf("convert protocol to number: %w", err)
 		}
@@ -467,7 +471,17 @@ func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bo
 		return nil, fmt.Errorf("create or get ipset: %w", err)
 	}
 
-	return getIpSetExprs(ref, isSource)
+	return r.getIpSetExprs(ref, isSource)
+}
+
+func (r *router) hasRule(id string) bool {
+	_, ok := r.rules[id]
+	return ok
+}
+
+func (r *router) hasDNATRule(id string) bool {
+	_, ok := r.rules[id+dnatSuffix]
+	return ok
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
@@ -516,10 +530,10 @@ func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, err
 		Table:   r.workTable,
 		// required for prefixes
 		Interval: true,
-		KeyType:  nftables.TypeIPAddr,
+		KeyType:  r.af.setKeyType,
 	}
 
-	elements := convertPrefixesToSet(prefixes)
+	elements := r.convertPrefixesToSet(prefixes)
 	nElements := len(elements)
 
 	maxElements := maxPrefixesSet * 2
@@ -552,23 +566,17 @@ func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, err
 	return nfset, nil
 }
 
-func convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
+func (r *router) convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
 	var elements []nftables.SetElement
 	for _, prefix := range prefixes {
-		// TODO: Implement IPv6 support
-		if prefix.Addr().Is6() {
-			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
-			continue
-		}
-
 		// nftables needs half-open intervals [firstIP, lastIP) for prefixes
 		// e.g. 10.0.0.0/24 becomes [10.0.0.0, 10.0.1.0), 10.1.1.1/32 becomes [10.1.1.1, 10.1.1.2) etc
 		firstIP := prefix.Addr()
 		lastIP := calculateLastIP(prefix).Next()
 
 		elements = append(elements,
-			// the nft tool also adds a line like this, see https://github.com/google/nftables/issues/247
-			// nftables.SetElement{Key: []byte{0, 0, 0, 0}, IntervalEnd: true},
+			// the nft tool also adds a zero-address IntervalEnd element, see https://github.com/google/nftables/issues/247
+			// nftables.SetElement{Key: make([]byte, r.af.addrLen), IntervalEnd: true},
 			nftables.SetElement{Key: firstIP.AsSlice()},
 			nftables.SetElement{Key: lastIP.AsSlice(), IntervalEnd: true},
 		)
@@ -578,10 +586,20 @@ func convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
 
 // calculateLastIP determines the last IP in a given prefix.
 func calculateLastIP(prefix netip.Prefix) netip.Addr {
-	hostMask := ^uint32(0) >> prefix.Masked().Bits()
-	lastIP := uint32FromNetipAddr(prefix.Addr()) | hostMask
+	masked := prefix.Masked()
+	if masked.Addr().Is4() {
+		hostMask := ^uint32(0) >> masked.Bits()
+		lastIP := uint32FromNetipAddr(masked.Addr()) | hostMask
+		return netip.AddrFrom4(uint32ToBytes(lastIP))
+	}
 
-	return netip.AddrFrom4(uint32ToBytes(lastIP))
+	// IPv6: set host bits to all 1s
+	b := masked.Addr().As16()
+	bits := masked.Bits()
+	for i := bits; i < 128; i++ {
+		b[i/8] |= 1 << (7 - i%8)
+	}
+	return netip.AddrFrom16(b)
 }
 
 // Utility function to convert netip.Addr to uint32.
@@ -833,9 +851,12 @@ func (r *router) addPostroutingRules() {
 }
 
 // addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
-// TODO: Add IPv6 support
 func (r *router) addMSSClampingRules() error {
-	mss := r.mtu - ipTCPHeaderMinSize
+	overhead := uint16(ipv4TCPHeaderSize)
+	if r.af.tableFamily == nftables.TableFamilyIPv6 {
+		overhead = ipv6TCPHeaderSize
+	}
+	mss := r.mtu - overhead
 
 	exprsOut := []expr.Any{
 		&expr.Meta{
@@ -1294,7 +1315,7 @@ func (r *router) removeExternalChainsRules() error {
 func (r *router) findExternalChains() []*nftables.Chain {
 	var chains []*nftables.Chain
 
-	families := []nftables.TableFamily{nftables.TableFamilyIPv4, nftables.TableFamilyINet}
+	families := []nftables.TableFamily{r.af.tableFamily, nftables.TableFamilyINet}
 
 	for _, family := range families {
 		allChains, err := r.conn.ListChainsOfTableFamily(family)
@@ -1460,7 +1481,7 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		return rule, nil
 	}
 
-	protoNum, err := protoToInt(rule.Protocol)
+	protoNum, err := r.af.protoNum(rule.Protocol)
 	if err != nil {
 		return nil, fmt.Errorf("convert protocol to number: %w", err)
 	}
@@ -1523,7 +1544,7 @@ func (r *router) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, rule
 	dnatExprs = append(dnatExprs,
 		&expr.NAT{
 			Type:        expr.NATTypeDestNAT,
-			Family:      uint32(nftables.TableFamilyIPv4),
+			Family:      uint32(r.af.tableFamily),
 			RegAddrMin:  1,
 			RegProtoMin: regProtoMin,
 			RegProtoMax: regProtoMax,
@@ -1619,7 +1640,7 @@ func (r *router) addXTablesRedirect(dnatExprs []expr.Any, ruleKey string, rule f
 	dnatRule := &nftables.Rule{
 		Table: &nftables.Table{
 			Name:   tableNat,
-			Family: nftables.TableFamilyIPv4,
+			Family: r.af.tableFamily,
 		},
 		Chain: &nftables.Chain{
 			Name:     chainNameNatPrerouting,
@@ -1654,8 +1675,8 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       16,
-			Len:          4,
+			Offset:       r.af.dstAddrOffset,
+			Len:          r.af.addrLen,
 		},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
@@ -1733,7 +1754,7 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 		return fmt.Errorf("get set %s: %w", set.HashedName(), err)
 	}
 
-	elements := convertPrefixesToSet(prefixes)
+	elements := r.convertPrefixesToSet(prefixes)
 	if err := r.conn.SetAddElements(nfset, elements); err != nil {
 		return fmt.Errorf("add elements to set %s: %w", set.HashedName(), err)
 	}
@@ -1755,7 +1776,7 @@ func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol
 		return nil
 	}
 
-	protoNum, err := protoToInt(protocol)
+	protoNum, err := r.af.protoNum(protocol)
 	if err != nil {
 		return fmt.Errorf("convert protocol to number: %w", err)
 	}
@@ -1786,7 +1807,11 @@ func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol
 		},
 	}
 
-	exprs = append(exprs, applyPrefix(netip.PrefixFrom(localAddr, 32), false)...)
+	bits := 32
+	if localAddr.Is6() {
+		bits = 128
+	}
+	exprs = append(exprs, r.applyPrefix(netip.PrefixFrom(localAddr, bits), false)...)
 
 	exprs = append(exprs,
 		&expr.Immediate{
@@ -1799,7 +1824,7 @@ func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol
 		},
 		&expr.NAT{
 			Type:        expr.NATTypeDestNAT,
-			Family:      uint32(nftables.TableFamilyIPv4),
+			Family:      uint32(r.af.tableFamily),
 			RegAddrMin:  1,
 			RegProtoMin: 2,
 			RegProtoMax: 0,
@@ -1868,45 +1893,44 @@ func (r *router) applyNetwork(
 	}
 
 	if network.IsPrefix() {
-		return applyPrefix(network.Prefix, isSource), nil
+		return r.applyPrefix(network.Prefix, isSource), nil
 	}
 
 	return nil, nil
 }
 
 // applyPrefix generates nftables expressions for a CIDR prefix
-func applyPrefix(prefix netip.Prefix, isSource bool) []expr.Any {
-	// dst offset
-	offset := uint32(16)
+func (r *router) applyPrefix(prefix netip.Prefix, isSource bool) []expr.Any {
+	// dst offset by default
+	offset := r.af.dstAddrOffset
 	if isSource {
 		// src offset
-		offset = 12
+		offset = r.af.srcAddrOffset
 	}
 
 	ones := prefix.Bits()
-	// 0.0.0.0/0 doesn't need extra expressions
+	// unspecified address (/0) doesn't need extra expressions
 	if ones == 0 {
 		return nil
 	}
 
-	mask := net.CIDRMask(ones, 32)
+	mask := net.CIDRMask(ones, r.af.totalBits)
+	xor := make([]byte, r.af.addrLen)
 
 	return []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
 			Offset:       offset,
-			Len:          4,
+			Len:          r.af.addrLen,
 		},
-		// netmask
 		&expr.Bitwise{
 			DestRegister:   1,
 			SourceRegister: 1,
-			Len:            4,
+			Len:            r.af.addrLen,
 			Mask:           mask,
-			Xor:            []byte{0, 0, 0, 0},
+			Xor:            xor,
 		},
-		// net address
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
@@ -1989,13 +2013,12 @@ func getCtNewExprs() []expr.Any {
 	}
 }
 
-func getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any, error) {
-
-	// dst offset
-	offset := uint32(16)
+func (r *router) getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any, error) {
+	// dst offset by default
+	offset := r.af.dstAddrOffset
 	if isSource {
 		// src offset
-		offset = 12
+		offset = r.af.srcAddrOffset
 	}
 
 	return []expr.Any{
@@ -2003,7 +2026,7 @@ func getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
 			Offset:       offset,
-			Len:          4,
+			Len:          r.af.addrLen,
 		},
 		&expr.Lookup{
 			SourceRegister: 1,
