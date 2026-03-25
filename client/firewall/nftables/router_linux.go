@@ -778,17 +778,17 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 // masqueraded. The return fires before the blanket masquerade rule because
 // InsertRule places it at chain position 0.
 func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+	if _, exists := r.rules[ruleKey]; exists {
+		return nil
+	}
+
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
 	if err != nil {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
 	exprs := append(destExp, &expr.Verdict{Kind: expr.VerdictReturn})
-
-	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
-	if _, exists := r.rules[ruleKey]; exists {
-		return nil
-	}
 
 	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    r.workTable,
@@ -1415,13 +1415,10 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	} else {
 		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
 		if rule, exists := r.rules[ruleKey]; exists {
-			if err := r.conn.DelRule(rule); err != nil {
+			if err := r.deleteNftRule(rule, ruleKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove no-masquerade postrouting rule: %w", err))
-			} else {
-				delete(r.rules, ruleKey)
-				if err := r.decrementSetCounter(rule); err != nil {
-					merr = multierror.Append(merr, fmt.Errorf("decrement set counter for no-masq rule: %w", err))
-				}
+			} else if err := r.decrementSetCounter(rule); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("decrement set counter for no-masq rule: %w", err))
 			}
 		} else {
 			log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)

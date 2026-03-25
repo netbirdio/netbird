@@ -541,7 +541,6 @@ func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 	}
 
 	r.rules[ruleKey] = rule
-	r.updateState()
 	return nil
 }
 
