@@ -1414,21 +1414,8 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 			merr = multierror.Append(merr, fmt.Errorf("remove inverse prerouting rule: %w", err))
 		}
 	} else {
-		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
-		if rule, exists := r.rules[ruleKey]; exists {
-			if rule.Handle == 0 {
-				log.Warnf("no-masquerade postrouting rule %s has no handle, removing stale entry", ruleKey)
-				if err := r.decrementSetCounter(rule); err != nil {
-					log.Warnf("decrement set counter for stale no-masq rule %s: %v", ruleKey, err)
-				}
-				delete(r.rules, ruleKey)
-			} else if err := r.deleteNftRule(rule, ruleKey); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove no-masquerade postrouting rule: %w", err))
-			} else if err := r.decrementSetCounter(rule); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("decrement set counter for no-masq rule: %w", err))
-			}
-		} else {
-			log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
+		if err := r.removeNoMasqPostRoutingRule(pair); err != nil {
+			merr = multierror.Append(merr, err)
 		}
 	}
 
@@ -1473,6 +1460,35 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 
 	if err := r.decrementSetCounter(rule); err != nil {
 		return fmt.Errorf("decrement set counter: %w", err)
+	}
+
+	return nil
+}
+
+func (r *router) removeNoMasqPostRoutingRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+
+	rule, exists := r.rules[ruleKey]
+	if !exists {
+		log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
+		return nil
+	}
+
+	if rule.Handle == 0 {
+		log.Warnf("no-masquerade postrouting rule %s has no handle, removing stale entry", ruleKey)
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Warnf("decrement set counter for stale no-masq rule %s: %v", ruleKey, err)
+		}
+		delete(r.rules, ruleKey)
+		return nil
+	}
+
+	if err := r.deleteNftRule(rule, ruleKey); err != nil {
+		return fmt.Errorf("remove no-masquerade postrouting rule: %w", err)
+	}
+
+	if err := r.decrementSetCounter(rule); err != nil {
+		return fmt.Errorf("decrement set counter for no-masq rule: %w", err)
 	}
 
 	return nil
