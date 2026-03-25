@@ -663,12 +663,17 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("add inverse nat rule: %w", err)
 		}
 	} else {
-		// Insert a return verdict in the postrouting NAT chain for this destination.
-		// This prevents the exit node's catch-all masquerade rule (which marks all wt0
-		// traffic with PreroutingFwmarkMasquerade) from rewriting the source IP for
-		// routes that explicitly have masquerade disabled.
+		// Insert return verdicts in the postrouting NAT chain for both traffic directions.
+		// This prevents the exit node's catch-all masquerade rules from rewriting the
+		// source IP for routes that explicitly have masquerade disabled.
+		// Forward direction: wt0→eth0 traffic marked with PreroutingFwmarkMasquerade.
+		// Inverse direction: eth0→wt0 traffic marked with PreroutingFwmarkMasqueradeReturn.
 		if err := r.addNoMasqPostRoutingRule(pair); err != nil {
 			return fmt.Errorf("add no-masquerade postrouting rule: %w", err)
+		}
+
+		if err := r.addNoMasqPostRoutingRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("add inverse no-masquerade postrouting rule: %w", err)
 		}
 	}
 
@@ -687,6 +692,7 @@ func (r *router) rollbackRules(pair firewall.RouterPair) {
 		firewall.GenKey(firewall.PreroutingFormat, pair),
 		firewall.GenKey(firewall.PreroutingFormat, firewall.GetInversePair(pair)),
 		firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair),
+		firewall.GenKey(firewall.NoMasqPostRoutingFormat, firewall.GetInversePair(pair)),
 	}
 	for _, key := range keys {
 		rule, ok := r.rules[key]
@@ -776,12 +782,14 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 // NAT chain for the given destination. This ensures that when an exit node
 // (0.0.0.0/0, masquerade=true) is active alongside routes with masquerade=false,
 // the exit node's catch-all mark rule does not cause those destinations to be
-// masqueraded. The return fires before the blanket masquerade rule because
-// InsertRule places it at chain position 0.
+// masqueraded. The mark match scopes the rule to exit-node traffic only.
+// InsertRule places it at chain position 0, before the blanket masquerade rule.
 func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
 	if _, exists := r.rules[ruleKey]; exists {
-		return nil
+		if err := r.removeNoMasqPostRoutingRule(pair); err != nil {
+			return fmt.Errorf("remove existing no-masq rule before reinstall: %w", err)
+		}
 	}
 
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
@@ -789,7 +797,26 @@ func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
-	exprs := append(destExp, &expr.Verdict{Kind: expr.VerdictReturn})
+	// Select the correct fwmark based on traffic direction:
+	// forward (wt0→eth0) uses PreroutingFwmarkMasquerade,
+	// inverse (eth0→wt0) uses PreroutingFwmarkMasqueradeReturn.
+	markValue := uint32(nbnet.PreroutingFwmarkMasquerade)
+	if pair.Inverse {
+		markValue = nbnet.PreroutingFwmarkMasqueradeReturn
+	}
+
+	// Match only packets carrying the exit-node masquerade mark, then match the
+	// destination, then return — skipping the blanket masquerade rule below.
+	exprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(markValue),
+		},
+	}
+	exprs = append(exprs, destExp...)
+	exprs = append(exprs, &expr.Verdict{Kind: expr.VerdictReturn})
 
 	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    r.workTable,
@@ -1415,6 +1442,10 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		}
 	} else {
 		if err := r.removeNoMasqPostRoutingRule(pair); err != nil {
+			merr = multierror.Append(merr, err)
+		}
+
+		if err := r.removeNoMasqPostRoutingRule(firewall.GetInversePair(pair)); err != nil {
 			merr = multierror.Append(merr, err)
 		}
 	}

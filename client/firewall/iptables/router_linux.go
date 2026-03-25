@@ -268,11 +268,15 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("add inverse nat rule: %w", err)
 		}
 	} else {
-		// Insert a RETURN rule at the head of the postrouting NAT chain for this
-		// destination, preventing the exit node's catch-all masquerade from
-		// rewriting the source IP for routes with masquerade disabled.
+		// Insert RETURN rules at the head of the postrouting NAT chain for both directions,
+		// preventing the exit node's catch-all masquerade from rewriting the source IP
+		// for routes with masquerade disabled.
 		if err := r.addNoMasqPostRoutingRule(pair); err != nil {
 			return fmt.Errorf("add no-masquerade postrouting rule: %w", err)
+		}
+
+		if err := r.addNoMasqPostRoutingRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("add inverse no-masquerade postrouting rule: %w", err)
 		}
 	}
 
@@ -292,17 +296,12 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("remove inverse nat rule: %w", err)
 		}
 	} else {
-		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
-		if rule, exists := r.rules[ruleKey]; exists {
-			if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
-				return fmt.Errorf("remove no-masquerade return rule: %w", err)
-			}
-			delete(r.rules, ruleKey)
-			if err := r.decrementSetCounter(rule); err != nil {
-				return fmt.Errorf("decrement ipset counter: %w", err)
-			}
-		} else {
-			log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
+		if err := r.removeNoMasqPostRoutingRule(pair); err != nil {
+			return err
+		}
+
+		if err := r.removeNoMasqPostRoutingRule(firewall.GetInversePair(pair)); err != nil {
+			return err
 		}
 	}
 
@@ -521,12 +520,16 @@ func (r *router) cleanupDataPlaneMark() error {
 }
 
 // addNoMasqPostRoutingRule inserts a RETURN rule at position 1 of the postrouting
-// NAT chain for the given destination. This ensures routes with masquerade=false
-// are not masqueraded by the exit node's catch-all mark-based masquerade rule.
+// NAT chain for the given destination. The mark match scopes the rule to exit-node
+// traffic only, ensuring routes with masquerade=false are not masqueraded by the
+// exit node's catch-all mark-based masquerade rule.
 func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
-	if _, exists := r.rules[ruleKey]; exists {
-		return nil
+	if rule, exists := r.rules[ruleKey]; exists {
+		if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
+			return fmt.Errorf("remove existing no-masq rule before reinstall: %w", err)
+		}
+		delete(r.rules, ruleKey)
 	}
 
 	destExp, err := r.applyNetwork("-d", pair.Destination, nil)
@@ -534,13 +537,45 @@ func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
-	rule := append(destExp, "-j", "RETURN")
+	// Select the correct fwmark based on traffic direction:
+	// forward (wt0→eth0) uses PreroutingFwmarkMasquerade,
+	// inverse (eth0→wt0) uses PreroutingFwmarkMasqueradeReturn.
+	markValue := uint32(nbnet.PreroutingFwmarkMasquerade)
+	if pair.Inverse {
+		markValue = nbnet.PreroutingFwmarkMasqueradeReturn
+	}
+
+	// Match exit-node mark + destination, then RETURN to skip the blanket masquerade.
+	rule := []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", markValue)}
+	rule = append(rule, destExp...)
+	rule = append(rule, "-j", "RETURN")
 
 	if err := r.iptablesClient.Insert(tableNat, chainRTNAT, 1, rule...); err != nil {
 		return fmt.Errorf("add no-masquerade return rule for %s: %w", pair.Destination, err)
 	}
 
 	r.rules[ruleKey] = rule
+	return nil
+}
+
+func (r *router) removeNoMasqPostRoutingRule(pair firewall.RouterPair) error {
+	ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
+
+	rule, exists := r.rules[ruleKey]
+	if !exists {
+		log.Debugf("no-masquerade postrouting rule %s not found", ruleKey)
+		return nil
+	}
+
+	if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
+		return fmt.Errorf("remove no-masquerade return rule %s: %w", ruleKey, err)
+	}
+	delete(r.rules, ruleKey)
+
+	if err := r.decrementSetCounter(rule); err != nil {
+		return fmt.Errorf("decrement ipset counter for %s: %w", ruleKey, err)
+	}
+
 	return nil
 }
 
