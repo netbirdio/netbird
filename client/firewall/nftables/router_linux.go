@@ -686,6 +686,7 @@ func (r *router) rollbackRules(pair firewall.RouterPair) {
 		firewall.GenKey(firewall.ForwardingFormat, pair),
 		firewall.GenKey(firewall.PreroutingFormat, pair),
 		firewall.GenKey(firewall.PreroutingFormat, firewall.GetInversePair(pair)),
+		firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair),
 	}
 	for _, key := range keys {
 		rule, ok := r.rules[key]
@@ -1415,7 +1416,13 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	} else {
 		ruleKey := firewall.GenKey(firewall.NoMasqPostRoutingFormat, pair)
 		if rule, exists := r.rules[ruleKey]; exists {
-			if err := r.deleteNftRule(rule, ruleKey); err != nil {
+			if rule.Handle == 0 {
+				log.Warnf("no-masquerade postrouting rule %s has no handle, removing stale entry", ruleKey)
+				if err := r.decrementSetCounter(rule); err != nil {
+					log.Warnf("decrement set counter for stale no-masq rule %s: %v", ruleKey, err)
+				}
+				delete(r.rules, ruleKey)
+			} else if err := r.deleteNftRule(rule, ruleKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove no-masquerade postrouting rule: %w", err))
 			} else if err := r.decrementSetCounter(rule); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("decrement set counter for no-masq rule: %w", err))
