@@ -421,6 +421,10 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 		node.Remove()
 	}
 	s.mExitNodeItems = nil
+	if s.mExitNodeSeparator != nil {
+		s.mExitNodeSeparator.Remove()
+		s.mExitNodeSeparator = nil
+	}
 	if s.mExitNodeDeselectAll != nil {
 		s.mExitNodeDeselectAll.Remove()
 		s.mExitNodeDeselectAll = nil
@@ -453,7 +457,9 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 	}
 
 	if showDeselectAll {
-		s.mExitNode.AddSeparator()
+		sep := s.mExitNode.AddSubMenuItem("───────────────", "")
+		sep.Disable()
+		s.mExitNodeSeparator = sep
 		deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
 		s.mExitNodeDeselectAll = deselectAllItem
 		go func() {
