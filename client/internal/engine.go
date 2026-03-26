@@ -503,6 +503,17 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
+	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
+		for _, routes := range e.routeManager.GetClientRoutes() {
+			for _, r := range routes {
+				if r.Network.Contains(ip) {
+					return true
+				}
+			}
+		}
+		return false
+	})
+
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
 		e.close()
