@@ -70,6 +70,7 @@ type upstreamResolverBase struct {
 	deactivate     func(error)
 	reactivate     func()
 	statusRecorder *peer.Status
+	routeMatch     func(netip.Addr) bool
 }
 
 type upstreamFailure struct {
