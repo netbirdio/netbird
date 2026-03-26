@@ -85,6 +85,11 @@ func (m *MockServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 	return nil
 }
 
+// SetRouteChecker mock implementation of SetRouteChecker from Server interface
+func (m *MockServer) SetRouteChecker(func(netip.Addr) bool) {
+	// Mock implementation - no-op
+}
+
 // BeginBatch mock implementation of BeginBatch from Server interface
 func (m *MockServer) BeginBatch() {
 	// Mock implementation - no-op
