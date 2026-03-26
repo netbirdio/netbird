@@ -10,11 +10,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/util"
 )
+
+type mockMgmProber struct {
+	key wgtypes.Key
+}
+
+func (m *mockMgmProber) GetServerPublicKey() (*wgtypes.Key, error) {
+	return &m.key, nil
+}
+
+func (m *mockMgmProber) Close() error { return nil }
 
 func TestGetConfig(t *testing.T) {
 	// case 1: new default config has to be generated
@@ -234,6 +245,16 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 }
 
 func TestUpdateOldManagementURL(t *testing.T) {
+	origProber := newMgmProber
+	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
+		key, err := wgtypes.GenerateKey()
+		if err != nil {
+			return nil, err
+		}
+		return &mockMgmProber{key: key.PublicKey()}, nil
+	}
+	t.Cleanup(func() { newMgmProber = origProber })
+
 	tests := []struct {
 		name                  string
 		previousManagementURL string
@@ -273,18 +294,17 @@ func TestUpdateOldManagementURL(t *testing.T) {
 				ConfigPath:    configPath,
 			})
 			require.NoError(t, err, "failed to create testing config")
-			previousStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
+			previousContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read initial config")
 			resultConfig, err := UpdateOldManagementURL(context.TODO(), config, configPath)
 			require.NoError(t, err, "got error when updating old management url")
 			require.Equal(t, tt.expectedManagementURL, resultConfig.ManagementURL.String())
-			newStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
-			switch tt.fileShouldNotChange {
-			case true:
-				require.Equal(t, previousStats.ModTime(), newStats.ModTime(), "file should not change")
-			case false:
-				require.NotEqual(t, previousStats.ModTime(), newStats.ModTime(), "file should have changed")
+			newContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read updated config")
+			if tt.fileShouldNotChange {
+				require.Equal(t, string(previousContent), string(newContent), "file should not change")
+			} else {
+				require.NotEqual(t, string(previousContent), string(newContent), "file should have changed")
 			}
 		})
 	}
