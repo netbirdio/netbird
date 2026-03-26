@@ -200,6 +200,10 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 // The fake address is in the format of 127.1.x.x where x.x is derived from the
 // last two bytes of the peer address (works for both IPv4 and IPv6).
 func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
+	if peerAddress == nil {
+		return nil, fmt.Errorf("nil peer address")
+	}
+
 	addr, ok := netip.AddrFromSlice(peerAddress.IP)
 	if !ok {
 		return nil, fmt.Errorf("invalid IP format")

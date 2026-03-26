@@ -5,8 +5,10 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -29,19 +31,20 @@ func (m *Manager) Close(*statemanager.Manager) error {
 		return nil
 	}
 
+	var merr *multierror.Error
 	if isFirewallRuleActive(firewallRuleName) {
 		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
-			return fmt.Errorf("remove windows firewall rule: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("remove windows firewall rule: %w", err))
 		}
 	}
 
 	if isFirewallRuleActive(firewallRuleName + "-v6") {
 		if err := manageFirewallRule(firewallRuleName+"-v6", deleteRule); err != nil {
-			return fmt.Errorf("remove windows v6 firewall rule: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("remove windows v6 firewall rule: %w", err))
 		}
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // AllowNetbird allows netbird interface traffic

@@ -557,7 +557,7 @@ COMMIT`
 	assert.NotContains(t, anonNftables, "2607:f8b0:4005::1")
 	assert.NotContains(t, anonNftables, "2607:f8b0:4005::200e")
 	assert.NotContains(t, anonNftables, "2001:db8::")
-	assert.Contains(t, anonNftables, "100::") // Default anonymous v6 range
+	assert.Contains(t, anonNftables, "2001:db8:ffff::") // Default anonymous v6 range
 
 	// ULA addresses in nftables should remain unchanged (private)
 	assert.Contains(t, anonNftables, "fd00:1234::1")
@@ -576,7 +576,7 @@ COMMIT`
 	assert.NotContains(t, anonIp6tablesSave, "2607:f8b0:4005::1")
 	assert.NotContains(t, anonIp6tablesSave, "2607:f8b0:4005::200e")
 	assert.NotContains(t, anonIp6tablesSave, "2001:db8::")
-	assert.Contains(t, anonIp6tablesSave, "100::") // Default anonymous v6 range
+	assert.Contains(t, anonIp6tablesSave, "2001:db8:ffff::") // Default anonymous v6 range
 
 	// Structure should be preserved
 	assert.Contains(t, anonIp6tablesSave, "*filter")

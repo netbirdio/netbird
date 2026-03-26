@@ -1424,6 +1424,7 @@ func TestShouldForward(t *testing.T) {
 	for _, tt := range v6Cases {
 		t.Run(tt.name, func(t *testing.T) {
 			manager.localForwarding = true
+			manager.netstack = false
 			decoder := createTCPDecoder(8080)
 			result := manager.shouldForward(decoder, tt.dstIP)
 			require.Equal(t, tt.expected, result, tt.description)

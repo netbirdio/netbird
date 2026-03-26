@@ -677,10 +677,15 @@ func (e *Engine) blockLanAccess() {
 
 	log.Infof("blocking route LAN access for networks: %v", toBlock)
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	v6 := netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 	for _, network := range toBlock {
+		source := v4
+		if network.Addr().Is6() {
+			source = v6
+		}
 		if _, err := e.firewall.AddRouteFiltering(
 			nil,
-			[]netip.Prefix{v4},
+			[]netip.Prefix{source},
 			firewallManager.Network{Prefix: network},
 			firewallManager.ProtocolALL,
 			nil,
