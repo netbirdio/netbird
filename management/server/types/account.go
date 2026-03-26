@@ -314,8 +314,9 @@ func (a *Account) GetPeerNetworkMap(
 		peersToConnect = append(peersToConnect, p)
 	}
 
-	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups)
-	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap, peer.SupportsIPv6() && peer.IPv6.IsValid())
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
+	routesUpdate := filterAndExpandRoutes(a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups), includeIPv6)
+	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap, includeIPv6)
 	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
@@ -349,7 +350,7 @@ func (a *Account) GetPeerNetworkMap(
 	nm := &NetworkMap{
 		Peers:               peersToConnectIncludingRouters,
 		Network:             a.Network.Copy(),
-		Routes:              slices.Concat(networkResourcesRoutes, routesUpdate),
+		Routes:              slices.Concat(filterAndExpandRoutes(networkResourcesRoutes, includeIPv6), routesUpdate),
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
 		FirewallRules:       firewallRules,
@@ -535,6 +536,10 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 		// Only advertise AAAA for peers that have a valid IPv6, whose client supports it,
 		// and that belong to an IPv6-enabled group. Old clients don't configure v6 on their
 		// WireGuard interface, so resolving their AAAA causes connections to hang.
+		// Edge case: toggling --disable-ipv6 on a peer without a version change does not
+		// propagate to other peers, so AAAA records can be stale until the next full sync.
+		// This is accepted because v4 connectivity is unaffected. Can be fixed by adding
+		// capability-change detection to the SyncPeer propagation condition.
 		_, peerAllowed := ipv6AllowedPeers[peer.ID]
 		hasIPv6 := peer.IPv6.IsValid() && peer.SupportsIPv6() && peerAllowed
 		if hasIPv6 {
@@ -1243,8 +1248,13 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, direction,
-					strconv.Itoa(direction), string(protocol), string(rule.Action), strings.Join(rule.Ports, ","))
+				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
+					direction:   direction,
+					dirStr:      strconv.Itoa(direction),
+					protocolStr: string(protocol),
+					actionStr:   string(rule.Action),
+					portsJoined: strings.Join(rule.Ports, ","),
+				})
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -1367,7 +1377,7 @@ func (a *Account) GetPeerRoutesFirewallRules(ctx context.Context, peerID string,
 	for _, route := range enabledRoutes {
 		// If no access control groups are specified, accept all traffic.
 		if len(route.AccessControlGroups) == 0 {
-			defaultPermit := getDefaultPermit(route)
+			defaultPermit := getDefaultPermit(route, includeIPv6)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
@@ -1457,8 +1467,10 @@ func (a *Account) getDistributionGroupsPeers(route *route.Route) map[string]stru
 	return distPeers
 }
 
-func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
-	var rules []*RouteFirewallRule
+func getDefaultPermit(route *route.Route, includeIPv6 bool) []*RouteFirewallRule {
+	if route.Network.Addr().Is6() && !includeIPv6 {
+		return nil
+	}
 
 	sources := []string{"0.0.0.0/0"}
 	if route.Network.Addr().Is6() {
@@ -1474,10 +1486,9 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		RouteID:      route.ID,
 	}
 
-	rules = append(rules, &rule)
+	rules := []*RouteFirewallRule{&rule}
 
-	// dynamic routes always contain an IPv4 placeholder as destination, hence we must add IPv6 rules additionally
-	if route.IsDynamic() {
+	if includeIPv6 && route.IsDynamic() {
 		ruleV6 := rule
 		ruleV6.SourceRanges = []string{"::/0"}
 		rules = append(rules, &ruleV6)

@@ -106,9 +106,8 @@ func TestPeerIPv6Allowed(t *testing.T) {
 func TestIPv6RecalculationOnGroupChange(t *testing.T) {
 	peerWithV6 := func(id string, v6 string) *nbpeer.Peer {
 		p := &nbpeer.Peer{
-			ID:   id,
-			IP:   netip.MustParseAddr("100.64.0.1"),
-			IPv6: netip.MustParseAddr("fd00::1"),
+			ID: id,
+			IP: netip.MustParseAddr("100.64.0.1"),
 		}
 		if v6 != "" {
 			p.IPv6 = netip.MustParseAddr(v6)

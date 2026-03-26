@@ -36,9 +36,6 @@ type RouteFirewallRule struct {
 
 	// isDynamic indicates whether the rule is for DNS routing
 	IsDynamic bool
-
-	// IPv6 indicates the rule targets an IPv6 destination.
-	IPv6 bool
 }
 
 func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
@@ -61,9 +58,6 @@ func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
 		return false
 	}
 	if r.IsDynamic != other.IsDynamic {
-		return false
-	}
-	if r.IPv6 != other.IPv6 {
 		return false
 	}
 	return true

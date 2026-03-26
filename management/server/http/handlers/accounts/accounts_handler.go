@@ -32,7 +32,7 @@ const (
 	// MinNetworkBitsIPv6 is the minimum prefix length for IPv6 network ranges
 	MinNetworkBitsIPv6 = 120
 	// MaxNetworkSizeIPv6 is the largest allowed IPv6 prefix (smallest number)
-	MaxNetworkSizeIPv6 = 48
+	MaxNetworkSizeIPv6      = 48
 	disableAutoUpdate       = "disabled"
 	autoUpdateLatestVersion = "latest"
 )

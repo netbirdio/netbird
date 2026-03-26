@@ -806,6 +806,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			if !peer.ProxyMeta.Embedded {
 				if allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All"); err == nil {
 					allGroupID = allGroup.ID
+				} else {
+					log.WithContext(ctx).Debugf("failed to get All group for IPv6 check: %v", err)
 				}
 			}
 			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {

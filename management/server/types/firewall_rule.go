@@ -40,10 +40,6 @@ type FirewallRule struct {
 
 	// PortRange represents the range of ports for a firewall rule
 	PortRange RulePortRange
-
-	// IPv6 marks rules targeting IPv6 addresses. Set at generation time when the
-	// target peer supports IPv6. Also checked at proto conversion as defense-in-depth.
-	IPv6 bool
 }
 
 // Equal checks if two firewall rules are equal.
@@ -83,7 +79,6 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		Protocol:     string(rule.Protocol),
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
-		IPv6:         isV6Route,
 	}
 
 	if len(rule.Ports) == 0 {
@@ -97,7 +92,6 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 	if includeIPv6 && (route.IsDynamic() || isDefaultV4) && len(v6Sources) > 0 {
 		v6Rule := baseRule
 		v6Rule.SourceRanges = v6Sources
-		v6Rule.IPv6 = true
 		if isDefaultV4 {
 			v6Rule.Destination = "::/0"
 			v6Rule.RouteID = route.ID + "-v6"

@@ -1401,7 +1401,7 @@ type AccountSettings struct {
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
-	// Ipv6EnabledGroups List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. Defaults to the All group for new accounts.
+	// Ipv6EnabledGroups List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
 	Ipv6EnabledGroups *[]string `json:"ipv6_enabled_groups,omitempty"`
 
 	// JwtAllowGroups List of groups to which users are allowed access
@@ -2968,7 +2968,7 @@ type PeerRequest struct {
 	// Ip Peer's IP address
 	Ip *string `json:"ip,omitempty"`
 
-	// Ipv6 Peer's IPv6 overlay address. Empty if IPv6 is not enabled for the account.
+	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
 	Ipv6                   *string `json:"ipv6,omitempty"`
 	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
 	Name                   string  `json:"name"`

@@ -1500,7 +1500,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		SELECT
 			id, created_by, created_at, domain, domain_category, is_domain_primary_account,
 			-- Embedded Network
-			network_identifier, network_net, network_dns, network_serial,
+			network_identifier, network_net, network_net_v6, network_dns, network_serial,
 			-- Embedded DNSSettings
 			dns_settings_disabled_management_groups,
 			-- Embedded Settings
@@ -1509,7 +1509,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_regular_users_view_blocked, settings_groups_propagation_enabled,
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
-			settings_lazy_connection_enabled,
+			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1528,12 +1528,15 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sRoutingPeerDNSResolutionEnabled sql.NullBool
 		sDNSDomain                       sql.NullString
 		sNetworkRange                    sql.NullString
+		sNetworkRangeV6                  sql.NullString
+		sIPv6EnabledGroups               sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
 		sExtraIntegratedValidatorGroups  sql.NullString
 		networkNet                       sql.NullString
+		networkNetV6                     sql.NullString
 		dnsSettingsDisabledGroups        sql.NullString
 		networkIdentifier                sql.NullString
 		networkDns                       sql.NullString
@@ -1542,14 +1545,14 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	)
 	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
-		&networkIdentifier, &networkNet, &networkDns, &networkSerial,
+		&networkIdentifier, &networkNet, &networkNetV6, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,
 		&sPeerLoginExpirationEnabled, &sPeerLoginExpiration,
 		&sPeerInactivityExpirationEnabled, &sPeerInactivityExpiration,
 		&sRegularUsersViewBlocked, &sGroupsPropagationEnabled,
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
-		&sLazyConnectionEnabled,
+		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1617,6 +1620,15 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sNetworkRange.Valid {
 		_ = json.Unmarshal([]byte(sNetworkRange.String), &account.Settings.NetworkRange)
+	}
+	if networkNetV6.Valid {
+		_ = json.Unmarshal([]byte(networkNetV6.String), &account.Network.NetV6)
+	}
+	if sNetworkRangeV6.Valid {
+		_ = json.Unmarshal([]byte(sNetworkRangeV6.String), &account.Settings.NetworkRangeV6)
+	}
+	if sIPv6EnabledGroups.Valid {
+		_ = json.Unmarshal([]byte(sIPv6EnabledGroups.String), &account.Settings.IPv6EnabledGroups)
 	}
 
 	if sExtraPeerApprovalEnabled.Valid {

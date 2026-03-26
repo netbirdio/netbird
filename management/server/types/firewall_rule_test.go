@@ -20,7 +20,7 @@ func TestSplitPeerSourcesByFamily(t *testing.T) {
 			IPv6: netip.MustParseAddr("fd00::1"),
 		},
 		{
-			IP:   netip.MustParseAddr("100.64.0.2"),
+			IP: netip.MustParseAddr("100.64.0.2"),
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.3"),
@@ -42,7 +42,7 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 			IPv6: netip.MustParseAddr("fd00::1"),
 		},
 		{
-			IP:   netip.MustParseAddr("100.64.0.2"),
+			IP: netip.MustParseAddr("100.64.0.2"),
 		},
 	}
 
@@ -71,7 +71,7 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 			IPv6: netip.MustParseAddr("fd00::1"),
 		},
 		{
-			IP:   netip.MustParseAddr("100.64.0.2"),
+			IP: netip.MustParseAddr("100.64.0.2"),
 		},
 	}
 
@@ -99,7 +99,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 			IPv6: netip.MustParseAddr("fd00::1"),
 		},
 		{
-			IP:   netip.MustParseAddr("100.64.0.2"),
+			IP: netip.MustParseAddr("100.64.0.2"),
 		},
 	}
 
@@ -147,4 +147,51 @@ func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 
 	require.Len(t, rules, 1, "no v6 peers means only v4 rule")
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
+}
+
+func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
+	peers := []*nbpeer.Peer{
+		{
+			IP:   netip.MustParseAddr("100.64.0.1"),
+			IPv6: netip.MustParseAddr("fd00::1"),
+		},
+		{
+			IP:   netip.MustParseAddr("100.64.0.2"),
+			IPv6: netip.MustParseAddr("fd00::2"),
+		},
+	}
+
+	t.Run("v6 route excluded", func(t *testing.T) {
+		r := &route.Route{
+			ID:      "route1",
+			Network: netip.MustParsePrefix("2001:db8::/32"),
+		}
+		rule := &PolicyRule{
+			PolicyID: "policy1",
+			ID:       "rule1",
+			Action:   PolicyTrafficActionAccept,
+			Protocol: PolicyRuleProtocolALL,
+		}
+
+		rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
+		assert.Empty(t, rules, "v6 route should produce no rules when includeIPv6 is false")
+	})
+
+	t.Run("dynamic route only v4", func(t *testing.T) {
+		r := &route.Route{
+			ID:          "route1",
+			NetworkType: route.DomainNetwork,
+			Domains:     domain.List{"example.com"},
+		}
+		rule := &PolicyRule{
+			PolicyID: "policy1",
+			ID:       "rule1",
+			Action:   PolicyTrafficActionAccept,
+			Protocol: PolicyRuleProtocolALL,
+		}
+
+		rules := generateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
+		require.Len(t, rules, 1, "dynamic route with includeIPv6=false should produce only v4 rule")
+		assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
+	})
 }

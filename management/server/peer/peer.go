@@ -228,7 +228,7 @@ func (p *Peer) HasCapability(cap int32) bool {
 
 // SupportsIPv6 reports whether the peer supports IPv6 overlay.
 func (p *Peer) SupportsIPv6() bool {
-	return p.HasCapability(PeerCapabilityIPv6Overlay)
+	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(PeerCapabilityIPv6Overlay)
 }
 
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.

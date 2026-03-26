@@ -2856,8 +2856,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 
-		// peerC is part of distribution groups for resource2 but should not receive the firewall rules
-		firewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers, true)
+		// peerC is in a distribution group for resource2 but is not a routing peer, so it should not receive firewall rules
+		_, peerCRoutes, _ := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerC", resourcePoliciesMap, resourceRoutersMap)
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerC"], validatedPeers, peerCRoutes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 0)
 
 		// peerL is the single routing peer for resource5

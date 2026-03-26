@@ -525,8 +525,13 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 		}
 
-		*rules = appendIPv6FirewallRule(*rules, rulesExists, peer, targetPeer, rule, direction,
-			strconv.Itoa(direction), firewallRuleProtocol(rule.Protocol), string(rule.Action), strings.Join(rule.Ports, ","))
+		*rules = appendIPv6FirewallRule(*rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
+			direction:   direction,
+			dirStr:      strconv.Itoa(direction),
+			protocolStr: firewallRuleProtocol(rule.Protocol),
+			actionStr:   string(rule.Action),
+			portsJoined: strings.Join(rule.Ports, ","),
+		})
 	}
 }
 
@@ -831,7 +836,7 @@ func (b *NetworkMapBuilder) getPeerRoutesFirewallRules(account *Account, peerID 
 	enabledRoutes, _ := b.getRoutingPeerRoutes(peerID)
 	for _, route := range enabledRoutes {
 		if len(route.AccessControlGroups) == 0 {
-			defaultPermit := getDefaultPermit(route)
+			defaultPermit := getDefaultPermit(route, includeIPv6)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
@@ -1102,14 +1107,17 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 		}
 	}
 
-	var routes []*route.Route
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
+
+	var rawRoutes []*route.Route
 	allRouteIDs := slices.Concat(routesView.OwnRouteIDs, routesView.NetworkResourceIDs, routesView.InheritedRouteIDs)
 
 	for _, routeID := range allRouteIDs {
 		if route := b.cache.globalRoutes[routeID]; route != nil {
-			routes = append(routes, route)
+			rawRoutes = append(rawRoutes, route)
 		}
 	}
+	routes := filterAndExpandRoutes(rawRoutes, includeIPv6)
 
 	var firewallRules []*FirewallRule
 	for _, ruleID := range aclView.FirewallRuleIDs {
@@ -1886,7 +1894,6 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 				Direction: direction,
 				Action:    string(rule.Action),
 				Protocol:  firewallRuleProtocol(rule.Protocol),
-				IPv6:      true,
 			}
 		}
 
@@ -1959,7 +1966,6 @@ func (b *NetworkMapBuilder) addUpdateForDirectPeerResource(
 			Direction: direction,
 			Action:    string(rule.Action),
 			Protocol:  firewallRuleProtocol(rule.Protocol),
-			IPv6:      true,
 		}
 		b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, v6fr, v6fr.PeerIP, targetPeer)
 	}

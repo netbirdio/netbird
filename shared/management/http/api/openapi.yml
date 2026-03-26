@@ -366,7 +366,7 @@ components:
           readOnly: true
           example: false
         ipv6_enabled_groups:
-          description: List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. Defaults to the All group for new accounts.
+          description: List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
           type: array
           items:
             type: string
@@ -771,7 +771,7 @@ components:
           format: ipv4
           example: 100.64.0.15
         ipv6:
-          description: Peer's IPv6 overlay address. Empty if IPv6 is not enabled for the account.
+          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
           type: string
           format: ipv6
           example: "fd00:4e42:ab12::1"
@@ -797,6 +797,7 @@ components:
             ipv6:
               description: Peer's IPv6 overlay address
               type: string
+              format: ipv6
               example: "fd00:4e42:ab12::1"
             connection_ip:
               description: Peer's public connection IP address
