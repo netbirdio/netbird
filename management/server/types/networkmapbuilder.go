@@ -525,32 +525,8 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 		}
 
-		if peer.IPv6.IsValid() && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
-			v6fr := FirewallRule{
-				PolicyID:  rule.ID,
-				PeerIP:    peer.IPv6.String(),
-				Direction: direction,
-				Action:    string(rule.Action),
-				Protocol:  firewallRuleProtocol(rule.Protocol),
-				IPv6:      true,
-			}
-			var sv6 strings.Builder
-			sv6.WriteString(rule.ID)
-			sv6.WriteString(v6fr.PeerIP)
-			sv6.WriteString(strconv.Itoa(direction))
-			sv6.WriteString(v6fr.Protocol)
-			sv6.WriteString(v6fr.Action)
-			sv6.WriteString(strings.Join(rule.Ports, ","))
-			v6RuleID := sv6.String()
-			if _, ok := rulesExists[v6RuleID]; !ok {
-				rulesExists[v6RuleID] = struct{}{}
-				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
-					*rules = append(*rules, &v6fr)
-				} else {
-					*rules = append(*rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
-				}
-			}
-		}
+		*rules = appendIPv6FirewallRule(*rules, rulesExists, peer, targetPeer, rule, direction,
+			strconv.Itoa(direction), firewallRuleProtocol(rule.Protocol), string(rule.Action), strings.Join(rule.Ports, ","))
 	}
 }
 

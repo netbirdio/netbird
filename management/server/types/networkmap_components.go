@@ -324,26 +324,7 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				if peer.IPv6.IsValid() && targetPeer.SupportsIPv6() {
-					v6IP := peer.IPv6.String()
-					v6RuleID := rule.ID + v6IP + dirStr + protocolStr + actionStr + portsJoined
-					if _, ok := rulesExists[v6RuleID]; !ok {
-						rulesExists[v6RuleID] = struct{}{}
-						v6fr := FirewallRule{
-							PolicyID:  rule.ID,
-							PeerIP:    v6IP,
-							Direction: direction,
-							Action:    actionStr,
-							Protocol:  protocolStr,
-							IPv6:      true,
-						}
-						if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
-							rules = append(rules, &v6fr)
-						} else {
-							rules = append(rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
-						}
-					}
-				}
+				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, direction, dirStr, protocolStr, actionStr, portsJoined)
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -921,4 +902,30 @@ func (c *NetworkMapComponents) addNetworksRoutingPeers(
 	}
 
 	return peersToConnect
+}
+
+func appendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nbpeer.Peer, rule *PolicyRule, direction int, dirStr, protocolStr, actionStr, portsJoined string) []*FirewallRule {
+	if !peer.IPv6.IsValid() || !targetPeer.SupportsIPv6() || !targetPeer.IPv6.IsValid() {
+		return rules
+	}
+
+	v6IP := peer.IPv6.String()
+	v6RuleID := rule.ID + v6IP + dirStr + protocolStr + actionStr + portsJoined
+	if _, ok := rulesExists[v6RuleID]; ok {
+		return rules
+	}
+	rulesExists[v6RuleID] = struct{}{}
+
+	v6fr := FirewallRule{
+		PolicyID:  rule.ID,
+		PeerIP:    v6IP,
+		Direction: direction,
+		Action:    actionStr,
+		Protocol:  protocolStr,
+		IPv6:      true,
+	}
+	if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
+		return append(rules, &v6fr)
+	}
+	return append(rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
 }

@@ -3963,7 +3963,6 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				Key:       "peer1-key",
 				IP:        netip.MustParseAddr("100.64.0.1"),
 				IPv6:      netip.MustParseAddr("fd00::1"),
-				IPv6:      netip.MustParseAddr("fd00::1"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -3976,7 +3975,6 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				Key:       "peer2-key",
 				IP:        netip.MustParseAddr("100.64.0.2"),
 				IPv6:      netip.MustParseAddr("fd00::2"),
-				IPv6:      netip.MustParseAddr("fd00::2"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -3988,7 +3986,6 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				DNSLabel:  "peer3.netbird.cloud",
 				Key:       "peer3-key",
 				IP:        netip.MustParseAddr("100.64.0.3"),
-				IPv6:      netip.MustParseAddr("fd00::3"),
 				IPv6:      netip.MustParseAddr("fd00::3"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: false,

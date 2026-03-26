@@ -1243,27 +1243,8 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 				}
 
-				if peer.IPv6.IsValid() && targetPeer.SupportsIPv6() {
-					v6IP := peer.IPv6.String()
-					v6RuleID := rule.ID + v6IP + strconv.Itoa(direction) +
-						string(protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
-					if _, ok := rulesExists[v6RuleID]; !ok {
-						rulesExists[v6RuleID] = struct{}{}
-						v6fr := FirewallRule{
-							PolicyID:  rule.ID,
-							PeerIP:    v6IP,
-							Direction: direction,
-							Action:    string(rule.Action),
-							Protocol:  string(protocol),
-							IPv6:      true,
-						}
-						if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
-							rules = append(rules, &v6fr)
-						} else {
-							rules = append(rules, expandPortsAndRanges(v6fr, rule, targetPeer)...)
-						}
-					}
-				}
+				rules = appendIPv6FirewallRule(rules, rulesExists, peer, targetPeer, rule, direction,
+					strconv.Itoa(direction), string(protocol), string(rule.Action), strings.Join(rule.Ports, ","))
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules

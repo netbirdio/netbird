@@ -90,6 +90,21 @@ func validateMinimumSize(prefix netip.Prefix) error {
 	return nil
 }
 
+func (h *handler) parseAndValidateNetworkRange(ctx context.Context, accountID, userID, rangeStr string, requireV6 bool) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(rangeStr)
+	if err != nil {
+		return netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err)
+	}
+	prefix = prefix.Masked()
+	if requireV6 && !prefix.Addr().Is6() {
+		return netip.Prefix{}, status.Errorf(status.InvalidArgument, "network range must be an IPv6 address")
+	}
+	if err := h.validateNetworkRange(ctx, accountID, userID, prefix); err != nil {
+		return netip.Prefix{}, err
+	}
+	return prefix, nil
+}
+
 func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID string, networkRange netip.Prefix) error {
 	if !networkRange.IsValid() {
 		return nil
@@ -291,12 +306,8 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
-		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
+		prefix, err := h.parseAndValidateNetworkRange(r.Context(), accountID, userID, *req.Settings.NetworkRange, false)
 		if err != nil {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err), w)
-			return
-		}
-		if err := h.validateNetworkRange(r.Context(), accountID, userID, prefix); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
@@ -304,18 +315,8 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Settings.NetworkRangeV6 != nil && *req.Settings.NetworkRangeV6 != "" {
-		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRangeV6)
+		prefix, err := h.parseAndValidateNetworkRange(r.Context(), accountID, userID, *req.Settings.NetworkRangeV6, true)
 		if err != nil {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid IPv6 CIDR format: %v", err), w)
-			return
-		}
-		// Normalize: mask the prefix to ensure host bits are zero
-		prefix = prefix.Masked()
-		if !prefix.Addr().Is6() {
-			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "IPv6 network range must be an IPv6 address"), w)
-			return
-		}
-		if err := h.validateNetworkRange(r.Context(), accountID, userID, prefix); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}

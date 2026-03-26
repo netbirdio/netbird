@@ -332,12 +332,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			updateAccountPeers = true
 		}
 
-		oldV6Groups := slices.Clone(oldSettings.IPv6EnabledGroups)
-		newV6Groups := slices.Clone(newSettings.IPv6EnabledGroups)
-		slices.Sort(oldV6Groups)
-		slices.Sort(newV6Groups)
-		ipv6GroupsChanged := !slices.Equal(oldV6Groups, newV6Groups)
-		if oldSettings.NetworkRangeV6 != newSettings.NetworkRangeV6 || ipv6GroupsChanged {
+		if ipv6SettingsChanged(oldSettings, newSettings) {
 			if err = am.updatePeerIPv6Addresses(ctx, transaction, accountID, newSettings); err != nil {
 				return err
 			}
@@ -435,6 +430,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	return newSettings, nil
+}
+
+func ipv6SettingsChanged(old, new *types.Settings) bool {
+	if old.NetworkRangeV6 != new.NetworkRangeV6 {
+		return true
+	}
+	oldGroups := slices.Clone(old.IPv6EnabledGroups)
+	newGroups := slices.Clone(new.IPv6EnabledGroups)
+	slices.Sort(oldGroups)
+	slices.Sort(newGroups)
+	return !slices.Equal(oldGroups, newGroups)
 }
 
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
@@ -2248,6 +2254,19 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 // based on the current IPv6 settings. When IPv6 is enabled, peers without a
 // v6 address get one allocated. When disabled, all v6 addresses are cleared.
 // When the v6 range changes, all v6 addresses are reallocated.
+func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) error {
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	if err != nil {
+		return fmt.Errorf("get peers: %w", err)
+	}
+	for _, p := range peers {
+		if p.ID != peerID && p.IPv6.IsValid() && p.IPv6 == newIPv6 {
+			return status.Errorf(status.InvalidArgument, "IPv6 %s is already assigned to peer %s", newIPv6, p.Name)
+		}
+	}
+	return nil
+}
+
 func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings) error {
 	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
 	if err != nil {
@@ -2504,6 +2523,19 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 			return status.Errorf(status.InvalidArgument, "IP %s is not within the account IPv6 range %s", newIPv6, network.NetV6.String())
 		}
 
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return fmt.Errorf("get settings: %w", err)
+		}
+
+		allowedPeers, err := am.buildIPv6AllowedPeers(ctx, transaction, accountID, settings)
+		if err != nil {
+			return err
+		}
+		if _, ok := allowedPeers[peerID]; !ok {
+			return status.Errorf(status.PreconditionFailed, "peer is not in any IPv6-enabled group")
+		}
+
 		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
 		if err != nil {
 			return fmt.Errorf("get peer: %w", err)
@@ -2513,15 +2545,8 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 			return nil
 		}
 
-		// Check for collisions
-		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
-		if err != nil {
-			return fmt.Errorf("get peers: %w", err)
-		}
-		for _, p := range peers {
-			if p.ID != peerID && p.IPv6.IsValid() && p.IPv6 == newIPv6 {
-				return status.Errorf(status.InvalidArgument, "IPv6 %s is already assigned to peer %s", newIPv6, p.Name)
-			}
+		if err := am.checkIPv6Collision(ctx, transaction, accountID, peerID, newIPv6); err != nil {
+			return err
 		}
 
 		peer.IPv6 = newIPv6

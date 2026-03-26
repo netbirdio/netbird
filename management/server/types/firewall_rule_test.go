@@ -21,7 +21,6 @@ func TestSplitPeerSourcesByFamily(t *testing.T) {
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.2"),
-			IPv6: netip.MustParseAddr("fd00::2"),
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.3"),
@@ -44,7 +43,6 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.2"),
-			IPv6: netip.MustParseAddr("fd00::2"),
 		},
 	}
 
@@ -74,7 +72,6 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.2"),
-			IPv6: netip.MustParseAddr("fd00::2"),
 		},
 	}
 
@@ -103,7 +100,6 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 		},
 		{
 			IP:   netip.MustParseAddr("100.64.0.2"),
-			IPv6: netip.MustParseAddr("fd00::2"),
 		},
 	}
 
@@ -123,7 +119,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 
 	require.Len(t, rules, 2, "dynamic route should produce both v4 and v6 rules")
 	assert.Equal(t, []string{"100.64.0.1/32", "100.64.0.2/32"}, rules[0].SourceRanges)
-	assert.Equal(t, []string{"fd00::1/128", "fd00::2/128"}, rules[1].SourceRanges)
+	assert.Equal(t, []string{"fd00::1/128"}, rules[1].SourceRanges)
 	assert.Equal(t, rules[0].Domains, rules[1].Domains)
 	assert.True(t, rules[0].IsDynamic)
 	assert.True(t, rules[1].IsDynamic)
@@ -131,14 +127,8 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 
 func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 	peers := []*nbpeer.Peer{
-		{
-			IP:   netip.MustParseAddr("100.64.0.1"),
-			IPv6: netip.MustParseAddr("fd00::1"),
-		},
-		{
-			IP:   netip.MustParseAddr("100.64.0.2"),
-			IPv6: netip.MustParseAddr("fd00::2"),
-		},
+		{IP: netip.MustParseAddr("100.64.0.1")},
+		{IP: netip.MustParseAddr("100.64.0.2")},
 	}
 
 	r := &route.Route{
