@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"os/exec"
@@ -658,4 +659,110 @@ func TestMultipleInstancesBatchedIsolation(t *testing.T) {
 	}
 	assert.Equal(t, len(domains1), len(got1), "all domains from instance 1 should be readable")
 	assert.Equal(t, len(domains2), len(got2), "all domains from instance 2 should be readable")
+}
+
+func TestShutdownStateUnmarshalLegacyJSON(t *testing.T) {
+	tests := []struct {
+		name              string
+		json              string
+		expectedIface     string
+		expectedKeys      []string
+		expectedKeysCount int
+	}{
+		{
+			name:              "legacy format (PascalCase, no interface)",
+			json:              `{"CreatedKeys":["State:/Network/Service/NetBird-Match/DNS","State:/Network/Service/NetBird-Search/DNS"]}`,
+			expectedIface:     "",
+			expectedKeys:      []string{"State:/Network/Service/NetBird-Match/DNS", "State:/Network/Service/NetBird-Search/DNS"},
+			expectedKeysCount: 2,
+		},
+		{
+			name:              "new format (snake_case, with interface)",
+			json:              `{"interface_name":"utun0","created_keys":["State:/Network/Service/NetBird-utun0-Match-0/DNS"]}`,
+			expectedIface:     "utun0",
+			expectedKeys:      []string{"State:/Network/Service/NetBird-utun0-Match-0/DNS"},
+			expectedKeysCount: 1,
+		},
+		{
+			name:              "empty legacy state",
+			json:              `{}`,
+			expectedIface:     "",
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "legacy with empty keys",
+			json:              `{"CreatedKeys":[]}`,
+			expectedIface:     "",
+			expectedKeysCount: 0,
+		},
+		{
+			name:              "mixed fields: new format wins when populated",
+			json:              `{"interface_name":"utun0","created_keys":["new-key"],"CreatedKeys":["old-key"]}`,
+			expectedIface:     "utun0",
+			expectedKeys:      []string{"new-key"},
+			expectedKeysCount: 1,
+		},
+		{
+			name:              "mixed fields: legacy fills in when new is empty",
+			json:              `{"created_keys":[],"CreatedKeys":["old-key"]}`,
+			expectedIface:     "",
+			expectedKeys:      []string{"old-key"},
+			expectedKeysCount: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var state ShutdownState
+			err := json.Unmarshal([]byte(tc.json), &state)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.expectedIface, state.InterfaceName)
+			assert.Len(t, state.CreatedKeys, tc.expectedKeysCount)
+			if tc.expectedKeys != nil {
+				assert.Equal(t, tc.expectedKeys, state.CreatedKeys)
+			}
+		})
+	}
+}
+
+func TestShutdownStateLegacyCleanupWithKeys(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping scutil integration test in short mode")
+	}
+
+	// Simulate an old-version unclean shutdown: write legacy-format scutil keys,
+	// then verify that Cleanup() with legacy state (no InterfaceName, PascalCase
+	// CreatedKeys) discovers and removes them.
+	legacyKey := fmt.Sprintf("State:/Network/Service/NetBird-%s/DNS", matchSuffix)
+
+	// Write a legacy key to scutil
+	configurator := &systemConfigurator{
+		createdKeys: make(map[string]struct{}),
+	}
+	err := configurator.addDNSState(legacyKey, "legacy.example.com", netip.MustParseAddr("100.64.0.1"), 53, false)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = removeTestDNSKey(legacyKey)
+	}()
+
+	exists, err := checkDNSKeyExists(legacyKey)
+	require.NoError(t, err)
+	require.True(t, exists, "legacy key should exist before cleanup")
+
+	// Simulate deserializing old state: unmarshal legacy JSON (PascalCase, no InterfaceName)
+	// to exercise the full backward-compat path end-to-end.
+	legacyJSON := []byte(`{"CreatedKeys":["` + legacyKey + `"]}`)
+	var state ShutdownState
+	require.NoError(t, json.Unmarshal(legacyJSON, &state))
+	require.Empty(t, state.InterfaceName, "legacy state should have no interface name")
+	require.Contains(t, state.CreatedKeys, legacyKey, "legacy key should be deserialized from PascalCase JSON")
+
+	err = state.Cleanup()
+	require.NoError(t, err)
+
+	exists, err = checkDNSKeyExists(legacyKey)
+	require.NoError(t, err)
+	assert.False(t, exists, "legacy key should be removed after cleanup")
 }
