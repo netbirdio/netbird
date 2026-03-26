@@ -229,7 +229,7 @@ func toExposeProtocol(exposeProtocol string) (proto.ExposeProtocol, error) {
 	case expose.ProtocolTLS:
 		return proto.ExposeProtocol_EXPOSE_TLS, nil
 	default:
-		return 0, fmt.Errorf("unsupported protocol %q: must be http, https, tcp, udp, or tls", exposeProtocol)
+		return 0, fmt.Errorf("unhandled protocol type: %d", p)
 	}
 }
 
