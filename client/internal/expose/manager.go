@@ -21,6 +21,8 @@ type Response struct {
 	PortAutoAssigned bool
 }
 
+// Request holds the parameters for exposing a local service via the management server.
+// It is part of the embed API surface and exposed via a type alias.
 type Request struct {
 	NamePrefix string
 	Domain     string
@@ -62,6 +64,8 @@ func (m *Manager) Expose(ctx context.Context, req Request) (*Response, error) {
 	return fromClientExposeResponse(resp), nil
 }
 
+// KeepAlive periodically renews the expose session for the given domain until the context is canceled or an error occurs.
+// It is part of the embed API surface and exposed via a type alias.
 func (m *Manager) KeepAlive(ctx context.Context, domain string) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
