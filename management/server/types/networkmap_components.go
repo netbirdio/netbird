@@ -118,7 +118,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	routesUpdate := c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups)
 	includeIPv6 := false
 	if p := c.Peers[targetPeerID]; p != nil {
-		includeIPv6 = p.SupportsIPv6()
+		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
 	}
 	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
 

@@ -193,7 +193,7 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.Environment.Cloud == other.Environment.Cloud &&
 		p.Environment.Platform == other.Environment.Platform &&
 		p.Flags.isEqual(other.Flags) &&
-		slices.Equal(p.Capabilities, other.Capabilities)
+		capabilitiesEqual(p.Capabilities, other.Capabilities)
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -234,6 +234,22 @@ func (p *Peer) SupportsIPv6() bool {
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+func capabilitiesEqual(a, b []int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[int32]struct{}, len(a))
+	for _, c := range a {
+		set[c] = struct{}{}
+	}
+	for _, c := range b {
+		if _, ok := set[c]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // Copy copies Peer object

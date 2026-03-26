@@ -335,28 +335,8 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 		}
 
 		if useSourcePrefixes && rule.PeerIP != "" {
-			addr, err := netip.ParseAddr(rule.PeerIP)
-			if err == nil {
-				if addr.IsUnspecified() {
-					// "0.0.0.0" means all peers: emit separate v4 and v6 wildcard rules
-					fwRule.SourcePrefixes = [][]byte{
-						netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv4Unspecified(), 0)),
-					}
-
-					if includeIPv6 {
-						v6Rule := cloneFirewallRule(fwRule)
-						v6Rule.PeerIP = "::"
-						v6Rule.SourcePrefixes = [][]byte{
-							netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv6Unspecified(), 0)),
-						}
-						if shouldUsePortRange(v6Rule) {
-							v6Rule.PortInfo = rule.PortRange.ToProto()
-						}
-						result = append(result, v6Rule)
-					}
-				} else {
-					fwRule.SourcePrefixes = [][]byte{netiputil.EncodeAddr(addr.Unmap())}
-				}
+			if v6Rule := populateSourcePrefixes(fwRule, rule, includeIPv6); v6Rule != nil {
+				result = append(result, v6Rule)
 			}
 		}
 
@@ -378,6 +358,38 @@ func cloneFirewallRule(r *proto.FirewallRule) *proto.FirewallRule {
 		Protocol:  r.Protocol,
 		Port:      r.Port,
 	}
+}
+
+// populateSourcePrefixes sets SourcePrefixes on the rule and returns an
+// additional v6 wildcard rule if the peer IP is unspecified (all peers).
+func populateSourcePrefixes(fwRule *proto.FirewallRule, rule *types.FirewallRule, includeIPv6 bool) *proto.FirewallRule {
+	addr, err := netip.ParseAddr(rule.PeerIP)
+	if err != nil {
+		return nil
+	}
+
+	if !addr.IsUnspecified() {
+		fwRule.SourcePrefixes = [][]byte{netiputil.EncodeAddr(addr.Unmap())}
+		return nil
+	}
+
+	fwRule.SourcePrefixes = [][]byte{
+		netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv4Unspecified(), 0)),
+	}
+
+	if !includeIPv6 {
+		return nil
+	}
+
+	v6Rule := cloneFirewallRule(fwRule)
+	v6Rule.PeerIP = "::"
+	v6Rule.SourcePrefixes = [][]byte{
+		netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv6Unspecified(), 0)),
+	}
+	if shouldUsePortRange(v6Rule) {
+		v6Rule.PortInfo = rule.PortRange.ToProto()
+	}
+	return v6Rule
 }
 
 // getProtoDirection converts the direction to proto.RuleDirection.

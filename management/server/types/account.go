@@ -315,7 +315,7 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect, peerGroups)
-	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap, peer.SupportsIPv6())
+	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap, peer.SupportsIPv6() && peer.IPv6.IsValid())
 	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
@@ -1542,7 +1542,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		resourceAppliedPolicies := resourcePolicies[string(route.GetResourceID())]
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
-		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers, peer.SupportsIPv6())
+		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 		for _, rule := range rules {
 			if len(rule.SourceRanges) > 0 {
 				routesFirewallRules = append(routesFirewallRules, rule)
@@ -2076,7 +2076,7 @@ func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
 func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect, expiredPeers []*nbpeer.Peer) []nbdns.SimpleRecord {
 	filteredRecords := make([]nbdns.SimpleRecord, 0, len(customZone.Records))
 	peerIPs := make(map[netip.Addr]struct{}, len(peersToConnect)+len(expiredPeers)+2)
-	includeIPv6 := peer.SupportsIPv6()
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 
 	addPeerIPs := func(p *nbpeer.Peer) {
 		peerIPs[p.IP] = struct{}{}

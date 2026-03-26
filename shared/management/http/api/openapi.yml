@@ -370,7 +370,7 @@ components:
           type: array
           items:
             type: string
-          example: []
+          example: ["ch8i4ug6lnn4g9hqv7m0"]
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration

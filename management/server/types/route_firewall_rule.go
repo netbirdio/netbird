@@ -63,5 +63,8 @@ func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
 	if r.IsDynamic != other.IsDynamic {
 		return false
 	}
+	if r.IPv6 != other.IPv6 {
+		return false
+	}
 	return true
 }

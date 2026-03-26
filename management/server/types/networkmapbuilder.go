@@ -525,7 +525,7 @@ func (b *NetworkMapBuilder) generateResourcescached(
 			*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 		}
 
-		if peer.IPv6.IsValid() && targetPeer.SupportsIPv6() {
+		if peer.IPv6.IsValid() && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
 			v6fr := FirewallRule{
 				PolicyID:  rule.ID,
 				PeerIP:    peer.IPv6.String(),
@@ -746,7 +746,7 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 	allRoutes := slices.Concat(enabledRoutes, networkResourcesRoutes)
 	b.updateACGIndexForPeer(peerID, allRoutes)
 
-	routeFirewallRules := b.getPeerRoutesFirewallRules(account, peerID, b.validatedPeers, peer.SupportsIPv6())
+	routeFirewallRules := b.getPeerRoutesFirewallRules(account, peerID, b.validatedPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 	for _, rule := range routeFirewallRules {
 		ruleID := b.generateRouteFirewallRuleID(rule)
 		view.RouteFirewallRuleIDs = append(view.RouteFirewallRuleIDs, ruleID)
@@ -1933,7 +1933,7 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 
 			b.addOrUpdateFirewallRuleInDelta(updates, peerID, newPeerID, rule, direction, fr, peerIPForRule, targetPeer)
 
-			if v6fr != nil && targetPeer.SupportsIPv6() {
+			if v6fr != nil && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
 				v6PeerIP := v6fr.PeerIP
 				if all {
 					v6PeerIP = "::"
@@ -1976,7 +1976,7 @@ func (b *NetworkMapBuilder) addUpdateForDirectPeerResource(
 
 	b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, fr, fr.PeerIP, targetPeer)
 
-	if newPeer.IPv6.IsValid() && targetPeer.SupportsIPv6() {
+	if newPeer.IPv6.IsValid() && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
 		v6fr := &FirewallRule{
 			PolicyID:  rule.ID,
 			PeerIP:    newPeer.IPv6.String(),

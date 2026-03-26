@@ -129,10 +129,18 @@ func (m *managerImpl) GetEffectiveNetworkRanges(ctx context.Context, accountID s
 
 	var v4, v6 netip.Prefix
 	if network.Net.IP != nil {
-		v4, _ = netip.ParsePrefix(network.Net.String())
+		addr, ok := netip.AddrFromSlice(network.Net.IP)
+		if ok {
+			ones, _ := network.Net.Mask.Size()
+			v4 = netip.PrefixFrom(addr.Unmap(), ones)
+		}
 	}
 	if network.NetV6.IP != nil {
-		v6, _ = netip.ParsePrefix(network.NetV6.String())
+		addr, ok := netip.AddrFromSlice(network.NetV6.IP)
+		if ok {
+			ones, _ := network.NetV6.Mask.Size()
+			v6 = netip.PrefixFrom(addr.Unmap(), ones)
+		}
 	}
 	return v4, v6, nil
 }
