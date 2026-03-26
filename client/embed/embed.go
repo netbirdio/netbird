@@ -398,7 +398,6 @@ func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession,
 		ServiceName: resp.ServiceName,
 		ServiceURL:  resp.ServiceURL,
 		mgr:         mgr,
-		ctx:         ctx,
 	}, nil
 }
 

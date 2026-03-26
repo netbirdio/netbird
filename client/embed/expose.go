@@ -32,11 +32,10 @@ type ExposeSession struct {
 	ServiceURL  string
 
 	mgr *expose.Manager
-	ctx context.Context
 }
 
 // Wait blocks while keeping the expose session alive.
 // It returns when ctx is cancelled or a keep-alive error occurs, then terminates the session.
-func (s *ExposeSession) Wait() error {
-	return s.mgr.KeepAlive(s.ctx, s.Domain)
+func (s *ExposeSession) Wait(ctx context.Context) error {
+	return s.mgr.KeepAlive(ctx, s.Domain)
 }
