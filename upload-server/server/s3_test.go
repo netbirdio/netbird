@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"runtime"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -20,45 +19,55 @@ import (
 )
 
 func Test_S3HandlerGetUploadURL(t *testing.T) {
-	if runtime.GOOS != "linux" && os.Getenv("CI") == "true" {
-		t.Skip("Skipping test on non-Linux and CI environment due to docker dependency")
-	}
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping test on Windows due to potential docker dependency")
+	if runtime.GOOS != "linux" {
+		t.Skip("Skipping test on non-Linux due to docker dependency")
 	}
 
-	awsEndpoint := "http://127.0.0.1:4566"
 	awsRegion := "us-east-1"
 
 	ctx := context.Background()
-	containerRequest := testcontainers.ContainerRequest{
-		Image:        "localstack/localstack:s3-latest",
-		ExposedPorts: []string{"4566:4566/tcp"},
-		WaitingFor:   wait.ForLog("Ready"),
-	}
-
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: containerRequest,
-		Started:          true,
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "minio/minio:RELEASE.2025-04-22T22-12-26Z",
+			ExposedPorts: []string{"9000/tcp"},
+			Env: map[string]string{
+				"MINIO_ROOT_USER":     "minioadmin",
+				"MINIO_ROOT_PASSWORD": "minioadmin",
+			},
+			Cmd:        []string{"server", "/data"},
+			WaitingFor: wait.ForHTTP("/minio/health/ready").WithPort("9000"),
+		},
+		Started: true,
 	})
-	if err != nil {
-		t.Error(err)
-	}
-	defer func(c testcontainers.Container, ctx context.Context) {
+	require.NoError(t, err)
+	t.Cleanup(func() {
 		if err := c.Terminate(ctx); err != nil {
 			t.Log(err)
 		}
-	}(c, ctx)
+	})
+
+	mappedPort, err := c.MappedPort(ctx, "9000")
+	require.NoError(t, err)
+
+	hostIP, err := c.Host(ctx)
+	require.NoError(t, err)
+
+	awsEndpoint := "http://" + hostIP + ":" + mappedPort.Port()
 
 	t.Setenv("AWS_REGION", awsRegion)
 	t.Setenv("AWS_ENDPOINT_URL", awsEndpoint)
-	t.Setenv("AWS_ACCESS_KEY_ID", "test")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("AWS_ACCESS_KEY_ID", "minioadmin")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+	t.Setenv("AWS_CONFIG_FILE", "")
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+	t.Setenv("AWS_PROFILE", "")
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(awsRegion), config.WithBaseEndpoint(awsEndpoint))
-	if err != nil {
-		t.Error(err)
-	}
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(awsRegion),
+		config.WithBaseEndpoint(awsEndpoint),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
+	)
+	require.NoError(t, err)
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
@@ -66,19 +75,16 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	})
 
 	bucketName := "test"
-	if _, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
+	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: &bucketName,
-	}); err != nil {
-		t.Error(err)
-	}
+	})
+	require.NoError(t, err)
 
 	list, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		t.Error(err)
-	}
+	require.NoError(t, err)
 
-	assert.Equal(t, len(list.Buckets), 1)
-	assert.Equal(t, *list.Buckets[0].Name, bucketName)
+	require.Len(t, list.Buckets, 1)
+	require.Equal(t, bucketName, *list.Buckets[0].Name)
 
 	t.Setenv(bucketVar, bucketName)
 

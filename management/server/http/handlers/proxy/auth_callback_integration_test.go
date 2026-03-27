@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -432,6 +433,10 @@ func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ stri
 }
 
 func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *testServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
 
 func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL string) string {
 	t.Helper()

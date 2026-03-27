@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -50,6 +51,7 @@ type ConnectClient struct {
 
 	engine        *Engine
 	engineMutex   sync.Mutex
+	clientMetrics *metrics.ClientMetrics
 	updateManager *updater.Manager
 
 	persistSyncResponse bool
@@ -133,9 +135,33 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 	}()
 
+	// Stop metrics push on exit
+	defer func() {
+		if c.clientMetrics != nil {
+			c.clientMetrics.StopPush()
+		}
+	}()
+
 	log.Infof("starting NetBird client version %s on %s/%s", version.NetbirdVersion(), runtime.GOOS, runtime.GOARCH)
 
 	nbnet.Init()
+
+	// Initialize metrics once at startup (always active for debug bundles)
+	if c.clientMetrics == nil {
+		agentInfo := metrics.AgentInfo{
+			DeploymentType: metrics.DeploymentTypeUnknown,
+			Version:        version.NetbirdVersion(),
+			OS:             runtime.GOOS,
+			Arch:           runtime.GOARCH,
+		}
+		c.clientMetrics = metrics.NewClientMetrics(agentInfo)
+		log.Debugf("initialized client metrics")
+
+		// Start metrics push if enabled (uses daemon context, persists across engine restarts)
+		if metrics.IsMetricsPushEnabled() {
+			c.clientMetrics.StartPush(c.ctx, metrics.PushConfigFromEnv())
+		}
+	}
 
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
@@ -223,6 +249,16 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
 		mgmClient.SetConnStateListener(mgmNotifier)
 
+		// Update metrics with actual deployment type after connection
+		deploymentType := metrics.DetermineDeploymentType(mgmClient.GetServerURL())
+		agentInfo := metrics.AgentInfo{
+			DeploymentType: deploymentType,
+			Version:        version.NetbirdVersion(),
+			OS:             runtime.GOOS,
+			Arch:           runtime.GOARCH,
+		}
+		c.clientMetrics.UpdateAgentInfo(agentInfo, myPrivateKey.PublicKey().String())
+
 		log.Debugf("connected to the Management service %s", c.config.ManagementURL.Host)
 		defer func() {
 			if err = mgmClient.Close(); err != nil {
@@ -231,8 +267,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
+		loginStarted := time.Now()
 		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
 		if err != nil {
+			c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), false)
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
@@ -241,6 +279,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			}
 			return wrapErr(err)
 		}
+		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
 
 		localPeerState := peer.LocalPeerState{
@@ -317,6 +356,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			Checks:         checks,
 			StateManager:   stateManager,
 			UpdateManager:  c.updateManager,
+			ClientMetrics:  c.clientMetrics,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine

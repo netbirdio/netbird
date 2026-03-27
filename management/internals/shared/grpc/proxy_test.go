@@ -57,6 +57,10 @@ func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
 	return ptr(true)
 }
 
+func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
+	return nil
+}
+
 func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()

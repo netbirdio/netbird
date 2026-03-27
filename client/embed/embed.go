@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sshcommon "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -88,6 +89,8 @@ type Options struct {
 	// If nil, the existing config MTU (if non-zero) is preserved; otherwise it defaults to 1280.
 	// Set to a higher value (e.g. 1400) if carrying QUIC or other protocols that require larger datagrams.
 	MTU *uint16
+	// DNSLabels defines additional DNS labels configured in the peer.
+	DNSLabels []string
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -153,9 +156,14 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
+	var err error
+	var parsedLabels domain.List
+	if parsedLabels, err = domain.FromStringList(opts.DNSLabels); err != nil {
+		return nil, fmt.Errorf("invalid dns labels: %w", err)
+	}
+
 	t := true
 	var config *profilemanager.Config
-	var err error
 	input := profilemanager.ConfigInput{
 		ConfigPath:          opts.ConfigPath,
 		ManagementURL:       opts.ManagementURL,
@@ -165,6 +173,7 @@ func New(opts Options) (*Client, error) {
 		BlockInbound:        &opts.BlockInbound,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
+		DNSLabels:           parsedLabels,
 	}
 	if opts.ConfigPath != "" {
 		config, err = profilemanager.UpdateOrCreateConfig(input)

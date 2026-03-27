@@ -208,11 +208,15 @@ func (m *testProxyManager) Disconnect(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *testProxyManager) Heartbeat(_ context.Context, _ string) error {
+func (m *testProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
 func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) GetActiveClusters(_ context.Context) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
 
@@ -244,6 +248,10 @@ func (c *testProxyController) GetProxiesForCluster(_ string) []string {
 }
 
 func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
+	return nil
+}
+
+func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
 	return nil
 }
 
@@ -322,6 +330,10 @@ func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _,
 }
 
 func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
+}
 
 func strPtr(s string) *string {
 	return &s

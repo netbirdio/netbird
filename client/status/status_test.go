@@ -176,6 +176,7 @@ var overview = OutputOverview{
 	Events:        []SystemEventOutput{},
 	CliVersion:    version.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
+	DaemonStatus:  DaemonStatusConnected,
 	ManagementState: ManagementStateOutput{
 		URL:       "my-awesome-management.com:443",
 		Connected: true,
@@ -238,7 +239,10 @@ var overview = OutputOverview{
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp.GetFullStatus(), false, resp.GetDaemonVersion(), "", nil, nil, nil, "", "")
+	convertedResult := ConvertToStatusOutputOverview(resp.GetFullStatus(), ConvertOptions{
+		DaemonVersion: resp.GetDaemonVersion(),
+		DaemonStatus:  ParseDaemonStatus(resp.GetStatus()),
+	})
 
 	assert.Equal(t, overview, convertedResult)
 }
@@ -329,6 +333,7 @@ func TestParsingToJSON(t *testing.T) {
           },
           "cliVersion": "development",
           "daemonVersion": "0.14.1",
+          "daemonStatus": "Connected",
           "management": {
             "url": "my-awesome-management.com:443",
             "connected": true,
@@ -452,6 +457,7 @@ func TestParsingToYAML(t *testing.T) {
           networks: []
 cliVersion: development
 daemonVersion: 0.14.1
+daemonStatus: Connected
 management:
     url: my-awesome-management.com:443
     connected: true

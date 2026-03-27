@@ -31,6 +31,9 @@ service ProxyService {
 message ProxyCapabilities {
   // Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
   optional bool supports_custom_ports = 1;
+  // Whether the proxy requires a subdomain label in front of its cluster domain.
+  // When true, accounts cannot use the cluster domain bare.
+  optional bool require_subdomain = 2;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.

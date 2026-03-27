@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    editable: true
+    jsonData:
+      version: Flux
+      organization: netbird
+      defaultBucket: metrics
+    secureJsonData:
+      token: ${INFLUXDB_ADMIN_TOKEN}

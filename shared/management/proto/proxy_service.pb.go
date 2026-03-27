@@ -181,8 +181,11 @@ type ProxyCapabilities struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
 	SupportsCustomPorts *bool `protobuf:"varint,1,opt,name=supports_custom_ports,json=supportsCustomPorts,proto3,oneof" json:"supports_custom_ports,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Whether the proxy requires a subdomain label in front of its cluster domain.
+	// When true, tenants cannot use the cluster domain bare.
+	RequireSubdomain *bool `protobuf:"varint,2,opt,name=require_subdomain,json=requireSubdomain,proto3,oneof" json:"require_subdomain,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ProxyCapabilities) Reset() {
@@ -218,6 +221,13 @@ func (*ProxyCapabilities) Descriptor() ([]byte, []int) {
 func (x *ProxyCapabilities) GetSupportsCustomPorts() bool {
 	if x != nil && x.SupportsCustomPorts != nil {
 		return *x.SupportsCustomPorts
+	}
+	return false
+}
+
+func (x *ProxyCapabilities) GetRequireSubdomain() bool {
+	if x != nil && x.RequireSubdomain != nil {
+		return *x.RequireSubdomain
 	}
 	return false
 }
@@ -1872,10 +1882,12 @@ var File_proxy_service_proto protoreflect.FileDescriptor
 const file_proxy_service_proto_rawDesc = "" +
 	"\n" +
 	"\x13proxy_service.proto\x12\n" +
-	"management\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"f\n" +
+	"management\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xae\x01\n" +
 	"\x11ProxyCapabilities\x127\n" +
-	"\x15supports_custom_ports\x18\x01 \x01(\bH\x00R\x13supportsCustomPorts\x88\x01\x01B\x18\n" +
-	"\x16_supports_custom_ports\"\xe6\x01\n" +
+	"\x15supports_custom_ports\x18\x01 \x01(\bH\x00R\x13supportsCustomPorts\x88\x01\x01\x120\n" +
+	"\x11require_subdomain\x18\x02 \x01(\bH\x01R\x10requireSubdomain\x88\x01\x01B\x18\n" +
+	"\x16_supports_custom_portsB\x14\n" +
+	"\x12_require_subdomain\"\xe6\x01\n" +
 	"\x17GetMappingUpdateRequest\x12\x19\n" +
 	"\bproxy_id\x18\x01 \x01(\tR\aproxyId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x129\n" +
