@@ -3663,6 +3663,137 @@ components:
           example: "https://invoice.stripe.com/i/acct_1M2DaBKina4I2KUb/test_YWNjdF8xTTJEdVBLaW5hM0kyS1ViLF1SeFpQdEJZd3lUOGNEajNqeWdrdXY2RFM4aHcyCnpsLDEzMjg3GTgyNQ02000JoIHc1X?s=db"
       required:
         - url
+    MSPStatusResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Tenant account ID (present only for tenants)
+          example: ch8i4ug6lnn4g9hqv7m0
+        parent:
+          type: string
+          description: Parent MSP account ID (present only for tenants)
+          example: ch8i4ug6lnn4g9hqv7m1
+        activated_at:
+          type: string
+          description: MSP or Tenant activation timestamp in RFC3339 format
+          example: "2024-01-01T00:00:00Z"
+        invited_at:
+          type: string
+          description: Tenant invitation timestamp in RFC3339 format (present only for tenants)
+          example: "2024-01-01T00:00:00Z"
+        status:
+          type: string
+          description: Tenant status (present only for tenants)
+          enum: ["existing", "invited", "pending", "active"]
+          example: active
+        name:
+          type: string
+          description: MSP name (present only for MSP accounts)
+          example: "My MSP"
+        domain:
+          type: string
+          description: MSP domain (present only for MSP accounts)
+          example: "msp.com"
+        has_reseller:
+          type: boolean
+          description: Whether the MSP has a reseller (present only for MSP accounts)
+          default: false
+          example: false
+        is_reseller:
+          type: boolean
+          description: Whether the account is a reseller
+          default: false
+          example: false
+        parent_name:
+          type: string
+          description: Parent MSP name (present only for tenants)
+          example: "My MSP"
+        parent_domain:
+          type: string
+          description: Parent MSP domain (present only for tenants)
+          example: "msp.com"
+        parent_owner_name:
+          type: string
+          description: Parent MSP owner name
+          example: "John Doe"
+        parent_owner_email:
+          type: string
+          description: Parent MSP owner email
+          example: "john@msp.com"
+    ResellerStatusResponse:
+      type: object
+      properties:
+        activated_at:
+          type: string
+          description: Reseller activation timestamp in RFC3339 format
+          example: "2024-01-01T00:00:00Z"
+        name:
+          type: string
+          description: Reseller name
+          example: "My Reseller"
+        domain:
+          type: string
+          description: Reseller domain
+          example: "reseller.com"
+        parent_owner_name:
+          type: string
+          description: Reseller owner name
+          example: "John Doe"
+        parent_owner_email:
+          type: string
+          description: Reseller owner email
+          example: "john@reseller.com"
+    ResellerMSPResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The MSP account ID
+          example: ch8i4ug6lnn4g9hqv7m0
+        name:
+          type: string
+          description: The MSP name
+          example: "Partner MSP"
+        domain:
+          type: string
+          description: The MSP domain
+          example: "partner-msp.com"
+        has_reseller:
+          type: boolean
+          description: Whether the MSP is managed by a reseller
+          example: true
+        activated_at:
+          type: string
+          description: MSP activation timestamp in RFC3339 format
+          example: "2024-01-01T00:00:00Z"
+        invited_at:
+          type: string
+          description: MSP invitation timestamp in RFC3339 format
+          example: "2024-01-01T00:00:00Z"
+      required:
+        - id
+        - name
+        - domain
+        - has_reseller
+    GetResellerMSPsResponse:
+      type: array
+      items:
+        $ref: "#/components/schemas/ResellerMSPResponse"
+    CreateResellerMSPRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name for the MSP
+          example: "New Partner MSP"
+        domain:
+          type: string
+          description: The domain for the MSP
+          example: "new-partner.com"
+      required:
+        - name
+        - domain
     CreateTenantRequest:
       type: object
       properties:
@@ -8445,6 +8576,237 @@ paths:
           $ref: "#/components/responses/bad_request"
         "401":
           $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp:
+    get:
+      summary: Get MSP or Tenant status
+      description: Returns the MSP, Tenant, or Reseller status of the authenticated account
+      tags:
+        - MSP
+      responses:
+        "200":
+          description: MSP or Tenant status response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MSPStatusResponse"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    post:
+      summary: Create MSP account
+      description: Activates the authenticated account as an MSP
+      tags:
+        - MSP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                invite:
+                  type: string
+                  description: The invite code
+                  example: "705860a1-27a3-4976-bf63-c5cd2fc1582b"
+              required:
+                - invite
+      responses:
+        "200":
+          description: MSP account created or already exists
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "412":
+          description: MSP account requirements not met
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller:
+    get:
+      summary: Get Reseller status
+      description: Returns the reseller status of the authenticated account
+      tags:
+        - MSP
+      responses:
+        "200":
+          description: Reseller status response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResellerStatusResponse"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    post:
+      summary: Activate Reseller account
+      description: Activates the authenticated account as a reseller
+      tags:
+        - MSP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                invite:
+                  type: string
+                  description: The invite code
+                  example: "705860a1-27a3-4976-bf63-c5cd2fc1582b"
+              required:
+                - invite
+      responses:
+        "200":
+          description: Reseller account activated or already exists
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "412":
+          description: Reseller account requirements not met
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/msps:
+    get:
+      summary: List MSPs under reseller
+      tags:
+        - MSP
+      responses:
+        "200":
+          description: List of MSPs managed by the reseller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetResellerMSPsResponse"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "500":
+          $ref: "#/components/responses/internal_error"
+    post:
+      summary: Create MSP under reseller
+      description: Creates a new MSP account managed by the reseller. No domain validation required.
+      tags:
+        - MSP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateResellerMSPRequest"
+      responses:
+        "200":
+          description: MSP created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResellerMSPResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "409":
+          description: MSP already exists for this domain
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/msps/{id}:
+    delete:
+      summary: Unlink MSP from reseller
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID to unlink
+      responses:
+        "200":
+          description: MSP unlinked successfully
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found or not managed by this reseller
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/msps/{id}/invite:
+    post:
+      summary: Invite existing MSP to reseller
+      description: Sends an invitation to an existing MSP to join the reseller
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID to invite
+      responses:
+        "200":
+          description: Invitation sent successfully
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found
+        "412":
+          description: MSP is already managed by a reseller
+        "500":
+          $ref: "#/components/responses/internal_error"
+    put:
+      summary: Accept or decline reseller invitation
+      description: MSP owner accepts or declines an invitation from a reseller
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  type: string
+                  description: Accept or decline the invitation
+                  enum:
+                    - accept
+                    - decline
+              required:
+                - value
+      responses:
+        "200":
+          description: Invitation response processed
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found or no pending invitation
         "500":
           $ref: "#/components/responses/internal_error"
   /api/integrations/msp/tenants:

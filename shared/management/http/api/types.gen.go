@@ -629,6 +629,30 @@ func (e JobResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for MSPStatusResponseStatus.
+const (
+	MSPStatusResponseStatusActive   MSPStatusResponseStatus = "active"
+	MSPStatusResponseStatusExisting MSPStatusResponseStatus = "existing"
+	MSPStatusResponseStatusInvited  MSPStatusResponseStatus = "invited"
+	MSPStatusResponseStatusPending  MSPStatusResponseStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the MSPStatusResponseStatus enum.
+func (e MSPStatusResponseStatus) Valid() bool {
+	switch e {
+	case MSPStatusResponseStatusActive:
+		return true
+	case MSPStatusResponseStatusExisting:
+		return true
+	case MSPStatusResponseStatusInvited:
+		return true
+	case MSPStatusResponseStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -1277,6 +1301,24 @@ func (e GetApiEventsProxyParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue.
+const (
+	PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValueAccept  PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue = "accept"
+	PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValueDecline PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue = "decline"
+)
+
+// Valid indicates whether the value is a known member of the PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue enum.
+func (e PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue) Valid() bool {
+	switch e {
+	case PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValueAccept:
+		return true
+	case PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValueDecline:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PutApiIntegrationsMspTenantsIdInviteJSONBodyValue.
 const (
 	PutApiIntegrationsMspTenantsIdInviteJSONBodyValueAccept  PutApiIntegrationsMspTenantsIdInviteJSONBodyValue = "accept"
@@ -1590,6 +1632,15 @@ type CreateIntegrationRequest struct {
 
 // CreateIntegrationRequestPlatform The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
 type CreateIntegrationRequestPlatform string
+
+// CreateResellerMSPRequest defines model for CreateResellerMSPRequest.
+type CreateResellerMSPRequest struct {
+	// Domain The domain for the MSP
+	Domain string `json:"domain"`
+
+	// Name The name for the MSP
+	Name string `json:"name"`
+}
 
 // CreateScimIntegrationRequest Request payload for creating an SCIM IDP integration
 type CreateScimIntegrationRequest struct {
@@ -1969,6 +2020,9 @@ type GeoLocationCheck struct {
 // GeoLocationCheckAction Action to take upon policy match
 type GeoLocationCheckAction string
 
+// GetResellerMSPsResponse defines model for GetResellerMSPsResponse.
+type GetResellerMSPsResponse = []ResellerMSPResponse
+
 // GetTenantsResponse defines model for GetTenantsResponse.
 type GetTenantsResponse = []TenantResponse
 
@@ -2347,6 +2401,51 @@ type Location struct {
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
 }
+
+// MSPStatusResponse defines model for MSPStatusResponse.
+type MSPStatusResponse struct {
+	// ActivatedAt MSP or Tenant activation timestamp in RFC3339 format
+	ActivatedAt *string `json:"activated_at,omitempty"`
+
+	// Domain MSP domain (present only for MSP accounts)
+	Domain *string `json:"domain,omitempty"`
+
+	// HasReseller Whether the MSP has a reseller (present only for MSP accounts)
+	HasReseller *bool `json:"has_reseller,omitempty"`
+
+	// Id Tenant account ID (present only for tenants)
+	Id *string `json:"id,omitempty"`
+
+	// InvitedAt Tenant invitation timestamp in RFC3339 format (present only for tenants)
+	InvitedAt *string `json:"invited_at,omitempty"`
+
+	// IsReseller Whether the account is a reseller
+	IsReseller *bool `json:"is_reseller,omitempty"`
+
+	// Name MSP name (present only for MSP accounts)
+	Name *string `json:"name,omitempty"`
+
+	// Parent Parent MSP account ID (present only for tenants)
+	Parent *string `json:"parent,omitempty"`
+
+	// ParentDomain Parent MSP domain (present only for tenants)
+	ParentDomain *string `json:"parent_domain,omitempty"`
+
+	// ParentName Parent MSP name (present only for tenants)
+	ParentName *string `json:"parent_name,omitempty"`
+
+	// ParentOwnerEmail Parent MSP owner email
+	ParentOwnerEmail *string `json:"parent_owner_email,omitempty"`
+
+	// ParentOwnerName Parent MSP owner name
+	ParentOwnerName *string `json:"parent_owner_name,omitempty"`
+
+	// Status Tenant status (present only for tenants)
+	Status *MSPStatusResponseStatus `json:"status,omitempty"`
+}
+
+// MSPStatusResponseStatus Tenant status (present only for tenants)
+type MSPStatusResponseStatus string
 
 // MinKernelVersionCheck Posture check with the kernel version
 type MinKernelVersionCheck struct {
@@ -3474,6 +3573,45 @@ type ProxyCluster struct {
 	ConnectedProxies int `json:"connected_proxies"`
 }
 
+// ResellerMSPResponse defines model for ResellerMSPResponse.
+type ResellerMSPResponse struct {
+	// ActivatedAt MSP activation timestamp in RFC3339 format
+	ActivatedAt *string `json:"activated_at,omitempty"`
+
+	// Domain The MSP domain
+	Domain string `json:"domain"`
+
+	// HasReseller Whether the MSP is managed by a reseller
+	HasReseller bool `json:"has_reseller"`
+
+	// Id The MSP account ID
+	Id string `json:"id"`
+
+	// InvitedAt MSP invitation timestamp in RFC3339 format
+	InvitedAt *string `json:"invited_at,omitempty"`
+
+	// Name The MSP name
+	Name string `json:"name"`
+}
+
+// ResellerStatusResponse defines model for ResellerStatusResponse.
+type ResellerStatusResponse struct {
+	// ActivatedAt Reseller activation timestamp in RFC3339 format
+	ActivatedAt *string `json:"activated_at,omitempty"`
+
+	// Domain Reseller domain
+	Domain *string `json:"domain,omitempty"`
+
+	// Name Reseller name
+	Name *string `json:"name,omitempty"`
+
+	// ParentOwnerEmail Reseller owner email
+	ParentOwnerEmail *string `json:"parent_owner_email,omitempty"`
+
+	// ParentOwnerName Reseller owner name
+	ParentOwnerName *string `json:"parent_owner_name,omitempty"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -4522,6 +4660,27 @@ type PutApiIntegrationsBillingSubscriptionJSONBody struct {
 	PriceID *string `json:"priceID,omitempty"`
 }
 
+// PostApiIntegrationsMspJSONBody defines parameters for PostApiIntegrationsMsp.
+type PostApiIntegrationsMspJSONBody struct {
+	// Invite The invite code
+	Invite string `json:"invite"`
+}
+
+// PostApiIntegrationsMspResellerJSONBody defines parameters for PostApiIntegrationsMspReseller.
+type PostApiIntegrationsMspResellerJSONBody struct {
+	// Invite The invite code
+	Invite string `json:"invite"`
+}
+
+// PutApiIntegrationsMspResellerMspsIdInviteJSONBody defines parameters for PutApiIntegrationsMspResellerMspsIdInvite.
+type PutApiIntegrationsMspResellerMspsIdInviteJSONBody struct {
+	// Value Accept or decline the invitation
+	Value PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue `json:"value"`
+}
+
+// PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue defines parameters for PutApiIntegrationsMspResellerMspsIdInvite.
+type PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue string
+
 // PutApiIntegrationsMspTenantsIdInviteJSONBody defines parameters for PutApiIntegrationsMspTenantsIdInvite.
 type PutApiIntegrationsMspTenantsIdInviteJSONBody struct {
 	// Value Accept or decline the invitation.
@@ -4647,6 +4806,18 @@ type CreateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 
 // UpdateSentinelOneEDRIntegrationJSONRequestBody defines body for UpdateSentinelOneEDRIntegration for application/json ContentType.
 type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
+
+// PostApiIntegrationsMspJSONRequestBody defines body for PostApiIntegrationsMsp for application/json ContentType.
+type PostApiIntegrationsMspJSONRequestBody PostApiIntegrationsMspJSONBody
+
+// PostApiIntegrationsMspResellerJSONRequestBody defines body for PostApiIntegrationsMspReseller for application/json ContentType.
+type PostApiIntegrationsMspResellerJSONRequestBody PostApiIntegrationsMspResellerJSONBody
+
+// PostApiIntegrationsMspResellerMspsJSONRequestBody defines body for PostApiIntegrationsMspResellerMsps for application/json ContentType.
+type PostApiIntegrationsMspResellerMspsJSONRequestBody = CreateResellerMSPRequest
+
+// PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody defines body for PutApiIntegrationsMspResellerMspsIdInvite for application/json ContentType.
+type PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody PutApiIntegrationsMspResellerMspsIdInviteJSONBody
 
 // PostApiIntegrationsMspTenantsJSONRequestBody defines body for PostApiIntegrationsMspTenants for application/json ContentType.
 type PostApiIntegrationsMspTenantsJSONRequestBody = CreateTenantRequest
