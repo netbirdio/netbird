@@ -42,4 +42,3 @@ func (s *ExposeSession) Wait(ctx context.Context) error {
 	}
 	return s.mgr.KeepAlive(ctx, s.Domain)
 }
-}
