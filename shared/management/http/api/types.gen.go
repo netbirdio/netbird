@@ -4908,17 +4908,17 @@ type PostApiIntegrationsMspTenantsIdSubscriptionJSONRequestBody PostApiIntegrati
 // PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody defines body for PostApiIntegrationsMspTenantsIdUnlink for application/json ContentType.
 type PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody PostApiIntegrationsMspTenantsIdUnlinkJSONBody
 
-// CreateOktaScimIntegrationJSONRequestBody defines body for CreateOktaScimIntegration for application/json ContentType.
-type CreateOktaScimIntegrationJSONRequestBody = CreateOktaScimIntegrationRequest
-
-// UpdateOktaScimIntegrationJSONRequestBody defines body for UpdateOktaScimIntegration for application/json ContentType.
-type UpdateOktaScimIntegrationJSONRequestBody = UpdateOktaScimIntegrationRequest
-
 // CreateNotificationChannelJSONRequestBody defines body for CreateNotificationChannel for application/json ContentType.
 type CreateNotificationChannelJSONRequestBody = NotificationChannelRequest
 
 // UpdateNotificationChannelJSONRequestBody defines body for UpdateNotificationChannel for application/json ContentType.
 type UpdateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
+// CreateOktaScimIntegrationJSONRequestBody defines body for CreateOktaScimIntegration for application/json ContentType.
+type CreateOktaScimIntegrationJSONRequestBody = CreateOktaScimIntegrationRequest
+
+// UpdateOktaScimIntegrationJSONRequestBody defines body for UpdateOktaScimIntegration for application/json ContentType.
+type UpdateOktaScimIntegrationJSONRequestBody = UpdateOktaScimIntegrationRequest
 
 // CreateSCIMIntegrationJSONRequestBody defines body for CreateSCIMIntegration for application/json ContentType.
 type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
