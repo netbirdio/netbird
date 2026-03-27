@@ -712,8 +712,6 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 	// Detect address family
 	isV6 := src.To4() == nil
 
-	var networkLayer gopacket.SerializableLayer
-	var setChecksum func(gopacket.NetworkLayer) error
 	var err error
 
 	if isV6 {
@@ -723,8 +721,6 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 			SrcIP:    src,
 			DstIP:    dst,
 		}
-		networkLayer = ip6
-		setChecksum = func(nl gopacket.NetworkLayer) error { return nil }
 
 		switch proto {
 		case fw.ProtocolTCP:
@@ -747,7 +743,6 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 		default:
 			err = gopacket.SerializeLayers(buf, opts, ip6)
 		}
-		_ = setChecksum
 	} else {
 		ip4 := &layers.IPv4{
 			Version: 4,
@@ -755,7 +750,6 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 			SrcIP:   src,
 			DstIP:   dst,
 		}
-		networkLayer = ip4
 
 		switch proto {
 		case fw.ProtocolTCP:
@@ -776,7 +770,6 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 			err = gopacket.SerializeLayers(buf, opts, ip4)
 		}
 	}
-	_ = networkLayer
 
 	require.NoError(t, err)
 	return buf.Bytes()

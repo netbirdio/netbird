@@ -162,7 +162,7 @@ func (p *PacketBuilder) buildTransportLayer(ipLayer gopacket.SerializableLayer) 
 	case "udp":
 		return p.buildUDPLayer(ipLayer)
 	case "icmp":
-		return p.buildICMPLayer()
+		return p.buildICMPLayer(ipLayer)
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", p.Protocol)
 	}
@@ -201,10 +201,13 @@ func (p *PacketBuilder) buildUDPLayer(ipLayer gopacket.SerializableLayer) ([]gop
 	return []gopacket.SerializableLayer{udp}, nil
 }
 
-func (p *PacketBuilder) buildICMPLayer() ([]gopacket.SerializableLayer, error) {
+func (p *PacketBuilder) buildICMPLayer(ipLayer gopacket.SerializableLayer) ([]gopacket.SerializableLayer, error) {
 	if p.SrcIP.Is6() || p.DstIP.Is6() {
 		icmp := &layers.ICMPv6{
 			TypeCode: layers.CreateICMPv6TypeCode(p.ICMPType, p.ICMPCode),
+		}
+		if nl, ok := ipLayer.(gopacket.NetworkLayer); ok {
+			_ = icmp.SetNetworkLayerForChecksum(nl)
 		}
 		return []gopacket.SerializableLayer{icmp}, nil
 	}
