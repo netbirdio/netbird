@@ -332,7 +332,13 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// TODO: In USP mode this only adds ACCEPT to the netbird table's own chains,
+// which doesn't override DROP rules in external tables (e.g. firewalld).
+// Should add passthrough rules to external chains (like the native mode router's
+// addExternalChainsRules does) for both the netbird table family and inet tables.
+// The netbird table itself is fine (routing chains already exist there), but
+// non-netbird tables with INPUT/FORWARD hooks can still DROP our WG traffic.
 func (m *Manager) AllowNetbird() error {
 	if !m.wgIface.IsUserspaceBind() {
 		return nil

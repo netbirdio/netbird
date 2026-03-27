@@ -474,6 +474,13 @@ func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bo
 	return r.getIpSetExprs(ref, isSource)
 }
 
+func (r *router) iptablesProto() iptables.Protocol {
+	if r.af.tableFamily == nftables.TableFamilyIPv6 {
+		return iptables.ProtocolIPv6
+	}
+	return iptables.ProtocolIPv4
+}
+
 func (r *router) hasRule(id string) bool {
 	_, ok := r.rules[id]
 	return ok
@@ -1063,17 +1070,22 @@ func (r *router) acceptFilterTableRules() error {
 		log.Debugf("Used %s to add accept forward and input rules", fw)
 	}()
 
-	// Try iptables first and fallback to nftables if iptables is not available
-	ipt, err := iptables.New()
+	// Try iptables first and fallback to nftables if iptables is not available.
+	// Use the correct protocol (iptables vs ip6tables) for the address family.
+	ipt, err := iptables.NewWithProtocol(r.iptablesProto())
 	if err != nil {
-		// iptables is not available but the filter table exists
 		log.Warnf("Will use nftables to manipulate the filter table because iptables is not available: %v", err)
 
 		fw = "nftables"
 		return r.acceptFilterRulesNftables(r.filterTable)
 	}
 
-	return r.acceptFilterRulesIptables(ipt)
+	if err := r.acceptFilterRulesIptables(ipt); err != nil {
+		log.Warnf("iptables failed (table may be incompatible), falling back to nftables: %v", err)
+		fw = "nftables"
+		return r.acceptFilterRulesNftables(r.filterTable)
+	}
+	return nil
 }
 
 func (r *router) acceptFilterRulesIptables(ipt *iptables.IPTables) error {
@@ -1242,13 +1254,17 @@ func (r *router) removeFilterTableRules() error {
 		return nil
 	}
 
-	ipt, err := iptables.New()
+	ipt, err := iptables.NewWithProtocol(r.iptablesProto())
 	if err != nil {
 		log.Debugf("iptables not available, using nftables to remove filter rules: %v", err)
 		return r.removeAcceptRulesFromTable(r.filterTable)
 	}
 
-	return r.removeAcceptFilterRulesIptables(ipt)
+	if err := r.removeAcceptFilterRulesIptables(ipt); err != nil {
+		log.Debugf("iptables removal failed (table may be incompatible), falling back to nftables: %v", err)
+		return r.removeAcceptRulesFromTable(r.filterTable)
+	}
+	return nil
 }
 
 func (r *router) removeAcceptRulesFromTable(table *nftables.Table) error {
