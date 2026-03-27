@@ -75,22 +75,30 @@ type ClusterDeriver interface {
 	GetClusterDomains() []string
 }
 
+// CapabilityProvider queries proxy cluster capabilities from the database.
+type CapabilityProvider interface {
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+}
+
 type Manager struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
+	capabilities       CapabilityProvider
 	clusterDeriver     ClusterDeriver
 	exposeReaper       *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
+		capabilities:       capabilities,
 		clusterDeriver:     clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
@@ -237,7 +245,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		}
 		service.ProxyCluster = proxyCluster
 
-		if err := m.validateSubdomainRequirement(service.Domain, proxyCluster); err != nil {
+		if err := m.validateSubdomainRequirement(ctx, service.Domain, proxyCluster); err != nil {
 			return err
 		}
 	}
@@ -268,11 +276,11 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 // validateSubdomainRequirement checks whether the domain can be used bare
 // (without a subdomain label) on the given cluster. If the cluster reports
 // require_subdomain=true and the domain equals the cluster domain, it rejects.
-func (m *Manager) validateSubdomainRequirement(domain, cluster string) error {
+func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, cluster string) error {
 	if domain != cluster {
 		return nil
 	}
-	requireSub := m.proxyController.ClusterRequireSubdomain(cluster)
+	requireSub := m.capabilities.ClusterRequireSubdomain(ctx, cluster)
 	if requireSub != nil && *requireSub {
 		return status.Errorf(status.InvalidArgument, "domain %s requires a subdomain label", domain)
 	}
@@ -312,7 +320,7 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	customPorts := m.proxyController.ClusterSupportsCustomPorts(svc.ProxyCluster)
+	customPorts := m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
 	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
@@ -520,12 +528,12 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	if existingService.Terminated {
-			return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
-		}
+		return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
+	}
 
-		if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
-			return err
-		}
+	if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
+		return err
+	}
 
 	updateInfo.oldCluster = existingService.ProxyCluster
 	updateInfo.domainChanged = existingService.Domain != service.Domain
@@ -538,7 +546,7 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 		service.ProxyCluster = existingService.ProxyCluster
 	}
 
-	if err := m.validateSubdomainRequirement(service.Domain, service.ProxyCluster); err != nil {
+	if err := m.validateSubdomainRequirement(ctx, service.Domain, service.ProxyCluster); err != nil {
 		return err
 	}
 

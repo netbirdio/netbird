@@ -5475,6 +5475,63 @@ func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster,
 	return clusters, nil
 }
 
+// proxyActiveThreshold is the maximum age of a heartbeat for a proxy to be
+// considered active. Must be at least 2x the heartbeat interval (1 min).
+const proxyActiveThreshold = 2 * time.Minute
+
+var validCapabilityColumns = map[string]struct{}{
+	"supports_custom_ports": {},
+	"require_subdomain":     {},
+}
+
+// GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
+// supports custom ports. Returns nil when no proxy reported the capability.
+func (s *SqlStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "supports_custom_ports")
+}
+
+// GetClusterRequireSubdomain returns whether any active proxy in the cluster
+// requires a subdomain. Returns nil when no proxy reported the capability.
+func (s *SqlStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "require_subdomain")
+}
+
+// getClusterCapability returns an aggregated boolean capability for the given
+// cluster. It checks active (connected, recently seen) proxies and returns:
+//   - *true if any proxy in the cluster has the capability set to true,
+//   - *false if at least one proxy reported but none set it to true,
+//   - nil if no proxy reported the capability at all.
+func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column string) *bool {
+	if _, ok := validCapabilityColumns[column]; !ok {
+		log.WithContext(ctx).Errorf("invalid capability column: %s", column)
+		return nil
+	}
+
+	var result struct {
+		HasCapability bool
+		AnyTrue       bool
+	}
+
+	err := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select("COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) > 0 AS has_capability, "+
+			"COALESCE(MAX(CASE WHEN "+column+" = true THEN 1 ELSE 0 END), 0) = 1 AS any_true").
+		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
+		Scan(&result).Error
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("query cluster capability %s for %s: %v", column, clusterAddr, err)
+		return nil
+	}
+
+	if !result.HasCapability {
+		return nil
+	}
+
+	return &result.AnyTrue
+}
+
 // CleanupStaleProxies deletes proxies that haven't sent heartbeat in the specified duration
 func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error {
 	cutoffTime := time.Now().Add(-inactivityDuration)

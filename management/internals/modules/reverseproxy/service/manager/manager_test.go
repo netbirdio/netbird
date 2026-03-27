@@ -1324,11 +1324,11 @@ func TestValidateSubdomainRequirement(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
-			mockCtrl := proxy.NewMockController(ctrl)
-			mockCtrl.EXPECT().ClusterRequireSubdomain(tc.cluster).Return(tc.requireSubdomain).AnyTimes()
+			mockCaps := proxy.NewMockManager(ctrl)
+			mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), tc.cluster).Return(tc.requireSubdomain).AnyTimes()
 
-			mgr := &Manager{proxyController: mockCtrl}
-			err := mgr.validateSubdomainRequirement(tc.domain, tc.cluster)
+			mgr := &Manager{capabilities: mockCaps}
+			err := mgr.validateSubdomainRequirement(context.Background(), tc.domain, tc.cluster)
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires a subdomain label")
