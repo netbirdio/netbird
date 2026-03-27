@@ -191,7 +191,12 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		}
 	}
 	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, caps); err != nil {
-		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)
+		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", proxyID, err)
+		s.connectedProxies.Delete(proxyID)
+		if unregErr := s.proxyController.UnregisterProxyFromCluster(ctx, conn.address, proxyID); unregErr != nil {
+			log.WithContext(ctx).Debugf("cleanup after Connect failure for proxy %s: %v", proxyID, unregErr)
+		}
+		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
 	}
 
 	log.WithFields(log.Fields{
@@ -304,6 +309,9 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		}
 
 		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		if !proxyAcceptsMapping(conn, m) {
+			continue
+		}
 		mappings = append(mappings, m)
 	}
 	return mappings, nil
