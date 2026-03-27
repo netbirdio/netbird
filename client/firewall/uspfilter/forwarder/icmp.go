@@ -229,7 +229,7 @@ func (f *Forwarder) handleICMPv6(id stack.TransportEndpointID, pkt *stack.Packet
 	}
 
 	// For non-echo types (Destination Unreachable, Packet Too Big, etc), forward without waiting
-	if !f.hasRawICMPAccess {
+	if !f.hasRawICMPv6Access {
 		f.logger.Debug2("forwarder: Cannot handle ICMPv6 type %v without raw socket access for %v", icmpHdr.Type(), epID(id))
 		return false
 	}
@@ -279,9 +279,14 @@ func (f *Forwarder) handleICMPv6ViaPing(flowID uuid.UUID, id stack.TransportEndp
 	}
 	rtt := time.Since(pingStart).Round(10 * time.Microsecond)
 
-	f.logger.Trace4("forwarder: Forwarded ICMPv6 echo reply %v type %v code %v (rtt=%v)", epID(id), icmpType, icmpCode, rtt)
+	f.logger.Trace3("forwarder: Forwarded ICMPv6 echo request %v type %v code %v",
+		epID(id), icmpType, icmpCode)
 
 	txBytes := f.synthesizeICMPv6EchoReply(id, icmpData)
+
+	f.logger.Trace4("forwarder: Forwarded ICMPv6 echo reply %v type %v code %v (rtt=%v, ping binary)",
+		epID(id), icmpType, icmpCode, rtt)
+
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
 

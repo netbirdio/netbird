@@ -37,17 +37,18 @@ type Forwarder struct {
 	logger     *nblog.Logger
 	flowLogger nftypes.FlowLogger
 	// ruleIdMap is used to store the rule ID for a given connection
-	ruleIdMap        sync.Map
-	stack            *stack.Stack
-	endpoint         *endpoint
-	udpForwarder     *udpForwarder
-	ctx              context.Context
-	cancel           context.CancelFunc
-	ip               tcpip.Address
-	ipv6             tcpip.Address
-	netstack         bool
-	hasRawICMPAccess bool
-	pingSemaphore    chan struct{}
+	ruleIdMap          sync.Map
+	stack              *stack.Stack
+	endpoint           *endpoint
+	udpForwarder       *udpForwarder
+	ctx                context.Context
+	cancel             context.CancelFunc
+	ip                 tcpip.Address
+	ipv6               tcpip.Address
+	netstack           bool
+	hasRawICMPAccess   bool
+	hasRawICMPv6Access bool
+	pingSemaphore      chan struct{}
 }
 
 func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
@@ -214,31 +215,47 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 //
 // Unlike gVisor's network layer, this does not validate ICMP checksums or
 // reassemble IP fragments. Fragmented ICMP packets fall through to gVisor.
+func parseICMPv4(payload []byte) (ipHdrLen int, src, dst tcpip.Address, ok bool) {
+	ip := header.IPv4(payload)
+	if ip.Protocol() != uint8(header.ICMPv4ProtocolNumber) {
+		return 0, src, dst, false
+	}
+	if ip.FragmentOffset() != 0 || ip.Flags()&header.IPv4FlagMoreFragments != 0 {
+		return 0, src, dst, false
+	}
+	ipHdrLen = int(ip.HeaderLength())
+	if len(payload)-ipHdrLen < header.ICMPv4MinimumSize {
+		return 0, src, dst, false
+	}
+	return ipHdrLen, ip.SourceAddress(), ip.DestinationAddress(), true
+}
+
+func parseICMPv6(payload []byte) (ipHdrLen int, src, dst tcpip.Address, ok bool) {
+	ip := header.IPv6(payload)
+	if ip.NextHeader() != uint8(header.ICMPv6ProtocolNumber) {
+		return 0, src, dst, false
+	}
+	ipHdrLen = header.IPv6MinimumSize
+	if len(payload)-ipHdrLen < header.ICMPv6MinimumSize {
+		return 0, src, dst, false
+	}
+	return ipHdrLen, ip.SourceAddress(), ip.DestinationAddress(), true
+}
+
 func (f *Forwarder) handleICMPDirect(payload []byte) bool {
 	var (
 		ipHdrLen int
 		srcAddr  tcpip.Address
 		dstAddr  tcpip.Address
+		ok       bool
 	)
-
 	switch payload[0] >> 4 {
 	case 4:
-		ip := header.IPv4(payload)
-		if ip.Protocol() != uint8(header.ICMPv4ProtocolNumber) {
-			return false
-		}
-		ipHdrLen = int(ip.HeaderLength())
-		srcAddr = ip.SourceAddress()
-		dstAddr = ip.DestinationAddress()
+		ipHdrLen, srcAddr, dstAddr, ok = parseICMPv4(payload)
 	case 6:
-		ip := header.IPv6(payload)
-		if ip.NextHeader() != uint8(header.ICMPv6ProtocolNumber) {
-			return false
-		}
-		ipHdrLen = header.IPv6MinimumSize
-		srcAddr = ip.SourceAddress()
-		dstAddr = ip.DestinationAddress()
-	default:
+		ipHdrLen, srcAddr, dstAddr, ok = parseICMPv6(payload)
+	}
+	if !ok {
 		return false
 	}
 
@@ -352,21 +369,25 @@ func addrToNetipAddr(addr tcpip.Address) netip.Addr {
 
 // checkICMPCapability tests whether we have raw ICMP socket access at startup.
 func (f *Forwarder) checkICMPCapability() {
+	f.hasRawICMPAccess = probeRawICMP("ip4:icmp", "0.0.0.0", f.logger)
+	f.hasRawICMPv6Access = probeRawICMP("ip6:ipv6-icmp", "::", f.logger)
+}
+
+func probeRawICMP(network, addr string, logger *nblog.Logger) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	lc := net.ListenConfig{}
-	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
+	conn, err := lc.ListenPacket(ctx, network, addr)
 	if err != nil {
-		f.hasRawICMPAccess = false
-		f.logger.Debug("forwarder: No raw ICMP socket access, will use ping binary fallback")
-		return
+		logger.Debug1("forwarder: no raw %s socket access, will use ping binary fallback", network)
+		return false
 	}
 
 	if err := conn.Close(); err != nil {
-		f.logger.Debug1("forwarder: Failed to close ICMP capability test socket: %v", err)
+		logger.Debug2("forwarder: failed to close %s capability test socket: %v", network, err)
 	}
 
-	f.hasRawICMPAccess = true
-	f.logger.Debug("forwarder: Raw ICMP socket access available")
+	logger.Debug1("forwarder: raw %s socket access available", network)
+	return true
 }
