@@ -128,14 +128,14 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		GetPATInfoFunc:                  authManager.GetPATInfo,
 	}
 
-	networksManagerMock := networks.NewManagerMock()
-	resourcesManagerMock := resources.NewManagerMock()
-	routersManagerMock := routers.NewManagerMock()
-	groupsManagerMock := groups.NewManagerMock()
+	groupsManager := groups.NewManager(store, permissionsManager, am)
+	routersManager := routers.NewManager(store, permissionsManager, am)
+	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
 	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
 
-	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -165,6 +165,112 @@ func peerShouldReceiveUpdate(t testing_tools.TB, updateMessage <-chan *network_m
 	case <-time.After(500 * time.Millisecond):
 		t.Errorf("Timed out waiting for update message")
 	}
+}
+
+// PeerShouldReceiveAnyUpdate waits for a peer update message and returns it.
+// Fails the test if no update is received within timeout.
+func PeerShouldReceiveAnyUpdate(t testing_tools.TB, updateMessage <-chan *network_map.UpdateMessage) *network_map.UpdateMessage {
+	t.Helper()
+	select {
+	case msg := <-updateMessage:
+		if msg == nil {
+			t.Errorf("Received nil update message, expected valid message")
+		}
+		return msg
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Timed out waiting for update message")
+		return nil
+	}
+}
+
+// PeerShouldNotReceiveAnyUpdate verifies no peer update message is received.
+func PeerShouldNotReceiveAnyUpdate(t testing_tools.TB, updateMessage <-chan *network_map.UpdateMessage) {
+	t.Helper()
+	peerShouldNotReceiveUpdate(t, updateMessage)
+}
+
+// BuildApiBlackBoxWithDBStateAndPeerChannel creates the API handler and returns
+// the peer update channel directly so tests can verify updates inline.
+func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile string) (http.Handler, account.Manager, <-chan *network_map.UpdateMessage) {
+	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("Failed to create metrics: %v", err)
+	}
+
+	peersUpdateManager := update_channel.NewPeersUpdateManager(nil)
+	updMsg := peersUpdateManager.CreateChannel(context.Background(), testing_tools.TestPeerId)
+
+	geoMock := &geolocation.Mock{}
+	validatorMock := server.MockIntegratedValidator{}
+	proxyController := integrations.NewController(store)
+	userManager := users.NewManager(store)
+	permissionsManager := permissions.NewManager(store)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager, settings.IdpConfig{})
+	peersManager := peers.NewManager(store, permissionsManager)
+
+	jobManager := job.NewJobManager(nil, store, peersManager)
+
+	ctx := context.Background()
+	requestBuffer := server.NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsManager, "", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManager), &config.Config{})
+	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
+	if err != nil {
+		t.Fatalf("Failed to create manager: %v", err)
+	}
+
+	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	proxyTokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create proxy token store: %v", err)
+	}
+	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
+	if err != nil {
+		t.Fatalf("Failed to create PKCE verifier store: %v", err)
+	}
+	noopMeter := noop.NewMeterProvider().Meter("")
+	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
+	if err != nil {
+		t.Fatalf("Failed to create proxy manager: %v", err)
+	}
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
+	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
+	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
+	if err != nil {
+		t.Fatalf("Failed to create proxy controller: %v", err)
+	}
+	domainManager.SetClusterCapabilities(serviceProxyController)
+	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, domainManager)
+	proxyServiceServer.SetServiceManager(serviceManager)
+	am.SetServiceManager(serviceManager)
+
+	// @note this is required so that PAT's validate from store, but JWT's are mocked
+	authManager := serverauth.NewManager(store, "", "", "", "", []string{}, false)
+	authManagerMock := &serverauth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: authManager.EnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 authManager.MarkPATUsed,
+		GetPATInfoFunc:                  authManager.GetPATInfo,
+	}
+
+	groupsManager := groups.NewManager(store, permissionsManager, am)
+	routersManager := routers.NewManager(store, permissionsManager, am)
+	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
+	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
+	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+
+	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create API handler: %v", err)
+	}
+
+	return apiHandler, am, updMsg
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, *jwt.Token, error) {
