@@ -20,7 +20,9 @@ func setupManager(b *testing.B) *localIPManager {
 			}
 		},
 	}
-	_ = m.UpdateLocalIPs(mock)
+	if err := m.UpdateLocalIPs(mock); err != nil {
+		b.Fatalf("UpdateLocalIPs: %v", err)
+	}
 	return m
 }
 

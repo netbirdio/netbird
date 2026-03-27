@@ -35,7 +35,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 	}
 
 	icmpData := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
-	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), 100*time.Millisecond)
+	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), false, 100*time.Millisecond)
 	if err != nil {
 		f.logger.Error2("forwarder: Failed to forward ICMP packet for %v: %v", epID(id), err)
 		return true
@@ -72,12 +72,17 @@ func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointI
 
 // forwardICMPPacket creates a raw ICMP socket and sends the packet, returning the connection.
 // The caller is responsible for closing the returned connection.
-func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []byte, icmpType, icmpCode uint8, timeout time.Duration) (net.PacketConn, error) {
+func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []byte, icmpType, icmpCode uint8, v6 bool, timeout time.Duration) (net.PacketConn, error) {
 	ctx, cancel := context.WithTimeout(f.ctx, timeout)
 	defer cancel()
 
+	network, listenAddr := "ip4:icmp", "0.0.0.0"
+	if v6 {
+		network, listenAddr = "ip6:ipv6-icmp", "::"
+	}
+
 	lc := net.ListenConfig{}
-	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
+	conn, err := lc.ListenPacket(ctx, network, listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("create ICMP socket: %w", err)
 	}
@@ -102,7 +107,7 @@ func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []by
 func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, icmpData []byte, rxBytes int) {
 	sendTime := time.Now()
 
-	conn, err := f.forwardICMPPacket(id, icmpData, icmpType, icmpCode, 5*time.Second)
+	conn, err := f.forwardICMPPacket(id, icmpData, icmpType, icmpCode, false, 5*time.Second)
 	if err != nil {
 		f.logger.Error2("forwarder: Failed to send ICMP packet for %v: %v", epID(id), err)
 		return
@@ -224,8 +229,23 @@ func (f *Forwarder) handleICMPv6(id stack.TransportEndpointID, pkt *stack.Packet
 		return f.handleICMPv6Echo(flowID, id, pkt, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()))
 	}
 
-	f.logger.Debug2("forwarder: Unhandled ICMPv6 type %v for %v", icmpHdr.Type(), epID(id))
-	return false
+	// For non-echo types (Destination Unreachable, Packet Too Big, etc), forward without waiting
+	if !f.hasRawICMPv6Access {
+		f.logger.Debug2("forwarder: Cannot handle ICMPv6 type %v without raw socket access for %v", icmpHdr.Type(), epID(id))
+		return false
+	}
+
+	icmpData := stack.PayloadSince(pkt.TransportHeader()).AsSlice()
+	conn, err := f.forwardICMPPacket(id, icmpData, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), true, 100*time.Millisecond)
+	if err != nil {
+		f.logger.Error2("forwarder: Failed to forward ICMPv6 packet for %v: %v", epID(id), err)
+		return true
+	}
+	if err := conn.Close(); err != nil {
+		f.logger.Debug1("forwarder: Failed to close ICMPv6 socket: %v", err)
+	}
+
+	return true
 }
 
 // handleICMPv6Echo handles ICMPv6 echo requests using the ping binary.
@@ -260,9 +280,14 @@ func (f *Forwarder) handleICMPv6ViaPing(flowID uuid.UUID, id stack.TransportEndp
 	}
 	rtt := time.Since(pingStart).Round(10 * time.Microsecond)
 
-	f.logger.Trace4("forwarder: Forwarded ICMPv6 echo reply %v type %v code %v (rtt=%v)", epID(id), icmpType, icmpCode, rtt)
+	f.logger.Trace3("forwarder: Forwarded ICMPv6 echo request %v type %v code %v",
+		epID(id), icmpType, icmpCode)
 
 	txBytes := f.synthesizeICMPv6EchoReply(id, icmpData)
+
+	f.logger.Trace4("forwarder: Forwarded ICMPv6 echo reply %v type %v code %v (rtt=%v, ping binary)",
+		epID(id), icmpType, icmpCode, rtt)
+
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
 
@@ -274,7 +299,8 @@ func (f *Forwarder) synthesizeICMPv6EchoReply(id stack.TransportEndpointID, icmp
 	replyHdr := header.ICMPv6(replyICMP)
 	replyHdr.SetType(header.ICMPv6EchoReply)
 	replyHdr.SetChecksum(0)
-	// ICMPv6 checksum includes a pseudo-header computed internally by ICMPv6Checksum
+	// ICMPv6Checksum computes the pseudo-header internally from Src/Dst.
+	// Header contains the full ICMP message, so PayloadCsum/PayloadLen are zero.
 	replyHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
 		Header: replyHdr,
 		Src:    id.LocalAddress,
