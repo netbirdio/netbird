@@ -37,5 +37,9 @@ type ExposeSession struct {
 // Wait blocks while keeping the expose session alive.
 // It returns when ctx is cancelled or a keep-alive error occurs, then terminates the session.
 func (s *ExposeSession) Wait(ctx context.Context) error {
+	if s == nil || s.mgr == nil {
+		return errors.New("expose session is not initialized")
+	}
 	return s.mgr.KeepAlive(ctx, s.Domain)
+}
 }
