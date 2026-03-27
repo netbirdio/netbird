@@ -2,6 +2,7 @@ package embed
 
 import (
 	"context"
+	"errors"
 
 	"github.com/netbirdio/netbird/client/internal/expose"
 )
