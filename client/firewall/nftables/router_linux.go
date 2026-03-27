@@ -1339,8 +1339,8 @@ func (r *router) isExternalChain(chain *nftables.Chain) bool {
 		return false
 	}
 
-	// Skip all iptables-managed tables in the ip family
-	if chain.Table.Family == nftables.TableFamilyIPv4 && isIptablesTable(chain.Table.Name) {
+	// Skip iptables/ip6tables-managed tables (adding nft-native rules breaks iptables-save compat)
+	if (chain.Table.Family == nftables.TableFamilyIPv4 || chain.Table.Family == nftables.TableFamilyIPv6) && isIptablesTable(chain.Table.Name) {
 		return false
 	}
 
