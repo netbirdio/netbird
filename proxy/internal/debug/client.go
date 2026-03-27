@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
 )
 
 // StatusFilters contains filter options for status queries.
@@ -230,12 +231,16 @@ func (c *Client) ClientSyncResponse(ctx context.Context, accountID string) error
 }
 
 // PingTCP performs a TCP ping through a client.
-func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, timeout string) error {
+// ipVersion may be "4", "6", or "" for automatic.
+func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, timeout time.Duration, ipVersion string) error {
 	params := url.Values{}
 	params.Set("host", host)
 	params.Set("port", fmt.Sprintf("%d", port))
-	if timeout != "" {
-		params.Set("timeout", timeout)
+	if timeout > 0 {
+		params.Set("timeout", timeout.String())
+	}
+	if ipVersion != "" {
+		params.Set("ip_version", ipVersion)
 	}
 
 	path := fmt.Sprintf("/debug/clients/%s/pingtcp?%s", url.PathEscape(accountID), params.Encode())
@@ -245,7 +250,13 @@ func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, 
 func (c *Client) printPingResult(data map[string]any) {
 	success, _ := data["success"].(bool)
 	if success {
-		_, _ = fmt.Fprintf(c.out, "Success: %v:%v\n", data["host"], data["port"])
+		remote, _ := data["remote"].(string)
+		host := fmt.Sprintf("%v:%v", data["host"], data["port"])
+		if remote != "" && remote != host {
+			_, _ = fmt.Fprintf(c.out, "Success: %s (via %s)\n", host, remote)
+		} else {
+			_, _ = fmt.Fprintf(c.out, "Success: %s\n", host)
+		}
 		_, _ = fmt.Fprintf(c.out, "Latency: %v\n", data["latency"])
 	} else {
 		_, _ = fmt.Fprintf(c.out, "Failed: %v:%v\n", data["host"], data["port"])
