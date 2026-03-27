@@ -6,7 +6,7 @@ import "time"
 // Nil fields mean the proxy never reported this capability.
 type Capabilities struct {
 	// SupportsCustomPorts indicates whether this proxy can bind arbitrary
-	// ports for TCP/UDP/TLS services.
+	// ports for TCP/UDP services. TLS uses SNI routing and is not gated.
 	SupportsCustomPorts *bool
 	// RequireSubdomain indicates whether a subdomain label is required in
 	// front of the cluster domain.

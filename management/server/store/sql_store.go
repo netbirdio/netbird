@@ -5445,7 +5445,7 @@ func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string
 
 	result := s.db.WithContext(ctx).
 		Model(&proxy.Proxy{}).
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
 		Distinct("cluster_address").
 		Pluck("cluster_address", &addresses)
 
@@ -5463,7 +5463,7 @@ func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster,
 
 	result := s.db.Model(&proxy.Proxy{}).
 		Select("cluster_address as address, COUNT(*) as connected_proxies").
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
 		Group("cluster_address").
 		Scan(&clusters)
 

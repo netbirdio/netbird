@@ -79,8 +79,8 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	mockCtrl.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{}).AnyTimes()
 
 	mockCaps := proxy.NewMockManager(ctrl)
-	mockCaps.EXPECT().ClusterSupportsCustomPorts(gomock.Any(), gomock.Any()).Return(customPortsSupported).AnyTimes()
-	mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), gomock.Any()).Return((*bool)(nil)).AnyTimes()
+	mockCaps.EXPECT().ClusterSupportsCustomPorts(gomock.Any(), testCluster).Return(customPortsSupported).AnyTimes()
+	mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), testCluster).Return((*bool)(nil)).AnyTimes()
 
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
