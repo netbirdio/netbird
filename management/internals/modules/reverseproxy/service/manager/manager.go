@@ -99,14 +99,6 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 
 // GetActiveClusters returns all active proxy clusters with their connected proxy count.
 func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return m.store.GetActiveProxyClusters(ctx)
 }
 
@@ -483,12 +475,12 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	if existingService.Terminated {
-			return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
-		}
+		return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
+	}
 
-		if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
-			return err
-		}
+	if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
+		return err
+	}
 
 	updateInfo.oldCluster = existingService.ProxyCluster
 	updateInfo.domainChanged = existingService.Domain != service.Domain

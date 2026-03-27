@@ -127,10 +127,10 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		GetPATInfoFunc:                  authManager.GetPATInfo,
 	}
 
-	groupsManager := groups.NewManager(store, permissionsManager, am)
-	routersManager := routers.NewManager(store, permissionsManager, am)
-	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
-	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
+	groupsManager := groups.NewManager(store, am)
+	routersManager := routers.NewManager(store, am)
+	resourcesManager := resources.NewManager(store, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, resourcesManager, routersManager, am)
 	customZonesManager := zonesManager.NewManager(store, am, "")
 	zoneRecordsManager := recordsManager.NewManager(store, am)
 
@@ -210,8 +210,8 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager, settings.IdpConfig{})
-	peersManager := peers.NewManager(store, permissionsManager)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), settings.IdpConfig{})
+	peersManager := peers.NewManager(store)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
@@ -223,7 +223,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(store, nil)
 	proxyTokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
 	if err != nil {
 		t.Fatalf("Failed to create proxy token store: %v", err)
@@ -238,13 +238,13 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, proxyMgr)
-	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
+	domainManager := manager.NewManager(store, proxyMgr, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
 	domainManager.SetClusterCapabilities(serviceProxyController)
-	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, domainManager)
+	serviceManager := reverseproxymanager.NewManager(store, am, serviceProxyController, domainManager)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
@@ -257,12 +257,12 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		GetPATInfoFunc:                  authManager.GetPATInfo,
 	}
 
-	groupsManager := groups.NewManager(store, permissionsManager, am)
-	routersManager := routers.NewManager(store, permissionsManager, am)
-	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
-	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
-	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
-	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+	groupsManager := groups.NewManager(store, am)
+	routersManager := routers.NewManager(store, am)
+	resourcesManager := resources.NewManager(store, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, resourcesManager, routersManager, am)
+	customZonesManager := zonesManager.NewManager(store, am, "")
+	zoneRecordsManager := recordsManager.NewManager(store, am)
 
 	apiHandler, err := http2.NewAPIHandler(context.Background(), am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil)
 	if err != nil {

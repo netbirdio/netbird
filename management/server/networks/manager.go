@@ -6,7 +6,6 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -24,23 +23,21 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	resourcesManager   resources.Manager
-	routersManager     routers.Manager
+	store            store.Store
+	accountManager   account.Manager
+	resourcesManager resources.Manager
+	routersManager   routers.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, resourceManager resources.Manager, routersManager routers.Manager, accountManager account.Manager) Manager {
+func NewManager(store store.Store, resourceManager resources.Manager, routersManager routers.Manager, accountManager account.Manager) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		resourcesManager:   resourceManager,
-		routersManager:     routersManager,
-		accountManager:     accountManager,
+		store:            store,
+		resourcesManager: resourceManager,
+		routersManager:   routersManager,
+		accountManager:   accountManager,
 	}
 }
 

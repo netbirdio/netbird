@@ -7,7 +7,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -31,23 +30,21 @@ type Manager interface {
 }
 
 type managerImpl struct {
-	store              store.Store
-	permissionsManager permissions.Manager
-	groupsManager      groups.Manager
-	accountManager     account.Manager
-	serviceManager     service.Manager
+	store          store.Store
+	groupsManager  groups.Manager
+	accountManager account.Manager
+	serviceManager service.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager service.Manager) Manager {
+func NewManager(store store.Store, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager service.Manager) Manager {
 	return &managerImpl{
-		store:              store,
-		permissionsManager: permissionsManager,
-		groupsManager:      groupsManager,
-		accountManager:     accountManager,
-		serviceManager:     reverseproxyManager,
+		store:          store,
+		groupsManager:  groupsManager,
+		accountManager: accountManager,
+		serviceManager: reverseproxyManager,
 	}
 }
 
