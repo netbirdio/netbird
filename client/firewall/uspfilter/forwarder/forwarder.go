@@ -157,8 +157,10 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	udpForwarder := udp.NewForwarder(s, f.handleUDP)
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpForwarder.HandlePacket)
 
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, f.handleICMP)
-	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, f.handleICMPv6)
+	// ICMP is handled directly in InjectIncomingPacket, bypassing gVisor's
+	// network layer. This avoids duplicate echo replies (v4) and the v6
+	// auto-reply bug where gVisor responds at the network layer before
+	// our transport handler fires.
 
 	f.checkICMPCapability()
 
@@ -177,10 +179,16 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 		if len(payload) < header.IPv4MinimumSize {
 			return fmt.Errorf("IPv4 packet too small: %d bytes", len(payload))
 		}
+		if f.handleICMPDirect(payload) {
+			return nil
+		}
 		protoNum = ipv4.ProtocolNumber
 	case 6:
 		if len(payload) < header.IPv6MinimumSize {
 			return fmt.Errorf("IPv6 packet too small: %d bytes", len(payload))
+		}
+		if f.handleICMPDirect(payload) {
+			return nil
 		}
 		protoNum = ipv6.ProtocolNumber
 	default:
@@ -196,6 +204,74 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 		f.endpoint.dispatcher.DeliverNetworkPacket(protoNum, pkt)
 	}
 	return nil
+}
+
+// handleICMPDirect intercepts ICMP packets from raw IP payloads before they
+// enter gVisor. It synthesizes the TransportEndpointID and PacketBuffer that
+// the existing handlers expect, then dispatches to handleICMP/handleICMPv6.
+// This bypasses gVisor's network layer which causes duplicate v4 echo replies
+// and auto-replies to all v6 echo requests in promiscuous mode.
+//
+// Unlike gVisor's network layer, this does not validate ICMP checksums or
+// reassemble IP fragments. Fragmented ICMP packets fall through to gVisor.
+func (f *Forwarder) handleICMPDirect(payload []byte) bool {
+	var (
+		ipHdrLen int
+		srcAddr  tcpip.Address
+		dstAddr  tcpip.Address
+	)
+
+	switch payload[0] >> 4 {
+	case 4:
+		ip := header.IPv4(payload)
+		if ip.Protocol() != uint8(header.ICMPv4ProtocolNumber) {
+			return false
+		}
+		ipHdrLen = int(ip.HeaderLength())
+		srcAddr = ip.SourceAddress()
+		dstAddr = ip.DestinationAddress()
+	case 6:
+		ip := header.IPv6(payload)
+		if ip.NextHeader() != uint8(header.ICMPv6ProtocolNumber) {
+			return false
+		}
+		ipHdrLen = header.IPv6MinimumSize
+		srcAddr = ip.SourceAddress()
+		dstAddr = ip.DestinationAddress()
+	default:
+		return false
+	}
+
+	// Let gVisor handle ICMP destined for our own addresses natively.
+	// Its network-layer auto-reply is correct and efficient for local traffic.
+	if f.ip.Equal(dstAddr) || f.ipv6.Equal(dstAddr) {
+		return false
+	}
+
+	id := stack.TransportEndpointID{
+		LocalAddress:  dstAddr,
+		RemoteAddress: srcAddr,
+	}
+
+	// Build a PacketBuffer with headers consumed the same way gVisor would.
+	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+		Payload: buffer.MakeWithData(payload),
+	})
+	defer pkt.DecRef()
+
+	if _, ok := pkt.NetworkHeader().Consume(ipHdrLen); !ok {
+		return false
+	}
+
+	icmpPayload := payload[ipHdrLen:]
+	if _, ok := pkt.TransportHeader().Consume(len(icmpPayload)); !ok {
+		return false
+	}
+
+	if payload[0]>>4 == 6 {
+		return f.handleICMPv6(id, pkt)
+	}
+	return f.handleICMP(id, pkt)
 }
 
 // Stop gracefully shuts down the forwarder
@@ -264,10 +340,14 @@ func addrFromNetipAddr(addr netip.Addr) tcpip.Address {
 
 // addrToNetipAddr converts a gvisor tcpip.Address to netip.Addr without allocating.
 func addrToNetipAddr(addr tcpip.Address) netip.Addr {
-	if addr.Len() == 4 {
+	switch addr.Len() {
+	case 4:
 		return netip.AddrFrom4(addr.As4())
+	case 16:
+		return netip.AddrFrom16(addr.As16())
+	default:
+		return netip.Addr{}
 	}
-	return netip.AddrFrom16(addr.As16())
 }
 
 // checkICMPCapability tests whether we have raw ICMP socket access at startup.

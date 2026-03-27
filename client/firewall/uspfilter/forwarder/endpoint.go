@@ -53,8 +53,11 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		}
 
 		raw := pkt.NetworkHeader().View().AsSlice()
+		if len(raw) == 0 {
+			continue
+		}
 		var address tcpip.Address
-		if len(raw) > 0 && raw[0]>>4 == 6 {
+		if raw[0]>>4 == 6 {
 			address = header.IPv6(raw).DestinationAddress()
 		} else {
 			address = header.IPv4(raw).DestinationAddress()
