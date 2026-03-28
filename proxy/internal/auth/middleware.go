@@ -167,6 +167,17 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 		return true
 	}
 
+	if verdict.IsCrowdSec() {
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetMetadata("crowdsec_verdict", verdict.String())
+		}
+	}
+
+	if config.IPRestrictions.IsObserveOnly(verdict) {
+		mw.logger.Debugf("CrowdSec observe: would block %s for %s (%s)", clientIP, r.Host, verdict)
+		return true
+	}
+
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
 	http.Error(w, "Forbidden", http.StatusForbidden)

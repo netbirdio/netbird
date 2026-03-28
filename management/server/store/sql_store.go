@@ -5482,6 +5482,7 @@ const proxyActiveThreshold = 2 * time.Minute
 var validCapabilityColumns = map[string]struct{}{
 	"supports_custom_ports": {},
 	"require_subdomain":     {},
+	"supports_crowdsec":     {},
 }
 
 // GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
@@ -5494,6 +5495,59 @@ func (s *SqlStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAdd
 // requires a subdomain. Returns nil when no proxy reported the capability.
 func (s *SqlStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterCapability(ctx, clusterAddr, "require_subdomain")
+}
+
+// GetClusterSupportsCrowdSec returns whether all active proxies in the cluster
+// have CrowdSec configured. Returns nil when no proxy reported the capability.
+// Unlike other capabilities that use ANY-true (for rolling upgrades), CrowdSec
+// requires unanimous support: a single unconfigured proxy would let requests
+// bypass reputation checks.
+func (s *SqlStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_crowdsec")
+}
+
+// getClusterUnanimousCapability returns an aggregated boolean capability
+// requiring all active proxies in the cluster to report true.
+func (s *SqlStore) getClusterUnanimousCapability(ctx context.Context, clusterAddr, column string) *bool {
+	if _, ok := validCapabilityColumns[column]; !ok {
+		log.WithContext(ctx).Errorf("invalid capability column: %s", column)
+		return nil
+	}
+
+	var result struct {
+		Total    int64
+		Reported int64
+		AllTrue  bool
+	}
+
+	// All active proxies must have reported the capability (no NULLs) and all
+	// must report true. A single unreported or false proxy means the cluster
+	// does not unanimously support the capability.
+	err := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select("COUNT(*) AS total, "+
+			"COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) AS reported, "+
+			"COUNT(*) > 0 AND COUNT(*) = COUNT(CASE WHEN "+column+" = true THEN 1 END) AS all_true").
+		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
+		Scan(&result).Error
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("query cluster capability %s for %s: %v", column, clusterAddr, err)
+		return nil
+	}
+
+	if result.Total == 0 || result.Reported == 0 {
+		return nil
+	}
+
+	// If any proxy has not reported (NULL), we can't confirm unanimous support.
+	if result.Reported < result.Total {
+		v := false
+		return &v
+	}
+
+	return &result.AllTrue
 }
 
 // getClusterCapability returns an aggregated boolean capability for the given

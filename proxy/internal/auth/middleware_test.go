@@ -669,7 +669,7 @@ func TestCheckIPRestrictions_UnparseableAddress(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}))
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -705,7 +705,7 @@ func TestCheckIPRestrictions_UsesCapturedDataClientIP(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter([]string{"203.0.113.0/24"}, nil, nil, nil))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"203.0.113.0/24"}}))
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -746,7 +746,7 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(nil, nil, []string{"US"}, nil))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCountries: []string{"US"}}))
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
