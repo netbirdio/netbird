@@ -457,31 +457,35 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 	}
 
 	if showDeselectAll {
-		sep := s.mExitNode.AddSubMenuItem("───────────────", "")
-		sep.Disable()
-		s.mExitNodeSeparator = sep
-		deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
-		s.mExitNodeDeselectAll = deselectAllItem
-		go func() {
-			for {
-				_, ok := <-deselectAllItem.ClickedCh
-				if !ok {
-					// channel closed: exit the goroutine
-					return
-				}
-				exitNodes, err := s.handleExitNodeMenuDeselectAll()
-				if err != nil {
-					log.Warnf("failed to handle deselect all exit nodes: %v", err)
-				} else {
-					s.exitNodeMu.Lock()
-					s.recreateExitNodeMenu(exitNodes)
-					s.exitNodeMu.Unlock()
-				}
-			}
-
-		}()
+		s.addExitNodeDeselectAll()
 	}
 
+}
+
+func (s *serviceClient) addExitNodeDeselectAll() {
+	sep := s.mExitNode.AddSubMenuItem("───────────────", "")
+	sep.Disable()
+	s.mExitNodeSeparator = sep
+
+	deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
+	s.mExitNodeDeselectAll = deselectAllItem
+
+	go func() {
+		for {
+			_, ok := <-deselectAllItem.ClickedCh
+			if !ok {
+				return
+			}
+			exitNodes, err := s.handleExitNodeMenuDeselectAll()
+			if err != nil {
+				log.Warnf("failed to handle deselect all exit nodes: %v", err)
+			} else {
+				s.exitNodeMu.Lock()
+				s.recreateExitNodeMenu(exitNodes)
+				s.exitNodeMu.Unlock()
+			}
+		}
+	}()
 }
 
 func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.Network, error) {
