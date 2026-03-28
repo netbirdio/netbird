@@ -529,6 +529,9 @@ func (r *router) addNoMasqPostRoutingRule(pair firewall.RouterPair) error {
 		if err := r.iptablesClient.DeleteIfExists(tableNat, chainRTNAT, rule...); err != nil {
 			return fmt.Errorf("remove existing no-masq rule before reinstall: %w", err)
 		}
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Warnf("decrement set counter for reinstalled rule %s: %v", ruleKey, err)
+		}
 		delete(r.rules, ruleKey)
 	}
 
