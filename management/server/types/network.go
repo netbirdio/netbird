@@ -40,6 +40,19 @@ type NetworkMap struct {
 	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
 	EnableSSH           bool
+	PeerGroupsNames     map[string][]string
+}
+
+// PopulatePeerGroupsNames fills PeerGroupsNames using the provided account to resolve group names.
+func (nm *NetworkMap) PopulatePeerGroupsNames(account *Account) {
+	peerGroupsNames := make(map[string][]string)
+	for _, p := range nm.Peers {
+		peerGroupsNames[p.ID] = account.GetPeerGroupNames(p.ID)
+	}
+	for _, p := range nm.OfflinePeers {
+		peerGroupsNames[p.ID] = account.GetPeerGroupNames(p.ID)
+	}
+	nm.PeerGroupsNames = peerGroupsNames
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {

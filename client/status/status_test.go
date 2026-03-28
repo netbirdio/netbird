@@ -48,6 +48,7 @@ var resp = &proto.StatusResponse{
 					"10.1.0.0/24",
 				},
 				Latency: durationpb.New(time.Duration(10000000)),
+				Groups:  []string{"Production", "All"},
 			},
 			{
 				IP:                         "192.168.178.102",
@@ -64,6 +65,7 @@ var resp = &proto.StatusResponse{
 				BytesRx:                    2000,
 				BytesTx:                    1000,
 				Latency:                    durationpb.New(time.Duration(10000000)),
+				Groups:                     []string{"Staging"},
 			},
 		},
 		ManagementState: &proto.ManagementState{
@@ -150,6 +152,7 @@ var overview = OutputOverview{
 					"10.1.0.0/24",
 				},
 				Latency: time.Duration(10000000),
+				Groups:  []string{"All", "Production"},
 			},
 			{
 				IP:               "192.168.178.102",
@@ -170,6 +173,7 @@ var overview = OutputOverview{
 				TransferReceived:       2000,
 				TransferSent:           1000,
 				Latency:                time.Duration(10000000),
+				Groups:                 []string{"Staging"},
 			},
 		},
 	},
@@ -304,7 +308,8 @@ func TestParsingToJSON(t *testing.T) {
                 "quantumResistance": false,
                 "networks": [
                   "10.1.0.0/24"
-                ]
+                ],
+                "groups": ["All","Production"]
               },
               {
                 "fqdn": "peer-2.awesome-domain.com",
@@ -327,7 +332,8 @@ func TestParsingToJSON(t *testing.T) {
                 "transferSent": 1000,
 				"latency": 10000000,
                 "quantumResistance": false,
-                "networks": null
+                "networks": null,
+                "groups": ["Staging"]
               }
             ]
           },
@@ -436,6 +442,9 @@ func TestParsingToYAML(t *testing.T) {
           quantumResistance: false
           networks:
             - 10.1.0.0/24
+          groups:
+            - All
+            - Production
         - fqdn: peer-2.awesome-domain.com
           netbirdIp: 192.168.178.102
           publicKey: Pubkey2
@@ -455,6 +464,8 @@ func TestParsingToYAML(t *testing.T) {
           latency: 10ms
           quantumResistance: false
           networks: []
+          groups:
+            - Staging
 cliVersion: development
 daemonVersion: 0.14.1
 daemonStatus: Connected
@@ -535,6 +546,7 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 200 B/100 B
   Quantum resistance: false
   Networks: 10.1.0.0/24
+  Groups: All, Production
   Latency: 10ms
 
  peer-2.awesome-domain.com:
@@ -551,6 +563,7 @@ func TestParsingToDetail(t *testing.T) {
   Transfer status (received/sent) 2.0 KiB/1000 B
   Quantum resistance: false
   Networks: -
+  Groups: Staging
   Latency: 10ms
 
 Events: No events recorded

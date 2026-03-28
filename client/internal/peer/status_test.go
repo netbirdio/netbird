@@ -247,3 +247,27 @@ func TestGetFullStatus(t *testing.T) {
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
 	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
 }
+
+func TestUpdatePeerGroups(t *testing.T) {
+	key := "peerKey"
+	status := NewRecorder("https://mgm")
+	status.peers[key] = State{PubKey: key}
+
+	t.Run("update groups for existing peer", func(t *testing.T) {
+		groups := []string{"All", "Production"}
+		err := status.UpdatePeerGroups(key, groups)
+		assert.NoError(t, err)
+		assert.Equal(t, groups, status.peers[key].Groups)
+	})
+
+	t.Run("update groups to empty slice", func(t *testing.T) {
+		err := status.UpdatePeerGroups(key, []string{})
+		assert.NoError(t, err)
+		assert.Empty(t, status.peers[key].Groups)
+	})
+
+	t.Run("error on unknown peer", func(t *testing.T) {
+		err := status.UpdatePeerGroups("unknownKey", []string{"All"})
+		assert.Error(t, err)
+	})
+}

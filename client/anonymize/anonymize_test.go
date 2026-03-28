@@ -295,3 +295,30 @@ func TestAnonymizeString_IPAddresses(t *testing.T) {
 		})
 	}
 }
+
+func TestAnonymizeLabel(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	t.Run("consistent mapping", func(t *testing.T) {
+		result1 := anonymizer.AnonymizeLabel("Production")
+		result2 := anonymizer.AnonymizeLabel("Production")
+		assert.Equal(t, result1, result2, "same label should produce same anonymized value")
+	})
+
+	t.Run("different labels get different values", func(t *testing.T) {
+		result1 := anonymizer.AnonymizeLabel("All")
+		result2 := anonymizer.AnonymizeLabel("Staging")
+		assert.NotEqual(t, result1, result2, "different labels should produce different anonymized values")
+	})
+
+	t.Run("empty label unchanged", func(t *testing.T) {
+		result := anonymizer.AnonymizeLabel("")
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("anonymized value hides original", func(t *testing.T) {
+		result := anonymizer.AnonymizeLabel("Finance-Team")
+		assert.NotContains(t, result, "Finance")
+		assert.Contains(t, result, "anon-label-")
+	})
+}

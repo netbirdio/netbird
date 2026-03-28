@@ -421,6 +421,8 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  repeated string groupsNames = 6;
 }
 
 // SSHConfig represents SSH configurations of a peer.

@@ -722,6 +722,10 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		if err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn()); err != nil {
 			log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 		}
+
+		if err := e.statusRecorder.UpdatePeerGroups(peerPubKey, p.GetGroupsNames()); err != nil {
+			log.Warnf("error updating peer's %s groups in the status recorder, got error: %v", peerPubKey, err)
+		}
 	}
 
 	// second, close all modified connections and remove them from the state map
@@ -1496,6 +1500,10 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn, peerIPs[0].Addr().String())
 	if err != nil {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+	}
+
+	if err := e.statusRecorder.UpdatePeerGroups(peerKey, peerConfig.GetGroupsNames()); err != nil {
+		log.Warnf("error updating peer %s groups in the status recorder, got error: %v", peerKey, err)
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {

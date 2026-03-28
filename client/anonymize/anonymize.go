@@ -17,6 +17,8 @@ const anonTLD = ".domain"
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
+	labelAnonymizer  map[string]string
+	labelCounter     int
 	currentAnonIPv4  netip.Addr
 	currentAnonIPv6  netip.Addr
 	startAnonIPv4    netip.Addr
@@ -34,6 +36,7 @@ func NewAnonymizer(startIPv4, startIPv6 netip.Addr) *Anonymizer {
 	return &Anonymizer{
 		ipAnonymizer:     map[netip.Addr]netip.Addr{},
 		domainAnonymizer: map[string]string{},
+		labelAnonymizer:  map[string]string{},
 		currentAnonIPv4:  startIPv4,
 		currentAnonIPv6:  startIPv6,
 		startAnonIPv4:    startIPv4,
@@ -138,6 +141,21 @@ func (a *Anonymizer) AnonymizeDomain(domain string) string {
 		result += "."
 	}
 	return result
+}
+
+// AnonymizeLabel anonymizes an arbitrary text label (e.g. group names) using a consistent mapping.
+func (a *Anonymizer) AnonymizeLabel(label string) string {
+	if label == "" {
+		return label
+	}
+
+	anonymized, ok := a.labelAnonymizer[label]
+	if !ok {
+		a.labelCounter++
+		anonymized = fmt.Sprintf("anon-label-%d", a.labelCounter)
+		a.labelAnonymizer[label] = anonymized
+	}
+	return anonymized
 }
 
 func (a *Anonymizer) AnonymizeURI(uri string) string {

@@ -1945,3 +1945,42 @@ func Test_filterPeerAppliedZones(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPeerGroupNames(t *testing.T) {
+	account := &Account{
+		Groups: map[string]*Group{
+			"group1": {ID: "group1", Name: "All", Peers: []string{"peer1", "peer2"}},
+			"group2": {ID: "group2", Name: "Production", Peers: []string{"peer1"}},
+			"group3": {ID: "group3", Name: "Staging", Peers: []string{"peer2"}},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		peerID   string
+		expected []string
+	}{
+		{
+			name:     "peer in multiple groups",
+			peerID:   "peer1",
+			expected: []string{"All", "Production"},
+		},
+		{
+			name:     "peer in one group",
+			peerID:   "peer2",
+			expected: []string{"All", "Staging"},
+		},
+		{
+			name:     "peer in no groups",
+			peerID:   "peer3",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := account.GetPeerGroupNames(tt.peerID)
+			assert.ElementsMatch(t, tt.expected, result)
+		})
+	}
+}

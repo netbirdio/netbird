@@ -888,6 +888,19 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
+	allGroups, err := s.accountManager.GetStore().GetAccountGroups(ctx, store.LockingStrengthNone, peer.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get account groups for peer groups names: %v", err)
+	} else {
+		peerGroupsNames := make(map[string][]string)
+		for _, g := range allGroups {
+			for _, peerID := range g.Peers {
+				peerGroupsNames[peerID] = append(peerGroupsNames[peerID], g.Name)
+			}
+		}
+		networkMap.PeerGroupsNames = peerGroupsNames
+	}
+
 	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
 
 	key, err := s.secretsManager.GetWGKey()

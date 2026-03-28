@@ -2076,3 +2076,17 @@ func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, pee
 
 	return customZones
 }
+
+// GetPeerGroupNames returns a list of group names (not IDs) that the given peer belongs to.
+func (a *Account) GetPeerGroupNames(peerID string) []string {
+	var names []string
+	for _, group := range a.Groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				names = append(names, group.Name)
+				break
+			}
+		}
+	}
+	return names
+}

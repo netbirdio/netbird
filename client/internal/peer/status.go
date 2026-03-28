@@ -69,6 +69,7 @@ type State struct {
 	Latency                    time.Duration
 	RosenpassEnabled           bool
 	SSHHostKey                 []byte
+	Groups                     []string
 	routes                     map[string]struct{}
 }
 
@@ -570,6 +571,22 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	}
 
 	peerState.FQDN = fqdn
+	d.peers[peerPubKey] = peerState
+
+	return nil
+}
+
+// UpdatePeerGroups updates peer's groups
+func (d *Status) UpdatePeerGroups(peerPubKey string, groups []string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.Groups = groups
 	d.peers[peerPubKey] = peerState
 
 	return nil
@@ -1271,6 +1288,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			Networks:                   networks,
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			Groups:                     peerState.Groups,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

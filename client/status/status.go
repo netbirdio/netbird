@@ -73,6 +73,7 @@ type PeerStateDetailOutput struct {
 	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 	Networks               []string         `json:"networks" yaml:"networks"`
+	Groups                 []string         `json:"groups" yaml:"groups"`
 }
 
 type PeersStateOutput struct {
@@ -337,7 +338,12 @@ func mapPeers(
 			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 			Networks:               pbPeerState.GetNetworks(),
+			Groups:                 pbPeerState.GetGroups(),
 		}
+		if peerState.Groups == nil {
+			peerState.Groups = []string{}
+		}
+		sort.Strings(peerState.Groups)
 
 		peersStateDetail = append(peersStateDetail, peerState)
 	}
@@ -645,6 +651,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			Groups:                     peerState.Groups,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
@@ -733,6 +740,11 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			networks = strings.Join(peerState.Networks, ", ")
 		}
 
+		groups := "-"
+		if len(peerState.Groups) > 0 {
+			groups = strings.Join(peerState.Groups, ", ")
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -748,6 +760,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Transfer status (received/sent) %s/%s\n"+
 				"  Quantum resistance: %s\n"+
 				"  Networks: %s\n"+
+				"  Groups: %s\n"+
 				"  Latency: %s\n",
 			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
@@ -765,6 +778,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			toIEC(peerState.TransferSent),
 			rosenpassEnabledStatus,
 			networks,
+			groups,
 			peerState.Latency.String(),
 		)
 
@@ -913,6 +927,10 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 
 	for i, route := range peer.Networks {
 		peer.Networks[i] = a.AnonymizeRoute(route)
+	}
+
+	for i, group := range peer.Groups {
+		peer.Groups[i] = a.AnonymizeLabel(group)
 	}
 }
 

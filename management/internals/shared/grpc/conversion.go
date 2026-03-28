@@ -132,13 +132,13 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, networkMap.PeerGroupsNames)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, networkMap.PeerGroupsNames)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -195,7 +195,7 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	return hashedUsers, machineUsers
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, groupsNames map[string][]string) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		dst = append(dst, &proto.RemotePeerConfig{
 			WgPubKey:     rPeer.Key,
@@ -203,6 +203,7 @@ func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.Meta.WtVersion,
+			GroupsNames:  groupsNames[rPeer.ID],
 		})
 	}
 	return dst

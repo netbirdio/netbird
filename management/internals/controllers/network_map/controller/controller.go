@@ -261,6 +261,8 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 				remotePeerNetworkMap.Merge(proxyNetworkMap)
 			}
 
+			remotePeerNetworkMap.PopulatePeerGroupsNames(account)
+
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
 			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
@@ -391,6 +393,8 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	if err != nil {
 		return fmt.Errorf("failed to get extra settings: %v", err)
 	}
+
+	remotePeerNetworkMap.PopulatePeerGroupsNames(account)
 
 	peerGroups := account.GetPeerGroups(peerId)
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
