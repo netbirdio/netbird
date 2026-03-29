@@ -1350,6 +1350,9 @@ type AccessRestrictions struct {
 
 	// CrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 	CrowdsecMode *AccessRestrictionsCrowdsecMode `json:"crowdsec_mode,omitempty"`
+
+	// TrustedCidrs Trusted CIDR ranges that bypass all restriction layers (CIDR, country, CrowdSec). Use for office networks or VPNs that should always be allowed.
+	TrustedCidrs *[]string `json:"trusted_cidrs,omitempty"`
 }
 
 // AccessRestrictionsCrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.

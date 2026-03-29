@@ -1325,6 +1325,7 @@ func (s *Server) parseRestrictions(mapping *proto.ProxyMapping) *restrict.Filter
 	}
 
 	return restrict.ParseFilter(restrict.FilterConfig{
+		TrustedCIDRs:     r.GetTrustedCidrs(),
 		AllowedCIDRs:     r.GetAllowedCidrs(),
 		BlockedCIDRs:     r.GetBlockedCidrs(),
 		AllowedCountries: r.GetAllowedCountries(),

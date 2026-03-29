@@ -113,6 +113,7 @@ type AccessRestrictions struct {
 	BlockedCIDRs     []string `json:"blocked_cidrs,omitempty" gorm:"serializer:json"`
 	AllowedCountries []string `json:"allowed_countries,omitempty" gorm:"serializer:json"`
 	BlockedCountries []string `json:"blocked_countries,omitempty" gorm:"serializer:json"`
+	TrustedCIDRs     []string `json:"trusted_cidrs,omitempty" gorm:"serializer:json"`
 	CrowdSecMode     string   `json:"crowdsec_mode,omitempty" gorm:"serializer:json"`
 }
 
@@ -123,6 +124,7 @@ func (r AccessRestrictions) Copy() AccessRestrictions {
 		BlockedCIDRs:     slices.Clone(r.BlockedCIDRs),
 		AllowedCountries: slices.Clone(r.AllowedCountries),
 		BlockedCountries: slices.Clone(r.BlockedCountries),
+		TrustedCIDRs:     slices.Clone(r.TrustedCIDRs),
 		CrowdSecMode:     r.CrowdSecMode,
 	}
 }
@@ -654,6 +656,9 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 	if r.BlockedCountries != nil {
 		res.BlockedCountries = *r.BlockedCountries
 	}
+	if r.TrustedCidrs != nil {
+		res.TrustedCIDRs = *r.TrustedCidrs
+	}
 	if r.CrowdsecMode != nil {
 		if !r.CrowdsecMode.Valid() {
 			return AccessRestrictions{}, fmt.Errorf("invalid crowdsec_mode %q", *r.CrowdsecMode)
@@ -666,7 +671,7 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		len(r.TrustedCIDRs) == 0 && r.CrowdSecMode == "" {
 		return nil
 	}
 	res := &api.AccessRestrictions{}
@@ -682,6 +687,9 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 	if len(r.BlockedCountries) > 0 {
 		res.BlockedCountries = &r.BlockedCountries
 	}
+	if len(r.TrustedCIDRs) > 0 {
+		res.TrustedCidrs = &r.TrustedCIDRs
+	}
 	if r.CrowdSecMode != "" {
 		mode := api.AccessRestrictionsCrowdsecMode(r.CrowdSecMode)
 		res.CrowdsecMode = &mode
@@ -692,7 +700,7 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
 		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+		len(r.TrustedCIDRs) == 0 && r.CrowdSecMode == "" {
 		return nil
 	}
 	return &proto.AccessRestrictions{
@@ -700,6 +708,7 @@ func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 		BlockedCidrs:     r.BlockedCIDRs,
 		AllowedCountries: r.AllowedCountries,
 		BlockedCountries: r.BlockedCountries,
+		TrustedCidrs:     r.TrustedCIDRs,
 		CrowdsecMode:     r.CrowdSecMode,
 	}
 }
@@ -1031,6 +1040,12 @@ func validateAccessRestrictions(r *AccessRestrictions) error {
 		return fmt.Errorf("blocked_countries: exceeds maximum of %d entries", maxCountryEntries)
 	}
 
+	if len(r.TrustedCIDRs) > maxCIDREntries {
+		return fmt.Errorf("trusted_cidrs: exceeds maximum of %d entries", maxCIDREntries)
+	}
+	if err := validateCIDRList("trusted_cidrs", r.TrustedCIDRs); err != nil {
+		return err
+	}
 	if err := validateCIDRList("allowed_cidrs", r.AllowedCIDRs); err != nil {
 		return err
 	}

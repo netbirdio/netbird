@@ -50,9 +50,11 @@ const (
 	CrowdSecObserve CrowdSecMode = "observe"
 )
 
-// Filter evaluates IP restrictions. CIDR checks are performed first
-// (cheap), followed by country lookups (more expensive) only when needed.
+// Filter evaluates IP restrictions. Trusted CIDRs are checked first and
+// bypass all other layers. Then CIDR checks (cheap), country lookups
+// (more expensive), and finally CrowdSec reputation checks.
 type Filter struct {
+	TrustedCIDRs     []netip.Prefix
 	AllowedCIDRs     []netip.Prefix
 	BlockedCIDRs     []netip.Prefix
 	AllowedCountries []string
@@ -63,6 +65,7 @@ type Filter struct {
 
 // FilterConfig holds the raw configuration for building a Filter.
 type FilterConfig struct {
+	TrustedCIDRs     []string
 	AllowedCIDRs     []string
 	BlockedCIDRs     []string
 	AllowedCountries []string
@@ -73,7 +76,8 @@ type FilterConfig struct {
 }
 
 // ParseFilter builds a Filter from the config. Returns nil if no restrictions
-// are configured.
+// are configured. Trusted CIDRs alone don't constitute restrictions: they only
+// bypass other layers, so without deny rules the filter is a no-op.
 func ParseFilter(cfg FilterConfig) *Filter {
 	hasCS := cfg.CrowdSecMode == CrowdSecEnforce || cfg.CrowdSecMode == CrowdSecObserve
 	if len(cfg.AllowedCIDRs) == 0 && len(cfg.BlockedCIDRs) == 0 &&
@@ -93,6 +97,14 @@ func ParseFilter(cfg FilterConfig) *Filter {
 	if hasCS {
 		f.CrowdSec = cfg.CrowdSec
 		f.CrowdSecMode = cfg.CrowdSecMode
+	}
+	for _, cidr := range cfg.TrustedCIDRs {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			logger.Warnf("skip invalid trusted CIDR %q: %v", cidr, err)
+			continue
+		}
+		f.TrustedCIDRs = append(f.TrustedCIDRs, prefix.Masked())
 	}
 	for _, cidr := range cfg.AllowedCIDRs {
 		prefix, err := netip.ParsePrefix(cidr)
@@ -191,10 +203,9 @@ func (f *Filter) IsObserveOnly(v Verdict) bool {
 	return v.IsCrowdSec() && f.CrowdSecMode == CrowdSecObserve
 }
 
-// Check evaluates whether addr is permitted. CIDR rules are evaluated
-// first because they are O(n) prefix comparisons. Country rules run
-// only when CIDR checks pass and require a geo lookup. CrowdSec checks
-// run last.
+// Check evaluates whether addr is permitted. Trusted CIDRs are checked
+// first and bypass all other layers. Then CIDR rules (O(n) prefix
+// comparisons), country rules (require geo lookup), and finally CrowdSec.
 func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 	if f == nil {
 		return Allow
@@ -203,6 +214,12 @@ func (f *Filter) Check(addr netip.Addr, geo GeoResolver) Verdict {
 	// Normalize v4-mapped-v6 (e.g. ::ffff:10.1.2.3) to plain v4 so that
 	// IPv4 CIDR rules match regardless of how the address was received.
 	addr = addr.Unmap()
+
+	for _, prefix := range f.TrustedCIDRs {
+		if prefix.Contains(addr) {
+			return Allow
+		}
+	}
 
 	if v := f.checkCIDR(addr); v != Allow {
 		return v
