@@ -403,4 +403,9 @@ func TestFilter_HasRestrictions_CrowdSec(t *testing.T) {
 	cs := &mockCrowdSec{ready: true}
 	f := ParseFilter(FilterConfig{CrowdSec: cs, CrowdSecMode: CrowdSecEnforce})
 	assert.True(t, f.HasRestrictions())
+
+	// Enforce mode without checker (LAPI not configured): still has restrictions
+	// because Check() will fail-closed with DenyCrowdSecUnavailable.
+	f2 := ParseFilter(FilterConfig{CrowdSec: nil, CrowdSecMode: CrowdSecEnforce})
+	assert.True(t, f2.HasRestrictions())
 }

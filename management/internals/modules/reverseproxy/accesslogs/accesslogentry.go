@@ -1,6 +1,7 @@
 package accesslogs
 
 import (
+	"maps"
 	"net"
 	"net/netip"
 	"time"
@@ -57,7 +58,7 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.BytesDownload = serviceLog.GetBytesDownload()
 	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
 	if m := serviceLog.GetMetadata(); len(m) > 0 {
-		a.Metadata = m
+		a.Metadata = maps.Clone(m)
 	}
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {

@@ -170,6 +170,9 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	if verdict.IsCrowdSec() {
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetMetadata("crowdsec_verdict", verdict.String())
+			if config.IPRestrictions.IsObserveOnly(verdict) {
+				cd.SetMetadata("crowdsec_mode", "observe")
+			}
 		}
 	}
 

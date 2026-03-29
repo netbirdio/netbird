@@ -4,6 +4,7 @@ package crowdsec
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"strings"
 	"sync"
@@ -83,6 +84,11 @@ func (b *Bouncer) Start(ctx context.Context) error {
 	done := make(chan struct{})
 
 	b.lifeMu.Lock()
+	if b.cancel != nil {
+		b.lifeMu.Unlock()
+		cancel()
+		return errors.New("bouncer already started")
+	}
 	b.cancel = cancel
 	b.done = done
 	b.lifeMu.Unlock()

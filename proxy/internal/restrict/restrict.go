@@ -174,7 +174,12 @@ func (v Verdict) String() string {
 
 // IsCrowdSec returns true when the verdict originates from a CrowdSec check.
 func (v Verdict) IsCrowdSec() bool {
-	return v >= DenyCrowdSecBan && v <= DenyCrowdSecUnavailable
+	switch v {
+	case DenyCrowdSecBan, DenyCrowdSecCaptcha, DenyCrowdSecThrottle, DenyCrowdSecUnavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsObserveOnly returns true when v is a CrowdSec verdict and the filter is in
@@ -306,5 +311,5 @@ func (f *Filter) HasRestrictions() bool {
 	}
 	return len(f.AllowedCIDRs) > 0 || len(f.BlockedCIDRs) > 0 ||
 		len(f.AllowedCountries) > 0 || len(f.BlockedCountries) > 0 ||
-		(f.CrowdSec != nil && f.CrowdSecMode != CrowdSecOff)
+		f.CrowdSecMode == CrowdSecEnforce || f.CrowdSecMode == CrowdSecObserve
 }

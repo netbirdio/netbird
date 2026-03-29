@@ -139,8 +139,8 @@ func (m Manager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string
 	return m.store.GetClusterRequireSubdomain(ctx, clusterAddr)
 }
 
-// ClusterSupportsCrowdSec returns whether any active proxy in the cluster
-// has CrowdSec configured. Returns nil when no proxy has reported capabilities.
+// ClusterSupportsCrowdSec returns whether all active proxies in the cluster
+// have CrowdSec configured (unanimous). Returns nil when no proxy has reported capabilities.
 func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return m.store.GetClusterSupportsCrowdSec(ctx, clusterAddr)
 }
