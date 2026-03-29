@@ -370,19 +370,134 @@ func TestFilter_IsObserveOnly(t *testing.T) {
 	assert.False(t, f2.IsObserveOnly(DenyCrowdSecBan))
 }
 
-func TestFilter_CrowdSec_CIDR_RunsBeforeCrowdSec(t *testing.T) {
+// TestFilter_LayerInteraction exercises the evaluation order across all three
+// restriction layers: CIDR -> Country -> CrowdSec. Each layer can only further
+// restrict; no layer can relax a denial from an earlier layer.
+//
+//	Layer order    | Behavior
+//	---------------|-------------------------------------------------------
+//	1. CIDR        | Allowlist narrows to specific ranges, blocklist removes
+//	               | specific ranges. Deny here → stop, CrowdSec never runs.
+//	2. Country     | Allowlist/blocklist by geo. Deny here → stop.
+//	3. CrowdSec    | IP reputation. Can block IPs that passed layers 1-2.
+//	               | Observe mode: verdict returned but caller doesn't block.
+func TestFilter_LayerInteraction(t *testing.T) {
+	bannedIP := "10.1.2.3"
+	cleanIP := "10.2.3.4"
+	outsideIP := "192.168.1.1"
+
 	cs := &mockCrowdSec{
-		decisions: map[string]*CrowdSecDecision{"10.0.0.1": {Type: DecisionBan}},
+		decisions: map[string]*CrowdSecDecision{bannedIP: {Type: DecisionBan}},
 		ready:     true,
 	}
-	f := ParseFilter(FilterConfig{
-		AllowedCIDRs: []string{"192.168.0.0/16"},
-		CrowdSec:     cs,
-		CrowdSecMode: CrowdSecEnforce,
+	geo := newMockGeo(map[string]string{
+		bannedIP:  "US",
+		cleanIP:   "US",
+		outsideIP: "CN",
 	})
 
-	// IP not in CIDR allowlist: denied by CIDR before CrowdSec runs.
-	assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr("10.0.0.1"), nil))
+	tests := []struct {
+		name   string
+		config FilterConfig
+		addr   string
+		want   Verdict
+	}{
+		// CIDR allowlist + CrowdSec enforce: CrowdSec blocks inside allowed range
+		{
+			name:   "allowed CIDR + CrowdSec banned",
+			config: FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   bannedIP,
+			want:   DenyCrowdSecBan,
+		},
+		{
+			name:   "allowed CIDR + CrowdSec clean",
+			config: FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   cleanIP,
+			want:   Allow,
+		},
+		{
+			name:   "CIDR deny stops before CrowdSec",
+			config: FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   outsideIP,
+			want:   DenyCIDR,
+		},
+
+		// CIDR blocklist + CrowdSec enforce: blocklist blocks first, CrowdSec blocks remaining
+		{
+			name:   "blocked CIDR stops before CrowdSec",
+			config: FilterConfig{BlockedCIDRs: []string{"10.1.0.0/16"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   bannedIP,
+			want:   DenyCIDR,
+		},
+		{
+			name:   "not in blocklist + CrowdSec clean",
+			config: FilterConfig{BlockedCIDRs: []string{"10.1.0.0/16"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   cleanIP,
+			want:   Allow,
+		},
+
+		// Country allowlist + CrowdSec enforce
+		{
+			name:   "allowed country + CrowdSec banned",
+			config: FilterConfig{AllowedCountries: []string{"US"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   bannedIP,
+			want:   DenyCrowdSecBan,
+		},
+		{
+			name:   "country deny stops before CrowdSec",
+			config: FilterConfig{AllowedCountries: []string{"US"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
+			addr:   outsideIP,
+			want:   DenyCountry,
+		},
+
+		// All three layers: CIDR allowlist + country blocklist + CrowdSec
+		{
+			name: "all layers: CIDR allow + country allow + CrowdSec ban",
+			config: FilterConfig{
+				AllowedCIDRs:     []string{"10.0.0.0/8"},
+				BlockedCountries: []string{"CN"},
+				CrowdSec:         cs,
+				CrowdSecMode:     CrowdSecEnforce,
+			},
+			addr: bannedIP, // 10.x (CIDR ok), US (country ok), banned (CrowdSec deny)
+			want: DenyCrowdSecBan,
+		},
+		{
+			name: "all layers: CIDR deny short-circuits everything",
+			config: FilterConfig{
+				AllowedCIDRs:     []string{"10.0.0.0/8"},
+				BlockedCountries: []string{"CN"},
+				CrowdSec:         cs,
+				CrowdSecMode:     CrowdSecEnforce,
+			},
+			addr: outsideIP, // 192.x (CIDR deny)
+			want: DenyCIDR,
+		},
+
+		// Observe mode: verdict returned but IsObserveOnly is true
+		{
+			name:   "observe mode: CrowdSec banned inside allowed CIDR",
+			config: FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecObserve},
+			addr:   bannedIP,
+			want:   DenyCrowdSecBan, // verdict is ban, caller checks IsObserveOnly
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := ParseFilter(tc.config)
+			got := f.Check(netip.MustParseAddr(tc.addr), geo)
+			assert.Equal(t, tc.want, got)
+
+			// Verify observe mode flag when applicable.
+			if tc.config.CrowdSecMode == CrowdSecObserve && got.IsCrowdSec() {
+				assert.True(t, f.IsObserveOnly(got), "observe mode verdict should be observe-only")
+			}
+			if tc.config.CrowdSecMode == CrowdSecEnforce && got.IsCrowdSec() {
+				assert.False(t, f.IsObserveOnly(got), "enforce mode verdict should not be observe-only")
+			}
+		})
+	}
 }
 
 func TestFilter_CrowdSec_Enforce_NilChecker(t *testing.T) {
