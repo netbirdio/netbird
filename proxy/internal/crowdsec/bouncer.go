@@ -17,17 +17,12 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 )
 
-type prefixEntry struct {
-	prefix   netip.Prefix
-	decision *restrict.CrowdSecDecision
-}
-
 // Bouncer wraps a CrowdSec StreamBouncer, maintaining a local cache of
 // active decisions for fast IP lookups. It implements restrict.CrowdSecChecker.
 type Bouncer struct {
 	mu       sync.RWMutex
 	ips      map[netip.Addr]*restrict.CrowdSecDecision
-	prefixes []prefixEntry
+	prefixes map[netip.Prefix]*restrict.CrowdSecDecision
 	ready    atomic.Bool
 
 	apiURL         string
@@ -47,10 +42,11 @@ var _ restrict.CrowdSecChecker = (*Bouncer)(nil)
 // NewBouncer creates a bouncer but does not start the stream.
 func NewBouncer(apiURL, apiKey string, logger *log.Entry) *Bouncer {
 	return &Bouncer{
-		apiURL: apiURL,
-		apiKey: apiKey,
-		logger: logger,
-		ips:    make(map[netip.Addr]*restrict.CrowdSecDecision),
+		apiURL:   apiURL,
+		apiKey:   apiKey,
+		logger:   logger,
+		ips:      make(map[netip.Addr]*restrict.CrowdSecDecision),
+		prefixes: make(map[netip.Prefix]*restrict.CrowdSecDecision),
 	}
 }
 
@@ -70,6 +66,8 @@ func (b *Bouncer) Start(ctx context.Context) error {
 		RetryInitialConnect: true,
 	}
 
+	b.logger.Infof("connecting to CrowdSec LAPI at %s", b.apiURL)
+
 	if err := stream.Init(); err != nil {
 		return err
 	}
@@ -77,7 +75,7 @@ func (b *Bouncer) Start(ctx context.Context) error {
 	// Reset state from any previous run.
 	b.mu.Lock()
 	b.ips = make(map[netip.Addr]*restrict.CrowdSecDecision)
-	b.prefixes = nil
+	b.prefixes = make(map[netip.Prefix]*restrict.CrowdSecDecision)
 	b.mu.Unlock()
 	b.ready.Store(false)
 
@@ -133,6 +131,10 @@ func (b *Bouncer) Ready() bool {
 
 // CheckIP looks up addr in the local decision cache. Returns nil if no
 // active decision exists for the address.
+//
+// Prefix lookups are O(1): instead of scanning all stored prefixes, we
+// probe the map for every possible containing prefix of the address
+// (at most 33 for IPv4, 129 for IPv6).
 func (b *Bouncer) CheckIP(addr netip.Addr) *restrict.CrowdSecDecision {
 	addr = addr.Unmap()
 
@@ -143,9 +145,16 @@ func (b *Bouncer) CheckIP(addr netip.Addr) *restrict.CrowdSecDecision {
 		return d
 	}
 
-	for _, pe := range b.prefixes {
-		if pe.prefix.Contains(addr) {
-			return pe.decision
+	maxBits := 32
+	if addr.Is6() {
+		maxBits = 128
+	}
+	// Walk from most-specific to least-specific prefix so the narrowest
+	// matching decision wins when ranges overlap.
+	for bits := maxBits; bits >= 0; bits-- {
+		prefix := netip.PrefixFrom(addr, bits).Masked()
+		if d, ok := b.prefixes[prefix]; ok {
+			return d
 		}
 	}
 
@@ -189,8 +198,8 @@ func (b *Bouncer) applyDeleted(decisions []*models.Decision) {
 				b.logger.Debugf("skip unparsable CrowdSec range deletion %q: %v", value, err)
 				continue
 			}
-			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits())
-			b.removePrefix(prefix)
+			prefix = normalizePrefix(prefix)
+			delete(b.prefixes, prefix)
 		} else {
 			addr, err := netip.ParseAddr(value)
 			if err != nil {
@@ -216,10 +225,8 @@ func (b *Bouncer) applyNew(decisions []*models.Decision) {
 				b.logger.Debugf("skip unparsable CrowdSec range %q: %v", value, err)
 				continue
 			}
-			// Normalize v4-mapped-v6 prefix base so Contains() matches unmapped query addresses.
-			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits())
-			b.removePrefix(prefix)
-			b.prefixes = append(b.prefixes, prefixEntry{prefix: prefix, decision: dec})
+			prefix = normalizePrefix(prefix)
+			b.prefixes[prefix] = dec
 		} else {
 			addr, err := netip.ParseAddr(value)
 			if err != nil {
@@ -231,12 +238,8 @@ func (b *Bouncer) applyNew(decisions []*models.Decision) {
 	}
 }
 
-func (b *Bouncer) removePrefix(target netip.Prefix) {
-	for i := 0; i < len(b.prefixes); i++ {
-		if b.prefixes[i].prefix == target {
-			b.prefixes[i] = b.prefixes[len(b.prefixes)-1]
-			b.prefixes = b.prefixes[:len(b.prefixes)-1]
-			return
-		}
-	}
+// normalizePrefix unmaps v4-mapped-v6 addresses and zeros host bits so
+// the prefix is a valid map key that matches CheckIP's probe logic.
+func normalizePrefix(p netip.Prefix) netip.Prefix {
+	return netip.PrefixFrom(p.Addr().Unmap(), p.Bits()).Masked()
 }

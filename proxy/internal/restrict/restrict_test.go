@@ -385,6 +385,20 @@ func TestFilter_CrowdSec_CIDR_RunsBeforeCrowdSec(t *testing.T) {
 	assert.Equal(t, DenyCIDR, f.Check(netip.MustParseAddr("10.0.0.1"), nil))
 }
 
+func TestFilter_CrowdSec_Enforce_NilChecker(t *testing.T) {
+	// LAPI not configured: checker is nil but mode is enforce. Must fail closed.
+	f := ParseFilter(FilterConfig{CrowdSec: nil, CrowdSecMode: CrowdSecEnforce})
+
+	assert.Equal(t, DenyCrowdSecUnavailable, f.Check(netip.MustParseAddr("1.2.3.4"), nil))
+}
+
+func TestFilter_CrowdSec_Observe_NilChecker(t *testing.T) {
+	// LAPI not configured: checker is nil but mode is observe. Must allow.
+	f := ParseFilter(FilterConfig{CrowdSec: nil, CrowdSecMode: CrowdSecObserve})
+
+	assert.Equal(t, Allow, f.Check(netip.MustParseAddr("1.2.3.4"), nil))
+}
+
 func TestFilter_HasRestrictions_CrowdSec(t *testing.T) {
 	cs := &mockCrowdSec{ready: true}
 	f := ParseFilter(FilterConfig{CrowdSec: cs, CrowdSecMode: CrowdSecEnforce})

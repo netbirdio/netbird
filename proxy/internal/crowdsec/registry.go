@@ -96,6 +96,7 @@ func (r *Registry) startLocked() {
 
 func (r *Registry) stopLocked() {
 	r.bouncer.Stop()
+	r.cancel()
 	r.bouncer = nil
 	r.cancel = nil
 	r.logger.Info("CrowdSec bouncer stopped")

@@ -40,10 +40,7 @@ func TestBouncer_CheckIP_ExactMatch(t *testing.T) {
 func TestBouncer_CheckIP_PrefixMatch(t *testing.T) {
 	b := newTestBouncer()
 	b.ready.Store(true)
-	b.prefixes = append(b.prefixes, prefixEntry{
-		prefix:   netip.MustParsePrefix("192.168.1.0/24"),
-		decision: &restrict.CrowdSecDecision{Type: restrict.DecisionBan},
-	})
+	b.prefixes[netip.MustParsePrefix("192.168.1.0/24")] = &restrict.CrowdSecDecision{Type: restrict.DecisionBan}
 
 	d := b.CheckIP(netip.MustParseAddr("192.168.1.100"))
 	require.NotNil(t, d)
@@ -74,10 +71,7 @@ func TestBouncer_CheckIP_ExactBeforePrefix(t *testing.T) {
 	b := newTestBouncer()
 	b.ready.Store(true)
 	b.ips[netip.MustParseAddr("10.0.0.1")] = &restrict.CrowdSecDecision{Type: restrict.DecisionCaptcha}
-	b.prefixes = append(b.prefixes, prefixEntry{
-		prefix:   netip.MustParsePrefix("10.0.0.0/8"),
-		decision: &restrict.CrowdSecDecision{Type: restrict.DecisionBan},
-	})
+	b.prefixes[netip.MustParsePrefix("10.0.0.0/8")] = &restrict.CrowdSecDecision{Type: restrict.DecisionBan}
 
 	d := b.CheckIP(netip.MustParseAddr("10.0.0.1"))
 	require.NotNil(t, d)
@@ -109,7 +103,7 @@ func TestBouncer_ApplyNew_Range(t *testing.T) {
 	))
 
 	require.Len(t, b.prefixes, 1)
-	assert.Equal(t, netip.MustParsePrefix("10.0.0.0/8"), b.prefixes[0].prefix)
+	assert.NotNil(t, b.prefixes[netip.MustParsePrefix("10.0.0.0/8")])
 }
 
 func TestBouncer_ApplyDeleted_IP(t *testing.T) {
@@ -128,17 +122,15 @@ func TestBouncer_ApplyDeleted_IP(t *testing.T) {
 
 func TestBouncer_ApplyDeleted_Range(t *testing.T) {
 	b := newTestBouncer()
-	b.prefixes = append(b.prefixes,
-		prefixEntry{prefix: netip.MustParsePrefix("10.0.0.0/8"), decision: &restrict.CrowdSecDecision{Type: restrict.DecisionBan}},
-		prefixEntry{prefix: netip.MustParsePrefix("192.168.0.0/16"), decision: &restrict.CrowdSecDecision{Type: restrict.DecisionBan}},
-	)
+	b.prefixes[netip.MustParsePrefix("10.0.0.0/8")] = &restrict.CrowdSecDecision{Type: restrict.DecisionBan}
+	b.prefixes[netip.MustParsePrefix("192.168.0.0/16")] = &restrict.CrowdSecDecision{Type: restrict.DecisionBan}
 
 	b.applyDeleted(makeDecisions(
 		decision{scope: "range", value: "10.0.0.0/8", dtype: "ban"},
 	))
 
 	require.Len(t, b.prefixes, 1)
-	assert.Equal(t, netip.MustParsePrefix("192.168.0.0/16"), b.prefixes[0].prefix)
+	assert.NotNil(t, b.prefixes[netip.MustParsePrefix("192.168.0.0/16")])
 }
 
 func TestBouncer_ApplyNew_OverwritesExisting(t *testing.T) {
@@ -229,8 +221,9 @@ func TestBouncer_StreamIntegration(t *testing.T) {
 
 func newTestBouncer() *Bouncer {
 	return &Bouncer{
-		ips:    make(map[netip.Addr]*restrict.CrowdSecDecision),
-		logger: log.NewEntry(log.StandardLogger()),
+		ips:      make(map[netip.Addr]*restrict.CrowdSecDecision),
+		prefixes: make(map[netip.Prefix]*restrict.CrowdSecDecision),
+		logger:   log.NewEntry(log.StandardLogger()),
 	}
 }
 

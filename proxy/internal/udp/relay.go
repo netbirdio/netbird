@@ -516,11 +516,12 @@ func (r *Relay) logDeny(clientIP netip.Addr, verdict restrict.Verdict, observeOn
 		SourceIP:   clientIP,
 		DenyReason: verdict.String(),
 	}
-	if observeOnly {
-		entry.DenyReason = "crowdsec_observe"
-	}
 	if verdict.IsCrowdSec() {
 		entry.Metadata = map[string]string{"crowdsec_verdict": verdict.String()}
+		if observeOnly {
+			entry.Metadata["crowdsec_mode"] = "observe"
+			entry.DenyReason = ""
+		}
 	}
 	r.accessLog.LogL4(entry)
 }

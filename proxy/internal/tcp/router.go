@@ -634,11 +634,12 @@ func (r *Router) logL4Deny(route Route, conn net.Conn, verdict restrict.Verdict,
 		SourceIP:   sourceIP,
 		DenyReason: verdict.String(),
 	}
-	if observeOnly {
-		entry.DenyReason = "crowdsec_observe"
-	}
 	if verdict.IsCrowdSec() {
 		entry.Metadata = map[string]string{"crowdsec_verdict": verdict.String()}
+		if observeOnly {
+			entry.Metadata["crowdsec_mode"] = "observe"
+			entry.DenyReason = ""
+		}
 	}
 	al.LogL4(entry)
 }
