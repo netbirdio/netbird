@@ -155,7 +155,7 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 	var needsLogin bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		_, err := a.doMgmLogin(client, ctx, pubSSHKey)
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isLoginNeeded(err) {
 			needsLogin = true
 			return nil
@@ -179,7 +179,7 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 	var isAuthError bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		_, err := a.doMgmLogin(client, ctx, pubSSHKey)
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isRegistrationNeeded(err) {
 			log.Debugf("peer registration required")
 			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
@@ -280,10 +280,11 @@ func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, 
 }
 
 // doMgmLogin performs the actual login operation with the management service
-func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
+func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) error {
 	sysInfo := system.GetInfo(ctx)
 	a.setSystemInfoFlags(sysInfo)
-	return client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
+	_, err := client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
+	return err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
