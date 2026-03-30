@@ -1748,3 +1748,26 @@ func sendTerminalNotification() error {
 
 	return wallCmd.Wait()
 }
+
+// FlushDNSCache flushes the DNS forwarder cache.
+func (s *Server) FlushDNSCache(ctx context.Context, _ *proto.FlushDNSCacheRequest) (*proto.FlushDNSCacheResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil, ErrServiceNotUp
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, ErrServiceNotUp
+	}
+
+	engine.FlushDNSCache()
+	return &proto.FlushDNSCacheResponse{}, nil
+}
