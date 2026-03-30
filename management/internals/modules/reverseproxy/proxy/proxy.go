@@ -22,7 +22,7 @@ type Proxy struct {
 	ConnectedAt    *time.Time
 	DisconnectedAt *time.Time
 	Status         string `gorm:"type:varchar(20);not null;index:idx_proxy_cluster_status"`
-	Capabilities   `gorm:"embedded"`
+	Capabilities   Capabilities `gorm:"embedded"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
