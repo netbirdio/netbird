@@ -19,7 +19,7 @@ import (
 const serviceParamsFile = "service.json"
 
 // serviceParams holds install-time service parameters that persist across
-// uninstall/reinstall cycles. Saved to <configDir>/service.json.
+// uninstall/reinstall cycles. Saved to <stateDir>/service.json.
 type serviceParams struct {
 	LogLevel              string            `json:"log_level"`
 	DaemonAddr            string            `json:"daemon_addr"`
