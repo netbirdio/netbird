@@ -57,9 +57,7 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.BytesUpload = serviceLog.GetBytesUpload()
 	a.BytesDownload = serviceLog.GetBytesDownload()
 	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
-	if m := serviceLog.GetMetadata(); len(m) > 0 {
-		a.Metadata = maps.Clone(m)
-	}
+	a.Metadata = maps.Clone(serviceLog.GetMetadata())
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
 		if addr, err := netip.ParseAddr(sourceIP); err == nil {
