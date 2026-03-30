@@ -28,7 +28,7 @@ func TestRewriteFunc_HostRewriting(t *testing.T) {
 	p := &ReverseProxy{forwardedProto: "auto"}
 
 	t.Run("rewrites host to backend by default", func(t *testing.T) {
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "https://public.example.com/path", "203.0.113.1:12345")
 
 		rewrite(pr)
@@ -37,7 +37,7 @@ func TestRewriteFunc_HostRewriting(t *testing.T) {
 	})
 
 	t.Run("preserves original host when passHostHeader is true", func(t *testing.T) {
-		rewrite := p.rewriteFunc(target, "", true, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", true, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "https://public.example.com/path", "203.0.113.1:12345")
 
 		rewrite(pr)
@@ -52,7 +52,7 @@ func TestRewriteFunc_HostRewriting(t *testing.T) {
 func TestRewriteFunc_XForwardedForStripping(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
 	p := &ReverseProxy{forwardedProto: "auto"}
-	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 	t.Run("sets X-Forwarded-For from direct connection IP", func(t *testing.T) {
 		pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
@@ -89,7 +89,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("sets X-Forwarded-Host to original host", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://myapp.example.com:8443/path", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -99,7 +99,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("sets X-Forwarded-Port from explicit host port", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com:8443/path", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -109,7 +109,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("defaults X-Forwarded-Port to 443 for https", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "https://example.com/", "1.2.3.4:5000")
 		pr.In.TLS = &tls.ConnectionState{}
 
@@ -120,7 +120,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("defaults X-Forwarded-Port to 80 for http", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -130,7 +130,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("auto detects https from TLS", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "https://example.com/", "1.2.3.4:5000")
 		pr.In.TLS = &tls.ConnectionState{}
 
@@ -141,7 +141,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("auto detects http without TLS", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -151,7 +151,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("forced proto overrides TLS detection", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "https"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 		// No TLS, but forced to https
 
@@ -162,7 +162,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 
 	t.Run("forced http proto", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "http"}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "https://example.com/", "1.2.3.4:5000")
 		pr.In.TLS = &tls.ConnectionState{}
 
@@ -175,7 +175,7 @@ func TestRewriteFunc_ForwardedHostAndProto(t *testing.T) {
 func TestRewriteFunc_SessionCookieStripping(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
 	p := &ReverseProxy{forwardedProto: "auto"}
-	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 	t.Run("strips nb_session cookie", func(t *testing.T) {
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
@@ -220,7 +220,7 @@ func TestRewriteFunc_SessionCookieStripping(t *testing.T) {
 func TestRewriteFunc_SessionTokenQueryStripping(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
 	p := &ReverseProxy{forwardedProto: "auto"}
-	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 	t.Run("strips session_token query parameter", func(t *testing.T) {
 		pr := newProxyRequest(t, "http://example.com/callback?session_token=secret123&other=keep", "1.2.3.4:5000")
@@ -248,7 +248,7 @@ func TestRewriteFunc_URLRewriting(t *testing.T) {
 
 	t.Run("rewrites URL to target with path prefix", func(t *testing.T) {
 		target, _ := url.Parse("http://backend.internal:8080/app")
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/somepath", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -261,7 +261,7 @@ func TestRewriteFunc_URLRewriting(t *testing.T) {
 
 	t.Run("strips matched path prefix to avoid duplication", func(t *testing.T) {
 		target, _ := url.Parse("https://backend.example.org:443/app")
-		rewrite := p.rewriteFunc(target, "/app", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/app", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/app", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -274,7 +274,7 @@ func TestRewriteFunc_URLRewriting(t *testing.T) {
 
 	t.Run("strips matched prefix and preserves subpath", func(t *testing.T) {
 		target, _ := url.Parse("https://backend.example.org:443/app")
-		rewrite := p.rewriteFunc(target, "/app", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/app", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/app/article/123", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -284,23 +284,23 @@ func TestRewriteFunc_URLRewriting(t *testing.T) {
 	})
 }
 
-func TestExtractClientIP(t *testing.T) {
+func TestExtractHostIP(t *testing.T) {
 	tests := []struct {
 		name       string
 		remoteAddr string
-		expected   string
+		expected   netip.Addr
 	}{
-		{"IPv4 with port", "192.168.1.1:12345", "192.168.1.1"},
-		{"IPv6 with port", "[::1]:12345", "::1"},
-		{"IPv6 full with port", "[2001:db8::1]:443", "2001:db8::1"},
-		{"IPv4 without port fallback", "192.168.1.1", "192.168.1.1"},
-		{"IPv6 without brackets fallback", "::1", "::1"},
-		{"empty string fallback", "", ""},
-		{"public IP", "203.0.113.50:9999", "203.0.113.50"},
+		{"IPv4 with port", "192.168.1.1:12345", netip.MustParseAddr("192.168.1.1")},
+		{"IPv6 with port", "[::1]:12345", netip.MustParseAddr("::1")},
+		{"IPv6 full with port", "[2001:db8::1]:443", netip.MustParseAddr("2001:db8::1")},
+		{"IPv4 without port fallback", "192.168.1.1", netip.MustParseAddr("192.168.1.1")},
+		{"IPv6 without brackets fallback", "::1", netip.MustParseAddr("::1")},
+		{"empty string fallback", "", netip.Addr{}},
+		{"public IP", "203.0.113.50:9999", netip.MustParseAddr("203.0.113.50")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractClientIP(tt.remoteAddr))
+			assert.Equal(t, tt.expected, extractHostIP(tt.remoteAddr))
 		})
 	}
 }
@@ -332,7 +332,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("appends to X-Forwarded-For", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
@@ -344,7 +344,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("preserves upstream X-Real-IP", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
@@ -357,7 +357,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("resolves X-Real-IP from XFF when not set by upstream", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.2")
@@ -370,7 +370,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("preserves upstream X-Forwarded-Host", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://proxy.internal/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-Host", "original.example.com")
@@ -382,7 +382,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("preserves upstream X-Forwarded-Proto", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-Proto", "https")
@@ -394,7 +394,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("preserves upstream X-Forwarded-Port", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-Port", "8443")
@@ -406,7 +406,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("falls back to local proto when upstream does not set it", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "https", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 
@@ -418,7 +418,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("sets X-Forwarded-Host from request when upstream does not set it", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 
@@ -429,7 +429,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("untrusted RemoteAddr strips headers even with trusted list", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
 		pr.In.Header.Set("X-Forwarded-For", "10.0.0.1, 172.16.0.1")
@@ -454,7 +454,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("empty trusted list behaves as untrusted", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: nil}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 		pr.In.Header.Set("X-Forwarded-For", "203.0.113.50")
@@ -467,7 +467,7 @@ func TestRewriteFunc_TrustedProxy(t *testing.T) {
 
 	t.Run("XFF starts fresh when trusted proxy has no upstream XFF", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
-		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 		pr := newProxyRequest(t, "http://example.com/", "10.0.0.1:5000")
 
@@ -490,7 +490,7 @@ func TestRewriteFunc_PathForwarding(t *testing.T) {
 	t.Run("path prefix baked into target URL is a no-op", func(t *testing.T) {
 		// Management builds: path="/heise", target="https://heise.de:443/heise"
 		target, _ := url.Parse("https://heise.de:443/heise")
-		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -501,7 +501,7 @@ func TestRewriteFunc_PathForwarding(t *testing.T) {
 
 	t.Run("subpath under prefix also preserved", func(t *testing.T) {
 		target, _ := url.Parse("https://heise.de:443/heise")
-		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://external.test/heise/article/123", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -513,7 +513,7 @@ func TestRewriteFunc_PathForwarding(t *testing.T) {
 	// What the behavior WOULD be if target URL had no path (true stripping)
 	t.Run("target without path prefix gives true stripping", func(t *testing.T) {
 		target, _ := url.Parse("https://heise.de:443")
-		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -524,7 +524,7 @@ func TestRewriteFunc_PathForwarding(t *testing.T) {
 
 	t.Run("target without path prefix strips and preserves subpath", func(t *testing.T) {
 		target, _ := url.Parse("https://heise.de:443")
-		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/heise", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://external.test/heise/article/123", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -536,7 +536,7 @@ func TestRewriteFunc_PathForwarding(t *testing.T) {
 	// Root path "/" — no stripping expected
 	t.Run("root path forwards full request path unchanged", func(t *testing.T) {
 		target, _ := url.Parse("https://backend.example.com:443/")
-		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://external.test/heise", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -551,7 +551,7 @@ func TestRewriteFunc_PreservePath(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
 
 	t.Run("preserve keeps full request path", func(t *testing.T) {
-		rewrite := p.rewriteFunc(target, "/api", false, PathRewritePreserve, nil)
+		rewrite := p.rewriteFunc(target, "/api", false, PathRewritePreserve, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/api/users/123", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -561,7 +561,7 @@ func TestRewriteFunc_PreservePath(t *testing.T) {
 	})
 
 	t.Run("preserve with root matchedPath", func(t *testing.T) {
-		rewrite := p.rewriteFunc(target, "/", false, PathRewritePreserve, nil)
+		rewrite := p.rewriteFunc(target, "/", false, PathRewritePreserve, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/anything", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -579,7 +579,7 @@ func TestRewriteFunc_CustomHeaders(t *testing.T) {
 			"X-Custom-Auth": "token-abc",
 			"X-Env":         "production",
 		}
-		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, headers)
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, headers, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -589,7 +589,7 @@ func TestRewriteFunc_CustomHeaders(t *testing.T) {
 	})
 
 	t.Run("nil customHeaders is fine", func(t *testing.T) {
-		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, nil)
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, nil, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 
 		rewrite(pr)
@@ -599,7 +599,7 @@ func TestRewriteFunc_CustomHeaders(t *testing.T) {
 
 	t.Run("custom headers override existing request headers", func(t *testing.T) {
 		headers := map[string]string{"X-Override": "new-value"}
-		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, headers)
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, headers, nil)
 		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
 		pr.In.Header.Set("X-Override", "old-value")
 
@@ -609,11 +609,38 @@ func TestRewriteFunc_CustomHeaders(t *testing.T) {
 	})
 }
 
+func TestRewriteFunc_StripsAuthorizationHeader(t *testing.T) {
+	p := &ReverseProxy{forwardedProto: "auto"}
+	target, _ := url.Parse("http://backend.internal:8080")
+
+	t.Run("strips incoming Authorization when no custom Authorization set", func(t *testing.T) {
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, nil, []string{"Authorization"})
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Authorization", "Bearer proxy-token")
+
+		rewrite(pr)
+
+		assert.Empty(t, pr.Out.Header.Get("Authorization"), "Authorization should be stripped")
+	})
+
+	t.Run("custom Authorization replaces incoming", func(t *testing.T) {
+		headers := map[string]string{"Authorization": "Basic YmFja2VuZDpzZWNyZXQ="}
+		rewrite := p.rewriteFunc(target, "/", false, PathRewriteDefault, headers, []string{"Authorization"})
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Authorization", "Bearer proxy-token")
+
+		rewrite(pr)
+
+		assert.Equal(t, "Basic YmFja2VuZDpzZWNyZXQ=", pr.Out.Header.Get("Authorization"),
+			"backend Authorization from custom headers should be set")
+	})
+}
+
 func TestRewriteFunc_PreservePathWithCustomHeaders(t *testing.T) {
 	p := &ReverseProxy{forwardedProto: "auto"}
 	target, _ := url.Parse("http://backend.internal:8080")
 
-	rewrite := p.rewriteFunc(target, "/api", false, PathRewritePreserve, map[string]string{"X-Via": "proxy"})
+	rewrite := p.rewriteFunc(target, "/api", false, PathRewritePreserve, map[string]string{"X-Via": "proxy"}, nil)
 	pr := newProxyRequest(t, "http://example.com/api/deep/path", "1.2.3.4:5000")
 
 	rewrite(pr)

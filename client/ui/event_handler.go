@@ -82,7 +82,7 @@ func (h *eventHandler) handleConnectClick() {
 	go func() {
 		defer connectCancel()
 
-		if err := h.client.menuUpClick(connectCtx, true); err != nil {
+		if err := h.client.menuUpClick(connectCtx); err != nil {
 			st, ok := status.FromError(err)
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
@@ -211,9 +211,42 @@ func (h *eventHandler) handleGitHubClick() {
 }
 
 func (h *eventHandler) handleUpdateClick() {
-	if err := openURL(version.DownloadUrl()); err != nil {
-		log.Errorf("failed to open download URL: %v", err)
+	h.client.updateIndicationLock.Lock()
+	enforced := h.client.isEnforcedUpdate
+	h.client.updateIndicationLock.Unlock()
+
+	if !enforced {
+		if err := openURL(version.DownloadUrl()); err != nil {
+			log.Errorf("failed to open download URL: %v", err)
+		}
+		return
 	}
+
+	// prevent blocking against a busy server
+	h.client.mUpdate.Disable()
+	go func() {
+		defer h.client.mUpdate.Enable()
+		conn, err := h.client.getSrvClient(defaultFailTimeout)
+		if err != nil {
+			log.Errorf("failed to get service client for update: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+
+		resp, err := conn.TriggerUpdate(h.client.ctx, &proto.TriggerUpdateRequest{})
+		if err != nil {
+			log.Errorf("TriggerUpdate failed: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+		if !resp.Success {
+			log.Errorf("TriggerUpdate failed: %s", resp.ErrorMsg)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+
+		log.Infof("update triggered via daemon")
+	}()
 }
 
 func (h *eventHandler) handleNetworksClick() {

@@ -44,7 +44,7 @@ func TestValidate_EmptyDomain(t *testing.T) {
 func TestValidate_NoTargets(t *testing.T) {
 	rp := validProxy()
 	rp.Targets = nil
-	assert.ErrorContains(t, rp.Validate(), "at least one target")
+	assert.ErrorContains(t, rp.Validate(), "at least one target is required")
 }
 
 func TestValidate_EmptyTargetId(t *testing.T) {
@@ -120,9 +120,9 @@ func TestValidateTargetOptions_RequestTimeout(t *testing.T) {
 	}{
 		{"valid 30s", 30 * time.Second, ""},
 		{"valid 2m", 2 * time.Minute, ""},
+		{"valid 10m", 10 * time.Minute, ""},
 		{"zero is fine", 0, ""},
 		{"negative", -1 * time.Second, "must be positive"},
-		{"exceeds max", 10 * time.Minute, "exceeds maximum"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -273,7 +273,7 @@ func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {
 func TestIsDefaultPort(t *testing.T) {
 	tests := []struct {
 		scheme string
-		port   int
+		port   uint16
 		want   bool
 	}{
 		{"http", 80, true},
@@ -299,7 +299,7 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 		name       string
 		protocol   string
 		host       string
-		port       int
+		port       uint16
 		wantTarget string
 	}{
 		{
@@ -645,8 +645,8 @@ func TestGenerateExposeName(t *testing.T) {
 func TestExposeServiceRequest_ToService(t *testing.T) {
 	t.Run("basic HTTP service", func(t *testing.T) {
 		req := &ExposeServiceRequest{
-			Port:     8080,
-			Protocol: "http",
+			Port: 8080,
+			Mode: "http",
 		}
 
 		service := req.ToService("account-1", "peer-1", "mysvc")
@@ -658,7 +658,7 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 		require.Len(t, service.Targets, 1)
 
 		target := service.Targets[0]
-		assert.Equal(t, 8080, target.Port)
+		assert.Equal(t, uint16(8080), target.Port)
 		assert.Equal(t, "http", target.Protocol)
 		assert.Equal(t, "peer-1", target.TargetId)
 		assert.Equal(t, TargetTypePeer, target.TargetType)
@@ -728,5 +728,314 @@ func TestExposeServiceRequest_ToService(t *testing.T) {
 		require.NotNil(t, service.Auth.PinAuth)
 		require.NotNil(t, service.Auth.PasswordAuth)
 		require.NotNil(t, service.Auth.BearerAuth)
+	})
+}
+
+func TestValidate_TLSOnly(t *testing.T) {
+	rp := &Service{
+		Name:       "tls-svc",
+		Mode:       "tls",
+		Domain:     "example.com",
+		ListenPort: 8443,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
+		},
+	}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_TLSMissingListenPort(t *testing.T) {
+	rp := &Service{
+		Name:       "tls-svc",
+		Mode:       "tls",
+		Domain:     "example.com",
+		ListenPort: 0,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
+		},
+	}
+	assert.ErrorContains(t, rp.Validate(), "listen_port is required")
+}
+
+func TestValidate_TLSMissingDomain(t *testing.T) {
+	rp := &Service{
+		Name:       "tls-svc",
+		Mode:       "tls",
+		ListenPort: 8443,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 443, Enabled: true},
+		},
+	}
+	assert.ErrorContains(t, rp.Validate(), "domain is required")
+}
+
+func TestValidate_TCPValid(t *testing.T) {
+	rp := &Service{
+		Name:       "tcp-svc",
+		Mode:       "tcp",
+		Domain:     "cluster.test",
+		ListenPort: 5432,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 5432, Enabled: true},
+		},
+	}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_TCPMissingListenPort(t *testing.T) {
+	rp := &Service{
+		Name:   "tcp-svc",
+		Mode:   "tcp",
+		Domain: "cluster.test",
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 5432, Enabled: true},
+		},
+	}
+	require.NoError(t, rp.Validate(), "TCP with listen_port=0 is valid (auto-assigned by manager)")
+}
+
+func TestValidate_L4MultipleTargets(t *testing.T) {
+	rp := &Service{
+		Name:       "tcp-svc",
+		Mode:       "tcp",
+		Domain:     "cluster.test",
+		ListenPort: 5432,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 5432, Enabled: true},
+			{TargetId: "peer-2", TargetType: TargetTypePeer, Protocol: "tcp", Port: 5432, Enabled: true},
+		},
+	}
+	assert.ErrorContains(t, rp.Validate(), "exactly one target")
+}
+
+func TestValidate_L4TargetMissingPort(t *testing.T) {
+	rp := &Service{
+		Name:       "tcp-svc",
+		Mode:       "tcp",
+		Domain:     "cluster.test",
+		ListenPort: 5432,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 0, Enabled: true},
+		},
+	}
+	assert.ErrorContains(t, rp.Validate(), "port is required")
+}
+
+func TestValidate_TLSInvalidTargetType(t *testing.T) {
+	rp := &Service{
+		Name:       "tls-svc",
+		Mode:       "tls",
+		Domain:     "example.com",
+		ListenPort: 443,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: "invalid", Protocol: "tcp", Port: 443, Enabled: true},
+		},
+	}
+	assert.Error(t, rp.Validate())
+}
+
+func TestValidate_TLSSubnetValid(t *testing.T) {
+	rp := &Service{
+		Name:       "tls-subnet",
+		Mode:       "tls",
+		Domain:     "example.com",
+		ListenPort: 8443,
+		Targets: []*Target{
+			{TargetId: "subnet-1", TargetType: TargetTypeSubnet, Protocol: "tcp", Port: 443, Host: "10.0.0.5", Enabled: true},
+		},
+	}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_L4DomainTargetValid(t *testing.T) {
+	modes := []struct {
+		mode  string
+		port  uint16
+		proto string
+	}{
+		{"tcp", 5432, "tcp"},
+		{"tls", 443, "tcp"},
+		{"udp", 5432, "udp"},
+	}
+	for _, m := range modes {
+		t.Run(m.mode, func(t *testing.T) {
+			rp := &Service{
+				Name:       m.mode + "-domain",
+				Mode:       m.mode,
+				Domain:     "cluster.test",
+				ListenPort: m.port,
+				Targets: []*Target{
+					{TargetId: "resource-1", TargetType: TargetTypeDomain, Protocol: m.proto, Port: m.port, Enabled: true},
+				},
+			}
+			require.NoError(t, rp.Validate())
+		})
+	}
+}
+
+func TestValidate_HTTPProxyProtocolRejected(t *testing.T) {
+	rp := validProxy()
+	rp.Targets[0].ProxyProtocol = true
+	assert.ErrorContains(t, rp.Validate(), "proxy_protocol is not supported for HTTP")
+}
+
+func TestValidate_UDPProxyProtocolRejected(t *testing.T) {
+	rp := &Service{
+		Name:   "udp-svc",
+		Mode:   "udp",
+		Domain: "cluster.test",
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "udp", Port: 5432, Enabled: true, ProxyProtocol: true},
+		},
+	}
+	assert.ErrorContains(t, rp.Validate(), "proxy_protocol is not supported for UDP")
+}
+
+func TestValidate_TCPProxyProtocolAllowed(t *testing.T) {
+	rp := &Service{
+		Name:       "tcp-svc",
+		Mode:       "tcp",
+		Domain:     "cluster.test",
+		ListenPort: 5432,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Protocol: "tcp", Port: 5432, Enabled: true, ProxyProtocol: true},
+		},
+	}
+	require.NoError(t, rp.Validate())
+}
+
+func TestExposeServiceRequest_Validate_L4RejectsAuth(t *testing.T) {
+	tests := []struct {
+		name string
+		req  ExposeServiceRequest
+	}{
+		{
+			name: "tcp with pin",
+			req:  ExposeServiceRequest{Port: 8080, Mode: "tcp", Pin: "123456"},
+		},
+		{
+			name: "udp with password",
+			req:  ExposeServiceRequest{Port: 8080, Mode: "udp", Password: "secret"},
+		},
+		{
+			name: "tls with user groups",
+			req:  ExposeServiceRequest{Port: 443, Mode: "tls", UserGroups: []string{"admins"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "authentication is not supported")
+		})
+	}
+}
+
+func TestExposeServiceRequest_Validate_HTTPAllowsAuth(t *testing.T) {
+	req := ExposeServiceRequest{Port: 8080, Mode: "http", Pin: "123456"}
+	require.NoError(t, req.Validate())
+}
+
+func TestValidate_HeaderAuths(t *testing.T) {
+	t.Run("single valid header", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "X-API-Key", Value: "secret"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple headers same canonical name allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Authorization", Value: "Bearer token-1"},
+				{Enabled: true, Header: "Authorization", Value: "Bearer token-2"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple headers different case same canonical allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "x-api-key", Value: "key-1"},
+				{Enabled: true, Header: "X-Api-Key", Value: "key-2"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple different headers allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Authorization", Value: "Bearer tok"},
+				{Enabled: true, Header: "X-API-Key", Value: "key"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("empty header name rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "header name is required")
+	})
+
+	t.Run("hop-by-hop header rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Connection", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hop-by-hop")
+	})
+
+	t.Run("host header rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Host", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Host header cannot be used")
+	})
+
+	t.Run("disabled entries skipped", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: false, Header: "", Value: ""},
+				{Enabled: true, Header: "X-Key", Value: "val"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("value too long rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "X-Key", Value: strings.Repeat("a", maxHeaderValueLen+1)},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds maximum length")
 	})
 }

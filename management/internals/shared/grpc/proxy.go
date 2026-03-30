@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ import (
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	nbstatus "github.com/netbirdio/netbird/shared/management/status"
 )
 
 type ProxyOIDCConfig struct {
@@ -45,12 +47,6 @@ type ProxyOIDCConfig struct {
 	KeysLocation string
 }
 
-// ClusterInfo contains information about a proxy cluster.
-type ClusterInfo struct {
-	Address          string
-	ConnectedProxies int
-}
-
 // ProxyServiceServer implements the ProxyService gRPC server
 type ProxyServiceServer struct {
 	proto.UnimplementedProxyServiceServer
@@ -61,9 +57,9 @@ type ProxyServiceServer struct {
 	// Manager for access logs
 	accessLogManager accesslogs.Manager
 
+	mu sync.RWMutex
 	// Manager for reverse proxy operations
 	serviceManager rpservice.Manager
-
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -84,23 +80,26 @@ type ProxyServiceServer struct {
 
 	// Store for PKCE verifiers
 	pkceVerifierStore *PKCEVerifierStore
+
+	cancel context.CancelFunc
 }
 
 const pkceVerifierTTL = 10 * time.Minute
 
 // proxyConnection represents a connected proxy
 type proxyConnection struct {
-	proxyID  string
-	address  string
-	stream   proto.ProxyService_GetMappingUpdateServer
-	sendChan chan *proto.GetMappingUpdateResponse
-	ctx      context.Context
-	cancel   context.CancelFunc
+	proxyID      string
+	address      string
+	capabilities *proto.ProxyCapabilities
+	stream       proto.ProxyService_GetMappingUpdateServer
+	sendChan     chan *proto.GetMappingUpdateResponse
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewProxyServiceServer creates a new proxy service server.
 func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager) *ProxyServiceServer {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
@@ -109,6 +108,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		proxyManager:      proxyMgr,
+		cancel:            cancel,
 	}
 	go s.cleanupStaleProxies(ctx)
 	return s
@@ -123,18 +123,29 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.proxyManager.CleanupStale(ctx, 10*time.Minute); err != nil {
+			if err := s.proxyManager.CleanupStale(ctx, 1*time.Hour); err != nil {
 				log.WithContext(ctx).Debugf("Failed to cleanup stale proxies: %v", err)
 			}
 		}
 	}
 }
 
+// Close stops background goroutines.
+func (s *ProxyServiceServer) Close() {
+	s.cancel()
+}
+
+// SetServiceManager sets the service manager. Must be called before serving.
 func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.serviceManager = manager
 }
 
+// SetProxyController sets the proxy controller. Must be called before serving.
 func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.proxyController = proxyController
 }
 
@@ -157,12 +168,13 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	connCtx, cancel := context.WithCancel(ctx)
 	conn := &proxyConnection{
-		proxyID:  proxyID,
-		address:  proxyAddress,
-		stream:   stream,
-		sendChan: make(chan *proto.GetMappingUpdateResponse, 100),
-		ctx:      connCtx,
-		cancel:   cancel,
+		proxyID:      proxyID,
+		address:      proxyAddress,
+		capabilities: req.GetCapabilities(),
+		stream:       stream,
+		sendChan:     make(chan *proto.GetMappingUpdateResponse, 100),
+		ctx:          connCtx,
+		cancel:       cancel,
 	}
 
 	s.connectedProxies.Store(proxyID, conn)
@@ -170,9 +182,21 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
 	}
 
-	// Register proxy in database
-	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo); err != nil {
-		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)
+	// Register proxy in database with capabilities
+	var caps *proxy.Capabilities
+	if c := req.GetCapabilities(); c != nil {
+		caps = &proxy.Capabilities{
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+		}
+	}
+	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, caps); err != nil {
+		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", proxyID, err)
+		s.connectedProxies.Delete(proxyID)
+		if unregErr := s.proxyController.UnregisterProxyFromCluster(ctx, conn.address, proxyID); unregErr != nil {
+			log.WithContext(ctx).Debugf("cleanup after Connect failure for proxy %s: %v", proxyID, unregErr)
+		}
+		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
 	}
 
 	log.WithFields(log.Fields{
@@ -203,7 +227,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	go s.sender(conn, errChan)
 
 	// Start heartbeat goroutine
-	go s.heartbeat(connCtx, proxyID)
+	go s.heartbeat(connCtx, proxyID, proxyAddress, peerInfo)
 
 	select {
 	case err := <-errChan:
@@ -214,14 +238,14 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 }
 
 // heartbeat updates the proxy's last_seen timestamp every minute
-func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := s.proxyManager.Heartbeat(ctx, proxyID); err != nil {
+			if err := s.proxyManager.Heartbeat(ctx, proxyID, clusterAddress, ipAddress); err != nil {
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", proxyID, err)
 			}
 		case <-ctx.Done():
@@ -231,29 +255,18 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
 }
 
 // sendSnapshot sends the initial snapshot of services to the connecting proxy.
-// Only services matching the proxy's cluster address are sent.
+// Only entries matching the proxy's cluster address are sent.
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
-	services, err := s.serviceManager.GetGlobalServices(ctx)
-	if err != nil {
-		return fmt.Errorf("get services from store: %w", err)
-	}
-
 	if !isProxyAddressValid(conn.address) {
 		return fmt.Errorf("proxy address is invalid")
 	}
 
-	var filtered []*rpservice.Service
-	for _, service := range services {
-		if !service.Enabled {
-			continue
-		}
-		if service.ProxyCluster == "" || service.ProxyCluster != conn.address {
-			continue
-		}
-		filtered = append(filtered, service)
+	mappings, err := s.snapshotServiceMappings(ctx, conn)
+	if err != nil {
+		return err
 	}
 
-	if len(filtered) == 0 {
+	if len(mappings) == 0 {
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			InitialSyncComplete: true,
 		}); err != nil {
@@ -262,9 +275,30 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		return nil
 	}
 
-	for i, service := range filtered {
-		// Generate one-time authentication token for each service in the snapshot
-		// Tokens are not persistent on the proxy, so we need to generate new ones on reconnection
+	for i, m := range mappings {
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			Mapping:             []*proto.ProxyMapping{m},
+			InitialSyncComplete: i == len(mappings)-1,
+		}); err != nil {
+			return fmt.Errorf("send proxy mapping: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *proxyConnection) ([]*proto.ProxyMapping, error) {
+	services, err := s.serviceManager.GetGlobalServices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get services from store: %w", err)
+	}
+
+	var mappings []*proto.ProxyMapping
+	for _, service := range services {
+		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
+			continue
+		}
+
 		token, err := s.tokenStore.GenerateToken(service.AccountID, service.ID, 5*time.Minute)
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -274,25 +308,13 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 			continue
 		}
 
-		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
-			Mapping: []*proto.ProxyMapping{
-				service.ToProtoMapping(
-					rpservice.Create, // Initial snapshot, all records are "new" for the proxy.
-					token,
-					s.GetOIDCValidationConfig(),
-				),
-			},
-			InitialSyncComplete: i == len(filtered)-1,
-		}); err != nil {
-			log.WithFields(log.Fields{
-				"domain":  service.Domain,
-				"account": service.AccountID,
-			}).WithError(err).Error("failed to send proxy mapping")
-			return fmt.Errorf("send proxy mapping: %w", err)
+		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		if !proxyAcceptsMapping(conn, m) {
+			continue
 		}
+		mappings = append(mappings, m)
 	}
-
-	return nil
+	return mappings, nil
 }
 
 // isProxyAddressValid validates a proxy address
@@ -305,8 +327,8 @@ func isProxyAddressValid(addr string) bool {
 func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error) {
 	for {
 		select {
-		case msg := <-conn.sendChan:
-			if err := conn.stream.Send(msg); err != nil {
+		case resp := <-conn.sendChan:
+			if err := conn.stream.Send(resp); err != nil {
 				errChan <- err
 				return
 			}
@@ -361,12 +383,12 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateRes
 	log.Debugf("Broadcasting service update to all connected proxy servers")
 	s.connectedProxies.Range(func(key, value interface{}) bool {
 		conn := value.(*proxyConnection)
-		msg := s.perProxyMessage(update, conn.proxyID)
-		if msg == nil {
+		resp := s.perProxyMessage(update, conn.proxyID)
+		if resp == nil {
 			return true
 		}
 		select {
-		case conn.sendChan <- msg:
+		case conn.sendChan <- resp:
 			log.Debugf("Sent service update to proxy server %s", conn.proxyID)
 		default:
 			log.Warnf("Failed to send service update to proxy server %s (channel full)", conn.proxyID)
@@ -438,20 +460,44 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 
 	log.Debugf("Sending service update to cluster %s", clusterAddr)
 	for _, proxyID := range proxyIDs {
-		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
-			conn := connVal.(*proxyConnection)
-			msg := s.perProxyMessage(updateResponse, proxyID)
-			if msg == nil {
-				continue
-			}
-			select {
-			case conn.sendChan <- msg:
-				log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
-			default:
-				log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
-			}
+		connVal, ok := s.connectedProxies.Load(proxyID)
+		if !ok {
+			continue
+		}
+		conn := connVal.(*proxyConnection)
+		if !proxyAcceptsMapping(conn, update) {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
+			continue
+		}
+		msg := s.perProxyMessage(updateResponse, proxyID)
+		if msg == nil {
+			continue
+		}
+		select {
+		case conn.sendChan <- msg:
+			log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
+		default:
+			log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 		}
 	}
+}
+
+// proxyAcceptsMapping returns whether the proxy should receive this mapping.
+// Old proxies that never reported capabilities are skipped for non-TLS L4
+// mappings with a custom listen port, since they don't understand the
+// protocol. Proxies that report capabilities (even SupportsCustomPorts=false)
+// are new enough to handle the mapping. TLS uses SNI routing and works on
+// any proxy. Delete operations are always sent so proxies can clean up.
+func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
+	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
+		return true
+	}
+	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
+		return true
+	}
+	// Old proxies that never reported capabilities don't understand
+	// custom port mappings.
+	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -487,14 +533,17 @@ func (s *ProxyServiceServer) perProxyMessage(update *proto.GetMappingUpdateRespo
 // should be set on the copy.
 func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	return &proto.ProxyMapping{
-		Type:             m.Type,
-		Id:               m.Id,
-		AccountId:        m.AccountId,
-		Domain:           m.Domain,
-		Path:             m.Path,
-		Auth:             m.Auth,
-		PassHostHeader:   m.PassHostHeader,
-		RewriteRedirects: m.RewriteRedirects,
+		Type:               m.Type,
+		Id:                 m.Id,
+		AccountId:          m.AccountId,
+		Domain:             m.Domain,
+		Path:               m.Path,
+		Auth:               m.Auth,
+		PassHostHeader:     m.PassHostHeader,
+		RewriteRedirects:   m.RewriteRedirects,
+		Mode:               m.Mode,
+		ListenPort:         m.ListenPort,
+		AccessRestrictions: m.AccessRestrictions,
 	}
 }
 
@@ -524,6 +573,8 @@ func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto
 		return s.authenticatePIN(ctx, req.GetId(), v, service.Auth.PinAuth)
 	case *proto.AuthenticateRequest_Password:
 		return s.authenticatePassword(ctx, req.GetId(), v, service.Auth.PasswordAuth)
+	case *proto.AuthenticateRequest_HeaderAuth:
+		return s.authenticateHeader(ctx, req.GetId(), v, service.Auth.HeaderAuths)
 	default:
 		return false, "", ""
 	}
@@ -557,6 +608,35 @@ func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID
 	return true, "password-user", proxyauth.MethodPassword
 }
 
+func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_HeaderAuth, auths []*rpservice.HeaderAuthConfig) (bool, string, proxyauth.Method) {
+	if len(auths) == 0 {
+		log.WithContext(ctx).Debugf("header authentication attempted but no header auths configured for service %s", serviceID)
+		return false, "", ""
+	}
+
+	headerName := http.CanonicalHeaderKey(req.HeaderAuth.GetHeaderName())
+
+	var lastErr error
+	for _, auth := range auths {
+		if auth == nil || !auth.Enabled {
+			continue
+		}
+		if headerName != "" && http.CanonicalHeaderKey(auth.Header) != headerName {
+			continue
+		}
+		if err := argon2id.Verify(req.HeaderAuth.GetHeaderValue(), auth.Value); err != nil {
+			lastErr = err
+			continue
+		}
+		return true, "header-user", proxyauth.MethodHeader
+	}
+
+	if lastErr != nil {
+		s.logAuthenticationError(ctx, lastErr, "Header")
+	}
+	return false, "", ""
+}
+
 func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err error, authType string) {
 	if errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
 		log.WithContext(ctx).Tracef("%s authentication failed: invalid credentials", authType)
@@ -585,7 +665,7 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	return token, nil
 }
 
-// SendStatusUpdate handles status updates from proxy clients
+// SendStatusUpdate handles status updates from proxy clients.
 func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.SendStatusUpdateRequest) (*proto.SendStatusUpdateResponse, error) {
 	accountID := req.GetAccountId()
 	serviceID := req.GetServiceId()
@@ -604,6 +684,17 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 		return nil, status.Errorf(codes.InvalidArgument, "service_id and account_id are required")
 	}
 
+	internalStatus := protoStatusToInternal(protoStatus)
+
+	if err := s.serviceManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
+		sErr, isNbErr := nbstatus.FromError(err)
+		if isNbErr && sErr.Type() == nbstatus.NotFound {
+			return nil, status.Errorf(codes.NotFound, "service %s not found", serviceID)
+		}
+		log.WithContext(ctx).WithError(err).Error("failed to update service status")
+		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
+	}
+
 	if certificateIssued {
 		if err := s.serviceManager.SetCertificateIssuedAt(ctx, accountID, serviceID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to set certificate issued timestamp")
@@ -615,13 +706,6 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 		}).Info("Certificate issued timestamp updated")
 	}
 
-	internalStatus := protoStatusToInternal(protoStatus)
-
-	if err := s.serviceManager.SetStatus(ctx, accountID, serviceID, internalStatus); err != nil {
-		log.WithContext(ctx).WithError(err).Error("failed to update service status")
-		return nil, status.Errorf(codes.Internal, "update service status: %v", err)
-	}
-
 	log.WithFields(log.Fields{
 		"service_id": serviceID,
 		"account_id": accountID,
@@ -631,7 +715,7 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	return &proto.SendStatusUpdateResponse{}, nil
 }
 
-// protoStatusToInternal maps proto status to internal status
+// protoStatusToInternal maps proto status to internal service status.
 func protoStatusToInternal(protoStatus proto.ProxyStatus) rpservice.Status {
 	switch protoStatus {
 	case proto.ProxyStatus_PROXY_STATUS_PENDING:
@@ -710,6 +794,9 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	redirectURL, err := url.Parse(req.GetRedirectUrl())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
+	}
+	if redirectURL.Scheme != "https" && redirectURL.Scheme != "http" {
+		return nil, status.Errorf(codes.InvalidArgument, "redirect URL must use http or https scheme")
 	}
 	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
 	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
@@ -795,12 +882,9 @@ func (s *ProxyServiceServer) generateHMAC(input string) string {
 
 // ValidateState validates the state parameter from an OAuth callback.
 // Returns the original redirect URL if valid, or an error if invalid.
+// The HMAC is verified before consuming the PKCE verifier to prevent
+// an attacker from invalidating a legitimate user's auth flow.
 func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
-	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
-	if !ok {
-		return "", "", errors.New("no verifier for state")
-	}
-
 	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
 	if len(parts) != 3 {
@@ -822,6 +906,12 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 
 	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
 		return "", "", errors.New("invalid state signature")
+	}
+
+	// Consume the PKCE verifier only after HMAC validation passes.
+	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
+	if !ok {
+		return "", "", errors.New("no verifier for state")
 	}
 
 	return verifier, redirectURL, nil
@@ -1061,3 +1151,5 @@ func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *
 
 	return fmt.Errorf("user not in allowed groups")
 }
+
+func ptr[T any](v T) *T { return &v }

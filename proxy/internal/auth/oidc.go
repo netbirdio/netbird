@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -17,14 +18,14 @@ type urlGenerator interface {
 }
 
 type OIDC struct {
-	id             string
-	accountId      string
+	id             types.ServiceID
+	accountId      types.AccountID
 	forwardedProto string
 	client         urlGenerator
 }
 
 // NewOIDC creates a new OIDC authentication scheme
-func NewOIDC(client urlGenerator, id, accountId, forwardedProto string) OIDC {
+func NewOIDC(client urlGenerator, id types.ServiceID, accountId types.AccountID, forwardedProto string) OIDC {
 	return OIDC{
 		id:             id,
 		accountId:      accountId,
@@ -53,8 +54,8 @@ func (o OIDC) Authenticate(r *http.Request) (string, string, error) {
 	}
 
 	res, err := o.client.GetOIDCURL(r.Context(), &proto.GetOIDCURLRequest{
-		Id:          o.id,
-		AccountId:   o.accountId,
+		Id:          string(o.id),
+		AccountId:   string(o.accountId),
 		RedirectUrl: redirectURL.String(),
 	})
 	if err != nil {

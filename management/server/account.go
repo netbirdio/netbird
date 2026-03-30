@@ -335,7 +335,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
-			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
 			updateAccountPeers = true
 		}
 
@@ -376,6 +377,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
@@ -490,6 +492,16 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
 			"version": newSettings.AutoUpdateVersion,
 		})
+	}
+}
+
+func (am *DefaultAccountManager) handleAutoUpdateAlwaysSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+		if newSettings.AutoUpdateAlways {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysDisabled, nil)
+		}
 	}
 }
 

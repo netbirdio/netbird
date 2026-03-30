@@ -4,13 +4,16 @@ import (
 	"context"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -19,6 +22,17 @@ const (
 	bytesThreshold      = 1024 * 1024 * 1024 // Log every 1GB
 	usageCleanupPeriod  = 1 * time.Hour      // Clean up stale counters every hour
 	usageInactiveWindow = 24 * time.Hour     // Consider domain inactive if no traffic for 24 hours
+	logSendTimeout      = 10 * time.Second
+
+	// denyCooldown is the min interval between deny log entries per service+reason
+	// to prevent flooding from denied connections (e.g. UDP packets from blocked IPs).
+	denyCooldown = 10 * time.Second
+
+	// maxDenyBuckets caps tracked deny rate-limit entries to bound memory under DDoS.
+	maxDenyBuckets = 10000
+
+	// maxLogWorkers caps concurrent gRPC send goroutines.
+	maxLogWorkers = 4096
 )
 
 type domainUsage struct {
@@ -35,6 +49,18 @@ type gRPCClient interface {
 	SendAccessLog(ctx context.Context, in *proto.SendAccessLogRequest, opts ...grpc.CallOption) (*proto.SendAccessLogResponse, error)
 }
 
+// denyBucketKey identifies a rate-limited deny log stream.
+type denyBucketKey struct {
+	ServiceID types.ServiceID
+	Reason    string
+}
+
+// denyBucket tracks rate-limited deny log entries.
+type denyBucket struct {
+	lastLogged time.Time
+	suppressed int64
+}
+
 // Logger sends access log entries to the management server via gRPC.
 type Logger struct {
 	client         gRPCClient
@@ -44,7 +70,12 @@ type Logger struct {
 	usageMux    sync.Mutex
 	domainUsage map[string]*domainUsage
 
+	denyMu      sync.Mutex
+	denyBuckets map[denyBucketKey]*denyBucket
+
+	logSem        chan struct{}
 	cleanupCancel context.CancelFunc
+	dropped       atomic.Int64
 }
 
 // NewLogger creates a new access log Logger. The trustedProxies parameter
@@ -61,6 +92,8 @@ func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Pre
 		logger:         logger,
 		trustedProxies: trustedProxies,
 		domainUsage:    make(map[string]*domainUsage),
+		denyBuckets:    make(map[denyBucketKey]*denyBucket),
+		logSem:         make(chan struct{}, maxLogWorkers),
 		cleanupCancel:  cancel,
 	}
 
@@ -79,22 +112,104 @@ func (l *Logger) Close() {
 
 type logEntry struct {
 	ID            string
-	AccountID     string
-	ServiceId     string
+	AccountID     types.AccountID
+	ServiceID     types.ServiceID
 	Host          string
 	Path          string
 	DurationMs    int64
 	Method        string
 	ResponseCode  int32
-	SourceIp      string
+	SourceIP      netip.Addr
 	AuthMechanism string
-	UserId        string
+	UserID        string
 	AuthSuccess   bool
 	BytesUpload   int64
 	BytesDownload int64
+	Protocol      Protocol
 }
 
-func (l *Logger) log(ctx context.Context, entry logEntry) {
+// Protocol identifies the transport protocol of an access log entry.
+type Protocol string
+
+const (
+	ProtocolHTTP Protocol = "http"
+	ProtocolTCP  Protocol = "tcp"
+	ProtocolUDP  Protocol = "udp"
+	ProtocolTLS  Protocol = "tls"
+)
+
+// L4Entry holds the data for a layer-4 (TCP/UDP) access log entry.
+type L4Entry struct {
+	AccountID     types.AccountID
+	ServiceID     types.ServiceID
+	Protocol      Protocol
+	Host          string // SNI hostname or listen address
+	SourceIP      netip.Addr
+	DurationMs    int64
+	BytesUpload   int64
+	BytesDownload int64
+	// DenyReason, when non-empty, indicates the connection was denied.
+	// Values match the HTTP auth mechanism strings: "ip_restricted",
+	// "country_restricted", "geo_unavailable".
+	DenyReason string
+}
+
+// LogL4 sends an access log entry for a layer-4 connection (TCP or UDP).
+// The call is non-blocking: the gRPC send happens in a background goroutine.
+func (l *Logger) LogL4(entry L4Entry) {
+	le := logEntry{
+		ID:            xid.New().String(),
+		AccountID:     entry.AccountID,
+		ServiceID:     entry.ServiceID,
+		Protocol:      entry.Protocol,
+		Host:          entry.Host,
+		SourceIP:      entry.SourceIP,
+		DurationMs:    entry.DurationMs,
+		BytesUpload:   entry.BytesUpload,
+		BytesDownload: entry.BytesDownload,
+	}
+	if entry.DenyReason != "" {
+		if !l.allowDenyLog(entry.ServiceID, entry.DenyReason) {
+			return
+		}
+		le.AuthMechanism = entry.DenyReason
+		le.AuthSuccess = false
+	}
+	l.log(le)
+	l.trackUsage(entry.Host, entry.BytesUpload+entry.BytesDownload)
+}
+
+// allowDenyLog rate-limits deny log entries per service+reason combination.
+func (l *Logger) allowDenyLog(serviceID types.ServiceID, reason string) bool {
+	key := denyBucketKey{ServiceID: serviceID, Reason: reason}
+	now := time.Now()
+
+	l.denyMu.Lock()
+	defer l.denyMu.Unlock()
+
+	b, ok := l.denyBuckets[key]
+	if !ok {
+		if len(l.denyBuckets) >= maxDenyBuckets {
+			return false
+		}
+		l.denyBuckets[key] = &denyBucket{lastLogged: now}
+		return true
+	}
+
+	if now.Sub(b.lastLogged) >= denyCooldown {
+		if b.suppressed > 0 {
+			l.logger.Debugf("access restriction: suppressed %d deny log entries for %s (%s)", b.suppressed, serviceID, reason)
+		}
+		b.lastLogged = now
+		b.suppressed = 0
+		return true
+	}
+
+	b.suppressed++
+	return false
+}
+
+func (l *Logger) log(entry logEntry) {
 	// Fire off the log request in a separate routine.
 	// This increases the possibility of losing a log message
 	// (although it should still get logged in the event of an error),
@@ -103,43 +218,58 @@ func (l *Logger) log(ctx context.Context, entry logEntry) {
 	// There is also a chance that log messages will arrive at
 	// the server out of order; however, the timestamp should
 	// allow for resolving that on the server.
-	now := timestamppb.Now() // Grab the timestamp before launching the goroutine to try to prevent weird timing issues. This is probably unnecessary.
+	now := timestamppb.Now()
+	select {
+	case l.logSem <- struct{}{}:
+	default:
+		total := l.dropped.Add(1)
+		l.logger.Debugf("access log send dropped: worker limit reached (total dropped: %d)", total)
+		return
+	}
 	go func() {
-		logCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer func() { <-l.logSem }()
+		logCtx, cancel := context.WithTimeout(context.Background(), logSendTimeout)
 		defer cancel()
+		// Only OIDC sessions have a meaningful user identity.
 		if entry.AuthMechanism != auth.MethodOIDC.String() {
-			entry.UserId = ""
+			entry.UserID = ""
 		}
+
+		var sourceIP string
+		if entry.SourceIP.IsValid() {
+			sourceIP = entry.SourceIP.String()
+		}
+
 		if _, err := l.client.SendAccessLog(logCtx, &proto.SendAccessLogRequest{
 			Log: &proto.AccessLog{
 				LogId:         entry.ID,
-				AccountId:     entry.AccountID,
+				AccountId:     string(entry.AccountID),
 				Timestamp:     now,
-				ServiceId:     entry.ServiceId,
+				ServiceId:     string(entry.ServiceID),
 				Host:          entry.Host,
 				Path:          entry.Path,
 				DurationMs:    entry.DurationMs,
 				Method:        entry.Method,
 				ResponseCode:  entry.ResponseCode,
-				SourceIp:      entry.SourceIp,
+				SourceIp:      sourceIP,
 				AuthMechanism: entry.AuthMechanism,
-				UserId:        entry.UserId,
+				UserId:        entry.UserID,
 				AuthSuccess:   entry.AuthSuccess,
 				BytesUpload:   entry.BytesUpload,
 				BytesDownload: entry.BytesDownload,
+				Protocol:      string(entry.Protocol),
 			},
 		}); err != nil {
-			// If it fails to send on the gRPC connection, then at least log it to the error log.
 			l.logger.WithFields(log.Fields{
-				"service_id":     entry.ServiceId,
+				"service_id":     entry.ServiceID,
 				"host":           entry.Host,
 				"path":           entry.Path,
 				"duration":       entry.DurationMs,
 				"method":         entry.Method,
 				"response_code":  entry.ResponseCode,
-				"source_ip":      entry.SourceIp,
+				"source_ip":      sourceIP,
 				"auth_mechanism": entry.AuthMechanism,
-				"user_id":        entry.UserId,
+				"user_id":        entry.UserID,
 				"auth_success":   entry.AuthSuccess,
 				"error":          err,
 			}).Error("Error sending access log on gRPC connection")
@@ -198,7 +328,7 @@ func (l *Logger) trackUsage(domain string, bytesTransferred int64) {
 	}
 }
 
-// cleanupStaleUsage removes usage entries for domains that have been inactive.
+// cleanupStaleUsage removes usage and deny-rate-limit entries that have been inactive.
 func (l *Logger) cleanupStaleUsage(ctx context.Context) {
 	ticker := time.NewTicker(usageCleanupPeriod)
 	defer ticker.Stop()
@@ -208,20 +338,41 @@ func (l *Logger) cleanupStaleUsage(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			l.usageMux.Lock()
 			now := time.Now()
-			removed := 0
-			for domain, usage := range l.domainUsage {
-				if now.Sub(usage.lastActivity) > usageInactiveWindow {
-					delete(l.domainUsage, domain)
-					removed++
-				}
-			}
-			l.usageMux.Unlock()
-
-			if removed > 0 {
-				l.logger.Debugf("cleaned up %d stale domain usage entries", removed)
-			}
+			l.cleanupDomainUsage(now)
+			l.cleanupDenyBuckets(now)
 		}
+	}
+}
+
+func (l *Logger) cleanupDomainUsage(now time.Time) {
+	l.usageMux.Lock()
+	defer l.usageMux.Unlock()
+
+	removed := 0
+	for domain, usage := range l.domainUsage {
+		if now.Sub(usage.lastActivity) > usageInactiveWindow {
+			delete(l.domainUsage, domain)
+			removed++
+		}
+	}
+	if removed > 0 {
+		l.logger.Debugf("cleaned up %d stale domain usage entries", removed)
+	}
+}
+
+func (l *Logger) cleanupDenyBuckets(now time.Time) {
+	l.denyMu.Lock()
+	defer l.denyMu.Unlock()
+
+	removed := 0
+	for key, bucket := range l.denyBuckets {
+		if now.Sub(bucket.lastLogged) > usageInactiveWindow {
+			delete(l.denyBuckets, key)
+			removed++
+		}
+	}
+	if removed > 0 {
+		l.logger.Debugf("cleaned up %d stale deny rate-limit entries", removed)
 	}
 }

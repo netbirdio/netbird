@@ -31,6 +31,8 @@ type store interface {
 
 type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -80,24 +82,33 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	}).Debug("getting domains with proxy allow list")
 
 	for _, cluster := range allowList {
-		ret = append(ret, &domain.Domain{
+		d := &domain.Domain{
 			Domain:    cluster,
 			AccountID: accountID,
 			Type:      domain.TypeFree,
 			Validated: true,
-		})
+		}
+		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
+		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
+		ret = append(ret, d)
 	}
 
 	// Add custom domains.
 	for _, d := range domains {
-		ret = append(ret, &domain.Domain{
+		cd := &domain.Domain{
 			ID:            d.ID,
 			Domain:        d.Domain,
 			AccountID:     accountID,
 			TargetCluster: d.TargetCluster,
 			Type:          domain.TypeCustom,
 			Validated:     d.Validated,
-		})
+		}
+		if d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
+		}
+		// Custom domains never require a subdomain by default since
+		// the account owns them and should be able to use the bare domain.
+		ret = append(ret, cd)
 	}
 
 	return ret, nil
@@ -284,13 +295,19 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
 }
 
-func extractClusterFromCustomDomains(domain string, customDomains []*domain.Domain) (string, bool) {
-	for _, customDomain := range customDomains {
-		if strings.HasSuffix(domain, "."+customDomain.Domain) {
-			return customDomain.TargetCluster, true
+func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
+	bestCluster := ""
+	bestLen := -1
+	for _, cd := range customDomains {
+		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		if l := len(cd.Domain); l > bestLen {
+			bestLen = l
+			bestCluster = cd.TargetCluster
 		}
 	}
-	return "", false
+	return bestCluster, bestLen >= 0
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
@@ -298,7 +315,7 @@ func extractClusterFromCustomDomains(domain string, customDomains []*domain.Doma
 // It matches the domain suffix against available clusters and returns the matching cluster.
 func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
 	for _, cluster := range availableClusters {
-		if strings.HasSuffix(domain, "."+cluster) {
+		if domain == cluster || strings.HasSuffix(domain, "."+cluster) {
 			return cluster, true
 		}
 	}

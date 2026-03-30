@@ -13,10 +13,11 @@ import (
 
 type Method string
 
-var (
+const (
 	MethodPassword Method = "password"
 	MethodPIN      Method = "pin"
 	MethodOIDC     Method = "oidc"
+	MethodHeader   Method = "header"
 )
 
 func (m Method) String() string {

@@ -27,12 +27,22 @@ service ProxyService {
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
 }
 
+// ProxyCapabilities describes what a proxy can handle.
+message ProxyCapabilities {
+  // Whether the proxy can bind arbitrary ports for TCP/UDP/TLS services.
+  optional bool supports_custom_ports = 1;
+  // Whether the proxy requires a subdomain label in front of its cluster domain.
+  // When true, accounts cannot use the cluster domain bare.
+  optional bool require_subdomain = 2;
+}
+
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
 message GetMappingUpdateRequest {
   string proxy_id = 1;
   string version = 2;
   google.protobuf.Timestamp started_at = 3;
   string address = 4;
+  ProxyCapabilities capabilities = 5;
 }
 
 // GetMappingUpdateResponse contains zero or more ProxyMappings.
@@ -61,6 +71,10 @@ message PathTargetOptions {
   google.protobuf.Duration request_timeout = 2;
   PathRewriteMode path_rewrite = 3;
   map<string, string> custom_headers = 4;
+  // Send PROXY protocol v2 header to this backend.
+  bool proxy_protocol = 5;
+  // Idle timeout before a UDP session is reaped.
+  google.protobuf.Duration session_idle_timeout = 6;
 }
 
 message PathMapping {
@@ -69,12 +83,27 @@ message PathMapping {
   PathTargetOptions options = 3;
 }
 
+message HeaderAuth {
+  // Header name to check, e.g. "Authorization", "X-API-Key".
+  string header = 1;
+  // argon2id hash of the expected full header value.
+  string hashed_value = 2;
+}
+
 message Authentication {
   string session_key = 1;
   int64 max_session_age_seconds = 2;
   bool password = 3;
   bool pin = 4;
   bool oidc = 5;
+  repeated HeaderAuth header_auths = 6;
+}
+
+message AccessRestrictions {
+  repeated string allowed_cidrs = 1;
+  repeated string blocked_cidrs = 2;
+  repeated string allowed_countries = 3;
+  repeated string blocked_countries = 4;
 }
 
 message ProxyMapping {
@@ -91,6 +120,11 @@ message ProxyMapping {
   // When true, Location headers in backend responses are rewritten to replace
   // the backend address with the public-facing domain.
   bool rewrite_redirects = 9;
+  // Service mode: "http", "tcp", "udp", or "tls".
+  string mode = 10;
+  // For L4/TLS: the port the proxy listens on.
+  int32 listen_port = 11;
+  AccessRestrictions access_restrictions = 12;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -117,6 +151,7 @@ message AccessLog {
   bool auth_success = 13;
   int64 bytes_upload = 14;
   int64 bytes_download = 15;
+  string protocol = 16;
 }
 
 message AuthenticateRequest {
@@ -125,7 +160,13 @@ message AuthenticateRequest {
   oneof request {
     PasswordRequest password = 3;
     PinRequest pin = 4;
+    HeaderAuthRequest header_auth = 5;
   }
+}
+
+message HeaderAuthRequest {
+  string header_value = 1;
+  string header_name = 2;
 }
 
 message PasswordRequest {

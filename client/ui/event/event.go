@@ -107,12 +107,7 @@ func (e *Manager) handleEvent(event *proto.SystemEvent) {
 	handlers := slices.Clone(e.handlers)
 	e.mu.Unlock()
 
-	// critical events are always shown
-	if !enabled && event.Severity != proto.SystemEvent_CRITICAL {
-		return
-	}
-
-	if event.UserMessage != "" {
+	if event.UserMessage != "" && (enabled || event.Severity == proto.SystemEvent_CRITICAL) {
 		title := e.getEventTitle(event)
 		body := event.UserMessage
 		id := event.Metadata["id"]

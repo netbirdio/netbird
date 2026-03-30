@@ -18,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -350,7 +349,7 @@ func getStatusOverview(client *netbird.Client) (nbstatus.OutputOverview, error) 
 
 	pbFullStatus := fullStatus.ToProto()
 
-	return nbstatus.ConvertToStatusOutputOverview(pbFullStatus, false, version.NetbirdVersion(), "", nil, nil, nil, "", ""), nil
+	return nbstatus.ConvertToStatusOutputOverview(pbFullStatus, nbstatus.ConvertOptions{}), nil
 }
 
 // createStatusMethod creates the status method that returns JSON
