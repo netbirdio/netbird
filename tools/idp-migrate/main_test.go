@@ -12,7 +12,6 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/idp/migration"
 )
 
@@ -22,368 +21,7 @@ func TestMigrationServerInterface(t *testing.T) {
 	var _ migration.Server = (*migrationServer)(nil)
 }
 
-func TestResolveConnector_FlagOverridesEnv(t *testing.T) {
-	flagConn := dex.Connector{
-		Type: "oidc",
-		Name: "from-flag",
-		ID:   "flag-id",
-		Config: map[string]interface{}{
-			"issuer": "https://flag.example.com",
-		},
-	}
-	flagJSON, err := json.Marshal(flagConn)
-	require.NoError(t, err)
-	flagB64 := base64.StdEncoding.EncodeToString(flagJSON)
-
-	envConn := dex.Connector{
-		Type: "oidc",
-		Name: "from-env",
-		ID:   "env-id",
-		Config: map[string]interface{}{
-			"issuer": "https://env.example.com",
-		},
-	}
-	envJSON, err := json.Marshal(envConn)
-	require.NoError(t, err)
-	envB64 := base64.StdEncoding.EncodeToString(envJSON)
-
-	t.Setenv("IDP_SEED_INFO", envB64)
-
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "zitadel",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://config.example.com",
-				ClientID:     "config-client",
-				ClientSecret: "config-secret",
-			},
-		},
-	}
-
-	// Flag takes priority over env and config
-	conn, err := resolveConnector(flagB64, cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "flag-id", conn.ID)
-	assert.Equal(t, "from-flag", conn.Name)
-
-	// Empty flag → env takes priority over config
-	conn, err = resolveConnector("", cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "env-id", conn.ID)
-	assert.Equal(t, "from-env", conn.Name)
-
-	// Empty flag + no env → config auto-detect (uses keycloak which works with auto-detect)
-	t.Setenv("IDP_SEED_INFO", "")
-	cfgKeycloak := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "keycloak",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://kc.example.com/realms/test",
-				ClientID:     "config-client",
-				ClientSecret: "config-secret",
-			},
-		},
-	}
-	conn, err = resolveConnector("", cfgKeycloak)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "keycloak", conn.ID)
-}
-
-func TestResolveConnector_InvalidBase64(t *testing.T) {
-	cfg := &nbconfig.Config{}
-	_, err := resolveConnector("not-valid-base64!!!", cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "base64 decode")
-}
-
-func TestResolveConnector_InvalidJSON(t *testing.T) {
-	cfg := &nbconfig.Config{}
-	encoded := base64.StdEncoding.EncodeToString([]byte("not json"))
-	_, err := resolveConnector(encoded, cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "json unmarshal")
-}
-
-func TestResolveConnector_EmptyConnectorID(t *testing.T) {
-	conn := dex.Connector{
-		Type: "oidc",
-		Name: "no-id",
-		ID:   "",
-	}
-	data, err := json.Marshal(conn)
-	require.NoError(t, err)
-
-	encoded := base64.StdEncoding.EncodeToString(data)
-	result, err := resolveConnector(encoded, &nbconfig.Config{})
-	require.NoError(t, err)
-	// resolveConnector returns the connector; caller (run()) checks for empty ID
-	assert.Equal(t, "", result.ID)
-}
-
-func TestResolveConnector_NoConfigFallback(t *testing.T) {
-	t.Setenv("IDP_SEED_INFO", "")
-
-	cfg := &nbconfig.Config{} // no IdpManagerConfig
-	conn, err := resolveConnector("", cfg)
-	require.ErrorIs(t, err, ErrNoIdpManagerConfig)
-	assert.Nil(t, conn) // no connector found
-}
-
-func TestBuildConnectorFromConfig_Zitadel(t *testing.T) {
-	// Zitadel uses service account credentials in IdpManagerConfig, which are
-	// not valid OAuth client credentials. Auto-detection should return an error
-	// instructing the user to use --idp-seed-info.
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "zitadel",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://zitadel.example.com",
-				ClientID:     "netbird-service-account",
-				ClientSecret: "",
-			},
-		},
-	}
-
-	_, err := buildConnectorFromConfig(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "zitadel auto-detection is not supported")
-	assert.Contains(t, err.Error(), "--idp-seed-info")
-}
-
-func TestBuildConnectorFromConfig_EmptyClientSecret(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "okta",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://dev-12345.okta.com",
-				ClientID:     "okta-id",
-				ClientSecret: "", // empty secret
-			},
-		},
-	}
-
-	_, err := buildConnectorFromConfig(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no client secret")
-}
-
-func TestBuildConnectorFromConfig_Auth0(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "auth0",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://tenant.auth0.com/",
-				ClientID:     "auth0-id",
-				ClientSecret: "auth0-secret",
-			},
-		},
-	}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "oidc", conn.Type) // Auth0 maps to generic OIDC
-	assert.Equal(t, "auth0", conn.ID)
-	assert.Equal(t, "https://tenant.auth0.com/oauth2/callback", conn.Config["redirectURI"])
-}
-
-func TestBuildConnectorFromConfig_Azure(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "azure",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://login.microsoftonline.com/tenant-id/v2.0",
-				ClientID:     "azure-id",
-				ClientSecret: "azure-secret",
-			},
-		},
-	}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "entra", conn.Type) // Azure maps to entra
-	assert.Equal(t, "azure", conn.ID)
-}
-
-func TestBuildConnectorFromConfig_Google(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "google",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://accounts.google.com",
-				ClientID:     "google-id",
-				ClientSecret: "google-secret",
-			},
-		},
-	}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "google", conn.Type)
-	assert.Equal(t, "google", conn.ID)
-}
-
-func TestBuildConnectorFromConfig_JumpCloud(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "jumpcloud",
-			ClientConfig: &idp.ClientConfig{
-				Issuer:       "https://oauth.id.jumpcloud.com/",
-				ClientID:     "jc-id",
-				ClientSecret: "jc-secret",
-			},
-		},
-	}
-
-	_, err := buildConnectorFromConfig(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "jumpcloud")
-}
-
-func TestBuildConnectorFromConfig_MissingClientConfig(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "keycloak",
-			// no ClientConfig
-		},
-	}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.ErrorIs(t, err, ErrNoIdpManagerConfig)
-	assert.Nil(t, conn) // returns nil, nil when no ClientConfig
-}
-
-func TestBuildConnectorFromConfig_MissingIdpManagerConfig(t *testing.T) {
-	cfg := &nbconfig.Config{}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.ErrorIs(t, err, ErrNoIdpManagerConfig)
-	assert.Nil(t, conn)
-}
-
-func TestBuildConnectorFromConfig_IssuerFallbackToHttpConfig(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "keycloak",
-			ClientConfig: &idp.ClientConfig{
-				// Issuer empty — should fall back to HttpConfig.AuthIssuer
-				ClientID:     "kc-id",
-				ClientSecret: "kc-secret",
-			},
-		},
-		HttpConfig: &nbconfig.HttpServerConfig{
-			AuthIssuer: "https://keycloak.example.com/realms/myrealm",
-		},
-	}
-
-	conn, err := buildConnectorFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	assert.Equal(t, "keycloak", conn.Type)
-	assert.Equal(t, "https://keycloak.example.com/realms/myrealm", conn.Config["issuer"])
-}
-
-func TestBuildConnectorFromConfig_MissingIssuer(t *testing.T) {
-	cfg := &nbconfig.Config{
-		IdpManagerConfig: &idp.Config{
-			ManagerType: "okta",
-			ClientConfig: &idp.ClientConfig{
-				ClientID:     "okta-id",
-				ClientSecret: "okta-secret",
-				// Issuer empty, no HttpConfig either
-			},
-		},
-	}
-
-	_, err := buildConnectorFromConfig(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "issuer")
-}
-
-func TestMapManagerTypeToConnectorType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-		wantErr  bool
-	}{
-		{"zitadel", "zitadel", false},
-		{"keycloak", "keycloak", false},
-		{"okta", "okta", false},
-		{"authentik", "authentik", false},
-		{"pocketid", "pocketid", false},
-		{"auth0", "oidc", false},
-		{"azure", "entra", false},
-		{"google", "google", false},
-		{"jumpcloud", "", true},
-		{"unknown-provider", "oidc", false}, // fallback to generic OIDC
-		{"", "oidc", false},                 // empty also falls through to default
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result, err := mapManagerTypeToConnectorType(tt.input)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestLoadConfig(t *testing.T) {
-	t.Run("valid config", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "management.json")
-
-		configJSON := `{
-			"Datadir": "/var/lib/netbird",
-			"DataStoreEncryptionKey": "example-encryption-key-0000",
-			"StoreConfig": {
-				"Engine": "sqlite"
-			},
-			"IdpManagerConfig": {
-				"ManagerType": "zitadel",
-				"ClientConfig": {
-					"Issuer": "https://zitadel.example.com",
-					"ClientID": "test-client",
-					"ClientSecret": "test-secret"
-				}
-			}
-		}`
-		require.NoError(t, os.WriteFile(configPath, []byte(configJSON), 0600))
-
-		cfg, err := loadConfig(configPath)
-		require.NoError(t, err)
-		assert.Equal(t, "/var/lib/netbird", cfg.Datadir)
-		assert.Equal(t, "example-encryption-key-0000", cfg.DataStoreEncryptionKey)
-		require.NotNil(t, cfg.IdpManagerConfig)
-		assert.Equal(t, "zitadel", cfg.IdpManagerConfig.ManagerType)
-		assert.Equal(t, "test-client", cfg.IdpManagerConfig.ClientConfig.ClientID)
-	})
-
-	t.Run("missing file", func(t *testing.T) {
-		_, err := loadConfig("/nonexistent/path/management.json")
-		require.Error(t, err)
-	})
-
-	t.Run("invalid json", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "bad.json")
-		require.NoError(t, os.WriteFile(configPath, []byte("{invalid"), 0600))
-
-		_, err := loadConfig(configPath)
-		require.Error(t, err)
-	})
-}
-
-func TestDecodeConnector(t *testing.T) {
+func TestDecodeConnectorConfig(t *testing.T) {
 	conn := dex.Connector{
 		Type: "oidc",
 		Name: "test",
@@ -399,75 +37,196 @@ func TestDecodeConnector(t *testing.T) {
 	require.NoError(t, err)
 	encoded := base64.StdEncoding.EncodeToString(data)
 
-	result, err := decodeConnector(encoded)
+	result, err := decodeConnectorConfig(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, "test-id", result.ID)
 	assert.Equal(t, "oidc", result.Type)
 	assert.Equal(t, "https://example.com", result.Config["issuer"])
 }
 
-func TestDeriveDomain(t *testing.T) {
-	t.Run("priority 1: LetsEncryptDomain", func(t *testing.T) {
-		cfg := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				LetsEncryptDomain:  "mgmt.example.com",
-				AuthIssuer:         "https://other.example.com/oauth2",
-				OIDCConfigEndpoint: "https://oidc.example.com/.well-known/openid-configuration",
-			},
-		}
-		domain, err := deriveDomain(cfg)
-		require.NoError(t, err)
-		assert.Equal(t, "mgmt.example.com", domain)
+func TestDecodeConnectorConfig_InvalidBase64(t *testing.T) {
+	_, err := decodeConnectorConfig("not-valid-base64!!!")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "base64 decode")
+}
+
+func TestDecodeConnectorConfig_InvalidJSON(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("not json"))
+	_, err := decodeConnectorConfig(encoded)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "json unmarshal")
+}
+
+func TestDecodeConnectorConfig_EmptyConnectorID(t *testing.T) {
+	conn := dex.Connector{
+		Type: "oidc",
+		Name: "no-id",
+		ID:   "",
+	}
+	data, err := json.Marshal(conn)
+	require.NoError(t, err)
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	_, err = decodeConnectorConfig(encoded)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connector ID is empty")
+}
+
+func TestValidateConfig(t *testing.T) {
+	valid := &migrationConfig{
+		configPath:  "/etc/netbird/management.json",
+		dataDir:     "/var/lib/netbird",
+		idpSeedInfo: "some-base64",
+		apiUrl:      "https://api.example.com",
+		dashboardUrl: "https://dash.example.com",
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		require.NoError(t, validateConfig(valid))
 	})
 
-	t.Run("priority 2: OIDCConfigEndpoint", func(t *testing.T) {
-		cfg := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				OIDCConfigEndpoint: "https://oidc.example.com/.well-known/openid-configuration",
-				AuthIssuer:         "https://issuer.example.com/oauth2",
-			},
-		}
-		domain, err := deriveDomain(cfg)
-		require.NoError(t, err)
-		assert.Equal(t, "oidc.example.com", domain)
-	})
-
-	t.Run("priority 3: AuthIssuer", func(t *testing.T) {
-		cfg := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				AuthIssuer: "https://issuer.example.com/oauth2",
-			},
-		}
-		domain, err := deriveDomain(cfg)
-		require.NoError(t, err)
-		assert.Equal(t, "issuer.example.com", domain)
-	})
-
-	t.Run("priority 4: IdpManagerConfig issuer", func(t *testing.T) {
-		cfg := &nbconfig.Config{
-			IdpManagerConfig: &idp.Config{
-				ClientConfig: &idp.ClientConfig{
-					Issuer: "https://zitadel.example.com",
-				},
-			},
-		}
-		domain, err := deriveDomain(cfg)
-		require.NoError(t, err)
-		assert.Equal(t, "zitadel.example.com", domain)
-	})
-
-	t.Run("error when no domain found", func(t *testing.T) {
-		cfg := &nbconfig.Config{}
-		_, err := deriveDomain(cfg)
+	t.Run("missing configPath", func(t *testing.T) {
+		cfg := *valid
+		cfg.configPath = ""
+		err := validateConfig(&cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "could not determine domain")
+		assert.Contains(t, err.Error(), "--config")
+	})
+
+	t.Run("missing dataDir", func(t *testing.T) {
+		cfg := *valid
+		cfg.dataDir = ""
+		err := validateConfig(&cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--datadir")
+	})
+
+	t.Run("missing idpSeedInfo", func(t *testing.T) {
+		cfg := *valid
+		cfg.idpSeedInfo = ""
+		err := validateConfig(&cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--idp-seed-info")
+	})
+
+	t.Run("missing apiUrl", func(t *testing.T) {
+		cfg := *valid
+		cfg.apiUrl = ""
+		err := validateConfig(&cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--api-domain")
+	})
+
+	t.Run("missing dashboardUrl", func(t *testing.T) {
+		cfg := *valid
+		cfg.dashboardUrl = ""
+		err := validateConfig(&cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--dashboard-domain")
 	})
 }
 
-func TestHostFromURL(t *testing.T) {
-	assert.Equal(t, "example.com", hostFromURL("https://example.com/path"))
-	assert.Equal(t, "example.com", hostFromURL("https://example.com:8080/path"))
-	assert.Equal(t, "", hostFromURL("not-a-url"))
+func TestApplyOverrides_MostGranularWins(t *testing.T) {
+	t.Run("specific flags beat --domain", func(t *testing.T) {
+		cfg := &migrationConfig{
+			apiUrl:       "api.specific.com",
+			dashboardUrl: "dash.specific.com",
+		}
+		applyOverrides(cfg, "broad.com")
+
+		assert.Equal(t, "api.specific.com", cfg.apiUrl)
+		assert.Equal(t, "dash.specific.com", cfg.dashboardUrl)
+	})
+
+	t.Run("--domain fills blanks when specific flags missing", func(t *testing.T) {
+		cfg := &migrationConfig{}
+		applyOverrides(cfg, "broad.com")
+
+		assert.Equal(t, "broad.com", cfg.apiUrl)
+		assert.Equal(t, "broad.com", cfg.dashboardUrl)
+	})
+
+	t.Run("--domain fills only the missing specific flag", func(t *testing.T) {
+		cfg := &migrationConfig{
+			apiUrl: "api.specific.com",
+		}
+		applyOverrides(cfg, "broad.com")
+
+		assert.Equal(t, "api.specific.com", cfg.apiUrl)
+		assert.Equal(t, "broad.com", cfg.dashboardUrl)
+	})
+
+	t.Run("NETBIRD_DOMAIN overrides flags", func(t *testing.T) {
+		cfg := &migrationConfig{
+			apiUrl:       "api.flag.com",
+			dashboardUrl: "dash.flag.com",
+		}
+		t.Setenv("NETBIRD_DOMAIN", "env-broad.com")
+
+		applyOverrides(cfg, "")
+
+		assert.Equal(t, "env-broad.com", cfg.apiUrl)
+		assert.Equal(t, "env-broad.com", cfg.dashboardUrl)
+	})
+
+	t.Run("specific env vars beat NETBIRD_DOMAIN", func(t *testing.T) {
+		cfg := &migrationConfig{}
+		t.Setenv("NETBIRD_DOMAIN", "env-broad.com")
+		t.Setenv("NETBIRD_API_URL", "api.env-specific.com")
+		t.Setenv("NETBIRD_DASHBOARD_URL", "dash.env-specific.com")
+
+		applyOverrides(cfg, "")
+
+		assert.Equal(t, "api.env-specific.com", cfg.apiUrl)
+		assert.Equal(t, "dash.env-specific.com", cfg.dashboardUrl)
+	})
+
+	t.Run("one specific env var overrides only its field", func(t *testing.T) {
+		cfg := &migrationConfig{}
+		t.Setenv("NETBIRD_DOMAIN", "env-broad.com")
+		t.Setenv("NETBIRD_API_URL", "api.env-specific.com")
+
+		applyOverrides(cfg, "")
+
+		assert.Equal(t, "api.env-specific.com", cfg.apiUrl)
+		assert.Equal(t, "env-broad.com", cfg.dashboardUrl)
+	})
+
+	t.Run("specific env vars beat all flags combined", func(t *testing.T) {
+		cfg := &migrationConfig{
+			apiUrl:       "api.flag.com",
+			dashboardUrl: "dash.flag.com",
+		}
+		t.Setenv("NETBIRD_API_URL", "api.env.com")
+		t.Setenv("NETBIRD_DASHBOARD_URL", "dash.env.com")
+
+		applyOverrides(cfg, "domain-flag.com")
+
+		assert.Equal(t, "api.env.com", cfg.apiUrl)
+		assert.Equal(t, "dash.env.com", cfg.dashboardUrl)
+	})
+}
+
+func TestBuildUrl(t *testing.T) {
+	tests := []struct {
+		name     string
+		uri      string
+		path     string
+		expected string
+	}{
+		{"with https scheme", "https://example.com", "/oauth2", "https://example.com/oauth2"},
+		{"with http scheme", "http://example.com", "/oauth2/callback", "http://example.com/oauth2/callback"},
+		{"bare domain", "example.com", "/oauth2", "https://example.com/oauth2"},
+		{"domain with port", "example.com:8080", "/nb-auth", "https://example.com:8080/nb-auth"},
+		{"trailing slash on uri", "https://example.com/", "/oauth2", "https://example.com/oauth2"},
+		{"nested path", "https://example.com", "/oauth2/callback", "https://example.com/oauth2/callback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, buildUrl(tt.uri, tt.path))
+		})
+	}
 }
 
 func TestGenerateConfig(t *testing.T) {
@@ -479,6 +238,8 @@ func TestGenerateConfig(t *testing.T) {
   "Datadir": "/var/lib/netbird",
   "HttpConfig": {
     "LetsEncryptDomain": "mgmt.example.com",
+    "CertFile": "/etc/ssl/cert.pem",
+    "CertKey": "/etc/ssl/key.pem",
     "AuthIssuer": "https://zitadel.example.com/oauth2",
     "AuthKeysLocation": "https://zitadel.example.com/oauth2/keys",
     "OIDCConfigEndpoint": "https://zitadel.example.com/.well-known/openid-configuration",
@@ -496,10 +257,10 @@ func TestGenerateConfig(t *testing.T) {
 }`
 		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0600))
 
-		cfg := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				LetsEncryptDomain: "mgmt.example.com",
-			},
+		cfg := &migrationConfig{
+			configPath:   configPath,
+			dashboardUrl: "https://mgmt.example.com",
+			apiUrl:       "https://mgmt.example.com",
 		}
 		conn := &dex.Connector{
 			Type: "zitadel",
@@ -511,8 +272,13 @@ func TestGenerateConfig(t *testing.T) {
 				"clientSecret": "zit-secret",
 			},
 		}
+		mgmtConfig := &nbconfig.Config{
+			HttpConfig: &nbconfig.HttpServerConfig{
+				LetsEncryptDomain: "mgmt.example.com",
+			},
+		}
 
-		err := generateConfig(configPath, conn, cfg, false)
+		err := generateConfig(cfg, conn, mgmtConfig)
 		require.NoError(t, err)
 
 		// Check backup was created
@@ -532,6 +298,10 @@ func TestGenerateConfig(t *testing.T) {
 		_, hasOldIdp := result["IdpManagerConfig"]
 		assert.False(t, hasOldIdp, "IdpManagerConfig should be removed")
 
+		// PKCEAuthorizationFlow should be removed
+		_, hasPKCE := result["PKCEAuthorizationFlow"]
+		assert.False(t, hasPKCE, "PKCEAuthorizationFlow should be removed")
+
 		// EmbeddedIdP should be present with minimal fields
 		embeddedIdP, ok := result["EmbeddedIdP"].(map[string]interface{})
 		require.True(t, ok, "EmbeddedIdP should be present")
@@ -541,10 +311,6 @@ func TestGenerateConfig(t *testing.T) {
 		assert.Nil(t, embeddedIdP["SignKeyRefreshEnabled"], "SignKeyRefreshEnabled should not be set")
 		assert.Nil(t, embeddedIdP["CLIRedirectURIs"], "CLIRedirectURIs should not be set")
 
-		// HttpConfig should not be modified
-		_, hasPKCE := result["PKCEAuthorizationFlow"]
-		assert.False(t, hasPKCE, "PKCEAuthorizationFlow should not be added")
-
 		// Static connector's redirectURI should use the management domain
 		connectors := embeddedIdP["StaticConnectors"].([]interface{})
 		require.Len(t, connectors, 1)
@@ -553,26 +319,38 @@ func TestGenerateConfig(t *testing.T) {
 		assert.Equal(t, "https://mgmt.example.com/oauth2/callback", connCfg["redirectURI"],
 			"redirectURI should be overridden to use the management domain")
 
+		// HttpConfig should only have CertFile and CertKey
+		httpConfig, ok := result["HttpConfig"].(map[string]interface{})
+		require.True(t, ok, "HttpConfig should be present")
+		assert.Equal(t, "/etc/ssl/cert.pem", httpConfig["CertFile"])
+		assert.Equal(t, "/etc/ssl/key.pem", httpConfig["CertKey"])
+		assert.Nil(t, httpConfig["AuthIssuer"], "AuthIssuer should be stripped")
+
 		// Datadir should be preserved
 		assert.Equal(t, "/var/lib/netbird", result["Datadir"])
 	})
-
 
 	t.Run("dry run does not write files", func(t *testing.T) {
 		dir := t.TempDir()
 		configPath := filepath.Join(dir, "management.json")
 
-		originalConfig := `{"HttpConfig": {"LetsEncryptDomain": "mgmt.example.com"}}`
+		originalConfig := `{"HttpConfig": {"CertFile": "", "CertKey": ""}}`
 		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0600))
 
-		cfg := &nbconfig.Config{
+		cfg := &migrationConfig{
+			configPath:   configPath,
+			dashboardUrl: "https://mgmt.example.com",
+			apiUrl:       "https://mgmt.example.com",
+			dryRun:       true,
+		}
+		conn := &dex.Connector{Type: "oidc", Name: "test", ID: "test"}
+		mgmtConfig := &nbconfig.Config{
 			HttpConfig: &nbconfig.HttpServerConfig{
 				LetsEncryptDomain: "mgmt.example.com",
 			},
 		}
-		conn := &dex.Connector{Type: "oidc", Name: "test", ID: "test"}
 
-		err := generateConfig(configPath, conn, cfg, true)
+		err := generateConfig(cfg, conn, mgmtConfig)
 		require.NoError(t, err)
 
 		// Original should be unchanged

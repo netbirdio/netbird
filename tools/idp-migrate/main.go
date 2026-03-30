@@ -17,8 +17,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -47,98 +45,65 @@ func (s *migrationServer) Store() migration.Store           { return s.store }
 func (s *migrationServer) EventStore() migration.EventStore { return s.eventStore }
 
 func main() {
-	var (
-		configPath           string
-		dataDir              string
-		idpSeedInfo          string
-		dryRun               bool
-		force                bool
-		skipConfig           bool
-		skipPopulateUserInfo bool
-		logLevel             string
-	)
-
-	flag.StringVar(&configPath, "config", "", "path to management.json (required)")
-	flag.StringVar(&dataDir, "datadir", "", "override data directory from config")
-	flag.StringVar(&idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
-	flag.BoolVar(&dryRun, "dry-run", false, "preview changes without writing")
-	flag.BoolVar(&force, "force", false, "skip confirmation prompt")
-	flag.BoolVar(&skipConfig, "skip-config", false, "skip config generation (DB migration only)")
-	flag.BoolVar(&skipPopulateUserInfo, "skip-populate-user-info", false, "skip populating user info (user id migration only)")
-	flag.StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
-	flag.Parse()
-
-	if err := util.InitLog(logLevel, util.LogConsole); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to init logger: %v\n", err)
-		os.Exit(1)
+	cfg, err := config()
+	if err != nil {
+		log.Fatalf("config error: %v", err)
 	}
 
-	if err := run(configPath, dataDir, idpSeedInfo, dryRun, force, skipConfig, skipPopulateUserInfo); err != nil {
+	if err := run(cfg); err != nil {
 		log.Fatalf("migration failed: %v", err)
 	}
 }
 
-func run(configPath, dataDirOverride, idpSeedInfo string, dryRun, force, skipConfig, skipPopulateUserInfo bool) error {
-	if configPath == "" {
-		return fmt.Errorf("--config is required")
-	}
+func run(cfg *migrationConfig) error {
 
-	cfg, err := loadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	effectiveDataDir := cfg.Datadir
-	if dataDirOverride != "" {
-		effectiveDataDir = dataDirOverride
-	}
-	if effectiveDataDir == "" {
-		return fmt.Errorf("data directory not set: use --datadir or set Datadir in management.json")
-	}
-
-	// Validate the database schema before attempting any operations.
-	if err := validateSchema(cfg, effectiveDataDir); err != nil {
+	mgmtConfig := &nbconfig.Config{}
+	if _, err := util.ReadJsonWithEnvSub(cfg.configPath, mgmtConfig); err != nil {
 		return err
 	}
 
-	if !skipPopulateUserInfo {
-		err := populateUserInfoFromIDP(cfg, effectiveDataDir, dryRun)
+	// Validate the database schema before attempting any operations.
+	if err := validateSchema(mgmtConfig, cfg.dataDir); err != nil {
+		return err
+	}
+
+	if !cfg.skipPopulateUserInfo {
+		err := populateUserInfoFromIDP(cfg, mgmtConfig)
 		if err != nil {
 			return fmt.Errorf("populate user info: %w", err)
 		}
 	}
 
-	conn, err := resolveConnector(idpSeedInfo, cfg)
-	if err != nil && errors.Is(err, ErrNoIdpManagerConfig) {
-		return fmt.Errorf("no connector configuration found: provide --idp-seed-info, set IDP_SEED_INFO env var, or configure IdpManagerConfig in management.json")
-	}
+	connectorConfig, err := decodeConnectorConfig(cfg.idpSeedInfo)
 	if err != nil {
 		return fmt.Errorf("resolve connector: %w", err)
 	}
-	if conn.ID == "" {
-		return fmt.Errorf("connector ID is empty")
-	}
 
-	log.Infof("resolved connector: type=%s, id=%s, name=%s", conn.Type, conn.ID, conn.Name)
+	log.Infof(
+		"resolved connector: type=%s, id=%s, name=%s",
+		connectorConfig.Type,
+		connectorConfig.ID,
+		connectorConfig.Name,
+	)
 
-	if err := migrateDB(cfg, effectiveDataDir, conn, dryRun, force); err != nil {
+	if err := migrateDB(cfg, mgmtConfig, connectorConfig); err != nil {
 		return err
 	}
 
-	if skipConfig {
+	if cfg.skipConfig {
 		log.Info("skipping config generation (--skip-config)")
 		return nil
 	}
 
-	return generateConfig(configPath, conn, cfg, dryRun)
+	return generateConfig(cfg, connectorConfig, mgmtConfig)
 }
 
 // validateSchema opens the store and checks that all required tables and columns
 // exist. If anything is missing, it returns a descriptive error telling the user
 // to upgrade their management server.
-func validateSchema(cfg *nbconfig.Config, dataDir string) error {
+func validateSchema(mgmtConfig *nbconfig.Config, dataDir string) error {
 	ctx := context.Background()
-	migStore, migEventStore, cleanup, err := openStores(ctx, cfg, dataDir)
+	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, dataDir)
 	if err != nil {
 		return err
 	}
@@ -175,14 +140,14 @@ func formatSchemaErrors(errs []migration.SchemaError) string {
 // populateUserInfoFromIDP creates an IDP manager from the config, fetches all
 // user data (email, name) from the external IDP, and updates the store for users
 // that are missing this information.
-func populateUserInfoFromIDP(cfg *nbconfig.Config, dataDir string, dryRun bool) error {
+func populateUserInfoFromIDP(cfg *migrationConfig, mgmtConfig *nbconfig.Config) error {
 	ctx := context.Background()
 
-	if cfg.IdpManagerConfig == nil {
+	if mgmtConfig.IdpManagerConfig == nil {
 		return fmt.Errorf("IdpManagerConfig is not set in management.json; cannot fetch user info from IDP")
 	}
 
-	idpManager, err := idp.NewManager(ctx, *cfg.IdpManagerConfig, nil)
+	idpManager, err := idp.NewManager(ctx, *mgmtConfig.IdpManagerConfig, nil)
 	if err != nil {
 		return fmt.Errorf("create IDP manager: %w", err)
 	}
@@ -190,16 +155,16 @@ func populateUserInfoFromIDP(cfg *nbconfig.Config, dataDir string, dryRun bool) 
 		return fmt.Errorf("IDP manager type is 'none' or empty; cannot fetch user info")
 	}
 
-	log.Infof("created IDP manager (type: %s)", cfg.IdpManagerConfig.ManagerType)
+	log.Infof("created IDP manager (type: %s)", mgmtConfig.IdpManagerConfig.ManagerType)
 
-	migStore, _, cleanup, err := openStores(ctx, cfg, dataDir)
+	migStore, _, cleanup, err := openStores(ctx, mgmtConfig, cfg.dataDir)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
 	srv := &migrationServer{store: migStore}
-	return migration.PopulateUserInfo(srv, idpManager, dryRun)
+	return migration.PopulateUserInfo(srv, idpManager, cfg.dryRun)
 }
 
 // openStores opens the main and activity stores, returning migration-specific interfaces.
@@ -246,10 +211,10 @@ func openStores(ctx context.Context, cfg *nbconfig.Config, dataDir string) (migr
 }
 
 // migrateDB opens the stores, previews pending users, and runs the DB migration.
-func migrateDB(cfg *nbconfig.Config, dataDir string, conn *dex.Connector, dryRun, force bool) error {
+func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfig *dex.Connector) error {
 	ctx := context.Background()
 
-	migStore, migEventStore, cleanup, err := openStores(ctx, cfg, dataDir)
+	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, cfg.dataDir)
 	if err != nil {
 		return err
 	}
@@ -264,14 +229,14 @@ func migrateDB(cfg *nbconfig.Config, dataDir string, conn *dex.Connector, dryRun
 		return nil
 	}
 
-	if dryRun {
+	if cfg.dryRun {
 		if err := os.Setenv("NB_IDP_MIGRATION_DRY_RUN", "true"); err != nil {
 			return fmt.Errorf("set dry-run env: %w", err)
 		}
 		defer os.Unsetenv("NB_IDP_MIGRATION_DRY_RUN") //nolint:errcheck
 	}
 
-	if !dryRun && !force {
+	if !cfg.dryRun && !cfg.force {
 		if !confirmPrompt(pending) {
 			log.Info("migration cancelled by user")
 			return nil
@@ -279,11 +244,11 @@ func migrateDB(cfg *nbconfig.Config, dataDir string, conn *dex.Connector, dryRun
 	}
 
 	srv := &migrationServer{store: migStore, eventStore: migEventStore}
-	if err := migration.MigrateUsersToStaticConnectors(srv, conn); err != nil {
+	if err := migration.MigrateUsersToStaticConnectors(srv, connectorConfig); err != nil {
 		return fmt.Errorf("migrate users: %w", err)
 	}
 
-	if !dryRun {
+	if !cfg.dryRun {
 		log.Info("DB migration completed successfully")
 	}
 	return nil
@@ -319,42 +284,8 @@ func confirmPrompt(pending int) bool {
 	return answer == "y" || answer == "yes"
 }
 
-// loadConfig reads management.json into the management config struct.
-func loadConfig(path string) (*nbconfig.Config, error) {
-	cfg := &nbconfig.Config{}
-	if _, err := util.ReadJsonWithEnvSub(path, cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// resolveConnector determines the Dex connector using a three-tier priority:
-//  1. --idp-seed-info flag (explicit base64-encoded JSON)
-//  2. IDP_SEED_INFO env var
-//  3. Auto-detect from management.json's IdpManagerConfig
-func resolveConnector(flagValue string, cfg *nbconfig.Config) (*dex.Connector, error) {
-	// Priority 1: explicit flag
-	if flagValue != "" {
-		return decodeConnector(flagValue)
-	}
-
-	// Priority 2: env var
-	conn, err := migration.SeedConnectorFromEnv()
-	if err != nil && !errors.Is(err, migration.ErrNoSeedInfo) {
-		return nil, fmt.Errorf("reading the IDP_SEED_INFO env var: %w", err)
-	}
-
-	// If env var is set, return it, otherwise it was empty and we'll try auto-detect
-	if conn != nil {
-		return conn, nil
-	}
-
-	// Priority 3: auto-detect from config
-	return buildConnectorFromConfig(cfg)
-}
-
-// decodeConnector base64-decodes and JSON-unmarshals a connector.
-func decodeConnector(encoded string) (*dex.Connector, error) {
+// decodeConnectorConfig base64-decodes and JSON-unmarshals a connector.
+func decodeConnectorConfig(encoded string) (*dex.Connector, error) {
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("base64 decode: %w", err)
@@ -365,144 +296,19 @@ func decodeConnector(encoded string) (*dex.Connector, error) {
 		return nil, fmt.Errorf("json unmarshal: %w", err)
 	}
 
+	if conn.ID == "" {
+		return nil, fmt.Errorf("connector ID is empty")
+	}
+
 	return &conn, nil
-}
-
-var ErrNoIdpManagerConfig = errors.New("no IdpManagerConfig or IdpManagerConfig.ClientConfig found in management config file")
-
-// buildConnectorFromConfig constructs a Dex connector from management.json's
-// IdpManagerConfig fields (issuer, clientID, clientSecret, type).
-//
-// Some providers (Zitadel, Google Workspace) use service account credentials in
-// IdpManagerConfig that are NOT valid OAuth client credentials. For these providers,
-// auto-detection returns an error with instructions to use --idp-seed-info instead.
-func buildConnectorFromConfig(cfg *nbconfig.Config) (*dex.Connector, error) {
-	idpCfg := cfg.IdpManagerConfig
-	if idpCfg == nil || idpCfg.ClientConfig == nil {
-		return nil, ErrNoIdpManagerConfig
-	}
-
-	managerType := strings.ToLower(idpCfg.ManagerType)
-
-	connType, err := mapManagerTypeToConnectorType(managerType)
-	if err != nil {
-		return nil, err
-	}
-
-	// Zitadel's IdpManagerConfig uses a service account (not an OAuth app).
-	// The ClientID is a service user login name (e.g., "netbird-service-account"),
-	// not a Zitadel OAuth application client ID. These credentials cannot be used
-	// for the Dex OIDC connector.
-	if managerType == "zitadel" {
-		issuer := idpCfg.ClientConfig.Issuer
-		if issuer == "" && cfg.HttpConfig != nil {
-			issuer = cfg.HttpConfig.AuthIssuer
-		}
-		return nil, fmt.Errorf(`zitadel auto-detection is not supported because the management server uses service account credentials (ClientID: %q) which are not valid OAuth client credentials for the Dex connector.
-
-You need to create a confidential OAuth application in Zitadel:
-
-  1. Open the Zitadel console at %s/ui/console
-  2. Navigate to Projects → select the NetBird project → Applications
-  3. Create a new application:
-       Name: netbird-dex
-       Type: Web
-       Authentication Method: POST (sends client_id + client_secret in body)
-  4. Add redirect URI: https://<your-management-domain>/oauth2/callback
-  5. Copy the generated client ID and client secret
-  6. Create connector.json:
-       {
-         "type": "zitadel",
-         "name": "zitadel",
-         "id": "zitadel",
-         "config": {
-           "issuer": "%s",
-           "clientID": "<client-id-from-step-5>",
-           "clientSecret": "<client-secret-from-step-5>",
-           "redirectURI": "https://<your-management-domain>/oauth2/callback"
-         }
-       }
-  7. Run: netbird-idp-migrate --config management.json --idp-seed-info "$(base64 < connector.json)"`,
-			idpCfg.ClientConfig.ClientID,
-			strings.TrimSuffix(issuer, "/"),
-			issuer,
-		)
-	}
-
-	issuer := idpCfg.ClientConfig.Issuer
-	if issuer == "" && cfg.HttpConfig != nil {
-		issuer = cfg.HttpConfig.AuthIssuer
-	}
-	if issuer == "" {
-		return nil, fmt.Errorf("could not determine OIDC issuer from config (neither ClientConfig.Issuer nor HttpConfig.AuthIssuer set)")
-	}
-
-	clientSecret := idpCfg.ClientConfig.ClientSecret
-	if clientSecret == "" {
-		return nil, fmt.Errorf("no client secret found in IdpManagerConfig.ClientConfig; the Dex OIDC connector requires a confidential client with a secret — provide credentials via --idp-seed-info")
-	}
-
-	// Use issuer as a reasonable default for redirectURI; generateConfig() will
-	// override this with the correct management domain.
-	redirectURI := strings.TrimSuffix(issuer, "/") + "/oauth2/callback"
-
-	connID := managerType
-
-	return &dex.Connector{
-		Type: connType,
-		Name: idpCfg.ManagerType,
-		ID:   connID,
-		Config: map[string]interface{}{
-			"issuer":       issuer,
-			"clientID":     idpCfg.ClientConfig.ClientID,
-			"clientSecret": clientSecret,
-			"redirectURI":  redirectURI,
-		},
-	}, nil
-}
-
-// mapManagerTypeToConnectorType maps management.json ManagerType values to the
-// connector type strings that Dex uses. These must match the types in
-// idp/dex/connector.go's buildStorageConnector switch.
-func mapManagerTypeToConnectorType(managerType string) (string, error) {
-	switch strings.ToLower(managerType) {
-	case "zitadel":
-		return "zitadel", nil
-	case "keycloak":
-		return "keycloak", nil
-	case "okta":
-		return "okta", nil
-	case "authentik":
-		return "authentik", nil
-	case "pocketid":
-		return "pocketid", nil
-	case "auth0":
-		// Auth0 uses generic OIDC in Dex (no named connector)
-		return "oidc", nil
-	case "azure":
-		return "entra", nil
-	case "google":
-		return "google", nil
-	case "jumpcloud":
-		return "", fmt.Errorf("jumpcloud does not have a supported Dex connector type")
-	default:
-		// Generic OIDC fallback
-		return "oidc", nil
-	}
 }
 
 // generateConfig reads the existing management.json as raw JSON, removes
 // IdpManagerConfig, adds EmbeddedIdP, updates HttpConfig fields, and writes
 // the result. In dry-run mode, it prints the new config to stdout instead.
-func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config, dryRun bool) error {
-	domain, err := deriveDomain(cfg)
-	if err != nil {
-		return fmt.Errorf("derive domain: %w", err)
-	}
-	log.Infof("derived domain for embedded IdP: %s", domain)
-
+func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtConfig *nbconfig.Config) error {
 	// Read existing config as raw JSON to preserve all fields
-	raw, err := os.ReadFile(configPath)
+	raw, err := os.ReadFile(cfg.configPath)
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
 	}
@@ -512,30 +318,46 @@ func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config
 		return fmt.Errorf("parse config JSON: %w", err)
 	}
 
-	// Remove old IdP config
+	// Remove unused information
 	delete(configMap, "IdpManagerConfig")
+	delete(configMap, "PKCEAuthorizationFlow")
+	delete(configMap, "DeviceAuthorizationFlow")
+
+	httpConfig := configMap["HttpConfig"].(map[string]interface{})
+	if httpConfig != nil {
+		certFilePath := httpConfig["CertFile"]
+		certKeyPath := httpConfig["CertKey"]
+
+		delete(configMap, "HttpConfig")
+
+		configMap["HttpConfig"] = map[string]interface{}{
+			"CertFile": certFilePath,
+			"CertKey":  certKeyPath,
+		}
+	}
 
 	// Ensure the connector's redirectURI points to the management server (Dex callback),
 	// not the external IdP. The auto-detection may have used the IdP issuer URL.
-	connConfig := make(map[string]interface{}, len(conn.Config))
-	for k, v := range conn.Config {
+	connConfig := make(map[string]interface{}, len(connectorConfig.Config))
+	for k, v := range connectorConfig.Config {
 		connConfig[k] = v
 	}
-	connConfig["redirectURI"] = fmt.Sprintf("https://%s/oauth2/callback", domain)
+
+	connConfig["redirectURI"] = buildUrl(cfg.apiUrl, "/oauth2/callback")
 
 	// Add minimal EmbeddedIdP section
 	configMap["EmbeddedIdP"] = map[string]interface{}{
 		"Enabled": true,
-		"Issuer":  fmt.Sprintf("https://%s/oauth2", domain),
+		"Issuer":  buildUrl(cfg.apiUrl, "/oauth2"),
 		"DashboardRedirectURIs": []string{
-			fmt.Sprintf("https://%s/nb-auth", domain),
-			fmt.Sprintf("https://%s/nb-silent-auth", domain),
+			buildUrl(cfg.dashboardUrl, "/nb-auth"),
+			buildUrl(cfg.dashboardUrl, "/nb-silent-auth"),
 		},
 		"StaticConnectors": []interface{}{
 			map[string]interface{}{
-				"type":   conn.Type,
-				"name":   conn.Name,
-				"id":     conn.ID,
+				"type":   connectorConfig.Type,
+				"name":   connectorConfig.Name,
+				"id":     connectorConfig.ID,
 				"config": connConfig,
 			},
 		},
@@ -546,67 +368,40 @@ func generateConfig(configPath string, conn *dex.Connector, cfg *nbconfig.Config
 		return fmt.Errorf("marshal new config: %w", err)
 	}
 
-	if dryRun {
+	if cfg.dryRun {
 		log.Info("[DRY RUN] new management.json would be:")
 		log.Infoln(string(newJSON))
 		return nil
 	}
 
 	// Backup original
-	backupPath := configPath + ".bak"
+	backupPath := cfg.configPath + ".bak"
 	if err := os.WriteFile(backupPath, raw, 0600); err != nil {
 		return fmt.Errorf("write backup: %w", err)
 	}
 	log.Infof("backed up original config to %s", backupPath)
 
 	// Write new config
-	if err := os.WriteFile(configPath, newJSON, 0600); err != nil {
+	if err := os.WriteFile(cfg.configPath, newJSON, 0600); err != nil {
 		return fmt.Errorf("write new config: %w", err)
 	}
-	log.Infof("wrote new config to %s", configPath)
+	log.Infof("wrote new config to %s", cfg.configPath)
 
 	return nil
 }
 
-// deriveDomain determines the management server domain from existing config,
-// using a priority-based approach.
-func deriveDomain(cfg *nbconfig.Config) (string, error) {
-	// Priority 1: LetsEncryptDomain (most explicit)
-	if cfg.HttpConfig != nil && cfg.HttpConfig.LetsEncryptDomain != "" {
-		return cfg.HttpConfig.LetsEncryptDomain, nil
+func buildUrl(uri, path string) string {
+	// Case for domain without scheme, e.g. "example.com" or "example.com:8080"
+	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
+		uri = "https://" + uri
 	}
 
-	// Priority 2: parse from OIDCConfigEndpoint
-	if cfg.HttpConfig != nil && cfg.HttpConfig.OIDCConfigEndpoint != "" {
-		if host := hostFromURL(cfg.HttpConfig.OIDCConfigEndpoint); host != "" {
-			return host, nil
-		}
-	}
-
-	// Priority 3: parse from AuthIssuer
-	if cfg.HttpConfig != nil && cfg.HttpConfig.AuthIssuer != "" {
-		if host := hostFromURL(cfg.HttpConfig.AuthIssuer); host != "" {
-			return host, nil
-		}
-	}
-
-	// Priority 4: parse from IdpManagerConfig.ClientConfig.Issuer
-	if cfg.IdpManagerConfig != nil && cfg.IdpManagerConfig.ClientConfig != nil && cfg.IdpManagerConfig.ClientConfig.Issuer != "" {
-		if host := hostFromURL(cfg.IdpManagerConfig.ClientConfig.Issuer); host != "" {
-			return host, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not determine domain: set HttpConfig.LetsEncryptDomain, HttpConfig.AuthIssuer, or HttpConfig.OIDCConfigEndpoint in management.json")
-}
-
-// hostFromURL extracts the host (without port) from a URL string.
-func hostFromURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
+	val, err := url.JoinPath(uri, path)
 	if err != nil {
 		return ""
 	}
-	return u.Hostname()
+
+	return val
 }
 
 // Compile-time check that migrationServer implements migration.Server.

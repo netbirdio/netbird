@@ -5,16 +5,16 @@
 This tool migrates NetBird deployments from an external IdP (Auth0, Zitadel, Okta, etc.) to the embedded Dex IdP introduced in v0.62.0. It does two things:
 
 1. **DB migration** — Re-encodes every user ID from `{original_id}` to Dex's protobuf-encoded format `base64(proto{original_id, connector_id})`.
-2. **Config generation** — Transforms `management.json` by replacing `IdpManagerConfig` with `EmbeddedIdP` and updating `HttpConfig` fields.
+2. **Config generation** — Transforms `management.json`: removes `IdpManagerConfig`, `PKCEAuthorizationFlow`, and `DeviceAuthorizationFlow`; strips `HttpConfig` to only `CertFile`/`CertKey`; adds `EmbeddedIdP` with the static connector configuration.
 
 ## Code Layout
 
 ```
 tools/idp-migrate/
-├── main.go              # CLI entry point, connector resolution, config generation
-├── main_test.go         # 22 tests covering all exported/internal functions
-├── DEVELOPMENT.md       # this file
-└── MIGRATION_GUIDE.md   # operator-facing step-by-step guide
+├── config.go            # migrationConfig struct, CLI flags, env vars, validation
+├── main.go              # CLI entry point, migration phases, config generation
+├── main_test.go         # 8 test functions (18 subtests) covering config, connector, URL builder, config generation
+└── DEVELOPMENT.md       # this file
 
 management/server/idp/migration/
 ├── migration.go         # Server interface, MigrateUsersToStaticConnectors(), PopulateUserInfo(), migrateUser(), reconcileActivityStore()
@@ -45,19 +45,42 @@ The build requires `CGO_ENABLED=1` because it links the SQLite driver used by `S
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--config` | string | *(required)* | Path to management.json |
-| `--datadir` | string | `""` | Override data directory from config |
-| `--idp-seed-info` | string | `""` | Base64-encoded connector JSON (overrides auto-detection) |
+| `--datadir` | string | *(required)* | Data directory (containing store.db / events.db) |
+| `--idp-seed-info` | string | *(required)* | Base64-encoded connector JSON |
+| `--domain` | string | `""` | Sets both dashboard and API domain (convenience shorthand) |
+| `--dashboard-domain` | string | *(required)* | Dashboard domain (for redirect URIs) |
+| `--api-domain` | string | *(required)* | API domain (for Dex issuer and callback URLs) |
 | `--dry-run` | bool | `false` | Preview changes without writing |
 | `--force` | bool | `false` | Skip interactive confirmation prompt |
 | `--skip-config` | bool | `false` | Skip config generation (DB-only migration) |
 | `--skip-populate-user-info` | bool | `false` | Skip populating user info (user ID migration only) |
 | `--log-level` | string | `"info"` | Log level (debug, info, warn, error) |
 
+## Environment Variables
+
+All flags can be overridden via environment variables. Env vars take precedence over flags.
+
+| Env Var | Overrides |
+|---------|-----------|
+| `NETBIRD_DOMAIN` | Sets both `--dashboard-domain` and `--api-domain` |
+| `NETBIRD_API_URL` | `--api-domain` |
+| `NETBIRD_DASHBOARD_URL` | `--dashboard-domain` |
+| `NETBIRD_CONFIG_PATH` | `--config` |
+| `NETBIRD_DATA_DIR` | `--datadir` |
+| `NETBIRD_IDP_SEED_INFO` | `--idp-seed-info` |
+| `NETBIRD_DRY_RUN` | `--dry-run` (set to `"true"`) |
+| `NETBIRD_FORCE` | `--force` (set to `"true"`) |
+| `NETBIRD_SKIP_CONFIG` | `--skip-config` (set to `"true"`) |
+| `NETBIRD_SKIP_POPULATE_USER_INFO` | `--skip-populate-user-info` (set to `"true"`) |
+| `NETBIRD_LOG_LEVEL` | `--log-level` |
+
+Resolution order: CLI flags are parsed first, then `--domain` sets both URLs, then `NETBIRD_DOMAIN` overrides both, then `NETBIRD_API_URL` / `NETBIRD_DASHBOARD_URL` override individually. After all resolution, `validateConfig()` ensures all required fields are set.
+
 ## Migration Flow
 
 ### Phase 0: Schema Validation
 
-`validateSchema()` opens the store and calls `CheckSchema(RequiredSchema)` to verify that all tables and columns required by the migration exist in the database. If anything is missing, the tool exits with a descriptive error instructing the operator to start the management server (v0.62.0+) at least once so that automatic GORM migrations create the required schema.
+`validateSchema()` opens the store and calls `CheckSchema(RequiredSchema)` to verify that all tables and columns required by the migration exist in the database. If anything is missing, the tool exits with a descriptive error instructing the operator to start the management server (v0.66.4+) at least once so that automatic GORM migrations create the required schema.
 
 ### Phase 1: Populate User Info
 
@@ -70,30 +93,9 @@ Unless `--skip-populate-user-info` is set, `populateUserInfoFromIDP()` runs befo
 
 This ensures user contact info is preserved before the ID migration makes the original IDP IDs inaccessible.
 
-### Phase 2: Connector Resolution
+### Phase 2: Connector Decoding
 
-`resolveConnector()` uses a 3-tier priority:
-
-1. `--idp-seed-info` flag — explicit base64-encoded connector JSON
-2. `IDP_SEED_INFO` env var — same format, read via `migration.SeedConnectorFromEnv()`
-3. Auto-detect from `management.json` — reads `IdpManagerConfig.ClientConfig` fields and maps `ManagerType` to a Dex connector type:
-
-| ManagerType | Dex Connector Type | Notes |
-|-------------|--------------------|----|
-| `keycloak` | `keycloak` | |
-| `okta` | `okta` | |
-| `authentik` | `authentik` | |
-| `pocketid` | `pocketid` | |
-| `auth0` | `oidc` (generic) | |
-| `azure` | `entra` | |
-| `google` | `google` | |
-| `zitadel` | **error** | Uses service account credentials — requires `--idp-seed-info` |
-| `jumpcloud` | **error** | No Dex connector available |
-| *(unknown)* | `oidc` (fallback) | Requires non-empty `ClientSecret` |
-
-**Why Zitadel can't be auto-detected**: Zitadel's `IdpManagerConfig.ClientConfig` contains service account credentials (a login name like `netbird-service-account` and possibly a PAT), not OAuth client credentials. These can't be used as an OIDC connector's `clientID`/`clientSecret`. The user must create a confidential Web application in Zitadel and provide it via `--idp-seed-info`.
-
-Additionally, `buildConnectorFromConfig` validates that `ClientSecret` is non-empty for all providers. If the secret is missing, the tool errors with instructions to use `--idp-seed-info`.
+`decodeConnectorConfig()` base64-decodes and JSON-unmarshals the connector JSON provided via `--idp-seed-info` (or `NETBIRD_IDP_SEED_INFO`). It validates that the connector ID is non-empty. There is no auto-detection or fallback — the operator must provide the full connector configuration.
 
 ### Phase 3: DB Migration
 
@@ -114,21 +116,21 @@ Additionally, `buildConnectorFromConfig` validates that `ClientSecret` is non-em
 
 Unless `--skip-config` is set, `generateConfig()` runs:
 
-1. **Derive domain** — `deriveDomain()` priority:
-   1. `HttpConfig.LetsEncryptDomain` (most explicit)
-   2. Parse host from `HttpConfig.OIDCConfigEndpoint`
-   3. Parse host from `HttpConfig.AuthIssuer`
-   4. Parse host from `IdpManagerConfig.ClientConfig.Issuer` (last resort)
+1. **Read** — loads existing `management.json` as raw JSON to preserve unknown fields.
 
-2. **Transform JSON** — reads existing config as raw JSON to preserve all fields, then:
-   - Removes `IdpManagerConfig`
-   - Adds `EmbeddedIdP` with the static connector, redirect URIs, etc.
-   - Overrides the connector's `redirectURI` to use the derived management domain (not the IdP issuer)
-   - Updates `HttpConfig`: `AuthIssuer`, `AuthAudience`, `AuthClientID`, `CLIAuthAudience`, `AuthKeysLocation`, `OIDCConfigEndpoint`, `IdpSignKeyRefreshEnabled`
-   - Sets `AuthUserIDClaim` to `"sub"`
-   - Generates `PKCEAuthorizationFlow` with Dex endpoints
+2. **Strip** — removes keys that are no longer needed:
+   - `IdpManagerConfig`
+   - `PKCEAuthorizationFlow`
+   - `DeviceAuthorizationFlow`
+   - All `HttpConfig` fields except `CertFile` and `CertKey`
 
-3. **Write** — backs up original as `management.json.bak`, writes new config. In dry-run mode, prints to stdout instead.
+3. **Add EmbeddedIdP** — inserts a minimal section with:
+   - `Enabled: true`
+   - `Issuer` built from `--api-domain` + `/oauth2`
+   - `DashboardRedirectURIs` built from `--dashboard-domain` + `/nb-auth` and `/nb-silent-auth`
+   - `StaticConnectors` containing the decoded connector, with `redirectURI` overridden to `--api-domain` + `/oauth2/callback`
+
+4. **Write** — backs up original as `management.json.bak`, writes new config. In dry-run mode, prints to stdout instead.
 
 ## Interface Decoupling
 
@@ -172,9 +174,7 @@ See `idp/dex/provider.go` for the implementation.
 
 ## Standalone Tool
 
-The standalone tool (`tools/idp-migrate/main.go`) is the primary migration entry point. It opens stores directly, runs schema validation, populates user info from the external IDP, migrates user IDs, and generates the new config — then exits.
-
-Previously, the combined server (`modules.go`) had a `seedIDPConnectors()` method that ran the same migration at startup via the `IDP_SEED_INFO` env var. This combined server path has been removed; migration is now handled exclusively by the standalone tool.
+The standalone tool (`tools/idp-migrate/main.go`) is the primary migration entry point. It opens stores directly, runs schema validation, populates user info from the external IDP, migrates user IDs, and generates the new config — then exits. Configuration is handled entirely through `config.go` which parses CLI flags and environment variables.
 
 ## Running Tests
 
