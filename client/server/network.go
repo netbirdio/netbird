@@ -16,10 +16,11 @@ import (
 )
 
 type selectRoute struct {
-	NetID    route.NetID
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         route.NetID
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 // ListNetworks returns a list of all available networks.
@@ -44,18 +45,45 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	routesMap := routeMgr.GetClientRoutesWithNetID()
 	routeSelector := routeMgr.GetRouteSelector()
 
+	v6ExitMerged := make(map[route.NetID]struct{})
+	for id, rt := range routesMap {
+		if len(rt) == 0 {
+			continue
+		}
+		name := string(id)
+		if route.IsV6DefaultRoute(rt[0].Network) && strings.HasSuffix(name, "-v6") {
+			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
+			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
+				v6ExitMerged[id] = struct{}{}
+			}
+		}
+	}
+
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		// Skip v6 exit nodes that are merged into their v4 counterpart.
+		if _, ok := v6ExitMerged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    id,
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
-		routes = append(routes, route)
+
+		// Merge paired v6 exit node prefix into this entry.
+		v6ID := route.NetID(string(id) + "-v6")
+		if _, ok := v6ExitMerged[v6ID]; ok {
+			v6Prefix := routesMap[v6ID][0].Network
+			r.extraNetworks = []netip.Prefix{v6Prefix}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -76,9 +104,13 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	resolvedDomains := s.statusRecorder.GetResolvedDomainsStates()
 	var pbRoutes []*proto.Network
 	for _, route := range routes {
+		rangeStr := route.Network.String()
+		for _, extra := range route.extraNetworks {
+			rangeStr += ", " + extra.String()
+		}
 		pbRoute := &proto.Network{
 			ID:          string(route.NetID),
-			Range:       route.Network.String(),
+			Range:       rangeStr,
 			Domains:     route.Domains.ToSafeStringList(),
 			ResolvedIPs: map[string]*proto.IPList{},
 			Selected:    route.Selected,
@@ -137,7 +169,9 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		routeSelector.SelectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		netIdRoutes := maps.Keys(routesMap)
 		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
@@ -183,7 +217,9 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		routeSelector.DeselectAllRoutes()
 	} else {
 		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		netIdRoutes := maps.Keys(routesMap)
 		if err := routeSelector.DeselectRoutes(routes, netIdRoutes); err != nil {
 			return nil, fmt.Errorf("deselect routes: %w", err)
 		}

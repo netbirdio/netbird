@@ -1055,7 +1055,11 @@ func (d *Status) notifyPeerListChanged() {
 }
 
 func (d *Status) notifyAddressChanged() {
-	d.notifier.localAddressChanged(d.localPeer.FQDN, d.localPeer.IP)
+	addr := d.localPeer.IP
+	if d.localPeer.IPv6 != "" {
+		addr = addr + "\n" + d.localPeer.IPv6
+	}
+	d.notifier.localAddressChanged(d.localPeer.FQDN, addr)
 }
 
 func (d *Status) numOfPeers() int {

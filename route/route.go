@@ -215,3 +215,33 @@ func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 
 	return IPv4Network, masked, nil
 }
+
+var (
+	v4Default = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	v6Default = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+)
+
+// IsV4DefaultRoute reports whether p is the IPv4 default route (0.0.0.0/0).
+func IsV4DefaultRoute(p netip.Prefix) bool { return p == v4Default }
+
+// IsV6DefaultRoute reports whether p is the IPv6 default route (::/0).
+func IsV6DefaultRoute(p netip.Prefix) bool { return p == v6Default }
+
+// ExpandV6ExitPairs appends the paired "-v6" exit node NetID for any v4 exit
+// node (0.0.0.0/0) in ids that has a matching v6 counterpart (::/0) in routesMap.
+// It modifies and returns the input slice.
+func ExpandV6ExitPairs(ids []NetID, routesMap map[NetID][]*Route) []NetID {
+	for _, id := range ids {
+		rt, ok := routesMap[id]
+		if !ok || len(rt) == 0 || !IsV4DefaultRoute(rt[0].Network) {
+			continue
+		}
+		v6ID := NetID(string(id) + "-v6")
+		if v6Rt, ok := routesMap[v6ID]; ok && len(v6Rt) > 0 && IsV6DefaultRoute(v6Rt[0].Network) {
+			if !slices.Contains(ids, v6ID) {
+				ids = append(ids, v6ID)
+			}
+		}
+	}
+	return ids
+}

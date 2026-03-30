@@ -50,10 +50,11 @@ type CustomLogger interface {
 }
 
 type selectRoute struct {
-	NetID    string
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         string
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 func init() {
@@ -363,13 +364,28 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routesMap := routeManager.GetClientRoutesWithNetID()
 	if routeManager == nil {
 		return nil, fmt.Errorf("could not get route manager")
 	}
+	routesMap := routeManager.GetClientRoutesWithNetID()
 	routeSelector := routeManager.GetRouteSelector()
 	if routeSelector == nil {
 		return nil, fmt.Errorf("could not get route selector")
+	}
+
+	// Identify v6 exit nodes paired with a v4 counterpart.
+	v6ExitMerged := make(map[route.NetID]struct{})
+	for id, rt := range routesMap {
+		if len(rt) == 0 {
+			continue
+		}
+		name := string(id)
+		if route.IsV6DefaultRoute(rt[0].Network) && strings.HasSuffix(name, "-v6") {
+			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
+			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
+				v6ExitMerged[id] = struct{}{}
+			}
+		}
 	}
 
 	var routes []*selectRoute
@@ -377,13 +393,25 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		if _, ok := v6ExitMerged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    string(id),
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
-		routes = append(routes, route)
+
+		// Merge paired v6 exit node prefix into this entry.
+		v6ID := route.NetID(string(id) + "-v6")
+		if _, ok := v6ExitMerged[v6ID]; ok {
+			v6Prefix := routesMap[v6ID][0].Network
+			r.extraNetworks = []netip.Prefix{v6Prefix}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -425,10 +453,15 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			}
 			domainList = append(domainList, domainResp)
 		}
+		rangeStr := r.Network.String()
+		for _, extra := range r.extraNetworks {
+			rangeStr += ", " + extra.String()
+		}
+
 		domainDetails := DomainDetails{items: domainList}
 		routeSelection = append(routeSelection, RoutesSelectionInfo{
 			ID:       r.NetID,
-			Network:  r.Network.String(),
+			Network:  rangeStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
 		})
@@ -456,7 +489,9 @@ func (c *Client) SelectRoute(id string) error {
 	} else {
 		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
@@ -483,7 +518,9 @@ func (c *Client) DeselectRoute(id string) error {
 	} else {
 		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}

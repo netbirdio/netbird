@@ -195,7 +195,7 @@ func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	for _, route := range routes {
-		if route.Range == "0.0.0.0/0" || route.Range == "::/0" {
+		if strings.Contains(route.Range, "0.0.0.0/0") || route.Range == "::/0" {
 			filteredRoutes = append(filteredRoutes, route)
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 
 	"golang.org/x/exp/maps"
@@ -243,9 +244,32 @@ func (c *Client) Networks() *NetworkArray {
 	}
 
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+	routesMap := routeManager.GetClientRoutesWithNetID()
 
-	for id, routes := range routeManager.GetClientRoutesWithNetID() {
+	// Map v6 exit node IDs (<base>-v6 with ::/0) to their v4 base name.
+	// Also build a set of v6 IDs to skip during the main loop.
+	v6ExitByBase := make(map[route.NetID]route.NetID)
+	v6Merged := make(map[route.NetID]struct{})
+	for id, routes := range routesMap {
 		if len(routes) == 0 {
+			continue
+		}
+		name := string(id)
+		if route.IsV6DefaultRoute(routes[0].Network) && strings.HasSuffix(name, "-v6") {
+			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
+			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
+				v6ExitByBase[baseName] = id
+				v6Merged[id] = struct{}{}
+			}
+		}
+	}
+
+	for id, routes := range routesMap {
+		if len(routes) == 0 {
+			continue
+		}
+
+		if _, ok := v6Merged[id]; ok {
 			continue
 		}
 
@@ -257,11 +281,12 @@ func (c *Client) Networks() *NetworkArray {
 			netStr = r.Domains.SafeString()
 		}
 
-		routePeer, err := c.recorder.GetPeer(routes[0].Peer)
+		routePeer, err := c.findBestRoutePeer(routes)
 		if err != nil {
-			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)
+			log.Errorf("could not get peer info for route %s: %v", id, err)
 			continue
 		}
+
 		network := Network{
 			Name:       string(id),
 			Network:    netStr,
@@ -270,9 +295,40 @@ func (c *Client) Networks() *NetworkArray {
 			IsSelected: routeSelector.IsSelected(id),
 			Domains:    domains,
 		}
+
+		if route.IsV4DefaultRoute(r.Network) {
+			if _, ok := v6ExitByBase[id]; ok {
+				network.Network = "0.0.0.0/0, ::/0"
+			}
+		}
+
 		networkArray.Add(network)
 	}
 	return networkArray
+}
+
+// findBestRoutePeer returns the peer actively routing traffic for the given
+// HA route group. Falls back to the first connected peer, then the first peer.
+func (c *Client) findBestRoutePeer(routes []*route.Route) (peer.State, error) {
+	netStr := routes[0].Network.String()
+
+	fullStatus := c.recorder.GetFullStatus()
+	for _, p := range fullStatus.Peers {
+		if _, ok := p.GetRoutes()[netStr]; ok {
+			return p, nil
+		}
+	}
+
+	for _, r := range routes {
+		p, err := c.recorder.GetPeer(r.Peer)
+		if err != nil {
+			continue
+		}
+		if p.ConnStatus == peer.StatusConnected {
+			return p, nil
+		}
+	}
+	return c.recorder.GetPeer(routes[0].Peer)
 }
 
 // OnUpdatedHostDNS update the DNS servers addresses for root zones
