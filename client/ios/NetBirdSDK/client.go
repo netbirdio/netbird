@@ -373,27 +373,20 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 		return nil, fmt.Errorf("could not get route selector")
 	}
 
-	// Identify v6 exit nodes paired with a v4 counterpart.
-	v6ExitMerged := make(map[route.NetID]struct{})
-	for id, rt := range routesMap {
-		if len(rt) == 0 {
-			continue
-		}
-		name := string(id)
-		if route.IsV6DefaultRoute(rt[0].Network) && strings.HasSuffix(name, "-v6") {
-			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
-			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
-				v6ExitMerged[id] = struct{}{}
-			}
-		}
-	}
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
+	routes := buildSelectRoutes(routesMap, routeSelector.IsSelected, v6ExitMerged)
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
 
+	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+}
+
+func buildSelectRoutes(routesMap map[route.NetID][]*route.Route, isSelected func(route.NetID) bool, v6Merged map[route.NetID]struct{}) []*selectRoute {
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		if _, ok := v6ExitMerged[id]; ok {
+		if _, ok := v6Merged[id]; ok {
 			continue
 		}
 
@@ -401,38 +394,30 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 			NetID:    string(id),
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
-			Selected: routeSelector.IsSelected(id),
+			Selected: isSelected(id),
 		}
 
-		// Merge paired v6 exit node prefix into this entry.
-		v6ID := route.NetID(string(id) + "-v6")
-		if _, ok := v6ExitMerged[v6ID]; ok {
-			v6Prefix := routesMap[v6ID][0].Network
-			r.extraNetworks = []netip.Prefix{v6Prefix}
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+		if _, ok := v6Merged[v6ID]; ok {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
 		}
 
 		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
-		iPrefix := routes[i].Network.Bits()
-		jPrefix := routes[j].Network.Bits()
-
-		if iPrefix == jPrefix {
-			iAddr := routes[i].Network.Addr()
-			jAddr := routes[j].Network.Addr()
-			if iAddr == jAddr {
-				return routes[i].NetID < routes[j].NetID
-			}
-			return iAddr.String() < jAddr.String()
+		iBits, jBits := routes[i].Network.Bits(), routes[j].Network.Bits()
+		if iBits != jBits {
+			return iBits < jBits
 		}
-		return iPrefix < jPrefix
+		iAddr, jAddr := routes[i].Network.Addr(), routes[j].Network.Addr()
+		if iAddr != jAddr {
+			return iAddr.Less(jAddr)
+		}
+		return routes[i].NetID < routes[j].NetID
 	})
 
-	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-
-	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
-
+	return routes
 }
 
 func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {

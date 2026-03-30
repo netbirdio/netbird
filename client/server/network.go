@@ -45,19 +45,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	routesMap := routeMgr.GetClientRoutesWithNetID()
 	routeSelector := routeMgr.GetRouteSelector()
 
-	v6ExitMerged := make(map[route.NetID]struct{})
-	for id, rt := range routesMap {
-		if len(rt) == 0 {
-			continue
-		}
-		name := string(id)
-		if route.IsV6DefaultRoute(rt[0].Network) && strings.HasSuffix(name, "-v6") {
-			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
-			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
-				v6ExitMerged[id] = struct{}{}
-			}
-		}
-	}
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
@@ -77,7 +65,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 		}
 
 		// Merge paired v6 exit node prefix into this entry.
-		v6ID := route.NetID(string(id) + "-v6")
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
 		if _, ok := v6ExitMerged[v6ID]; ok {
 			v6Prefix := routesMap[v6ID][0].Network
 			r.extraNetworks = []netip.Prefix{v6Prefix}

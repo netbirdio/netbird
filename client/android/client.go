@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 
 	"golang.org/x/exp/maps"
@@ -239,72 +238,58 @@ func (c *Client) Networks() *NetworkArray {
 		return nil
 	}
 
+	routesMap := routeManager.GetClientRoutesWithNetID()
+	v6Merged := route.V6ExitMergeSet(routesMap)
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
 	}
 
-	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-	routesMap := routeManager.GetClientRoutesWithNetID()
-
-	// Map v6 exit node IDs (<base>-v6 with ::/0) to their v4 base name.
-	// Also build a set of v6 IDs to skip during the main loop.
-	v6ExitByBase := make(map[route.NetID]route.NetID)
-	v6Merged := make(map[route.NetID]struct{})
 	for id, routes := range routesMap {
 		if len(routes) == 0 {
 			continue
 		}
-		name := string(id)
-		if route.IsV6DefaultRoute(routes[0].Network) && strings.HasSuffix(name, "-v6") {
-			baseName := route.NetID(strings.TrimSuffix(name, "-v6"))
-			if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && route.IsV4DefaultRoute(baseRt[0].Network) {
-				v6ExitByBase[baseName] = id
-				v6Merged[id] = struct{}{}
-			}
-		}
-	}
-
-	for id, routes := range routesMap {
-		if len(routes) == 0 {
+		if _, skip := v6Merged[id]; skip {
 			continue
 		}
 
-		if _, ok := v6Merged[id]; ok {
+		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged)
+		if network == nil {
 			continue
 		}
-
-		r := routes[0]
-		domains := c.getNetworkDomainsFromRoute(r, resolvedDomains)
-		netStr := r.Network.String()
-
-		if r.IsDynamic() {
-			netStr = r.Domains.SafeString()
-		}
-
-		routePeer, err := c.findBestRoutePeer(routes)
-		if err != nil {
-			log.Errorf("could not get peer info for route %s: %v", id, err)
-			continue
-		}
-
-		network := Network{
-			Name:       string(id),
-			Network:    netStr,
-			Peer:       routePeer.FQDN,
-			Status:     routePeer.ConnStatus.String(),
-			IsSelected: routeSelector.IsSelected(id),
-			Domains:    domains,
-		}
-
-		if route.IsV4DefaultRoute(r.Network) {
-			if _, ok := v6ExitByBase[id]; ok {
-				network.Network = "0.0.0.0/0, ::/0"
-			}
-		}
-
-		networkArray.Add(network)
+		networkArray.Add(*network)
 	}
 	return networkArray
+}
+
+func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}) *Network {
+	r := routes[0]
+	netStr := r.Network.String()
+	if r.IsDynamic() {
+		netStr = r.Domains.SafeString()
+	}
+
+	routePeer, err := c.findBestRoutePeer(routes)
+	if err != nil {
+		log.Errorf("could not get peer info for route %s: %v", id, err)
+		return nil
+	}
+
+	network := &Network{
+		Name:       string(id),
+		Network:    netStr,
+		Peer:       routePeer.FQDN,
+		Status:     routePeer.ConnStatus.String(),
+		IsSelected: selected,
+		Domains:    c.getNetworkDomainsFromRoute(r, resolvedDomains),
+	}
+
+	if route.IsV4DefaultRoute(r.Network) && route.HasV6ExitPair(id, v6Merged) {
+		network.Network = "0.0.0.0/0, ::/0"
+	}
+
+	return network
 }
 
 // findBestRoutePeer returns the peer actively routing traffic for the given
