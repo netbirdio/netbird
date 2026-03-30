@@ -31,18 +31,15 @@ type store interface {
 
 type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
-}
-
-type clusterCapabilities interface {
-	ClusterSupportsCustomPorts(clusterAddr string) *bool
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
-	store               store
-	validator           domain.Validator
-	proxyManager        proxyManager
-	clusterCapabilities clusterCapabilities
-	permissionsManager  permissions.Manager
+	store              store
+	validator          domain.Validator
+	proxyManager       proxyManager
+	permissionsManager permissions.Manager
 	accountManager     account.Manager
 }
 
@@ -54,11 +51,6 @@ func NewManager(store store, proxyMgr proxyManager, permissionsManager permissio
 		permissionsManager: permissionsManager,
 		accountManager:     accountManager,
 	}
-}
-
-// SetClusterCapabilities sets the cluster capabilities provider for domain queries.
-func (m *Manager) SetClusterCapabilities(caps clusterCapabilities) {
-	m.clusterCapabilities = caps
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
@@ -96,9 +88,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 			Type:      domain.TypeFree,
 			Validated: true,
 		}
-		if m.clusterCapabilities != nil {
-			d.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(cluster)
-		}
+		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
+		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -112,9 +103,11 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 			Type:          domain.TypeCustom,
 			Validated:     d.Validated,
 		}
-		if m.clusterCapabilities != nil && d.TargetCluster != "" {
-			cd.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(d.TargetCluster)
+		if d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 		}
+		// Custom domains never require a subdomain by default since
+		// the account owns them and should be able to use the bare domain.
 		ret = append(ret, cd)
 	}
 
@@ -302,13 +295,19 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
 }
 
-func extractClusterFromCustomDomains(domain string, customDomains []*domain.Domain) (string, bool) {
-	for _, customDomain := range customDomains {
-		if strings.HasSuffix(domain, "."+customDomain.Domain) {
-			return customDomain.TargetCluster, true
+func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
+	bestCluster := ""
+	bestLen := -1
+	for _, cd := range customDomains {
+		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		if l := len(cd.Domain); l > bestLen {
+			bestLen = l
+			bestCluster = cd.TargetCluster
 		}
 	}
-	return "", false
+	return bestCluster, bestLen >= 0
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.

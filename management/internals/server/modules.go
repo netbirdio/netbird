@@ -195,7 +195,7 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ServiceManager() service.Manager {
 	return Create(s, func() service.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ReverseProxyDomainManager())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
 	})
 }
 
@@ -212,9 +212,6 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
-		s.AfterInit(func(s *BaseServer) {
-			m.SetClusterCapabilities(s.ServiceProxyController())
-		})
 		return &m
 	})
 }

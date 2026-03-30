@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -211,19 +212,24 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 }
 
 func toExposeProtocol(exposeProtocol string) (proto.ExposeProtocol, error) {
-	switch strings.ToLower(exposeProtocol) {
-	case "http":
+	p, err := expose.ParseProtocolType(exposeProtocol)
+	if err != nil {
+		return 0, fmt.Errorf("invalid protocol: %w", err)
+	}
+
+	switch p {
+	case expose.ProtocolHTTP:
 		return proto.ExposeProtocol_EXPOSE_HTTP, nil
-	case "https":
+	case expose.ProtocolHTTPS:
 		return proto.ExposeProtocol_EXPOSE_HTTPS, nil
-	case "tcp":
+	case expose.ProtocolTCP:
 		return proto.ExposeProtocol_EXPOSE_TCP, nil
-	case "udp":
+	case expose.ProtocolUDP:
 		return proto.ExposeProtocol_EXPOSE_UDP, nil
-	case "tls":
+	case expose.ProtocolTLS:
 		return proto.ExposeProtocol_EXPOSE_TLS, nil
 	default:
-		return 0, fmt.Errorf("unsupported protocol %q: must be http, https, tcp, udp, or tls", exposeProtocol)
+		return 0, fmt.Errorf("unhandled protocol type: %d", p)
 	}
 }
 

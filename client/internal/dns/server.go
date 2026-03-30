@@ -57,6 +57,7 @@ type Server interface {
 	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
+	SetRouteChecker(func(netip.Addr) bool)
 }
 
 type nsGroupsByDomain struct {
@@ -104,6 +105,7 @@ type DefaultServer struct {
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+	routeMatch     func(netip.Addr) bool
 
 	probeMu     sync.Mutex
 	probeCancel context.CancelFunc
@@ -227,6 +229,14 @@ func newDefaultServer(
 	dnsService.RegisterMux(".", handlerChain)
 
 	return defaultServer
+}
+
+// SetRouteChecker sets the function used by upstream resolvers to determine
+// whether an IP is routed through the tunnel.
+func (s *DefaultServer) SetRouteChecker(f func(netip.Addr) bool) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.routeMatch = f
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -743,6 +753,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	for _, ns := range originalNameservers {
 		if ns == config.ServerIP {
@@ -852,6 +863,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		if err != nil {
 			return nil, fmt.Errorf("create upstream resolver: %v", err)
 		}
+		handler.routeMatch = s.routeMatch
 
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -1036,6 +1048,7 @@ func (s *DefaultServer) addHostRootZone() {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}

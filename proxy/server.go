@@ -163,6 +163,10 @@ type Server struct {
 	// SupportsCustomPorts indicates whether the proxy can bind arbitrary
 	// ports for TCP/UDP/TLS services.
 	SupportsCustomPorts bool
+	// RequireSubdomain indicates whether a subdomain label is required
+	// in front of this proxy's cluster domain. When true, accounts cannot
+	// create services on the bare cluster domain.
+	RequireSubdomain bool
 	// MaxDialTimeout caps the per-service backend dial timeout.
 	// When the API sends a timeout, it is clamped to this value.
 	// When the API sends no timeout, this value is used as the default.
@@ -919,6 +923,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			Address:   s.ProxyURL,
 			Capabilities: &proto.ProxyCapabilities{
 				SupportsCustomPorts: &s.SupportsCustomPorts,
+				RequireSubdomain:    &s.RequireSubdomain,
 			},
 		})
 		if err != nil {

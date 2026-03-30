@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/netflow"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
@@ -150,6 +151,7 @@ type EngineServices struct {
 	Checks         []*mgmProto.Checks
 	StateManager   *statemanager.Manager
 	UpdateManager  *updater.Manager
+	ClientMetrics  *metrics.ClientMetrics
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -231,6 +233,9 @@ type Engine struct {
 
 	probeStunTurn *relay.StunTurnProbe
 
+	// clientMetrics collects and pushes metrics
+	clientMetrics *metrics.ClientMetrics
+
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
 
@@ -274,7 +279,9 @@ func NewEngine(
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
 		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
-		jobExecutor:        jobexec.NewExecutor(), updateManager: services.UpdateManager,
+		jobExecutor:        jobexec.NewExecutor(),
+		clientMetrics:      services.ClientMetrics,
+		updateManager:      services.UpdateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -494,6 +501,17 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
+
+	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
+		for _, routes := range e.routeManager.GetClientRoutes() {
+			for _, r := range routes {
+				if r.Network.Contains(ip) {
+					return true
+				}
+			}
+		}
+		return false
+	})
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
@@ -822,7 +840,9 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	started := time.Now()
 	defer func() {
-		log.Infof("sync finished in %s", time.Since(started))
+		duration := time.Since(started)
+		log.Infof("sync finished in %s", duration)
+		e.clientMetrics.RecordSyncDuration(e.ctx, duration)
 	}()
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -998,10 +1018,11 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
-	// Cannot update the IP address without restarting the engine because
-	// the firewall, route manager, and other components cache the old address
 	if e.wgInterface.Address().String() != conf.Address {
-		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
+		log.Infof("peer IP address changed from %s to %s, restarting client", e.wgInterface.Address().String(), conf.Address)
+		_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+		e.clientCancel()
+		return ErrResetConnection
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -1069,6 +1090,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
@@ -1529,6 +1551,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		RelayManager:       e.relayManager,
 		SrWatcher:          e.srWatcher,
 		PortForwardManager: e.portForwardManager,
+		MetricsRecorder:    e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1829,6 +1852,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
+}
+
+// GetClientMetrics returns the client metrics
+func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
+	return e.clientMetrics
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

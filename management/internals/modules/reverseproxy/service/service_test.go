@@ -847,6 +847,32 @@ func TestValidate_TLSSubnetValid(t *testing.T) {
 	require.NoError(t, rp.Validate())
 }
 
+func TestValidate_L4DomainTargetValid(t *testing.T) {
+	modes := []struct {
+		mode  string
+		port  uint16
+		proto string
+	}{
+		{"tcp", 5432, "tcp"},
+		{"tls", 443, "tcp"},
+		{"udp", 5432, "udp"},
+	}
+	for _, m := range modes {
+		t.Run(m.mode, func(t *testing.T) {
+			rp := &Service{
+				Name:       m.mode + "-domain",
+				Mode:       m.mode,
+				Domain:     "cluster.test",
+				ListenPort: m.port,
+				Targets: []*Target{
+					{TargetId: "resource-1", TargetType: TargetTypeDomain, Protocol: m.proto, Port: m.port, Enabled: true},
+				},
+			}
+			require.NoError(t, rp.Validate())
+		})
+	}
+}
+
 func TestValidate_HTTPProxyProtocolRejected(t *testing.T) {
 	rp := validProxy()
 	rp.Targets[0].ProxyProtocol = true
@@ -908,4 +934,108 @@ func TestExposeServiceRequest_Validate_L4RejectsAuth(t *testing.T) {
 func TestExposeServiceRequest_Validate_HTTPAllowsAuth(t *testing.T) {
 	req := ExposeServiceRequest{Port: 8080, Mode: "http", Pin: "123456"}
 	require.NoError(t, req.Validate())
+}
+
+func TestValidate_HeaderAuths(t *testing.T) {
+	t.Run("single valid header", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "X-API-Key", Value: "secret"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple headers same canonical name allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Authorization", Value: "Bearer token-1"},
+				{Enabled: true, Header: "Authorization", Value: "Bearer token-2"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple headers different case same canonical allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "x-api-key", Value: "key-1"},
+				{Enabled: true, Header: "X-Api-Key", Value: "key-2"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("multiple different headers allowed", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Authorization", Value: "Bearer tok"},
+				{Enabled: true, Header: "X-API-Key", Value: "key"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("empty header name rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "header name is required")
+	})
+
+	t.Run("hop-by-hop header rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Connection", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hop-by-hop")
+	})
+
+	t.Run("host header rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "Host", Value: "val"},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Host header cannot be used")
+	})
+
+	t.Run("disabled entries skipped", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: false, Header: "", Value: ""},
+				{Enabled: true, Header: "X-Key", Value: "val"},
+			},
+		}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("value too long rejected", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth = AuthConfig{
+			HeaderAuths: []*HeaderAuthConfig{
+				{Enabled: true, Header: "X-Key", Value: strings.Repeat("a", maxHeaderValueLen+1)},
+			},
+		}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds maximum length")
+	})
 }

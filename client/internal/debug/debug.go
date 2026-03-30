@@ -31,7 +31,6 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -53,6 +52,7 @@ resolved_domains.txt: Anonymized resolved domain IP addresses from the status re
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
+metrics.txt: Buffered client metrics in InfluxDB line protocol format. Only present when metrics collection is enabled. Peer identifiers are anonymized.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
@@ -219,6 +219,11 @@ const (
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
+// MetricsExporter is an interface for exporting metrics
+type MetricsExporter interface {
+	Export(w io.Writer) error
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -229,6 +234,7 @@ type BundleGenerator struct {
 	logPath        string
 	cpuProfile     []byte
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
+	clientMetrics  MetricsExporter
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -250,6 +256,7 @@ type GeneratorDependencies struct {
 	LogPath        string
 	CPUProfile     []byte
 	RefreshStatus  func() // Optional callback to refresh status before bundle generation
+	ClientMetrics  MetricsExporter
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -268,6 +275,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logPath:        deps.LogPath,
 		cpuProfile:     deps.CPUProfile,
 		refreshStatus:  deps.RefreshStatus,
+		clientMetrics:  deps.ClientMetrics,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -351,6 +359,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
 	}
 
+	if err := g.addMetrics(); err != nil {
+		log.Errorf("failed to add metrics to debug bundle: %v", err)
+	}
+
 	if err := g.addWgShow(); err != nil {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
@@ -418,7 +430,10 @@ func (g *BundleGenerator) addStatus() error {
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
-		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
+			Anonymize:   g.anonymize,
+			ProfileName: profName,
+		})
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -741,6 +756,30 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 		log.Debugf("Added corrupted state file to debug bundle: %s", fileName)
 	}
 
+	return nil
+}
+
+func (g *BundleGenerator) addMetrics() error {
+	if g.clientMetrics == nil {
+		log.Debugf("skipping metrics in debug bundle: no metrics collector")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := g.clientMetrics.Export(&buf); err != nil {
+		return fmt.Errorf("export metrics: %w", err)
+	}
+
+	if buf.Len() == 0 {
+		log.Debugf("skipping metrics.txt in debug bundle: no metrics data")
+		return nil
+	}
+
+	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
+		return fmt.Errorf("add metrics file to zip: %w", err)
+	}
+
+	log.Debugf("added metrics to debug bundle")
 	return nil
 }
 

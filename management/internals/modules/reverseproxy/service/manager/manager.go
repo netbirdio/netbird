@@ -14,6 +14,8 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
+	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -73,22 +75,30 @@ type ClusterDeriver interface {
 	GetClusterDomains() []string
 }
 
+// CapabilityProvider queries proxy cluster capabilities from the database.
+type CapabilityProvider interface {
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+}
+
 type Manager struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
+	capabilities       CapabilityProvider
 	clusterDeriver     ClusterDeriver
 	exposeReaper       *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
+		capabilities:       capabilities,
 		clusterDeriver:     clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
@@ -98,6 +108,19 @@ func NewManager(store store.Store, accountManager account.Manager, permissionsMa
 // StartExposeReaper starts the background goroutine that reaps expired ephemeral services.
 func (m *Manager) StartExposeReaper(ctx context.Context) {
 	m.exposeReaper.StartExposeReaper(ctx)
+}
+
+// GetActiveClusters returns all active proxy clusters with their connected proxy count.
+func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return m.store.GetActiveProxyClusters(ctx)
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
@@ -221,6 +244,10 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 			return status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", service.Domain, err)
 		}
 		service.ProxyCluster = proxyCluster
+
+		if err := m.validateSubdomainRequirement(ctx, service.Domain, proxyCluster); err != nil {
+			return err
+		}
 	}
 
 	service.AccountID = accountID
@@ -243,6 +270,20 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 	service.SessionPrivateKey = keyPair.PrivateKey
 	service.SessionPublicKey = keyPair.PublicKey
 
+	return nil
+}
+
+// validateSubdomainRequirement checks whether the domain can be used bare
+// (without a subdomain label) on the given cluster. If the cluster reports
+// require_subdomain=true and the domain equals the cluster domain, it rejects.
+func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, cluster string) error {
+	if domain != cluster {
+		return nil
+	}
+	requireSub := m.capabilities.ClusterRequireSubdomain(ctx, cluster)
+	if requireSub != nil && *requireSub {
+		return status.Errorf(status.InvalidArgument, "domain %s requires a subdomain label", domain)
+	}
 	return nil
 }
 
@@ -279,7 +320,7 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	customPorts := m.proxyController.ClusterSupportsCustomPorts(svc.ProxyCluster)
+	customPorts := m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
 	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
@@ -474,51 +515,63 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 	var updateInfo serviceUpdateInfo
 
 	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
-		if err != nil {
-			return err
-		}
-
-		if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
-			return err
-		}
-
-		updateInfo.oldCluster = existingService.ProxyCluster
-		updateInfo.domainChanged = existingService.Domain != service.Domain
-
-		if updateInfo.domainChanged {
-			if err := m.handleDomainChange(ctx, transaction, accountID, service); err != nil {
-				return err
-			}
-		} else {
-			service.ProxyCluster = existingService.ProxyCluster
-		}
-
-		m.preserveExistingAuthSecrets(service, existingService)
-		if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
-			return err
-		}
-		m.preserveServiceMetadata(service, existingService)
-		m.preserveListenPort(service, existingService)
-		updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
-
-		if err := m.ensureL4Port(ctx, transaction, service); err != nil {
-			return err
-		}
-		if err := m.checkPortConflict(ctx, transaction, service); err != nil {
-			return err
-		}
-		if err := validateTargetReferences(ctx, transaction, accountID, service.Targets); err != nil {
-			return err
-		}
-		if err := transaction.UpdateService(ctx, service); err != nil {
-			return fmt.Errorf("update service: %w", err)
-		}
-
-		return nil
+		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo)
 	})
 
 	return &updateInfo, err
+}
+
+func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo) error {
+	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
+	if err != nil {
+		return err
+	}
+
+	if existingService.Terminated {
+		return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
+	}
+
+	if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
+		return err
+	}
+
+	updateInfo.oldCluster = existingService.ProxyCluster
+	updateInfo.domainChanged = existingService.Domain != service.Domain
+
+	if updateInfo.domainChanged {
+		if err := m.handleDomainChange(ctx, transaction, accountID, service); err != nil {
+			return err
+		}
+	} else {
+		service.ProxyCluster = existingService.ProxyCluster
+	}
+
+	if err := m.validateSubdomainRequirement(ctx, service.Domain, service.ProxyCluster); err != nil {
+		return err
+	}
+
+	m.preserveExistingAuthSecrets(service, existingService)
+	if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
+		return err
+	}
+	m.preserveServiceMetadata(service, existingService)
+	m.preserveListenPort(service, existingService)
+	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
+
+	if err := m.ensureL4Port(ctx, transaction, service); err != nil {
+		return err
+	}
+	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
+		return err
+	}
+	if err := validateTargetReferences(ctx, transaction, accountID, service.Targets); err != nil {
+		return err
+	}
+	if err := transaction.UpdateService(ctx, service); err != nil {
+		return fmt.Errorf("update service: %w", err)
+	}
+
+	return nil
 }
 
 func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, svc *service.Service) error {
@@ -636,22 +689,49 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 	for _, target := range targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
-			if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
-				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
-					return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
-				}
-				return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
+			if err := validatePeerTarget(ctx, transaction, accountID, target); err != nil {
+				return err
 			}
 		case service.TargetTypeHost, service.TargetTypeSubnet, service.TargetTypeDomain:
-			if _, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
-				if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
-					return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
-				}
-				return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
+			if err := validateResourceTarget(ctx, transaction, accountID, target); err != nil {
+				return err
 			}
 		default:
 			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
+	}
+	return nil
+}
+
+func validatePeerTarget(ctx context.Context, transaction store.Store, accountID string, target *service.Target) error {
+	if _, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, target.TargetId); err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return status.Errorf(status.InvalidArgument, "peer target %q not found in account", target.TargetId)
+		}
+		return fmt.Errorf("look up peer target %q: %w", target.TargetId, err)
+	}
+	return nil
+}
+
+func validateResourceTarget(ctx context.Context, transaction store.Store, accountID string, target *service.Target) error {
+	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, target.TargetId)
+	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return status.Errorf(status.InvalidArgument, "resource target %q not found in account", target.TargetId)
+		}
+		return fmt.Errorf("look up resource target %q: %w", target.TargetId, err)
+	}
+	return validateResourceTargetType(target, resource)
+}
+
+// validateResourceTargetType checks that target_type matches the actual network resource type.
+func validateResourceTargetType(target *service.Target, resource *resourcetypes.NetworkResource) error {
+	expected := resourcetypes.NetworkResourceType(target.TargetType)
+	if resource.Type != expected {
+		return status.Errorf(status.InvalidArgument,
+			"target %q has target_type %q but resource is of type %q",
+			target.TargetId, target.TargetType, resource.Type,
+		)
 	}
 	return nil
 }
