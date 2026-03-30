@@ -3,16 +3,23 @@
   "checkpoint_id": "5eaefec1fa77",
   "strategy": "manual-commit",
   "branch": "feature/use-local-keys-embedded",
-  "checkpoints_count": 0,
+  "checkpoints_count": 4,
   "files_touched": [
     "combined/cmd/config.go",
     "combined/cmd/root.go",
     "combined/cmd/token.go",
     "combined/config.yaml.example",
+    "idp/dex/provider.go",
+    "management/internals/server/controllers.go",
     "management/server/activity/store/sql_store.go",
+    "management/server/auth/manager.go",
+    "management/server/auth/manager_test.go",
+    "management/server/http/testing/testing_tools/channel/channel.go",
+    "management/server/idp/embedded.go",
     "management/server/metrics/selfhosted.go",
     "management/server/metrics/selfhosted_test.go",
-    "management/server/store/sql_store.go"
+    "management/server/store/sql_store.go",
+    "shared/auth/jwt/validator.go"
   ],
   "sessions": [
     {
@@ -21,13 +28,20 @@
       "context": "/5e/aefec1fa77/0/context.md",
       "content_hash": "/5e/aefec1fa77/0/content_hash.txt",
       "prompt": "/5e/aefec1fa77/0/prompt.txt"
+    },
+    {
+      "metadata": "/5e/aefec1fa77/1/metadata.json",
+      "transcript": "/5e/aefec1fa77/1/full.jsonl",
+      "context": "/5e/aefec1fa77/1/context.md",
+      "content_hash": "/5e/aefec1fa77/1/content_hash.txt",
+      "prompt": "/5e/aefec1fa77/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 55,
-    "cache_creation_tokens": 562050,
-    "cache_read_tokens": 3671008,
-    "output_tokens": 8851,
-    "api_call_count": 29
+    "input_tokens": 143,
+    "cache_creation_tokens": 689422,
+    "cache_read_tokens": 8162092,
+    "output_tokens": 28563,
+    "api_call_count": 105
   }
 }

@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "5eaefec1fa77",
+  "session_id": "65af23f9-7507-4dae-8f76-dd52adca273b",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-30T15:25:08.755391Z",
+  "branch": "feature/use-local-keys-embedded",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "idp/dex/provider.go",
+    "management/internals/server/controllers.go",
+    "management/server/auth/manager.go",
+    "management/server/auth/manager_test.go",
+    "management/server/http/testing/testing_tools/channel/channel.go",
+    "management/server/idp/embedded.go",
+    "shared/auth/jwt/validator.go"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 88,
+    "cache_creation_tokens": 127372,
+    "cache_read_tokens": 4491084,
+    "output_tokens": 19712,
+    "api_call_count": 76
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-30T15:25:08.656421Z",
+    "agent_lines": 223,
+    "human_added": 14116,
+    "human_modified": 6,
+    "human_removed": 0,
+    "total_committed": 14344,
+    "agent_percentage": 1.5546569994422756
+  }
+}

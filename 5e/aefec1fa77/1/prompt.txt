@@ -1,0 +1,37 @@
+given the func (v *Validator) refreshKeys(ctx context.Context) {
+    v.lock.Lock()
+    defer v.lock.Unlock()
+
+    refreshedKeys, err := getPemKeys(v.keysLocation)
+    if err != nil {
+        log.WithContext(ctx).Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+        return
+    }
+
+    log.WithContext(ctx).Debugf("keys refreshed, new UTC expiration time: %s", refreshedKeys.expiresInTime.UTC())
+    v.keys = refreshedKeys
+} I want to have another function specifically made for the embeddedIdp. We can fetch the lkeys directly from dex provider. But we need to keep the original one as not everyone is using the embeddedIdp. Dex db has keys table.
+
+---
+
+make sure the verification of the keys from db is done according to the original function. e.g., expiration checks etc
+
+---
+
+use the same code as in dex itself
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+just use ../dexidp folder
+
+---
+
+what is jwks.ExpiresInTime = time.Now().Add(1 * time.Hour)
+
+---
+
+how is it done in the original function?
