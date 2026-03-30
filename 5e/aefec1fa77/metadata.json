@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "5eaefec1fa77",
+  "strategy": "manual-commit",
+  "branch": "feature/use-local-keys-embedded",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "combined/cmd/config.go",
+    "combined/cmd/root.go",
+    "combined/cmd/token.go",
+    "combined/config.yaml.example",
+    "management/server/activity/store/sql_store.go",
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go",
+    "management/server/store/sql_store.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5e/aefec1fa77/0/metadata.json",
+      "transcript": "/5e/aefec1fa77/0/full.jsonl",
+      "context": "/5e/aefec1fa77/0/context.md",
+      "content_hash": "/5e/aefec1fa77/0/content_hash.txt",
+      "prompt": "/5e/aefec1fa77/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 55,
+    "cache_creation_tokens": 562050,
+    "cache_read_tokens": 3671008,
+    "output_tokens": 8851,
+    "api_call_count": 29
+  }
+}

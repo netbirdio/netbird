@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "5eaefec1fa77",
+  "session_id": "234e6a5f-73bd-4819-9dcf-9254a5fe0da3",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-30T15:25:08.481559Z",
+  "branch": "feature/use-local-keys-embedded",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "combined/cmd/config.go",
+    "combined/cmd/root.go",
+    "combined/cmd/token.go",
+    "combined/config.yaml.example",
+    "management/server/activity/store/sql_store.go",
+    "management/server/metrics/selfhosted.go",
+    "management/server/metrics/selfhosted_test.go",
+    "management/server/store/sql_store.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "b8bf8f95-b9b5-4e5e-893e-d40a43a7c7c8",
+  "checkpoint_transcript_start": 479,
+  "transcript_lines_at_start": 479,
+  "token_usage": {
+    "input_tokens": 55,
+    "cache_creation_tokens": 562050,
+    "cache_read_tokens": 3671008,
+    "output_tokens": 8851,
+    "api_call_count": 29
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-30T15:25:08.245516Z",
+    "agent_lines": 88,
+    "human_added": 41607,
+    "human_modified": 10,
+    "human_removed": 0,
+    "total_committed": 41705,
+    "agent_percentage": 0.21100587459537226
+  }
+}
