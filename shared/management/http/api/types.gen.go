@@ -3381,6 +3381,9 @@ type ProxyAccessLogsResponse struct {
 
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
+	// Id Unique identifier of a proxy in this cluster
+	Id string `json:"id"`
+
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 

@@ -3343,6 +3343,10 @@ components:
       type: object
       description: A proxy cluster represents a group of proxy nodes serving the same address
       properties:
+        id:
+          type: string
+          description: Unique identifier of a proxy in this cluster
+          example: "chlfq4q5r8kc73b0qjpg"
         address:
           type: string
           description: Cluster address used for CNAME targets
@@ -3356,6 +3360,7 @@ components:
           description: Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
           example: false
       required:
+        - id
         - address
         - connected_proxies
         - self_hosted

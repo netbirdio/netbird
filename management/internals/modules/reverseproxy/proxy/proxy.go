@@ -32,6 +32,7 @@ func (Proxy) TableName() string {
 
 // Cluster represents a group of proxy nodes serving the same address.
 type Cluster struct {
+	ID               string
 	Address          string
 	ConnectedProxies int
 }

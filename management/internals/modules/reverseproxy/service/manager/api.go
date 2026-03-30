@@ -195,6 +195,7 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
 	for _, c := range clusters {
 		apiClusters = append(apiClusters, api.ProxyCluster{
+			Id:               c.ID,
 			Address:          c.Address,
 			ConnectedProxies: c.ConnectedProxies,
 		})
