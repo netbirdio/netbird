@@ -154,9 +154,11 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
-			eventsToStore = append(eventsToStore, func() {
-				m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
-			})
+			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
+				eventsToStore = append(eventsToStore, func() {
+					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+				})
+			}
 
 			return nil
 		})

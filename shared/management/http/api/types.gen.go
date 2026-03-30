@@ -17,6 +17,24 @@ const (
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
+// Defines values for CreateAzureIntegrationRequestHost.
+const (
+	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
+	CreateAzureIntegrationRequestHostMicrosoftUs  CreateAzureIntegrationRequestHost = "microsoft.us"
+)
+
+// Valid indicates whether the value is a known member of the CreateAzureIntegrationRequestHost enum.
+func (e CreateAzureIntegrationRequestHost) Valid() bool {
+	switch e {
+	case CreateAzureIntegrationRequestHostMicrosoftCom:
+		return true
+	case CreateAzureIntegrationRequestHostMicrosoftUs:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateIntegrationRequestPlatform.
 const (
 	CreateIntegrationRequestPlatformDatadog     CreateIntegrationRequestPlatform = "datadog"
@@ -1469,6 +1487,36 @@ type AvailablePorts struct {
 	Udp int `json:"udp"`
 }
 
+// AzureIntegration defines model for AzureIntegration.
+type AzureIntegration struct {
+	// ClientId Azure AD application (client) ID
+	ClientId string `json:"client_id"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Host Azure host domain for the Graph API
+	Host string `json:"host"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// SyncInterval Sync interval in seconds
+	SyncInterval int `json:"sync_interval"`
+
+	// TenantId Azure AD tenant ID
+	TenantId string `json:"tenant_id"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
+}
+
 // BearerAuthConfig defines model for BearerAuthConfig.
 type BearerAuthConfig struct {
 	// DistributionGroups List of group IDs that can use bearer auth
@@ -1576,6 +1624,51 @@ type Country struct {
 // CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 type CountryCode = string
 
+// CreateAzureIntegrationRequest defines model for CreateAzureIntegrationRequest.
+type CreateAzureIntegrationRequest struct {
+	// ClientId Azure AD application (client) ID
+	ClientId string `json:"client_id"`
+
+	// ClientSecret Base64-encoded Azure AD client secret
+	ClientSecret string `json:"client_secret"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// Host Azure host domain for the Graph API
+	Host CreateAzureIntegrationRequestHost `json:"host"`
+
+	// SyncInterval Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// TenantId Azure AD tenant ID
+	TenantId string `json:"tenant_id"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// CreateAzureIntegrationRequestHost Azure host domain for the Graph API
+type CreateAzureIntegrationRequestHost string
+
+// CreateGoogleIntegrationRequest defines model for CreateGoogleIntegrationRequest.
+type CreateGoogleIntegrationRequest struct {
+	// CustomerId Customer ID from Google Workspace Account Settings
+	CustomerId string `json:"customer_id"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// ServiceAccountKey Base64-encoded Google service account key
+	ServiceAccountKey string `json:"service_account_key"`
+
+	// SyncInterval Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
 // CreateIntegrationRequest Request payload for creating a new event streaming integration. Also used as the structure for the PUT request body, but not all fields are applicable for updates (see PUT operation description).
 type CreateIntegrationRequest struct {
 	// Config Platform-specific configuration as key-value pairs. For creation, all necessary credentials and settings must be provided. For updates, provide the fields to change or the entire new configuration.
@@ -1591,7 +1684,19 @@ type CreateIntegrationRequest struct {
 // CreateIntegrationRequestPlatform The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
 type CreateIntegrationRequestPlatform string
 
-// CreateScimIntegrationRequest Request payload for creating an SCIM IDP integration
+// CreateOktaScimIntegrationRequest defines model for CreateOktaScimIntegrationRequest.
+type CreateOktaScimIntegrationRequest struct {
+	// ConnectionName The Okta enterprise connection name on Auth0
+	ConnectionName string `json:"connection_name"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// CreateScimIntegrationRequest defines model for CreateScimIntegrationRequest.
 type CreateScimIntegrationRequest struct {
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
@@ -1972,6 +2077,30 @@ type GeoLocationCheckAction string
 // GetTenantsResponse defines model for GetTenantsResponse.
 type GetTenantsResponse = []TenantResponse
 
+// GoogleIntegration defines model for GoogleIntegration.
+type GoogleIntegration struct {
+	// CustomerId Customer ID from Google Workspace
+	CustomerId string `json:"customer_id"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// SyncInterval Sync interval in seconds
+	SyncInterval int `json:"sync_interval"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
+}
+
 // Group defines model for Group.
 type Group struct {
 	// Id Group ID
@@ -2263,6 +2392,12 @@ type InstanceVersionInfo struct {
 	ManagementUpdateAvailable bool `json:"management_update_available"`
 }
 
+// IntegrationEnabled defines model for IntegrationEnabled.
+type IntegrationEnabled struct {
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // IntegrationResponse Represents an event streaming integration.
 type IntegrationResponse struct {
 	// AccountId The identifier of the account this integration belongs to.
@@ -2289,6 +2424,15 @@ type IntegrationResponse struct {
 
 // IntegrationResponsePlatform The event streaming platform.
 type IntegrationResponsePlatform string
+
+// IntegrationSyncFilters defines model for IntegrationSyncFilters.
+type IntegrationSyncFilters struct {
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
 
 // InvoicePDFResponse defines model for InvoicePDFResponse.
 type InvoicePDFResponse struct {
@@ -2768,6 +2912,27 @@ type OSVersionCheck struct {
 
 	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
+}
+
+// OktaScimIntegration defines model for OktaScimIntegration.
+type OktaScimIntegration struct {
+	// AuthToken SCIM API token (full on creation/regeneration, masked on retrieval)
+	AuthToken string `json:"auth_token"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
 }
 
 // PINAuthConfig defines model for PINAuthConfig.
@@ -3619,12 +3784,12 @@ type RulePortRange struct {
 	Start int `json:"start"`
 }
 
-// ScimIntegration Represents a SCIM IDP integration
+// ScimIntegration defines model for ScimIntegration.
 type ScimIntegration struct {
 	// AuthToken SCIM API token (full on creation, masked otherwise)
 	AuthToken string `json:"auth_token"`
 
-	// Enabled Indicates whether the integration is enabled
+	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
 	// GroupPrefixes List of start_with string patterns for groups to sync
@@ -3635,6 +3800,9 @@ type ScimIntegration struct {
 
 	// LastSyncedAt Timestamp of when the integration was last synced
 	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// Prefix The connection prefix used for the SCIM provider
+	Prefix string `json:"prefix"`
 
 	// Provider Name of the SCIM identity provider
 	Provider string `json:"provider"`
@@ -4040,6 +4208,11 @@ type Subscription struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// SyncResult Response for a manual sync trigger
+type SyncResult struct {
+	Result *string `json:"result,omitempty"`
+}
+
 // TenantGroupResponse defines model for TenantGroupResponse.
 type TenantGroupResponse struct {
 	// Id The Group ID
@@ -4085,13 +4258,73 @@ type TenantResponse struct {
 // TenantResponseStatus The status of the tenant
 type TenantResponseStatus string
 
-// UpdateScimIntegrationRequest Request payload for updating an SCIM IDP integration
-type UpdateScimIntegrationRequest struct {
-	// Enabled Indicates whether the integration is enabled
+// UpdateAzureIntegrationRequest defines model for UpdateAzureIntegrationRequest.
+type UpdateAzureIntegrationRequest struct {
+	// ClientId Azure AD application (client) ID
+	ClientId *string `json:"client_id,omitempty"`
+
+	// ClientSecret Base64-encoded Azure AD client secret
+	ClientSecret *string `json:"client_secret,omitempty"`
+
+	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// SyncInterval Sync interval in seconds (minimum 300)
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// TenantId Azure AD tenant ID
+	TenantId *string `json:"tenant_id,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateGoogleIntegrationRequest defines model for UpdateGoogleIntegrationRequest.
+type UpdateGoogleIntegrationRequest struct {
+	// CustomerId Customer ID from Google Workspace Account Settings
+	CustomerId *string `json:"customer_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// ServiceAccountKey Base64-encoded Google service account key
+	ServiceAccountKey *string `json:"service_account_key,omitempty"`
+
+	// SyncInterval Sync interval in seconds (minimum 300)
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateOktaScimIntegrationRequest defines model for UpdateOktaScimIntegrationRequest.
+type UpdateOktaScimIntegrationRequest struct {
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateScimIntegrationRequest defines model for UpdateScimIntegrationRequest.
+type UpdateScimIntegrationRequest struct {
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// Prefix The connection prefix used for the SCIM provider
+	Prefix *string `json:"prefix,omitempty"`
 
 	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
 	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
@@ -4612,6 +4845,12 @@ type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
 // PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
 type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
 
+// CreateAzureIntegrationJSONRequestBody defines body for CreateAzureIntegration for application/json ContentType.
+type CreateAzureIntegrationJSONRequestBody = CreateAzureIntegrationRequest
+
+// UpdateAzureIntegrationJSONRequestBody defines body for UpdateAzureIntegration for application/json ContentType.
+type UpdateAzureIntegrationJSONRequestBody = UpdateAzureIntegrationRequest
+
 // PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody defines body for PostApiIntegrationsBillingAwsMarketplaceActivate for application/json ContentType.
 type PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody PostApiIntegrationsBillingAwsMarketplaceActivateJSONBody
 
@@ -4648,6 +4887,12 @@ type CreateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 // UpdateSentinelOneEDRIntegrationJSONRequestBody defines body for UpdateSentinelOneEDRIntegration for application/json ContentType.
 type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 
+// CreateGoogleIntegrationJSONRequestBody defines body for CreateGoogleIntegration for application/json ContentType.
+type CreateGoogleIntegrationJSONRequestBody = CreateGoogleIntegrationRequest
+
+// UpdateGoogleIntegrationJSONRequestBody defines body for UpdateGoogleIntegration for application/json ContentType.
+type UpdateGoogleIntegrationJSONRequestBody = UpdateGoogleIntegrationRequest
+
 // PostApiIntegrationsMspTenantsJSONRequestBody defines body for PostApiIntegrationsMspTenants for application/json ContentType.
 type PostApiIntegrationsMspTenantsJSONRequestBody = CreateTenantRequest
 
@@ -4668,6 +4913,12 @@ type CreateNotificationChannelJSONRequestBody = NotificationChannelRequest
 
 // UpdateNotificationChannelJSONRequestBody defines body for UpdateNotificationChannel for application/json ContentType.
 type UpdateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
+// CreateOktaScimIntegrationJSONRequestBody defines body for CreateOktaScimIntegration for application/json ContentType.
+type CreateOktaScimIntegrationJSONRequestBody = CreateOktaScimIntegrationRequest
+
+// UpdateOktaScimIntegrationJSONRequestBody defines body for UpdateOktaScimIntegration for application/json ContentType.
+type UpdateOktaScimIntegrationJSONRequestBody = UpdateOktaScimIntegrationRequest
 
 // CreateSCIMIntegrationJSONRequestBody defines body for CreateSCIMIntegration for application/json ContentType.
 type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
