@@ -17,9 +17,10 @@ import (
 )
 
 type mockIdP struct {
-	mu             sync.Mutex
-	createUserFunc func(ctx context.Context, email, password, name string) (*idp.UserData, error)
-	users          map[string][]*idp.UserData
+	mu              sync.Mutex
+	createUserFunc  func(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	users           map[string][]*idp.UserData
+	getAllAccountsErr error
 }
 
 func (m *mockIdP) CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error) {
@@ -32,6 +33,9 @@ func (m *mockIdP) CreateUserWithPassword(ctx context.Context, email, password, n
 func (m *mockIdP) GetAllAccounts(_ context.Context) (map[string][]*idp.UserData, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.getAllAccountsErr != nil {
+		return nil, m.getAllAccountsErr
+	}
 	return m.users, nil
 }
 
@@ -100,6 +104,39 @@ func TestCreateOwnerUser_IdPError(t *testing.T) {
 
 	required, _ := mgr.IsSetupRequired(context.Background())
 	assert.True(t, required, "setup should still be required after IdP error")
+}
+
+func TestCreateOwnerUser_TransientDBError_DoesNotBlockSetup(t *testing.T) {
+	mgr := newTestManager(&mockIdP{}, &mockStore{err: errors.New("connection refused")})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+
+	required, _ := mgr.IsSetupRequired(context.Background())
+	assert.True(t, required, "setup should still be required after transient DB error")
+
+	mgr.store = &mockStore{}
+	userData, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.NoError(t, err)
+	assert.Equal(t, "admin@example.com", userData.Email)
+}
+
+func TestCreateOwnerUser_TransientIdPError_DoesNotBlockSetup(t *testing.T) {
+	idpMock := &mockIdP{getAllAccountsErr: errors.New("connection reset")}
+	mgr := newTestManager(idpMock, &mockStore{})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection reset")
+
+	required, _ := mgr.IsSetupRequired(context.Background())
+	assert.True(t, required, "setup should still be required after transient IdP error")
+
+	idpMock.getAllAccountsErr = nil
+	userData, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.NoError(t, err)
+	assert.Equal(t, "admin@example.com", userData.Email)
 }
 
 func TestCreateOwnerUser_DBCheckBlocksConcurrent(t *testing.T) {
@@ -248,6 +285,20 @@ func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
 			email:    "admin@example.com",
 			password: "12345678",
 			userName: "Admin User",
+		},
+		{
+			name:     "password exactly 72 characters",
+			email:    "admin@example.com",
+			password: "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggghhhhhhhhiiiiiiii",
+			userName: "Admin User",
+		},
+		{
+			name:        "password too long",
+			email:       "admin@example.com",
+			password:    "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggghhhhhhhhiiiiiiiij",
+			userName:    "Admin User",
+			expectError: true,
+			errorMsg:    "password must be at most 72 characters",
 		},
 	}
 

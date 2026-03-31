@@ -91,18 +91,18 @@ type DefaultManager struct {
 // NewManager creates a new instance manager.
 // If idpManager is not an EmbeddedIdPManager, setup-related operations will return appropriate defaults.
 func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) (Manager, error) {
-	embeddedIdp, _ := idpManager.(*idp.EmbeddedIdPManager)
+	embeddedIdp, ok := idpManager.(*idp.EmbeddedIdPManager)
 
 	m := &DefaultManager{
-		store:              store,
-		embeddedIdpManager: embeddedIdp,
-		setupRequired:      false,
+		store:         store,
+		setupRequired: false,
 		httpClient: &http.Client{
 			Timeout: httpTimeout,
 		},
 	}
 
-	if embeddedIdp != nil {
+	if ok && embeddedIdp != nil {
+		m.embeddedIdpManager = embeddedIdp
 		err := m.loadSetupRequired(ctx)
 		if err != nil {
 			return nil, err
@@ -152,12 +152,12 @@ func (m *DefaultManager) IsSetupRequired(_ context.Context) (bool, error) {
 // CreateOwnerUser creates the initial owner user in the embedded IDP.
 func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error) {
 
-	if err := m.validateSetupInfo(email, password, name); err != nil {
-		return nil, err
-	}
-
 	if m.embeddedIdpManager == nil {
 		return nil, errors.New("embedded IDP is not enabled")
+	}
+
+	if err := m.validateSetupInfo(email, password, name); err != nil {
+		return nil, err
 	}
 
 	m.setupMu.Lock()
@@ -168,7 +168,10 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 	}
 
 	if err := m.checkSetupRequiredFromDB(ctx); err != nil {
-		m.setupRequired = false
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.PreconditionFailed {
+			m.setupRequired = false
+		}
 		return nil, err
 	}
 
@@ -219,6 +222,9 @@ func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
 	}
 	if len(password) < 8 {
 		return status.Errorf(status.InvalidArgument, "password must be at least 8 characters")
+	}
+	if len(password) > 72 {
+		return status.Errorf(status.InvalidArgument, "password must be at most 72 characters")
 	}
 	return nil
 }
