@@ -464,8 +464,8 @@ message PKCEAuthorizationFlow {
 message ProviderConfig {
   // An IDP application client id
   string ClientID = 1;
-  // An IDP application client secret
-  string ClientSecret = 2;
+  // Deprecated: use embedded IdP for providers that require a client secret (e.g. Google Workspace).
+  string ClientSecret = 2 [deprecated = true];
   // An IDP API domain
   // Deprecated. Use a DeviceAuthEndpoint and TokenEndpoint
   string Domain = 3;
