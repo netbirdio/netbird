@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -88,12 +87,31 @@ func (c *GRPCClient) Close() error {
 	return nil
 }
 
+func (c *GRPCClient) Send(event *proto.FlowEvent) error {
+	c.streamMu.Lock()
+	stream := c.stream
+	c.streamMu.Unlock()
+
+	if stream == nil {
+		return errors.New("stream not initialized")
+	}
+
+	if err := stream.Send(event); err != nil {
+		return fmt.Errorf("send flow event: %w", err)
+	}
+
+	return nil
+}
+
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
 		if err := c.establishStreamAndReceive(ctx, msgHandler); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return backoff.Permanent(err)
+			}
 			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
-				return fmt.Errorf("receive: %w: %w", err, context.Canceled)
+				return backoff.Permanent(fmt.Errorf("receive: %w", err))
 			}
 			log.Errorf("receive failed: %v", err)
 			return fmt.Errorf("receive: %w", err)
@@ -109,10 +127,6 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 }
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
-	if c.clientConn.GetState() == connectivity.Shutdown {
-		return errors.New("connection to flow receiver has been shut down")
-	}
-
 	stream, err := c.realClient.Events(ctx, grpc.WaitForReady(true))
 	if err != nil {
 		return fmt.Errorf("create event stream: %w", err)
@@ -176,20 +190,4 @@ func defaultBackoff(ctx context.Context, interval time.Duration) backoff.BackOff
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
-}
-
-func (c *GRPCClient) Send(event *proto.FlowEvent) error {
-	c.streamMu.Lock()
-	stream := c.stream
-	c.streamMu.Unlock()
-
-	if stream == nil {
-		return errors.New("stream not initialized")
-	}
-
-	if err := stream.Send(event); err != nil {
-		return fmt.Errorf("send flow event: %w", err)
-	}
-
-	return nil
 }
