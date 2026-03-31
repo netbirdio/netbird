@@ -36,7 +36,7 @@ func (store *Store) CheckSchema(checks []migration.SchemaCheck) []migration.Sche
 
 // UpdateUserID updates all references to oldUserID in events and deleted_users tables.
 func (store *Store) UpdateUserID(ctx context.Context, oldUserID, newUserID string) error {
-	return store.db.Transaction(func(tx *gorm.DB) error {
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&activity.Event{}).
 			Where("initiator_id = ?", oldUserID).
 			Update("initiator_id", newUserID).Error; err != nil {

@@ -57,11 +57,17 @@ func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
 // txDeferFKConstraints defers foreign key constraint checks for the duration of the transaction.
 // MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
 func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
-	switch s.storeEngine {
-	case types.PostgresStoreEngine:
-		// GORM creates FK constraints as NOT DEFERRABLE by default, so
-		// SET CONSTRAINTS ALL DEFERRED is a no-op unless we ALTER them first.
-		if err := tx.Exec(`
+	if s.storeEngine == types.SqliteStoreEngine {
+		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
+	}
+
+	if s.storeEngine != types.PostgresStoreEngine {
+		return nil
+	}
+
+	// GORM creates FK constraints as NOT DEFERRABLE by default, so
+	// SET CONSTRAINTS ALL DEFERRED is a no-op unless we ALTER them first.
+	err := tx.Exec(`
 			DO $$ DECLARE r RECORD;
 			BEGIN
 				FOR r IN SELECT conname, conrelid::regclass AS tbl
@@ -70,15 +76,11 @@ func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
 					EXECUTE format('ALTER TABLE %s ALTER CONSTRAINT %I DEFERRABLE INITIALLY IMMEDIATE', r.tbl, r.conname);
 				END LOOP;
 			END $$
-		`).Error; err != nil {
-			return fmt.Errorf("make FK constraints deferrable: %w", err)
-		}
-		return tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error
-	case types.SqliteStoreEngine:
-		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
-	default:
-		return nil
+		`).Error
+	if err != nil {
+		return fmt.Errorf("make FK constraints deferrable: %w", err)
 	}
+	return tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error
 }
 
 // txRestoreFKConstraints reverts FK constraints back to NOT DEFERRABLE after the
@@ -106,7 +108,7 @@ func (s *SqlStore) UpdateUserInfo(ctx context.Context, userID, email, name strin
 		return fmt.Errorf("encrypt user info: %w", err)
 	}
 
-	result := s.db.Model(&types.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+	result := s.db.Model(&types.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"email": user.Email,
 		"name":  user.Name,
 	})
@@ -166,7 +168,6 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 
 		return nil
 	})
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to restore FK constraints after user ID update: %s", err)
 		return status.Errorf(status.Internal, "failed to restore FK constraints after user ID update")

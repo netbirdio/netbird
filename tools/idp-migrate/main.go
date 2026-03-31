@@ -228,10 +228,6 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 	if err != nil {
 		return err
 	}
-	if pending == 0 {
-		log.Info("no users need migration — all done")
-		return nil
-	}
 
 	if cfg.dryRun {
 		if err := os.Setenv("NB_IDP_MIGRATION_DRY_RUN", "true"); err != nil {
