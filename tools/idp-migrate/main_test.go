@@ -74,10 +74,10 @@ func TestDecodeConnectorConfig_EmptyConnectorID(t *testing.T) {
 
 func TestValidateConfig(t *testing.T) {
 	valid := &migrationConfig{
-		configPath:  "/etc/netbird/management.json",
-		dataDir:     "/var/lib/netbird",
-		idpSeedInfo: "some-base64",
-		apiUrl:      "https://api.example.com",
+		configPath:   "/etc/netbird/management.json",
+		dataDir:      "/var/lib/netbird",
+		idpSeedInfo:  "some-base64",
+		apiUrl:       "https://api.example.com",
 		dashboardUrl: "https://dash.example.com",
 	}
 
@@ -356,7 +356,9 @@ func TestBuildUrl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, buildUrl(tt.uri, tt.path))
+			url, err := buildUrl(tt.uri, tt.path)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, url)
 		})
 	}
 }
@@ -387,7 +389,7 @@ func TestGenerateConfig(t *testing.T) {
     }
   }
 }`
-		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0600))
+		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0o600))
 
 		cfg := &migrationConfig{
 			configPath:   configPath,
@@ -467,7 +469,7 @@ func TestGenerateConfig(t *testing.T) {
 		configPath := filepath.Join(dir, "management.json")
 
 		originalConfig := `{"HttpConfig": {"CertFile": "", "CertKey": ""}}`
-		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0600))
+		require.NoError(t, os.WriteFile(configPath, []byte(originalConfig), 0o600))
 
 		cfg := &migrationConfig{
 			configPath:   configPath,

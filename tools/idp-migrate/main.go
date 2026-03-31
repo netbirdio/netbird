@@ -60,7 +60,6 @@ func main() {
 }
 
 func run(cfg *migrationConfig) error {
-
 	mgmtConfig := &nbconfig.Config{}
 	if _, err := util.ReadJsonWithEnvSub(cfg.configPath, mgmtConfig); err != nil {
 		return err
@@ -347,15 +346,34 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 		connConfig[k] = v
 	}
 
-	connConfig["redirectURI"] = buildUrl(cfg.apiUrl, "/oauth2/callback")
+	redirectURI, err := buildUrl(cfg.apiUrl, "/oauth2/callback")
+	if err != nil {
+		return fmt.Errorf("build redirect URI: %w", err)
+	}
+	connConfig["redirectURI"] = redirectURI
+
+	issuer, err := buildUrl(cfg.apiUrl, "/oauth2")
+	if err != nil {
+		return fmt.Errorf("build issuer URL: %w", err)
+	}
+
+	dashboardRedirectUrl, err := buildUrl(cfg.dashboardUrl, "/nb-auth")
+	if err != nil {
+		return fmt.Errorf("build dashboard redirect URL: %w", err)
+	}
+
+	dashboardSilentRedirectUrl, err := buildUrl(cfg.dashboardUrl, "/nb-silent-auth")
+	if err != nil {
+		return fmt.Errorf("build dashboard silent redirect URL: %w", err)
+	}
 
 	// Add minimal EmbeddedIdP section
 	configMap["EmbeddedIdP"] = map[string]interface{}{
 		"Enabled": true,
-		"Issuer":  buildUrl(cfg.apiUrl, "/oauth2"),
+		"Issuer":  issuer,
 		"DashboardRedirectURIs": []string{
-			buildUrl(cfg.dashboardUrl, "/nb-auth"),
-			buildUrl(cfg.dashboardUrl, "/nb-silent-auth"),
+			dashboardRedirectUrl,
+			dashboardSilentRedirectUrl,
 		},
 		"StaticConnectors": []interface{}{
 			map[string]interface{}{
@@ -380,13 +398,13 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 
 	// Backup original
 	backupPath := cfg.configPath + ".bak"
-	if err := os.WriteFile(backupPath, raw, 0600); err != nil {
+	if err := os.WriteFile(backupPath, raw, 0o600); err != nil {
 		return fmt.Errorf("write backup: %w", err)
 	}
 	log.Infof("backed up original config to %s", backupPath)
 
 	// Write new config
-	if err := os.WriteFile(cfg.configPath, newJSON, 0600); err != nil {
+	if err := os.WriteFile(cfg.configPath, newJSON, 0o600); err != nil {
 		return fmt.Errorf("write new config: %w", err)
 	}
 	log.Infof("wrote new config to %s", cfg.configPath)
@@ -394,7 +412,7 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 	return nil
 }
 
-func buildUrl(uri, path string) string {
+func buildUrl(uri, path string) (string, error) {
 	// Case for domain without scheme, e.g. "example.com" or "example.com:8080"
 	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
 		uri = "https://" + uri
@@ -402,13 +420,18 @@ func buildUrl(uri, path string) string {
 
 	val, err := url.JoinPath(uri, path)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
-	return val
+	return val, nil
 }
 
 func printPostMigrationInstructions(cfg *migrationConfig) {
+	authAuthority, err := buildUrl(cfg.apiUrl, "/oauth2")
+	if err != nil {
+		authAuthority = "https://<your-domain>/oauth2"
+	}
+
 	log.Info("Congratulations! You have successfully migrated your NetBird management server to the embedded Dex IdP.")
 	log.Info("Next steps:")
 	log.Info("1. Make sure the following environment variables are set for your dashboard server:")
@@ -420,7 +443,7 @@ AUTH_SUPPORTED_SCOPES=openid profile email groups
 AUTH_REDIRECT_URI=/nb-auth
 AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 	`,
-		buildUrl(cfg.apiUrl, "/oauth2"),
+		authAuthority,
 	)
 	log.Info("2. Make sure you restart the dashboard & management servers to pick up the new config and environment variables.")
 	log.Info("eg. docker compose up -d --force-recreate management dashboard")
