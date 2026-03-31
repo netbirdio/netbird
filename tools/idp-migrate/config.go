@@ -27,25 +27,37 @@ type migrationConfig struct {
 }
 
 func config() (*migrationConfig, error) {
-	var cfg migrationConfig
-
-	var domain string
-	flag.StringVar(&domain, "domain", "", "domain for both dashboard and API")
-	flag.StringVar(&cfg.dashboardUrl, "dashboard-domain", "", "dashboard domain")
-	flag.StringVar(&cfg.apiUrl, "api-domain", "", "API domain")
-	flag.StringVar(&cfg.configPath, "config", "", "path to management.json (required)")
-	flag.StringVar(&cfg.dataDir, "datadir", "", "override data directory from config")
-	flag.StringVar(&cfg.idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
-	flag.BoolVar(&cfg.dryRun, "dry-run", false, "preview changes without writing")
-	flag.BoolVar(&cfg.force, "force", false, "skip confirmation prompt")
-	flag.BoolVar(&cfg.skipConfig, "skip-config", false, "skip config generation (DB migration only)")
-	flag.BoolVar(&cfg.skipPopulateUserInfo, "skip-populate-user-info", false, "skip populating user info (user id migration only)")
-	flag.StringVar(&cfg.logLevel, "log-level", "info", "log level (debug, info, warn, error)")
-	flag.Parse()
+	cfg, err := configFromArgs(os.Args[1:])
+	if err != nil {
+		return nil, err
+	}
 
 	if err := util.InitLog(cfg.logLevel, util.LogConsole); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to init logger: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("init logger: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func configFromArgs(args []string) (*migrationConfig, error) {
+	var cfg migrationConfig
+	var domain string
+
+	fs := flag.NewFlagSet("netbird-idp-migrate", flag.ContinueOnError)
+	fs.StringVar(&domain, "domain", "", "domain for both dashboard and API")
+	fs.StringVar(&cfg.dashboardUrl, "dashboard-url", "", "dashboard URL")
+	fs.StringVar(&cfg.apiUrl, "api-url", "", "API URL")
+	fs.StringVar(&cfg.configPath, "config", "", "path to management.json (required)")
+	fs.StringVar(&cfg.dataDir, "datadir", "", "override data directory from config")
+	fs.StringVar(&cfg.idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
+	fs.BoolVar(&cfg.dryRun, "dry-run", false, "preview changes without writing")
+	fs.BoolVar(&cfg.force, "force", false, "skip confirmation prompt")
+	fs.BoolVar(&cfg.skipConfig, "skip-config", false, "skip config generation (DB migration only)")
+	fs.BoolVar(&cfg.skipPopulateUserInfo, "skip-populate-user-info", false, "skip populating user info (user id migration only)")
+	fs.StringVar(&cfg.logLevel, "log-level", "info", "log level (debug, info, warn, error)")
+
+	if err := fs.Parse(args); err != nil {
+		return nil, err
 	}
 
 	applyOverrides(&cfg, domain)
@@ -55,7 +67,6 @@ func config() (*migrationConfig, error) {
 	}
 
 	return &cfg, nil
-
 }
 
 // applyOverrides resolves domain configuration from broad to narrow sources.

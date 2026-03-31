@@ -126,6 +126,75 @@ func TestValidateConfig(t *testing.T) {
 	})
 }
 
+func TestConfigFromArgs_EnvVarsApplied(t *testing.T) {
+	t.Run("env vars fill in for missing flags", func(t *testing.T) {
+		t.Setenv("NETBIRD_CONFIG_PATH", "/env/management.json")
+		t.Setenv("NETBIRD_DATA_DIR", "/env/data")
+		t.Setenv("NETBIRD_IDP_SEED_INFO", "env-seed")
+		t.Setenv("NETBIRD_API_URL", "https://api.env.com")
+		t.Setenv("NETBIRD_DASHBOARD_URL", "https://dash.env.com")
+
+		cfg, err := configFromArgs([]string{})
+		require.NoError(t, err)
+
+		assert.Equal(t, "/env/management.json", cfg.configPath)
+		assert.Equal(t, "/env/data", cfg.dataDir)
+		assert.Equal(t, "env-seed", cfg.idpSeedInfo)
+		assert.Equal(t, "https://api.env.com", cfg.apiUrl)
+		assert.Equal(t, "https://dash.env.com", cfg.dashboardUrl)
+	})
+
+	t.Run("flags work without env vars", func(t *testing.T) {
+		cfg, err := configFromArgs([]string{
+			"--config", "/flag/management.json",
+			"--datadir", "/flag/data",
+			"--idp-seed-info", "flag-seed",
+			"--api-url", "https://api.flag.com",
+			"--dashboard-url", "https://dash.flag.com",
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, "/flag/management.json", cfg.configPath)
+		assert.Equal(t, "/flag/data", cfg.dataDir)
+		assert.Equal(t, "flag-seed", cfg.idpSeedInfo)
+		assert.Equal(t, "https://api.flag.com", cfg.apiUrl)
+		assert.Equal(t, "https://dash.flag.com", cfg.dashboardUrl)
+	})
+
+	t.Run("env vars override flags", func(t *testing.T) {
+		t.Setenv("NETBIRD_CONFIG_PATH", "/env/management.json")
+		t.Setenv("NETBIRD_API_URL", "https://api.env.com")
+
+		cfg, err := configFromArgs([]string{
+			"--config", "/flag/management.json",
+			"--datadir", "/flag/data",
+			"--idp-seed-info", "flag-seed",
+			"--api-url", "https://api.flag.com",
+			"--dashboard-url", "https://dash.flag.com",
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, "/env/management.json", cfg.configPath, "env should override flag")
+		assert.Equal(t, "https://api.env.com", cfg.apiUrl, "env should override flag")
+		assert.Equal(t, "https://dash.flag.com", cfg.dashboardUrl, "flag preserved when no env override")
+	})
+
+	t.Run("--domain flag with specific env var override", func(t *testing.T) {
+		t.Setenv("NETBIRD_API_URL", "https://api.env.com")
+
+		cfg, err := configFromArgs([]string{
+			"--domain", "both.flag.com",
+			"--config", "/path",
+			"--datadir", "/data",
+			"--idp-seed-info", "seed",
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, "https://api.env.com", cfg.apiUrl, "specific env beats --domain")
+		assert.Equal(t, "both.flag.com", cfg.dashboardUrl, "--domain fills dashboard")
+	})
+}
+
 func TestApplyOverrides_MostGranularWins(t *testing.T) {
 	t.Run("specific flags beat --domain", func(t *testing.T) {
 		cfg := &migrationConfig{
@@ -204,6 +273,69 @@ func TestApplyOverrides_MostGranularWins(t *testing.T) {
 
 		assert.Equal(t, "api.env.com", cfg.apiUrl)
 		assert.Equal(t, "dash.env.com", cfg.dashboardUrl)
+	})
+
+	t.Run("env vars override all non-domain flags", func(t *testing.T) {
+		cfg := &migrationConfig{
+			configPath:           "/flag/path",
+			dataDir:              "/flag/data",
+			idpSeedInfo:          "flag-seed",
+			dryRun:               false,
+			force:                false,
+			skipConfig:           false,
+			skipPopulateUserInfo: false,
+			logLevel:             "info",
+		}
+		t.Setenv("NETBIRD_CONFIG_PATH", "/env/path")
+		t.Setenv("NETBIRD_DATA_DIR", "/env/data")
+		t.Setenv("NETBIRD_IDP_SEED_INFO", "env-seed")
+		t.Setenv("NETBIRD_DRY_RUN", "true")
+		t.Setenv("NETBIRD_FORCE", "true")
+		t.Setenv("NETBIRD_SKIP_CONFIG", "true")
+		t.Setenv("NETBIRD_SKIP_POPULATE_USER_INFO", "true")
+		t.Setenv("NETBIRD_LOG_LEVEL", "debug")
+
+		applyOverrides(cfg, "")
+
+		assert.Equal(t, "/env/path", cfg.configPath)
+		assert.Equal(t, "/env/data", cfg.dataDir)
+		assert.Equal(t, "env-seed", cfg.idpSeedInfo)
+		assert.True(t, cfg.dryRun)
+		assert.True(t, cfg.force)
+		assert.True(t, cfg.skipConfig)
+		assert.True(t, cfg.skipPopulateUserInfo)
+		assert.Equal(t, "debug", cfg.logLevel)
+	})
+
+	t.Run("boolean env vars only activate on true", func(t *testing.T) {
+		cfg := &migrationConfig{}
+		t.Setenv("NETBIRD_DRY_RUN", "false")
+		t.Setenv("NETBIRD_FORCE", "yes")
+		t.Setenv("NETBIRD_SKIP_CONFIG", "1")
+
+		applyOverrides(cfg, "")
+
+		assert.False(t, cfg.dryRun)
+		assert.False(t, cfg.force)
+		assert.False(t, cfg.skipConfig)
+	})
+
+	t.Run("unset env vars do not override flags", func(t *testing.T) {
+		cfg := &migrationConfig{
+			configPath:  "/flag/path",
+			dataDir:     "/flag/data",
+			idpSeedInfo: "flag-seed",
+			dryRun:      true,
+			logLevel:    "warn",
+		}
+
+		applyOverrides(cfg, "")
+
+		assert.Equal(t, "/flag/path", cfg.configPath)
+		assert.Equal(t, "/flag/data", cfg.dataDir)
+		assert.Equal(t, "flag-seed", cfg.idpSeedInfo)
+		assert.True(t, cfg.dryRun)
+		assert.Equal(t, "warn", cfg.logLevel)
 	})
 }
 

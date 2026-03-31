@@ -53,6 +53,10 @@ func main() {
 	if err := run(cfg); err != nil {
 		log.Fatalf("migration failed: %v", err)
 	}
+
+	if !cfg.dryRun {
+		printPostMigrationInstructions(cfg)
+	}
 }
 
 func run(cfg *migrationConfig) error {
@@ -402,6 +406,25 @@ func buildUrl(uri, path string) string {
 	}
 
 	return val
+}
+
+func printPostMigrationInstructions(cfg *migrationConfig) {
+	log.Info("Congratulations! You have successfully migrated your NetBird management server to the embedded Dex IdP.")
+	log.Info("Next steps:")
+	log.Info("1. Make sure the following environment variables are set for your dashboard server:")
+	log.Infof(`
+AUTH_AUDIENCE=netbird-dashboard
+AUTH_CLIENT_ID=netbird-dashboard
+AUTH_AUTHORITY=%s
+AUTH_SUPPORTED_SCOPES=openid profile email groups
+AUTH_REDIRECT_URI=/nb-auth
+AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
+	`,
+		buildUrl(cfg.apiUrl, "/oauth2"),
+	)
+	log.Info("2. Make sure you restart the dashboard & management servers to pick up the new config and environment variables.")
+	log.Info("eg. docker compose up -d --force-recreate management dashboard")
+	log.Info("3. Optional: If you have a reverse proxy configured, make sure the path `/oauth2/*` points to the management api server.")
 }
 
 // Compile-time check that migrationServer implements migration.Server.
