@@ -154,20 +154,19 @@ func (c *GRPCClient) recreateConnection() error {
 		return backoff.Permanent(ErrClientClosed)
 	}
 
-	defer func(conn *grpc.ClientConn) {
-		_ = conn.Close()
-	}(c.clientConn)
-
 	conn, err := grpc.NewClient(c.clientConn.Target(), c.opts...)
 	if err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("create new connection: %w", err)
 	}
 
+	old := c.clientConn
 	c.clientConn = conn
 	c.realClient = proto.NewFlowServiceClient(conn)
 	c.stream = nil
 	c.mu.Unlock()
+
+	_ = old.Close()
 
 	return nil
 }
