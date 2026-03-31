@@ -65,7 +65,7 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
 		return nil, err
 	}
-	return am.Store.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+	return am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 }
 
 // CreateGroup object of the peers
