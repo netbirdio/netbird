@@ -64,10 +64,19 @@ type Manager interface {
 	GetVersionInfo(ctx context.Context) (*VersionInfo, error)
 }
 
+type instanceStore interface {
+	GetAccountsCounter(ctx context.Context) (int64, error)
+}
+
+type embeddedIdP interface {
+	CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	GetAllAccounts(ctx context.Context) (map[string][]*idp.UserData, error)
+}
+
 // DefaultManager is the default implementation of Manager.
 type DefaultManager struct {
-	store              store.Store
-	embeddedIdpManager *idp.EmbeddedIdPManager
+	store              instanceStore
+	embeddedIdpManager embeddedIdP
 
 	setupRequired bool
 	setupMu       sync.RWMutex
@@ -151,12 +160,16 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 		return nil, errors.New("embedded IDP is not enabled")
 	}
 
-	m.setupMu.RLock()
-	setupRequired := m.setupRequired
-	m.setupMu.RUnlock()
+	m.setupMu.Lock()
+	defer m.setupMu.Unlock()
 
-	if !setupRequired {
+	if !m.setupRequired {
 		return nil, status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	if err := m.checkSetupRequiredFromDB(ctx); err != nil {
+		m.setupRequired = false
+		return nil, err
 	}
 
 	userData, err := m.embeddedIdpManager.CreateUserWithPassword(ctx, email, password, name)
@@ -164,13 +177,31 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
 	}
 
-	m.setupMu.Lock()
 	m.setupRequired = false
-	m.setupMu.Unlock()
 
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
 	return userData, nil
+}
+
+func (m *DefaultManager) checkSetupRequiredFromDB(ctx context.Context) error {
+	numAccounts, err := m.store.GetAccountsCounter(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check accounts: %w", err)
+	}
+	if numAccounts > 0 {
+		return status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check IdP users: %w", err)
+	}
+	if len(users) > 0 {
+		return status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	return nil
 }
 
 func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
