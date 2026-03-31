@@ -127,7 +127,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 }
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
-	stream, err := c.realClient.Events(ctx, grpc.WaitForReady(true))
+	stream, err := c.realClient.Events(ctx)
 	if err != nil {
 		return fmt.Errorf("create event stream: %w", err)
 	}
