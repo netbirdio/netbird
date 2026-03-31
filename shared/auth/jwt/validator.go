@@ -98,6 +98,9 @@ func NewValidatorWithKeyFetcher(issuer string, audienceList []string, keyFetcher
 	if err != nil {
 		log.Warnf("could not get keys from key fetcher: %s, it will try again on the next http request", err)
 	}
+	if keys == nil {
+		keys = &Jwks{}
+	}
 
 	return &Validator{
 		keys:                     keys,
