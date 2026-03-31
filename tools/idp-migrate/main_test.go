@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/idp/dex"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp/migration"
 )
 
@@ -26,7 +25,7 @@ func TestDecodeConnectorConfig(t *testing.T) {
 		Type: "oidc",
 		Name: "test",
 		ID:   "test-id",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"issuer":       "https://example.com",
 			"clientID":     "cid",
 			"clientSecret": "csecret",
@@ -77,8 +76,8 @@ func TestValidateConfig(t *testing.T) {
 		configPath:   "/etc/netbird/management.json",
 		dataDir:      "/var/lib/netbird",
 		idpSeedInfo:  "some-base64",
-		apiUrl:       "https://api.example.com",
-		dashboardUrl: "https://dash.example.com",
+		apiURL:       "https://api.example.com",
+		dashboardURL: "https://dash.example.com",
 	}
 
 	t.Run("valid config", func(t *testing.T) {
@@ -111,7 +110,7 @@ func TestValidateConfig(t *testing.T) {
 
 	t.Run("missing apiUrl", func(t *testing.T) {
 		cfg := *valid
-		cfg.apiUrl = ""
+		cfg.apiURL = ""
 		err := validateConfig(&cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--api-domain")
@@ -119,7 +118,7 @@ func TestValidateConfig(t *testing.T) {
 
 	t.Run("missing dashboardUrl", func(t *testing.T) {
 		cfg := *valid
-		cfg.dashboardUrl = ""
+		cfg.dashboardURL = ""
 		err := validateConfig(&cfg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--dashboard-domain")
@@ -140,8 +139,8 @@ func TestConfigFromArgs_EnvVarsApplied(t *testing.T) {
 		assert.Equal(t, "/env/management.json", cfg.configPath)
 		assert.Equal(t, "/env/data", cfg.dataDir)
 		assert.Equal(t, "env-seed", cfg.idpSeedInfo)
-		assert.Equal(t, "https://api.env.com", cfg.apiUrl)
-		assert.Equal(t, "https://dash.env.com", cfg.dashboardUrl)
+		assert.Equal(t, "https://api.env.com", cfg.apiURL)
+		assert.Equal(t, "https://dash.env.com", cfg.dashboardURL)
 	})
 
 	t.Run("flags work without env vars", func(t *testing.T) {
@@ -157,8 +156,8 @@ func TestConfigFromArgs_EnvVarsApplied(t *testing.T) {
 		assert.Equal(t, "/flag/management.json", cfg.configPath)
 		assert.Equal(t, "/flag/data", cfg.dataDir)
 		assert.Equal(t, "flag-seed", cfg.idpSeedInfo)
-		assert.Equal(t, "https://api.flag.com", cfg.apiUrl)
-		assert.Equal(t, "https://dash.flag.com", cfg.dashboardUrl)
+		assert.Equal(t, "https://api.flag.com", cfg.apiURL)
+		assert.Equal(t, "https://dash.flag.com", cfg.dashboardURL)
 	})
 
 	t.Run("env vars override flags", func(t *testing.T) {
@@ -175,8 +174,8 @@ func TestConfigFromArgs_EnvVarsApplied(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "/env/management.json", cfg.configPath, "env should override flag")
-		assert.Equal(t, "https://api.env.com", cfg.apiUrl, "env should override flag")
-		assert.Equal(t, "https://dash.flag.com", cfg.dashboardUrl, "flag preserved when no env override")
+		assert.Equal(t, "https://api.env.com", cfg.apiURL, "env should override flag")
+		assert.Equal(t, "https://dash.flag.com", cfg.dashboardURL, "flag preserved when no env override")
 	})
 
 	t.Run("--domain flag with specific env var override", func(t *testing.T) {
@@ -190,52 +189,52 @@ func TestConfigFromArgs_EnvVarsApplied(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		assert.Equal(t, "https://api.env.com", cfg.apiUrl, "specific env beats --domain")
-		assert.Equal(t, "both.flag.com", cfg.dashboardUrl, "--domain fills dashboard")
+		assert.Equal(t, "https://api.env.com", cfg.apiURL, "specific env beats --domain")
+		assert.Equal(t, "both.flag.com", cfg.dashboardURL, "--domain fills dashboard")
 	})
 }
 
 func TestApplyOverrides_MostGranularWins(t *testing.T) {
 	t.Run("specific flags beat --domain", func(t *testing.T) {
 		cfg := &migrationConfig{
-			apiUrl:       "api.specific.com",
-			dashboardUrl: "dash.specific.com",
+			apiURL:       "api.specific.com",
+			dashboardURL: "dash.specific.com",
 		}
 		applyOverrides(cfg, "broad.com")
 
-		assert.Equal(t, "api.specific.com", cfg.apiUrl)
-		assert.Equal(t, "dash.specific.com", cfg.dashboardUrl)
+		assert.Equal(t, "api.specific.com", cfg.apiURL)
+		assert.Equal(t, "dash.specific.com", cfg.dashboardURL)
 	})
 
 	t.Run("--domain fills blanks when specific flags missing", func(t *testing.T) {
 		cfg := &migrationConfig{}
 		applyOverrides(cfg, "broad.com")
 
-		assert.Equal(t, "broad.com", cfg.apiUrl)
-		assert.Equal(t, "broad.com", cfg.dashboardUrl)
+		assert.Equal(t, "broad.com", cfg.apiURL)
+		assert.Equal(t, "broad.com", cfg.dashboardURL)
 	})
 
 	t.Run("--domain fills only the missing specific flag", func(t *testing.T) {
 		cfg := &migrationConfig{
-			apiUrl: "api.specific.com",
+			apiURL: "api.specific.com",
 		}
 		applyOverrides(cfg, "broad.com")
 
-		assert.Equal(t, "api.specific.com", cfg.apiUrl)
-		assert.Equal(t, "broad.com", cfg.dashboardUrl)
+		assert.Equal(t, "api.specific.com", cfg.apiURL)
+		assert.Equal(t, "broad.com", cfg.dashboardURL)
 	})
 
 	t.Run("NETBIRD_DOMAIN overrides flags", func(t *testing.T) {
 		cfg := &migrationConfig{
-			apiUrl:       "api.flag.com",
-			dashboardUrl: "dash.flag.com",
+			apiURL:       "api.flag.com",
+			dashboardURL: "dash.flag.com",
 		}
 		t.Setenv("NETBIRD_DOMAIN", "env-broad.com")
 
 		applyOverrides(cfg, "")
 
-		assert.Equal(t, "env-broad.com", cfg.apiUrl)
-		assert.Equal(t, "env-broad.com", cfg.dashboardUrl)
+		assert.Equal(t, "env-broad.com", cfg.apiURL)
+		assert.Equal(t, "env-broad.com", cfg.dashboardURL)
 	})
 
 	t.Run("specific env vars beat NETBIRD_DOMAIN", func(t *testing.T) {
@@ -246,8 +245,8 @@ func TestApplyOverrides_MostGranularWins(t *testing.T) {
 
 		applyOverrides(cfg, "")
 
-		assert.Equal(t, "api.env-specific.com", cfg.apiUrl)
-		assert.Equal(t, "dash.env-specific.com", cfg.dashboardUrl)
+		assert.Equal(t, "api.env-specific.com", cfg.apiURL)
+		assert.Equal(t, "dash.env-specific.com", cfg.dashboardURL)
 	})
 
 	t.Run("one specific env var overrides only its field", func(t *testing.T) {
@@ -257,22 +256,22 @@ func TestApplyOverrides_MostGranularWins(t *testing.T) {
 
 		applyOverrides(cfg, "")
 
-		assert.Equal(t, "api.env-specific.com", cfg.apiUrl)
-		assert.Equal(t, "env-broad.com", cfg.dashboardUrl)
+		assert.Equal(t, "api.env-specific.com", cfg.apiURL)
+		assert.Equal(t, "env-broad.com", cfg.dashboardURL)
 	})
 
 	t.Run("specific env vars beat all flags combined", func(t *testing.T) {
 		cfg := &migrationConfig{
-			apiUrl:       "api.flag.com",
-			dashboardUrl: "dash.flag.com",
+			apiURL:       "api.flag.com",
+			dashboardURL: "dash.flag.com",
 		}
 		t.Setenv("NETBIRD_API_URL", "api.env.com")
 		t.Setenv("NETBIRD_DASHBOARD_URL", "dash.env.com")
 
 		applyOverrides(cfg, "domain-flag.com")
 
-		assert.Equal(t, "api.env.com", cfg.apiUrl)
-		assert.Equal(t, "dash.env.com", cfg.dashboardUrl)
+		assert.Equal(t, "api.env.com", cfg.apiURL)
+		assert.Equal(t, "dash.env.com", cfg.dashboardURL)
 	})
 
 	t.Run("env vars override all non-domain flags", func(t *testing.T) {
@@ -356,7 +355,7 @@ func TestBuildUrl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, err := buildUrl(tt.uri, tt.path)
+			url, err := buildURL(tt.uri, tt.path)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, url)
 		})
@@ -393,26 +392,21 @@ func TestGenerateConfig(t *testing.T) {
 
 		cfg := &migrationConfig{
 			configPath:   configPath,
-			dashboardUrl: "https://mgmt.example.com",
-			apiUrl:       "https://mgmt.example.com",
+			dashboardURL: "https://mgmt.example.com",
+			apiURL:       "https://mgmt.example.com",
 		}
 		conn := &dex.Connector{
 			Type: "zitadel",
 			Name: "zitadel",
 			ID:   "zitadel",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"issuer":       "https://zitadel.example.com",
 				"clientID":     "zit-id",
 				"clientSecret": "zit-secret",
 			},
 		}
-		mgmtConfig := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				LetsEncryptDomain: "mgmt.example.com",
-			},
-		}
 
-		err := generateConfig(cfg, conn, mgmtConfig)
+		err := generateConfig(cfg, conn)
 		require.NoError(t, err)
 
 		// Check backup was created
@@ -425,36 +419,35 @@ func TestGenerateConfig(t *testing.T) {
 		newData, err := os.ReadFile(configPath)
 		require.NoError(t, err)
 
-		var result map[string]interface{}
+		var result map[string]any
 		require.NoError(t, json.Unmarshal(newData, &result))
 
 		// IdpManagerConfig should be removed
 		_, hasOldIdp := result["IdpManagerConfig"]
 		assert.False(t, hasOldIdp, "IdpManagerConfig should be removed")
 
-		// PKCEAuthorizationFlow should be removed
 		_, hasPKCE := result["PKCEAuthorizationFlow"]
 		assert.False(t, hasPKCE, "PKCEAuthorizationFlow should be removed")
 
 		// EmbeddedIdP should be present with minimal fields
-		embeddedIdP, ok := result["EmbeddedIdP"].(map[string]interface{})
+		embeddedIDP, ok := result["EmbeddedIdP"].(map[string]any)
 		require.True(t, ok, "EmbeddedIdP should be present")
-		assert.Equal(t, true, embeddedIdP["Enabled"])
-		assert.Equal(t, "https://mgmt.example.com/oauth2", embeddedIdP["Issuer"])
-		assert.Nil(t, embeddedIdP["LocalAuthDisabled"], "LocalAuthDisabled should not be set")
-		assert.Nil(t, embeddedIdP["SignKeyRefreshEnabled"], "SignKeyRefreshEnabled should not be set")
-		assert.Nil(t, embeddedIdP["CLIRedirectURIs"], "CLIRedirectURIs should not be set")
+		assert.Equal(t, true, embeddedIDP["Enabled"])
+		assert.Equal(t, "https://mgmt.example.com/oauth2", embeddedIDP["Issuer"])
+		assert.Nil(t, embeddedIDP["LocalAuthDisabled"], "LocalAuthDisabled should not be set")
+		assert.Nil(t, embeddedIDP["SignKeyRefreshEnabled"], "SignKeyRefreshEnabled should not be set")
+		assert.Nil(t, embeddedIDP["CLIRedirectURIs"], "CLIRedirectURIs should not be set")
 
 		// Static connector's redirectURI should use the management domain
-		connectors := embeddedIdP["StaticConnectors"].([]interface{})
+		connectors := embeddedIDP["StaticConnectors"].([]any)
 		require.Len(t, connectors, 1)
-		firstConn := connectors[0].(map[string]interface{})
-		connCfg := firstConn["config"].(map[string]interface{})
+		firstConn := connectors[0].(map[string]any)
+		connCfg := firstConn["config"].(map[string]any)
 		assert.Equal(t, "https://mgmt.example.com/oauth2/callback", connCfg["redirectURI"],
 			"redirectURI should be overridden to use the management domain")
 
 		// HttpConfig should only have CertFile and CertKey
-		httpConfig, ok := result["HttpConfig"].(map[string]interface{})
+		httpConfig, ok := result["HttpConfig"].(map[string]any)
 		require.True(t, ok, "HttpConfig should be present")
 		assert.Equal(t, "/etc/ssl/cert.pem", httpConfig["CertFile"])
 		assert.Equal(t, "/etc/ssl/key.pem", httpConfig["CertKey"])
@@ -473,18 +466,13 @@ func TestGenerateConfig(t *testing.T) {
 
 		cfg := &migrationConfig{
 			configPath:   configPath,
-			dashboardUrl: "https://mgmt.example.com",
-			apiUrl:       "https://mgmt.example.com",
+			dashboardURL: "https://mgmt.example.com",
+			apiURL:       "https://mgmt.example.com",
 			dryRun:       true,
 		}
 		conn := &dex.Connector{Type: "oidc", Name: "test", ID: "test"}
-		mgmtConfig := &nbconfig.Config{
-			HttpConfig: &nbconfig.HttpServerConfig{
-				LetsEncryptDomain: "mgmt.example.com",
-			},
-		}
 
-		err := generateConfig(cfg, conn, mgmtConfig)
+		err := generateConfig(cfg, conn)
 		require.NoError(t, err)
 
 		// Original should be unchanged

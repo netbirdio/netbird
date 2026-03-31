@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"strings"
@@ -98,7 +99,7 @@ func run(cfg *migrationConfig) error {
 		return nil
 	}
 
-	return generateConfig(cfg, connectorConfig, mgmtConfig)
+	return generateConfig(cfg, connectorConfig)
 }
 
 // validateSchema opens the store and checks that all required tables and columns
@@ -134,7 +135,7 @@ func formatSchemaErrors(errs []migration.SchemaError) string {
 	var b strings.Builder
 	b.WriteString("database schema is incomplete — the following tables/columns are missing:\n")
 	for _, e := range errs {
-		b.WriteString(fmt.Sprintf("  - %s\n", e.String()))
+		fmt.Fprintf(&b, "  - %s\n", e.String())
 	}
 	b.WriteString("\nPlease start the NetBird management server (v0.66.4+) at least once so that automatic database migrations create the required schema, then re-run this tool.\n")
 	return b.String()
@@ -309,14 +310,14 @@ func decodeConnectorConfig(encoded string) (*dex.Connector, error) {
 // generateConfig reads the existing management.json as raw JSON, removes
 // IdpManagerConfig, adds EmbeddedIdP, updates HttpConfig fields, and writes
 // the result. In dry-run mode, it prints the new config to stdout instead.
-func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtConfig *nbconfig.Config) error {
+func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector) error {
 	// Read existing config as raw JSON to preserve all fields
 	raw, err := os.ReadFile(cfg.configPath)
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := json.Unmarshal(raw, &configMap); err != nil {
 		return fmt.Errorf("parse config JSON: %w", err)
 	}
@@ -326,14 +327,14 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 	delete(configMap, "PKCEAuthorizationFlow")
 	delete(configMap, "DeviceAuthorizationFlow")
 
-	httpConfig := configMap["HttpConfig"].(map[string]interface{})
-	if httpConfig != nil {
+	httpConfig, ok := configMap["HttpConfig"].(map[string]any)
+	if httpConfig != nil && ok {
 		certFilePath := httpConfig["CertFile"]
 		certKeyPath := httpConfig["CertKey"]
 
 		delete(configMap, "HttpConfig")
 
-		configMap["HttpConfig"] = map[string]interface{}{
+		configMap["HttpConfig"] = map[string]any{
 			"CertFile": certFilePath,
 			"CertKey":  certKeyPath,
 		}
@@ -341,42 +342,40 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 
 	// Ensure the connector's redirectURI points to the management server (Dex callback),
 	// not the external IdP. The auto-detection may have used the IdP issuer URL.
-	connConfig := make(map[string]interface{}, len(connectorConfig.Config))
-	for k, v := range connectorConfig.Config {
-		connConfig[k] = v
-	}
+	connConfig := make(map[string]any, len(connectorConfig.Config))
+	maps.Copy(connConfig, connectorConfig.Config)
 
-	redirectURI, err := buildUrl(cfg.apiUrl, "/oauth2/callback")
+	redirectURI, err := buildURL(cfg.apiURL, "/oauth2/callback")
 	if err != nil {
 		return fmt.Errorf("build redirect URI: %w", err)
 	}
 	connConfig["redirectURI"] = redirectURI
 
-	issuer, err := buildUrl(cfg.apiUrl, "/oauth2")
+	issuer, err := buildURL(cfg.apiURL, "/oauth2")
 	if err != nil {
 		return fmt.Errorf("build issuer URL: %w", err)
 	}
 
-	dashboardRedirectUrl, err := buildUrl(cfg.dashboardUrl, "/nb-auth")
+	dashboardRedirectURL, err := buildURL(cfg.dashboardURL, "/nb-auth")
 	if err != nil {
 		return fmt.Errorf("build dashboard redirect URL: %w", err)
 	}
 
-	dashboardSilentRedirectUrl, err := buildUrl(cfg.dashboardUrl, "/nb-silent-auth")
+	dashboardSilentRedirectURL, err := buildURL(cfg.dashboardURL, "/nb-silent-auth")
 	if err != nil {
 		return fmt.Errorf("build dashboard silent redirect URL: %w", err)
 	}
 
 	// Add minimal EmbeddedIdP section
-	configMap["EmbeddedIdP"] = map[string]interface{}{
+	configMap["EmbeddedIdP"] = map[string]any{
 		"Enabled": true,
 		"Issuer":  issuer,
 		"DashboardRedirectURIs": []string{
-			dashboardRedirectUrl,
-			dashboardSilentRedirectUrl,
+			dashboardRedirectURL,
+			dashboardSilentRedirectURL,
 		},
-		"StaticConnectors": []interface{}{
-			map[string]interface{}{
+		"StaticConnectors": []any{
+			map[string]any{
 				"type":   connectorConfig.Type,
 				"name":   connectorConfig.Name,
 				"id":     connectorConfig.ID,
@@ -412,7 +411,7 @@ func generateConfig(cfg *migrationConfig, connectorConfig *dex.Connector, mgmtCo
 	return nil
 }
 
-func buildUrl(uri, path string) (string, error) {
+func buildURL(uri, path string) (string, error) {
 	// Case for domain without scheme, e.g. "example.com" or "example.com:8080"
 	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
 		uri = "https://" + uri
@@ -427,7 +426,7 @@ func buildUrl(uri, path string) (string, error) {
 }
 
 func printPostMigrationInstructions(cfg *migrationConfig) {
-	authAuthority, err := buildUrl(cfg.apiUrl, "/oauth2")
+	authAuthority, err := buildURL(cfg.apiURL, "/oauth2")
 	if err != nil {
 		authAuthority = "https://<your-domain>/oauth2"
 	}

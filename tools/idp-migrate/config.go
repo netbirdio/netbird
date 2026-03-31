@@ -10,8 +10,8 @@ import (
 
 type migrationConfig struct {
 	// Data
-	dashboardUrl string
-	apiUrl       string
+	dashboardURL string
+	apiURL       string
 	configPath   string
 	dataDir      string
 	idpSeedInfo  string
@@ -45,8 +45,8 @@ func configFromArgs(args []string) (*migrationConfig, error) {
 
 	fs := flag.NewFlagSet("netbird-idp-migrate", flag.ContinueOnError)
 	fs.StringVar(&domain, "domain", "", "domain for both dashboard and API")
-	fs.StringVar(&cfg.dashboardUrl, "dashboard-url", "", "dashboard URL")
-	fs.StringVar(&cfg.apiUrl, "api-url", "", "API URL")
+	fs.StringVar(&cfg.dashboardURL, "dashboard-url", "", "dashboard URL")
+	fs.StringVar(&cfg.apiURL, "api-url", "", "API URL")
 	fs.StringVar(&cfg.configPath, "config", "", "path to management.json (required)")
 	fs.StringVar(&cfg.dataDir, "datadir", "", "override data directory from config")
 	fs.StringVar(&cfg.idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
@@ -82,27 +82,27 @@ func applyOverrides(cfg *migrationConfig, domain string) {
 	// --domain is a convenience shorthand: only fills in values not already
 	// set by the more specific --api-domain / --dashboard-domain flags.
 	if domain != "" {
-		if cfg.apiUrl == "" {
-			cfg.apiUrl = domain
+		if cfg.apiURL == "" {
+			cfg.apiURL = domain
 		}
-		if cfg.dashboardUrl == "" {
-			cfg.dashboardUrl = domain
+		if cfg.dashboardURL == "" {
+			cfg.dashboardURL = domain
 		}
 	}
 
 	// Env vars override flags. Broad env var first, then narrow ones on top,
 	// so the most granular value always wins.
 	if val, ok := os.LookupEnv("NETBIRD_DOMAIN"); ok {
-		cfg.dashboardUrl = val
-		cfg.apiUrl = val
+		cfg.dashboardURL = val
+		cfg.apiURL = val
 	}
 
 	if val, ok := os.LookupEnv("NETBIRD_API_URL"); ok {
-		cfg.apiUrl = val
+		cfg.apiURL = val
 	}
 
 	if val, ok := os.LookupEnv("NETBIRD_DASHBOARD_URL"); ok {
-		cfg.dashboardUrl = val
+		cfg.dashboardURL = val
 	}
 
 	if val, ok := os.LookupEnv("NETBIRD_CONFIG_PATH"); ok {
@@ -151,11 +151,11 @@ func validateConfig(cfg *migrationConfig) error {
 		return fmt.Errorf("--idp-seed-info is required")
 	}
 
-	if cfg.apiUrl == "" {
+	if cfg.apiURL == "" {
 		return fmt.Errorf("--api-domain is required")
 	}
 
-	if cfg.dashboardUrl == "" {
+	if cfg.dashboardURL == "" {
 		return fmt.Errorf("--dashboard-domain is required")
 	}
 
