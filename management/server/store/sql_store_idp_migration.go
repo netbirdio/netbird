@@ -59,12 +59,45 @@ func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
 func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
 	switch s.storeEngine {
 	case types.PostgresStoreEngine:
+		// GORM creates FK constraints as NOT DEFERRABLE by default, so
+		// SET CONSTRAINTS ALL DEFERRED is a no-op unless we ALTER them first.
+		if err := tx.Exec(`
+			DO $$ DECLARE r RECORD;
+			BEGIN
+				FOR r IN SELECT conname, conrelid::regclass AS tbl
+				         FROM pg_constraint WHERE contype = 'f' AND NOT condeferrable
+				LOOP
+					EXECUTE format('ALTER TABLE %s ALTER CONSTRAINT %I DEFERRABLE INITIALLY IMMEDIATE', r.tbl, r.conname);
+				END LOOP;
+			END $$
+		`).Error; err != nil {
+			return fmt.Errorf("make FK constraints deferrable: %w", err)
+		}
 		return tx.Exec("SET CONSTRAINTS ALL DEFERRED").Error
 	case types.SqliteStoreEngine:
 		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
 	default:
 		return nil
 	}
+}
+
+// txRestoreFKConstraints reverts FK constraints back to NOT DEFERRABLE after the
+// deferred updates are done but before the transaction commits.
+func (s *SqlStore) txRestoreFKConstraints(tx *gorm.DB) error {
+	if s.storeEngine != types.PostgresStoreEngine {
+		return nil
+	}
+
+	return tx.Exec(`
+		DO $$ DECLARE r RECORD;
+		BEGIN
+			FOR r IN SELECT conname, conrelid::regclass AS tbl
+			         FROM pg_constraint WHERE contype = 'f' AND condeferrable
+			LOOP
+				EXECUTE format('ALTER TABLE %s ALTER CONSTRAINT %I NOT DEFERRABLE', r.tbl, r.conname);
+			END LOOP;
+		END $$
+	`).Error
 }
 
 func (s *SqlStore) UpdateUserInfo(ctx context.Context, userID, email, name string) error {
@@ -102,6 +135,7 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 		{&types.Job{}, "triggered_by", "triggered_by = ?"},
 	}
 
+	log.Info("Updating user ID in the store")
 	err := s.transaction(func(tx *gorm.DB) error {
 		if err := s.txDeferFKConstraints(tx); err != nil {
 			return err
@@ -122,6 +156,20 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to update user ID in the store: %s", err)
 		return status.Errorf(status.Internal, "failed to update user ID in store")
+	}
+
+	log.Info("Restoring FK constraints")
+	err = s.transaction(func(tx *gorm.DB) error {
+		if err := s.txRestoreFKConstraints(tx); err != nil {
+			return fmt.Errorf("restore FK constraints: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to restore FK constraints after user ID update: %s", err)
+		return status.Errorf(status.Internal, "failed to restore FK constraints after user ID update")
 	}
 
 	return nil
