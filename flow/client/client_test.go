@@ -7,10 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	flow "github.com/netbirdio/netbird/flow/client"
 	"github.com/netbirdio/netbird/flow/proto"
@@ -18,10 +22,11 @@ import (
 
 type testServer struct {
 	proto.UnimplementedFlowServiceServer
-	events  chan *proto.FlowEvent
-	acks    chan *proto.FlowEventAck
-	grpcSrv *grpc.Server
-	addr    string
+	events      chan *proto.FlowEvent
+	acks        chan *proto.FlowEventAck
+	grpcSrv     *grpc.Server
+	addr        string
+	closeStream chan struct{} // signal server to close the stream
 }
 
 func newTestServer(t *testing.T) *testServer {
@@ -29,10 +34,11 @@ func newTestServer(t *testing.T) *testServer {
 	require.NoError(t, err)
 
 	s := &testServer{
-		events:  make(chan *proto.FlowEvent, 100),
-		acks:    make(chan *proto.FlowEventAck, 100),
-		grpcSrv: grpc.NewServer(),
-		addr:    listener.Addr().String(),
+		events:      make(chan *proto.FlowEvent, 100),
+		acks:        make(chan *proto.FlowEventAck, 100),
+		grpcSrv:     grpc.NewServer(),
+		addr:        listener.Addr().String(),
+		closeStream: make(chan struct{}, 1),
 	}
 
 	proto.RegisterFlowServiceServer(s.grpcSrv, s)
@@ -91,6 +97,8 @@ func (s *testServer) Events(stream proto.FlowService_EventsServer) error {
 			if err := stream.Send(ack); err != nil {
 				return err
 			}
+		case <-s.closeStream:
+			return status.Errorf(codes.Internal, "server closing stream")
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -345,4 +353,68 @@ func TestClose_WhileReceiving(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close blocked forever — Receive stuck in retry loop")
 	}
+}
+
+func TestReceive_ServerClosesStream(t *testing.T) {
+	server := newTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+
+	client, err := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err := client.Close()
+		assert.NoError(t, err, "failed to close flow")
+	})
+
+	// Track acks received before and after server-side stream close
+	var ackCount atomic.Int32
+	receivedFirst := make(chan struct{})
+	receivedAfterReconnect := make(chan struct{})
+
+	go func() {
+		err := client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
+			if msg.IsInitiator || len(msg.EventId) == 0 {
+				return nil
+			}
+			n := ackCount.Add(1)
+			if n == 1 {
+				close(receivedFirst)
+			}
+			if n == 2 {
+				close(receivedAfterReconnect)
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Logf("receive error: %v", err)
+		}
+	}()
+
+	// Wait for stream to be established, then send first ack
+	time.Sleep(500 * time.Millisecond)
+	server.acks <- &proto.FlowEventAck{EventId: []byte("before-close")}
+
+	select {
+	case <-receivedFirst:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for first ack")
+	}
+
+	// Server closes the stream (returns from Events handler)
+	server.closeStream <- struct{}{}
+
+	// Wait for client to reconnect, then send second ack
+	time.Sleep(2 * time.Second)
+	server.acks <- &proto.FlowEventAck{EventId: []byte("after-close")}
+
+	select {
+	case <-receivedAfterReconnect:
+		// Client successfully reconnected and received ack after server-side stream close
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for ack after server-side stream close — client did not reconnect")
+	}
+
+	assert.GreaterOrEqual(t, int(ackCount.Load()), 2, "should have received acks before and after stream close")
 }
