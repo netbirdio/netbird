@@ -86,6 +86,7 @@ func (c *GRPCClient) Close() error {
 	if err := conn.Close(); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("close client connection: %w", err)
 	}
+
 	return nil
 }
 
@@ -108,7 +109,7 @@ func (c *GRPCClient) Send(event *proto.FlowEvent) error {
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
-		if err := c.establishStreamAndReceive(ctx, msgHandler); err == nil {
+		if err := c.establishStreamAndReceive(ctx, msgHandler); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return backoff.Permanent(err)
 			}

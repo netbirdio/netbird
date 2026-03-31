@@ -169,6 +169,11 @@ func TestReceive_ContextCancellation(t *testing.T) {
 		assert.NoError(t, err, "failed to close flow")
 	})
 
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
 	handlerCalled := false
 	msgHandler := func(msg *proto.FlowEventAck) error {
 		if !msg.IsInitiator {
@@ -275,4 +280,42 @@ func TestNewClient_PermanentClose(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Receive did not return after Close — stuck in retry loop")
 	}
+}
+
+func TestNewClient_CloseVerify(t *testing.T) {
+	server := newTestServer(t)
+
+	client, err := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
+			return nil
+		})
+	}()
+
+	closeDone := make(chan struct{}, 1)
+	go func() {
+		_ = client.Close()
+		closeDone <- struct{}{}
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Receive did not return after Close — stuck in retry loop")
+	}
+
+	select {
+	case <-closeDone:
+		return
+	case <-time.After(2 * time.Second):
+		t.Fatal("Receive did not return after Close — stuck in retry loop")
+	}
+
 }
