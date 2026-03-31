@@ -20,22 +20,23 @@ const (
 )
 
 type AccessLogEntry struct {
-	ID             string        `gorm:"primaryKey"`
-	AccountID      string        `gorm:"index"`
-	ServiceID      string        `gorm:"index"`
-	Timestamp      time.Time     `gorm:"index"`
-	GeoLocation    peer.Location `gorm:"embedded;embeddedPrefix:location_"`
-	Method         string        `gorm:"index"`
-	Host           string        `gorm:"index"`
-	Path           string        `gorm:"index"`
-	Duration       time.Duration `gorm:"index"`
-	StatusCode     int           `gorm:"index"`
-	Reason         string
-	UserId         string            `gorm:"index"`
-	AuthMethodUsed string            `gorm:"index"`
-	BytesUpload    int64             `gorm:"index"`
-	BytesDownload  int64             `gorm:"index"`
-	Protocol       AccessLogProtocol `gorm:"index"`
+	ID              string        `gorm:"primaryKey"`
+	AccountID       string        `gorm:"index"`
+	ServiceID       string        `gorm:"index"`
+	Timestamp       time.Time     `gorm:"index"`
+	GeoLocation     peer.Location `gorm:"embedded;embeddedPrefix:location_"`
+	SubdivisionCode string
+	Method          string        `gorm:"index"`
+	Host            string        `gorm:"index"`
+	Path            string        `gorm:"index"`
+	Duration        time.Duration `gorm:"index"`
+	StatusCode      int           `gorm:"index"`
+	Reason          string
+	UserId          string            `gorm:"index"`
+	AuthMethodUsed  string            `gorm:"index"`
+	BytesUpload     int64             `gorm:"index"`
+	BytesDownload   int64             `gorm:"index"`
+	Protocol        AccessLogProtocol `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -105,6 +106,11 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		cityName = &a.GeoLocation.CityName
 	}
 
+	var subdivisionCode *string
+	if a.SubdivisionCode != "" {
+		subdivisionCode = &a.SubdivisionCode
+	}
+
 	var protocol *string
 	if a.Protocol != "" {
 		p := string(a.Protocol)
@@ -112,22 +118,23 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 	}
 
 	return &api.ProxyAccessLog{
-		Id:             a.ID,
-		ServiceId:      a.ServiceID,
-		Timestamp:      a.Timestamp,
-		Method:         a.Method,
-		Host:           a.Host,
-		Path:           a.Path,
-		DurationMs:     int(a.Duration.Milliseconds()),
-		StatusCode:     a.StatusCode,
-		SourceIp:       sourceIP,
-		Reason:         reason,
-		UserId:         userID,
-		AuthMethodUsed: authMethod,
-		CountryCode:    countryCode,
-		CityName:       cityName,
-		BytesUpload:    a.BytesUpload,
-		BytesDownload:  a.BytesDownload,
-		Protocol:       protocol,
+		Id:              a.ID,
+		ServiceId:       a.ServiceID,
+		Timestamp:       a.Timestamp,
+		Method:          a.Method,
+		Host:            a.Host,
+		Path:            a.Path,
+		DurationMs:      int(a.Duration.Milliseconds()),
+		StatusCode:      a.StatusCode,
+		SourceIp:        sourceIP,
+		Reason:          reason,
+		UserId:          userID,
+		AuthMethodUsed:  authMethod,
+		CountryCode:     countryCode,
+		CityName:        cityName,
+		SubdivisionCode: subdivisionCode,
+		BytesUpload:     a.BytesUpload,
+		BytesDownload:   a.BytesDownload,
+		Protocol:        protocol,
 	}
 }

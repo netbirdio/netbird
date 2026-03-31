@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -1208,6 +1209,129 @@ func TestValidateProtocolChange(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "cannot change mode")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTargetReferences_ResourceTypeMismatch(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	tests := []struct {
+		name         string
+		targetType   rpservice.TargetType
+		resourceType resourcetypes.NetworkResourceType
+		wantErr      bool
+	}{
+		{"host matches host", rpservice.TargetTypeHost, resourcetypes.Host, false},
+		{"domain matches domain", rpservice.TargetTypeDomain, resourcetypes.Domain, false},
+		{"subnet matches subnet", rpservice.TargetTypeSubnet, resourcetypes.Subnet, false},
+		{"host but resource is domain", rpservice.TargetTypeHost, resourcetypes.Domain, true},
+		{"domain but resource is host", rpservice.TargetTypeDomain, resourcetypes.Host, true},
+		{"host but resource is subnet", rpservice.TargetTypeHost, resourcetypes.Subnet, true},
+		{"subnet but resource is domain", rpservice.TargetTypeSubnet, resourcetypes.Domain, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore.EXPECT().
+				GetNetworkResourceByID(gomock.Any(), store.LockingStrengthShare, accountID, "resource-1").
+				Return(&resourcetypes.NetworkResource{Type: tt.resourceType}, nil)
+
+			targets := []*rpservice.Target{
+				{TargetId: "resource-1", TargetType: tt.targetType, Host: "10.0.0.1"},
+			}
+			err := validateTargetReferences(ctx, mockStore, accountID, targets)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "target_type")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTargetReferences_PeerValid(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	mockStore.EXPECT().
+		GetPeerByID(gomock.Any(), store.LockingStrengthShare, accountID, "peer-1").
+		Return(&nbpeer.Peer{}, nil)
+
+	targets := []*rpservice.Target{
+		{TargetId: "peer-1", TargetType: rpservice.TargetTypePeer},
+	}
+	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets))
+}
+
+func TestValidateSubdomainRequirement(t *testing.T) {
+	ptrBool := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name             string
+		domain           string
+		cluster          string
+		requireSubdomain *bool
+		wantErr          bool
+	}{
+		{
+			name:             "subdomain present, require_subdomain true",
+			domain:           "app.eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          false,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain true",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          true,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain false",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(false),
+			wantErr:          false,
+		},
+		{
+			name:             "bare cluster domain, require_subdomain nil (default)",
+			domain:           "eu1.proxy.netbird.io",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: nil,
+			wantErr:          false,
+		},
+		{
+			name:             "custom domain apex is not the cluster",
+			domain:           "example.com",
+			cluster:          "eu1.proxy.netbird.io",
+			requireSubdomain: ptrBool(true),
+			wantErr:          false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			mockCaps := proxy.NewMockManager(ctrl)
+			mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), tc.cluster).Return(tc.requireSubdomain).AnyTimes()
+
+			mgr := &Manager{capabilities: mockCaps}
+			err := mgr.validateSubdomainRequirement(context.Background(), tc.domain, tc.cluster)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires a subdomain label")
 			} else {
 				require.NoError(t, err)
 			}

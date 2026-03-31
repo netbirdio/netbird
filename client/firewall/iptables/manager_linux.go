@@ -23,9 +23,10 @@ type Manager struct {
 
 	wgIface iFaceMapper
 
-	ipv4Client *iptables.IPTables
-	aclMgr     *aclManager
-	router     *router
+	ipv4Client   *iptables.IPTables
+	aclMgr       *aclManager
+	router       *router
+	rawSupported bool
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -84,7 +85,7 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.initNoTrackChain(); err != nil {
-		return fmt.Errorf("init notrack chain: %w", err)
+		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
 	}
 
 	// persist early to ensure cleanup of chains
@@ -318,6 +319,10 @@ func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if !m.rawSupported {
+		return fmt.Errorf("raw table not available")
+	}
+
 	wgPortStr := fmt.Sprintf("%d", wgPort)
 	proxyPortStr := fmt.Sprintf("%d", proxyPort)
 
@@ -375,12 +380,16 @@ func (m *Manager) initNoTrackChain() error {
 		return fmt.Errorf("add prerouting jump rule: %w", err)
 	}
 
+	m.rawSupported = true
 	return nil
 }
 
 func (m *Manager) cleanupNoTrackChain() error {
 	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
 	if err != nil {
+		if !m.rawSupported {
+			return nil
+		}
 		return fmt.Errorf("check chain exists: %w", err)
 	}
 	if !exists {
@@ -401,6 +410,7 @@ func (m *Manager) cleanupNoTrackChain() error {
 		return fmt.Errorf("clear and delete chain: %w", err)
 	}
 
+	m.rawSupported = false
 	return nil
 }
 

@@ -171,6 +171,7 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
+    license: BSD-3-Clause
     id: netbird_deb
     bindir: /usr/bin
     builds:
@@ -184,6 +185,7 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
+    license: BSD-3-Clause
     id: netbird_rpm
     bindir: /usr/bin
     builds:

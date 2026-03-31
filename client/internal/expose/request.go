@@ -9,7 +9,7 @@ import (
 func NewRequest(req *daemonProto.ExposeServiceRequest) *Request {
 	return &Request{
 		Port:       uint16(req.Port),
-		Protocol:   int(req.Protocol),
+		Protocol:   ProtocolType(req.Protocol),
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
@@ -24,7 +24,7 @@ func toClientExposeRequest(req Request) mgm.ExposeRequest {
 		NamePrefix: req.NamePrefix,
 		Domain:     req.Domain,
 		Port:       req.Port,
-		Protocol:   req.Protocol,
+		Protocol:   int(req.Protocol),
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,

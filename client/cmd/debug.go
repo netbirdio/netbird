@@ -181,10 +181,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	if stateWasDown {
 		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird up")
+			time.Sleep(time.Second * 10)
 		}
-		cmd.Println("netbird up")
-		time.Sleep(time.Second * 10)
 	}
 
 	initialLevelTrace := initialLogLevel.GetLevel() >= proto.LogLevel_TRACE
@@ -199,9 +200,10 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
+	} else {
+		cmd.Println("netbird down")
 	}
-	cmd.Println("netbird down")
 
 	time.Sleep(1 * time.Second)
 
@@ -209,13 +211,14 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
 		Enabled: true,
 	}); err != nil {
-		return fmt.Errorf("failed to enable sync response persistence: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
 	}
 
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
+	} else {
+		cmd.Println("netbird up")
 	}
-	cmd.Println("netbird up")
 
 	time.Sleep(3 * time.Second)
 
@@ -263,16 +266,18 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	if stateWasDown {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to restore service down state: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird down")
 		}
-		cmd.Println("netbird down")
 	}
 
 	if !initialLevelTrace {
 		if _, err := client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{Level: initialLogLevel.GetLevel()}); err != nil {
-			return fmt.Errorf("failed to restore log level: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to restore log level: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 		}
-		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 	}
 
 	cmd.Printf("Local file:\n%s\n", resp.GetPath())

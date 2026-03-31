@@ -66,19 +66,16 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set the serviceId in the context for later retrieval.
-	ctx := withServiceId(r.Context(), result.serviceID)
-	// Set the accountId in the context for later retrieval (for middleware).
-	ctx = withAccountId(ctx, result.accountID)
-	// Set the accountId in the context for the roundtripper to use.
+	ctx := r.Context()
+	// Set the account ID in the context for the roundtripper to use.
 	ctx = roundtrip.WithAccountID(ctx, result.accountID)
 
-	// Also populate captured data if it exists (allows middleware to read after handler completes).
+	// Populate captured data if it exists (allows middleware to read after handler completes).
 	// This solves the problem of passing data UP the middleware chain: we put a mutable struct
 	// pointer in the context, and mutate the struct here so outer middleware can read it.
 	if capturedData := CapturedDataFromContext(ctx); capturedData != nil {
-		capturedData.SetServiceId(result.serviceID)
-		capturedData.SetAccountId(result.accountID)
+		capturedData.SetServiceID(result.serviceID)
+		capturedData.SetAccountID(result.accountID)
 	}
 
 	pt := result.target
@@ -96,10 +93,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rp := &httputil.ReverseProxy{
-		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders),
+		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders, result.stripAuthHeaders),
 		Transport:     p.transport,
 		FlushInterval: -1,
-		ErrorHandler:  proxyErrorHandler,
+		ErrorHandler:  p.proxyErrorHandler,
 	}
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
@@ -113,7 +110,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // When passHostHeader is true, the original client Host header is preserved
 // instead of being rewritten to the backend's address.
 // The pathRewrite parameter controls how the request path is transformed.
-func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool, pathRewrite PathRewriteMode, customHeaders map[string]string) func(r *httputil.ProxyRequest) {
+func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool, pathRewrite PathRewriteMode, customHeaders map[string]string, stripAuthHeaders []string) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
 		switch pathRewrite {
 		case PathRewritePreserve:
@@ -135,6 +132,10 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 			r.Out.Host = r.In.Host
 		} else {
 			r.Out.Host = target.Host
+		}
+
+		for _, h := range stripAuthHeaders {
+			r.Out.Header.Del(h)
 		}
 
 		for k, v := range customHeaders {
@@ -305,7 +306,7 @@ func extractForwardedPort(host, resolvedProto string) string {
 
 // proxyErrorHandler handles errors from the reverse proxy and serves
 // user-friendly error pages instead of raw error responses.
-func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+func (p *ReverseProxy) proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	if cd := CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(OriginProxyError)
 	}
@@ -313,7 +314,7 @@ func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	clientIP := getClientIP(r)
 	title, message, code, status := classifyProxyError(err)
 
-	log.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
+	p.logger.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
 		requestID, clientIP, r.Method, r.Host, r.URL.Path, code, title, err)
 
 	web.ServeErrorPage(w, r, code, title, message, requestID, status)

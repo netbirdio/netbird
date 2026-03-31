@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -122,7 +123,7 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.proxyManager.CleanupStale(ctx, 10*time.Minute); err != nil {
+			if err := s.proxyManager.CleanupStale(ctx, 1*time.Hour); err != nil {
 				log.WithContext(ctx).Debugf("Failed to cleanup stale proxies: %v", err)
 			}
 		}
@@ -181,9 +182,21 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
 	}
 
-	// Register proxy in database
-	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo); err != nil {
-		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)
+	// Register proxy in database with capabilities
+	var caps *proxy.Capabilities
+	if c := req.GetCapabilities(); c != nil {
+		caps = &proxy.Capabilities{
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+		}
+	}
+	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, caps); err != nil {
+		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", proxyID, err)
+		s.connectedProxies.Delete(proxyID)
+		if unregErr := s.proxyController.UnregisterProxyFromCluster(ctx, conn.address, proxyID); unregErr != nil {
+			log.WithContext(ctx).Debugf("cleanup after Connect failure for proxy %s: %v", proxyID, unregErr)
+		}
+		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
 	}
 
 	log.WithFields(log.Fields{
@@ -214,7 +227,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	go s.sender(conn, errChan)
 
 	// Start heartbeat goroutine
-	go s.heartbeat(connCtx, proxyID)
+	go s.heartbeat(connCtx, proxyID, proxyAddress, peerInfo)
 
 	select {
 	case err := <-errChan:
@@ -225,14 +238,14 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 }
 
 // heartbeat updates the proxy's last_seen timestamp every minute
-func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID string) {
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := s.proxyManager.Heartbeat(ctx, proxyID); err != nil {
+			if err := s.proxyManager.Heartbeat(ctx, proxyID, clusterAddress, ipAddress); err != nil {
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", proxyID, err)
 			}
 		case <-ctx.Done():
@@ -296,6 +309,9 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		}
 
 		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		if !proxyAcceptsMapping(conn, m) {
+			continue
+		}
 		mappings = append(mappings, m)
 	}
 	return mappings, nil
@@ -444,20 +460,44 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 
 	log.Debugf("Sending service update to cluster %s", clusterAddr)
 	for _, proxyID := range proxyIDs {
-		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
-			conn := connVal.(*proxyConnection)
-			msg := s.perProxyMessage(updateResponse, proxyID)
-			if msg == nil {
-				continue
-			}
-			select {
-			case conn.sendChan <- msg:
-				log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
-			default:
-				log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
-			}
+		connVal, ok := s.connectedProxies.Load(proxyID)
+		if !ok {
+			continue
+		}
+		conn := connVal.(*proxyConnection)
+		if !proxyAcceptsMapping(conn, update) {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
+			continue
+		}
+		msg := s.perProxyMessage(updateResponse, proxyID)
+		if msg == nil {
+			continue
+		}
+		select {
+		case conn.sendChan <- msg:
+			log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
+		default:
+			log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 		}
 	}
+}
+
+// proxyAcceptsMapping returns whether the proxy should receive this mapping.
+// Old proxies that never reported capabilities are skipped for non-TLS L4
+// mappings with a custom listen port, since they don't understand the
+// protocol. Proxies that report capabilities (even SupportsCustomPorts=false)
+// are new enough to handle the mapping. TLS uses SNI routing and works on
+// any proxy. Delete operations are always sent so proxies can clean up.
+func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
+	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
+		return true
+	}
+	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
+		return true
+	}
+	// Old proxies that never reported capabilities don't understand
+	// custom port mappings.
+	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -493,46 +533,18 @@ func (s *ProxyServiceServer) perProxyMessage(update *proto.GetMappingUpdateRespo
 // should be set on the copy.
 func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	return &proto.ProxyMapping{
-		Type:             m.Type,
-		Id:               m.Id,
-		AccountId:        m.AccountId,
-		Domain:           m.Domain,
-		Path:             m.Path,
-		Auth:             m.Auth,
-		PassHostHeader:   m.PassHostHeader,
-		RewriteRedirects: m.RewriteRedirects,
-		Mode:             m.Mode,
-		ListenPort:       m.ListenPort,
+		Type:               m.Type,
+		Id:                 m.Id,
+		AccountId:          m.AccountId,
+		Domain:             m.Domain,
+		Path:               m.Path,
+		Auth:               m.Auth,
+		PassHostHeader:     m.PassHostHeader,
+		RewriteRedirects:   m.RewriteRedirects,
+		Mode:               m.Mode,
+		ListenPort:         m.ListenPort,
+		AccessRestrictions: m.AccessRestrictions,
 	}
-}
-
-// ClusterSupportsCustomPorts returns whether any connected proxy in the given
-// cluster reports custom port support. Returns nil if no proxy has reported
-// capabilities (old proxies that predate the field).
-func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) *bool {
-	if s.proxyController == nil {
-		return nil
-	}
-
-	var hasCapabilities bool
-	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
-		connVal, ok := s.connectedProxies.Load(pid)
-		if !ok {
-			continue
-		}
-		conn := connVal.(*proxyConnection)
-		if conn.capabilities == nil || conn.capabilities.SupportsCustomPorts == nil {
-			continue
-		}
-		if *conn.capabilities.SupportsCustomPorts {
-			return ptr(true)
-		}
-		hasCapabilities = true
-	}
-	if hasCapabilities {
-		return ptr(false)
-	}
-	return nil
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
@@ -561,6 +573,8 @@ func (s *ProxyServiceServer) authenticateRequest(ctx context.Context, req *proto
 		return s.authenticatePIN(ctx, req.GetId(), v, service.Auth.PinAuth)
 	case *proto.AuthenticateRequest_Password:
 		return s.authenticatePassword(ctx, req.GetId(), v, service.Auth.PasswordAuth)
+	case *proto.AuthenticateRequest_HeaderAuth:
+		return s.authenticateHeader(ctx, req.GetId(), v, service.Auth.HeaderAuths)
 	default:
 		return false, "", ""
 	}
@@ -592,6 +606,35 @@ func (s *ProxyServiceServer) authenticatePassword(ctx context.Context, serviceID
 	}
 
 	return true, "password-user", proxyauth.MethodPassword
+}
+
+func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID string, req *proto.AuthenticateRequest_HeaderAuth, auths []*rpservice.HeaderAuthConfig) (bool, string, proxyauth.Method) {
+	if len(auths) == 0 {
+		log.WithContext(ctx).Debugf("header authentication attempted but no header auths configured for service %s", serviceID)
+		return false, "", ""
+	}
+
+	headerName := http.CanonicalHeaderKey(req.HeaderAuth.GetHeaderName())
+
+	var lastErr error
+	for _, auth := range auths {
+		if auth == nil || !auth.Enabled {
+			continue
+		}
+		if headerName != "" && http.CanonicalHeaderKey(auth.Header) != headerName {
+			continue
+		}
+		if err := argon2id.Verify(req.HeaderAuth.GetHeaderValue(), auth.Value); err != nil {
+			lastErr = err
+			continue
+		}
+		return true, "header-user", proxyauth.MethodHeader
+	}
+
+	if lastErr != nil {
+		s.logAuthenticationError(ctx, lastErr, "Header")
+	}
+	return false, "", ""
 }
 
 func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err error, authType string) {
@@ -752,6 +795,9 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
 	}
+	if redirectURL.Scheme != "https" && redirectURL.Scheme != "http" {
+		return nil, status.Errorf(codes.InvalidArgument, "redirect URL must use http or https scheme")
+	}
 	// Validate redirectURL against known service endpoints to avoid abuse of OIDC redirection.
 	services, err := s.serviceManager.GetAccountServices(ctx, req.GetAccountId())
 	if err != nil {
@@ -836,12 +882,9 @@ func (s *ProxyServiceServer) generateHMAC(input string) string {
 
 // ValidateState validates the state parameter from an OAuth callback.
 // Returns the original redirect URL if valid, or an error if invalid.
+// The HMAC is verified before consuming the PKCE verifier to prevent
+// an attacker from invalidating a legitimate user's auth flow.
 func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
-	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
-	if !ok {
-		return "", "", errors.New("no verifier for state")
-	}
-
 	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
 	if len(parts) != 3 {
@@ -863,6 +906,12 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 
 	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
 		return "", "", errors.New("invalid state signature")
+	}
+
+	// Consume the PKCE verifier only after HMAC validation passes.
+	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
+	if !ok {
+		return "", "", errors.New("no verifier for state")
 	}
 
 	return verifier, redirectURL, nil

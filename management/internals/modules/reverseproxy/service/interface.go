@@ -4,9 +4,12 @@ package service
 
 import (
 	"context"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
 
 type Manager interface {
+	GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error)
 	GetAllServices(ctx context.Context, accountID, userID string) ([]*Service, error)
 	GetService(ctx context.Context, accountID, userID, serviceID string) (*Service, error)
 	CreateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)

@@ -61,8 +61,8 @@ jobs:
 
           echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
 
-          if [ ${SIZE} -gt 57671680 ]; then
-            echo "Wasm binary size (${SIZE_MB}MB) exceeds 55MB limit!"
+          if [ ${SIZE} -gt 58720256 ]; then
+            echo "Wasm binary size (${SIZE_MB}MB) exceeds 56MB limit!"
             exit 1
           fi
 

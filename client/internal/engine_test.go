@@ -828,7 +828,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, EngineServices{
+	}, EngineServices{
 				SignalClient:   &signal.MockClient{},
 				MgmClient:      &mgmt.MockClient{},
 				RelayManager:   relayMgr,
@@ -1035,7 +1035,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, EngineServices{
+	}, EngineServices{
 				SignalClient:   &signal.MockClient{},
 				MgmClient:      &mgmt.MockClient{},
 				RelayManager:   relayMgr,
@@ -1566,7 +1566,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	e, err := NewEngine(ctx, cancel, conf, EngineServices{
+e, err := NewEngine(ctx, cancel, conf, EngineServices{
 		SignalClient:   signalClient,
 		MgmClient:      mgmtClient,
 		RelayManager:   relayMgr,

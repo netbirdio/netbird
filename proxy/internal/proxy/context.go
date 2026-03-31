@@ -11,8 +11,6 @@ import (
 type requestContextKey string
 
 const (
-	serviceIdKey    requestContextKey = "serviceId"
-	accountIdKey    requestContextKey = "accountId"
 	capturedDataKey requestContextKey = "capturedData"
 )
 
@@ -47,112 +45,117 @@ func (o ResponseOrigin) String() string {
 // to pass data back up the middleware chain.
 type CapturedData struct {
 	mu         sync.RWMutex
-	RequestID  string
-	ServiceId  types.ServiceID
-	AccountId  types.AccountID
-	Origin     ResponseOrigin
-	ClientIP   netip.Addr
-	UserID     string
-	AuthMethod string
+	requestID  string
+	serviceID  types.ServiceID
+	accountID  types.AccountID
+	origin     ResponseOrigin
+	clientIP   netip.Addr
+	userID     string
+	authMethod string
 }
 
-// GetRequestID safely gets the request ID
+// NewCapturedData creates a CapturedData with the given request ID.
+func NewCapturedData(requestID string) *CapturedData {
+	return &CapturedData{requestID: requestID}
+}
+
+// GetRequestID returns the request ID.
 func (c *CapturedData) GetRequestID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.RequestID
+	return c.requestID
 }
 
-// SetServiceId safely sets the service ID
-func (c *CapturedData) SetServiceId(serviceId types.ServiceID) {
+// SetServiceID sets the service ID.
+func (c *CapturedData) SetServiceID(serviceID types.ServiceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ServiceId = serviceId
+	c.serviceID = serviceID
 }
 
-// GetServiceId safely gets the service ID
-func (c *CapturedData) GetServiceId() types.ServiceID {
+// GetServiceID returns the service ID.
+func (c *CapturedData) GetServiceID() types.ServiceID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ServiceId
+	return c.serviceID
 }
 
-// SetAccountId safely sets the account ID
-func (c *CapturedData) SetAccountId(accountId types.AccountID) {
+// SetAccountID sets the account ID.
+func (c *CapturedData) SetAccountID(accountID types.AccountID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.AccountId = accountId
+	c.accountID = accountID
 }
 
-// GetAccountId safely gets the account ID
-func (c *CapturedData) GetAccountId() types.AccountID {
+// GetAccountID returns the account ID.
+func (c *CapturedData) GetAccountID() types.AccountID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.AccountId
+	return c.accountID
 }
 
-// SetOrigin safely sets the response origin
+// SetOrigin sets the response origin.
 func (c *CapturedData) SetOrigin(origin ResponseOrigin) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Origin = origin
+	c.origin = origin
 }
 
-// GetOrigin safely gets the response origin
+// GetOrigin returns the response origin.
 func (c *CapturedData) GetOrigin() ResponseOrigin {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.Origin
+	return c.origin
 }
 
-// SetClientIP safely sets the resolved client IP.
+// SetClientIP sets the resolved client IP.
 func (c *CapturedData) SetClientIP(ip netip.Addr) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ClientIP = ip
+	c.clientIP = ip
 }
 
-// GetClientIP safely gets the resolved client IP.
+// GetClientIP returns the resolved client IP.
 func (c *CapturedData) GetClientIP() netip.Addr {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ClientIP
+	return c.clientIP
 }
 
-// SetUserID safely sets the authenticated user ID.
+// SetUserID sets the authenticated user ID.
 func (c *CapturedData) SetUserID(userID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.UserID = userID
+	c.userID = userID
 }
 
-// GetUserID safely gets the authenticated user ID.
+// GetUserID returns the authenticated user ID.
 func (c *CapturedData) GetUserID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.UserID
+	return c.userID
 }
 
-// SetAuthMethod safely sets the authentication method used.
+// SetAuthMethod sets the authentication method used.
 func (c *CapturedData) SetAuthMethod(method string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.AuthMethod = method
+	c.authMethod = method
 }
 
-// GetAuthMethod safely gets the authentication method used.
+// GetAuthMethod returns the authentication method used.
 func (c *CapturedData) GetAuthMethod() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.AuthMethod
+	return c.authMethod
 }
 
-// WithCapturedData adds a CapturedData struct to the context
+// WithCapturedData adds a CapturedData struct to the context.
 func WithCapturedData(ctx context.Context, data *CapturedData) context.Context {
 	return context.WithValue(ctx, capturedDataKey, data)
 }
 
-// CapturedDataFromContext retrieves the CapturedData from context
+// CapturedDataFromContext retrieves the CapturedData from context.
 func CapturedDataFromContext(ctx context.Context) *CapturedData {
 	v := ctx.Value(capturedDataKey)
 	data, ok := v.(*CapturedData)
@@ -160,29 +163,4 @@ func CapturedDataFromContext(ctx context.Context) *CapturedData {
 		return nil
 	}
 	return data
-}
-
-func withServiceId(ctx context.Context, serviceId types.ServiceID) context.Context {
-	return context.WithValue(ctx, serviceIdKey, serviceId)
-}
-
-func ServiceIdFromContext(ctx context.Context) types.ServiceID {
-	v := ctx.Value(serviceIdKey)
-	serviceId, ok := v.(types.ServiceID)
-	if !ok {
-		return ""
-	}
-	return serviceId
-}
-func withAccountId(ctx context.Context, accountId types.AccountID) context.Context {
-	return context.WithValue(ctx, accountIdKey, accountId)
-}
-
-func AccountIdFromContext(ctx context.Context) types.AccountID {
-	v := ctx.Value(accountIdKey)
-	accountId, ok := v.(types.AccountID)
-	if !ok {
-		return ""
-	}
-	return accountId
 }

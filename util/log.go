@@ -43,7 +43,13 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
 
+	seen := make(map[string]bool, len(logs))
 	for _, logPath := range logs {
+		if seen[logPath] {
+			continue
+		}
+		seen[logPath] = true
+
 		switch logPath {
 		case LogSyslog:
 			AddSyslogHookToLogger(logger)

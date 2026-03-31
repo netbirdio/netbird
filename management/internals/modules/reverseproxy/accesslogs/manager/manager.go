@@ -41,6 +41,9 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 			logEntry.GeoLocation.CountryCode = location.Country.ISOCode
 			logEntry.GeoLocation.CityName = location.City.Names.En
 			logEntry.GeoLocation.GeoNameID = location.City.GeonameID
+			if len(location.Subdivisions) > 0 {
+				logEntry.SubdivisionCode = location.Subdivisions[0].ISOCode
+			}
 		}
 	}
 

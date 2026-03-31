@@ -324,6 +324,7 @@ type serviceClient struct {
 	exitNodeMu           sync.Mutex
 	mExitNodeItems       []menuHandler
 	exitNodeRetryCancel  context.CancelFunc
+	mExitNodeSeparator   *systray.MenuItem
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
