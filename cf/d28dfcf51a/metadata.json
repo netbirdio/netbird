@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "cfd28dfcf51a",
+  "strategy": "manual-commit",
+  "branch": "feature/use-local-keys-embedded",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "shared/auth/jwt/validator.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cf/d28dfcf51a/0/metadata.json",
+      "transcript": "/cf/d28dfcf51a/0/full.jsonl",
+      "context": "/cf/d28dfcf51a/0/context.md",
+      "content_hash": "/cf/d28dfcf51a/0/content_hash.txt",
+      "prompt": "/cf/d28dfcf51a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 98,
+    "cache_creation_tokens": 201669,
+    "cache_read_tokens": 4923742,
+    "output_tokens": 20915,
+    "api_call_count": 82
+  }
+}
