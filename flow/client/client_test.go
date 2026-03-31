@@ -380,14 +380,15 @@ func TestNewClient_CloseVerify(t *testing.T) {
 	case <-closeDone:
 		return
 	case <-time.After(2 * time.Second):
-		t.Fatal("Receive did not return after Close — stuck in retry loop")
+		t.Fatal("Close did not return — blocked in retry loop")
 	}
 
 }
 
 func TestClose_WhileReceiving(t *testing.T) {
 	server := newTestServer(t)
-	client, _ := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
+	client, err := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
+	require.NoError(t, err)
 
 	ctx := context.Background() // no timeout — intentional
 	go func() {
