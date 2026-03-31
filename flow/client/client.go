@@ -192,6 +192,12 @@ func (c *GRPCClient) establishStream(ctx context.Context) (proto.FlowService_Eve
 	if err != nil {
 		return nil, fmt.Errorf("create event stream: %w", err)
 	}
+	streamReady := false
+	defer func() {
+		if !streamReady {
+			_ = stream.CloseSend()
+		}
+	}()
 
 	if err = stream.Send(&proto.FlowEvent{IsInitiator: true}); err != nil {
 		return nil, fmt.Errorf("send initiator: %w", err)
@@ -208,6 +214,7 @@ func (c *GRPCClient) establishStream(ctx context.Context) (proto.FlowService_Eve
 	}
 	c.stream = stream
 	c.mu.Unlock()
+	streamReady = true
 
 	return stream, nil
 }
