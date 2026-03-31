@@ -86,7 +86,7 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
 		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
-			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
 
