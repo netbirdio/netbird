@@ -319,3 +319,30 @@ func TestNewClient_CloseVerify(t *testing.T) {
 	}
 
 }
+
+func TestClose_WhileReceiving(t *testing.T) {
+	server := newTestServer(t)
+	client, _ := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
+
+	ctx := context.Background() // no timeout — intentional
+	go func() {
+		_ = client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
+			return nil
+		})
+	}()
+
+	time.Sleep(100 * time.Millisecond) // let Receive establish stream
+
+	done := make(chan struct{})
+	go func() {
+		_ = client.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Close returned — good
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked forever — Receive stuck in retry loop")
+	}
+}

@@ -25,12 +25,15 @@ import (
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
+var ErrClientClosed = errors.New("client is closed")
+
 type GRPCClient struct {
 	realClient proto.FlowServiceClient
 	clientConn *grpc.ClientConn
 	stream     proto.FlowService_EventsClient
 	opts       []grpc.DialOption
-	mu         sync.Mutex // protects clientConn, realClient and stream
+	closed     bool       // prevent creating conn in the middle of the Close
+	mu         sync.Mutex // protects clientConn, realClient, stream, and closed
 }
 
 func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCClient, error) {
@@ -79,8 +82,10 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 
 func (c *GRPCClient) Close() error {
 	c.mu.Lock()
+	c.closed = true
 	c.stream = nil
 	conn := c.clientConn
+	c.clientConn = nil
 	c.mu.Unlock()
 
 	if err := conn.Close(); err != nil && !errors.Is(err, context.Canceled) {
@@ -144,27 +149,35 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 func (c *GRPCClient) recreateConnection() error {
 	c.mu.Lock()
-	old := c.clientConn
-	c.mu.Unlock()
+	if c.closed {
+		c.mu.Unlock()
+		return backoff.Permanent(ErrClientClosed)
+	}
 
-	// dial outside the lock — blocking operation
-	conn, err := grpc.NewClient(old.Target(), c.opts...)
+	defer func(conn *grpc.ClientConn) {
+		_ = conn.Close()
+	}(c.clientConn)
+
+	conn, err := grpc.NewClient(c.clientConn.Target(), c.opts...)
 	if err != nil {
+		c.mu.Unlock()
 		return fmt.Errorf("create new connection: %w", err)
 	}
 
-	c.mu.Lock()
 	c.clientConn = conn
 	c.realClient = proto.NewFlowServiceClient(conn)
-	c.stream = nil // invalidate stale stream atomically with conn swap
+	c.stream = nil
 	c.mu.Unlock()
 
-	_ = old.Close() // best effort, outside lock
 	return nil
 }
 
 func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler func(msg *proto.FlowEventAck) error) error {
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return backoff.Permanent(ErrClientClosed)
+	}
 	cl := c.realClient
 	c.mu.Unlock()
 
@@ -183,6 +196,10 @@ func (c *GRPCClient) establishStreamAndReceive(ctx context.Context, msgHandler f
 	}
 
 	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return backoff.Permanent(ErrClientClosed)
+	}
 	c.stream = stream
 	c.mu.Unlock()
 
