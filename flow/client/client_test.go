@@ -2,12 +2,13 @@ package client_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -26,18 +27,74 @@ type testServer struct {
 	acks        chan *proto.FlowEventAck
 	grpcSrv     *grpc.Server
 	addr        string
+	listener    *connTrackListener
 	closeStream chan struct{} // signal server to close the stream
 }
 
+// connTrackListener wraps a net.Listener to track accepted connections
+// so tests can forcefully close them to simulate PROTOCOL_ERROR/RST_STREAM.
+type connTrackListener struct {
+	net.Listener
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func (l *connTrackListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	l.conns = append(l.conns, c)
+	l.mu.Unlock()
+	return c, nil
+}
+
+// sendRSTStream writes a raw HTTP/2 RST_STREAM frame with PROTOCOL_ERROR
+// (error code 0x1) on every tracked connection. This produces the exact error:
+//
+//	rpc error: code = Internal desc = stream terminated by RST_STREAM with error code: PROTOCOL_ERROR
+//
+// HTTP/2 RST_STREAM frame format (9-byte header + 4-byte payload):
+//
+//	Length (3 bytes): 0x000004
+//	Type   (1 byte):  0x03 (RST_STREAM)
+//	Flags  (1 byte):  0x00
+//	Stream ID (4 bytes): target stream (must have bit 31 clear)
+//	Error Code (4 bytes): 0x00000001 (PROTOCOL_ERROR)
+func (l *connTrackListener) sendRSTStream(streamID uint32) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	frame := make([]byte, 13) // 9-byte header + 4-byte payload
+	// Length = 4 (3 bytes, big-endian)
+	frame[0], frame[1], frame[2] = 0, 0, 4
+	// Type = RST_STREAM (0x03)
+	frame[3] = 0x03
+	// Flags = 0
+	frame[4] = 0x00
+	// Stream ID (4 bytes, big-endian, bit 31 reserved = 0)
+	binary.BigEndian.PutUint32(frame[5:9], streamID)
+	// Error Code = PROTOCOL_ERROR (0x1)
+	binary.BigEndian.PutUint32(frame[9:13], 0x1)
+
+	for _, c := range l.conns {
+		_, _ = c.Write(frame)
+	}
+}
+
 func newTestServer(t *testing.T) *testServer {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	rawListener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+
+	listener := &connTrackListener{Listener: rawListener}
 
 	s := &testServer{
 		events:      make(chan *proto.FlowEvent, 100),
 		acks:        make(chan *proto.FlowEventAck, 100),
 		grpcSrv:     grpc.NewServer(),
-		addr:        listener.Addr().String(),
+		addr:        rawListener.Addr().String(),
+		listener:    listener,
 		closeStream: make(chan struct{}, 1),
 	}
 
@@ -355,7 +412,7 @@ func TestClose_WhileReceiving(t *testing.T) {
 	}
 }
 
-func TestReceive_ServerClosesStream(t *testing.T) {
+func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 	server := newTestServer(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -402,8 +459,12 @@ func TestReceive_ServerClosesStream(t *testing.T) {
 		t.Fatal("timeout waiting for first ack")
 	}
 
-	// Server closes the stream (returns from Events handler)
-	server.closeStream <- struct{}{}
+	// Send a raw HTTP/2 RST_STREAM frame with PROTOCOL_ERROR on the TCP connection.
+	// gRPC multiplexes streams on stream IDs 1, 3, 5, ... (odd, client-initiated).
+	// Stream ID 1 is the client's first stream (our Events bidi stream).
+	// This produces the exact error the client sees in production:
+	//   "stream terminated by RST_STREAM with error code: PROTOCOL_ERROR"
+	server.listener.sendRSTStream(1)
 
 	// Wait for client to reconnect, then send second ack
 	time.Sleep(2 * time.Second)
