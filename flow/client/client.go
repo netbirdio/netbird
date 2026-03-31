@@ -116,8 +116,6 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 				switch s.Code() {
 				case codes.Canceled:
 					return backoff.Permanent(err)
-				case codes.Unauthenticated, codes.PermissionDenied, codes.Unimplemented:
-					return backoff.Permanent(err)
 				case codes.Internal:
 					log.Warnf("connection corrupt, attempting reconnection: %v", err)
 					// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
