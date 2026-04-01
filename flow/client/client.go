@@ -31,6 +31,7 @@ type GRPCClient struct {
 	realClient proto.FlowServiceClient
 	clientConn *grpc.ClientConn
 	stream     proto.FlowService_EventsClient
+	target     string
 	opts       []grpc.DialOption
 	closed     bool       // prevent creating conn in the middle of the Close
 	mu         sync.Mutex // protects clientConn, realClient, stream, and closed
@@ -68,7 +69,8 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		grpc.WithDefaultServiceConfig(`{"healthCheckConfig": {"serviceName": ""}}`),
 	)
 
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", parsedURL.Hostname(), parsedURL.Port()), opts...)
+	target := fmt.Sprintf("%s:%s", parsedURL.Hostname(), parsedURL.Port())
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating new grpc client: %w", err)
 	}
@@ -76,6 +78,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 	return &GRPCClient{
 		realClient: proto.NewFlowServiceClient(conn),
 		clientConn: conn,
+		target:     target,
 		opts:       opts,
 	}, nil
 }
@@ -165,7 +168,7 @@ func (c *GRPCClient) recreateConnection() error {
 		return backoff.Permanent(ErrClientClosed)
 	}
 
-	conn, err := grpc.NewClient(c.clientConn.Target(), c.opts...)
+	conn, err := grpc.NewClient(c.target, c.opts...)
 	if err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("create new connection: %w", err)
