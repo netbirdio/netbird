@@ -43,13 +43,16 @@ type Peer struct {
 
 // NewPeer creates a new Peer instance and prepare custom logging
 func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
-		metrics:  metrics,
-		log:      log.WithField("peer_id", id.String()),
-		id:       id,
-		conn:     conn,
-		store:    store,
-		notifier: notifier,
+		metrics:   metrics,
+		log:       log.WithField("peer_id", id.String()),
+		id:        id,
+		conn:      conn,
+		store:     store,
+		notifier:  notifier,
+		ctx:       ctx,
+		ctxCancel: cancel,
 	}
 
 	return p
@@ -59,8 +62,6 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, s
 // It manages the protocol (healthcheck, transport, close). Read the message and determine the message type and handle
 // the message accordingly.
 func (p *Peer) Work() {
-	p.ctx, p.ctxCancel = context.WithCancel(context.Background())
-
 	p.peersListener = p.notifier.NewListener(p.sendPeersOnline, p.sendPeersWentOffline)
 	defer func() {
 		p.ctxCancel()
@@ -153,6 +154,7 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
 	}
 
+	p.ctxCancel()
 	if err := p.conn.Close(); err != nil {
 		p.log.Errorf(errCloseConn, err)
 	}
@@ -162,6 +164,7 @@ func (p *Peer) Close() {
 	p.connMu.Lock()
 	defer p.connMu.Unlock()
 
+	p.ctxCancel()
 	if err := p.conn.Close(); err != nil {
 		p.log.Errorf(errCloseConn, err)
 	}
