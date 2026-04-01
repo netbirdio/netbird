@@ -88,6 +88,10 @@ func (c *GRPCClient) Close() error {
 	c.clientConn = nil
 	c.mu.Unlock()
 
+	if conn == nil {
+		return nil
+	}
+
 	if err := conn.Close(); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("close client connection: %w", err)
 	}
