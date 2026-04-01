@@ -306,11 +306,11 @@ func TestApplyOverrides_MostGranularWins(t *testing.T) {
 		assert.Equal(t, "debug", cfg.logLevel)
 	})
 
-	t.Run("boolean env vars only activate on true", func(t *testing.T) {
+	t.Run("boolean env vars properly parse false values", func(t *testing.T) {
 		cfg := &migrationConfig{}
 		t.Setenv("NETBIRD_DRY_RUN", "false")
 		t.Setenv("NETBIRD_FORCE", "yes")
-		t.Setenv("NETBIRD_SKIP_CONFIG", "1")
+		t.Setenv("NETBIRD_SKIP_CONFIG", "0")
 
 		applyOverrides(cfg, "")
 

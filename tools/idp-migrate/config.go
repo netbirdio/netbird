@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
+	"strconv"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -119,21 +119,29 @@ func applyOverrides(cfg *migrationConfig, domain string) {
 	}
 
 	// Enforce dry run if any value is provided
-	if _, ok := os.LookupEnv("NETBIRD_DRY_RUN"); ok {
-		cfg.dryRun = true
+	if sval, ok := os.LookupEnv("NETBIRD_DRY_RUN"); ok {
+		if val, err := strconv.ParseBool(sval); err == nil {
+			cfg.dryRun = val
+		}
 	}
 
 	// Only allow for force if the value matches true
-	if val, ok := os.LookupEnv("NETBIRD_FORCE"); ok {
-		cfg.force = strings.ToLower(val) == "true"
+	if sval, ok := os.LookupEnv("NETBIRD_FORCE"); ok {
+		if val, err := strconv.ParseBool(sval); err == nil {
+			cfg.force = val
+		}
 	}
 
-	if _, ok := os.LookupEnv("NETBIRD_SKIP_CONFIG"); ok {
-		cfg.skipConfig = true
+	if sval, ok := os.LookupEnv("NETBIRD_SKIP_CONFIG"); ok {
+		if val, err := strconv.ParseBool(sval); err == nil {
+			cfg.skipConfig = val
+		}
 	}
 
-	if _, ok := os.LookupEnv("NETBIRD_SKIP_POPULATE_USER_INFO"); ok {
-		cfg.skipPopulateUserInfo = true
+	if sval, ok := os.LookupEnv("NETBIRD_SKIP_POPULATE_USER_INFO"); ok {
+		if val, err := strconv.ParseBool(sval); err == nil {
+			cfg.skipPopulateUserInfo = val
+		}
 	}
 
 	if val, ok := os.LookupEnv("NETBIRD_LOG_LEVEL"); ok {
