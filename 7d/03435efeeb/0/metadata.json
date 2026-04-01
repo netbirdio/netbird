@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "7d03435efeeb",
+  "session_id": "263c810b-0eda-4afa-805b-a24c681d4fa5",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-01T17:13:00.873491Z",
+  "branch": "docs/add-selfhosted-sclaing-note",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "infrastructure_files/getting-started.sh"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "0398594c-42ab-405f-a6be-60ed94adc8fe",
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 24885,
+    "cache_read_tokens": 510454,
+    "output_tokens": 6515,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-01T17:13:00.815361Z",
+    "agent_lines": 3,
+    "human_added": 102893,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 102900,
+    "agent_percentage": 0.0029154518950437317
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "7d03435efeeb",
+  "strategy": "manual-commit",
+  "branch": "docs/add-selfhosted-sclaing-note",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "infrastructure_files/getting-started.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/03435efeeb/0/metadata.json",
+      "transcript": "/7d/03435efeeb/0/full.jsonl",
+      "context": "/7d/03435efeeb/0/context.md",
+      "content_hash": "/7d/03435efeeb/0/content_hash.txt",
+      "prompt": "/7d/03435efeeb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 24885,
+    "cache_read_tokens": 510454,
+    "output_tokens": 6515,
+    "api_call_count": 22
+  }
+}
