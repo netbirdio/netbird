@@ -192,6 +192,7 @@ func TestSetUDPPacketHook(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
 	var called bool
 	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, func([]byte) bool {
@@ -215,6 +216,7 @@ func TestSetTCPPacketHook(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
 	var called bool
 	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, func([]byte) bool {

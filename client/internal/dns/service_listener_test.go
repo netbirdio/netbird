@@ -29,45 +29,42 @@ func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	svc := newServiceViaListener(nil, nil, nil)
 	svc.dnsMux.Handle(".", handler)
 
-	// Find a free port by binding and releasing
+	// Bind both transports up front to avoid TOCTOU races.
 	udpAddr := net.UDPAddrFromAddrPort(netip.AddrPortFrom(customIP, 0))
-	udpLn, err := net.ListenUDP("udp", udpAddr)
+	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
 		t.Skip("cannot bind to 127.0.0.153, skipping")
 	}
-	port := uint16(udpLn.LocalAddr().(*net.UDPAddr).Port)
-	require.NoError(t, udpLn.Close())
+	port := uint16(udpConn.LocalAddr().(*net.UDPAddr).Port)
 
-	// Check TCP is also available on this port
 	tcpAddr := net.TCPAddrFromAddrPort(netip.AddrPortFrom(customIP, port))
 	tcpLn, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
+		udpConn.Close()
 		t.Skip("cannot bind TCP on same port, skipping")
 	}
-	require.NoError(t, tcpLn.Close())
 
 	addr := fmt.Sprintf("%s:%d", customIP, port)
-	svc.server.Addr = addr
-	svc.tcpServer.Addr = addr
+	svc.server.PacketConn = udpConn
+	svc.tcpServer.Listener = tcpLn
 	svc.listenIP = customIP
 	svc.listenPort = port
 
 	go func() {
-		if err := svc.server.ListenAndServe(); err != nil {
+		if err := svc.server.ActivateAndServe(); err != nil {
 			t.Logf("udp server: %v", err)
 		}
 	}()
 	go func() {
-		if err := svc.tcpServer.ListenAndServe(); err != nil {
+		if err := svc.tcpServer.ActivateAndServe(); err != nil {
 			t.Logf("tcp server: %v", err)
 		}
 	}()
 	svc.listenerIsRunning = true
 
-	defer svc.Stop()
-
-	// Wait for servers to start
-	time.Sleep(100 * time.Millisecond)
+	defer func() {
+		require.NoError(t, svc.Stop())
+	}()
 
 	q := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
 

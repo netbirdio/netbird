@@ -375,7 +375,10 @@ func (w *tcpResponseWriter) Write(data []byte) (int, error) {
 	buf[0] = byte(len(data) >> 8)
 	buf[1] = byte(len(data))
 	copy(buf[2:], data)
-	return w.conn.Write(buf)
+	if _, err := w.conn.Write(buf); err != nil {
+		return 0, err
+	}
+	return len(data), nil
 }
 
 func (w *tcpResponseWriter) Close() error {

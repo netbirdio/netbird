@@ -58,6 +58,7 @@ type Server interface {
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteChecker(func(netip.Addr) bool)
+	SetFirewall(Firewall)
 }
 
 type nsGroupsByDomain struct {
@@ -130,7 +131,6 @@ type registeredHandlerMap map[types.HandlerID]handlerWrapper
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
 	WgInterface    WGIface
-	Firewall       DNSFirewall
 	CustomAddress  string
 	StatusRecorder *peer.Status
 	StateManager   *statemanager.Manager
@@ -152,7 +152,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort, config.Firewall)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -373,6 +373,15 @@ func (s *DefaultServer) Initialize() (err error) {
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
+}
+
+// SetFirewall sets the firewall used for DNS port DNAT rules.
+// This must be called before Initialize when using the listener-based service,
+// because the firewall is typically not available at construction time.
+func (s *DefaultServer) SetFirewall(fw Firewall) {
+	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.firewall = fw
+	}
 }
 
 // Stop stops the server

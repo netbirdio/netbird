@@ -41,18 +41,18 @@ type serviceViaListener struct {
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
 	ebpfService       ebpfMgr.Manager
-	firewall          DNSFirewall
+	firewall          Firewall
 	tcpDNATConfigured bool
 }
 
-func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, firewall DNSFirewall) *serviceViaListener {
+func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall) *serviceViaListener {
 	mux := dns.NewServeMux()
 
 	s := &serviceViaListener{
 		wgInterface: wgIface,
 		dnsMux:      mux,
 		customAddr:  customAddr,
-		firewall:    firewall,
+		firewall:    fw,
 		server: &dns.Server{
 			Net:     "udp",
 			Handler: mux,
@@ -105,8 +105,8 @@ func (s *serviceViaListener) Listen() error {
 	// When eBPF redirects UDP port 53 to our listen port, TCP still needs
 	// a DNAT rule because eBPF only handles UDP.
 	if s.ebpfService != nil && s.firewall != nil && s.listenPort != DefaultPort {
-		if err := s.firewall.AddInboundDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
-			log.Warnf("failed to add DNS TCP DNAT rule: %v", err)
+		if err := s.firewall.AddOutputDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
+			log.Warnf("failed to add DNS TCP DNAT rule, TCP DNS on port 53 will not work: %v", err)
 		} else {
 			s.tcpDNATConfigured = true
 			log.Infof("added DNS TCP DNAT rule: %s:%d -> %s:%d", s.listenIP, DefaultPort, s.listenIP, s.listenPort)
@@ -138,7 +138,7 @@ func (s *serviceViaListener) Stop() error {
 	}
 
 	if s.tcpDNATConfigured && s.firewall != nil {
-		if err := s.firewall.RemoveInboundDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
+		if err := s.firewall.RemoveOutputDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove DNS TCP DNAT rule: %w", err))
 		}
 		s.tcpDNATConfigured = false

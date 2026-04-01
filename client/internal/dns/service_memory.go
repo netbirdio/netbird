@@ -121,7 +121,13 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 		packet := gopacket.NewPacket(packetData, firstLayerDecoder, gopacket.Default)
 
 		udpLayer := packet.Layer(layers.LayerTypeUDP)
-		udp := udpLayer.(*layers.UDP)
+		if udpLayer == nil {
+			return true
+		}
+		udp, ok := udpLayer.(*layers.UDP)
+		if !ok {
+			return true
+		}
 
 		msg := new(dns.Msg)
 		if err := msg.Unpack(udp.Payload); err != nil {
@@ -129,11 +135,16 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 			return true
 		}
 
+		dev := s.wgInterface.GetDevice()
+		if dev == nil {
+			return true
+		}
+
 		writer := &truncationAwareWriter{
 			responseWriter: responseWriter{
 				remote: remoteAddrFromPacket(packet),
 				packet: packet,
-				device: s.wgInterface.GetDevice().Device,
+				device: dev.Device,
 			},
 			tcpDNS: s.tcpDNS,
 		}
