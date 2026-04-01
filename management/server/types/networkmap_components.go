@@ -119,9 +119,10 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	routesUpdate := c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups)
 	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID)
 
-	isRouter, networkResourcesRoutes, sourcePeers := c.getNetworkResourcesRoutesToSync(targetPeerID)
+	isRouter, networkResourcesRoutes, sourcePeers, peerFirewallRules := c.getNetworkResourcesRoutesToSync(targetPeerID)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
+		firewallRules = append(firewallRules, peerFirewallRules...)
 		networkResourcesFirewallRules = c.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes)
 	}
 
@@ -526,7 +527,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 	return enabledRoutes, disabledRoutes
 }
 
-
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
@@ -692,10 +692,11 @@ func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []st
 	return distributionGroupPeers
 }
 
-func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}) {
+func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}, []*FirewallRule) {
 	var isRoutingPeer bool
 	var routes []*route.Route
 	allSourcePeers := make(map[string]struct{})
+	localResourceFwRule := make([]*FirewallRule, 0)
 
 	for _, resource := range c.NetworkResources {
 		if !resource.Enabled {
@@ -714,6 +715,9 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 
 		addedResourceRoute := false
 		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+			if router, ok := networkRoutingPeers[peerID]; ok {
+				localResourceFwRule = append(localResourceFwRule, c.getLocalResourceFirewallRules(router, policy)...)
+			}
 			var peers []string
 			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
 				peers = []string{policy.Rules[0].SourceResource.ID}
@@ -736,7 +740,90 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 		}
 	}
 
-	return isRoutingPeer, routes, allSourcePeers
+	return isRoutingPeer, routes, allSourcePeers, localResourceFwRule
+}
+
+func (c *NetworkMapComponents) getLocalResourceFirewallRules(router *routerTypes.NetworkRouter, policy *Policy) []*FirewallRule {
+	routingPeers := c.getRoutingPeers(router)
+
+	rules := make([]*FirewallRule, 0)
+	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
+
+		protocol := rule.Protocol
+		if protocol == PolicyRuleProtocolNetbirdSSH {
+			continue
+		}
+
+		for _, peer := range routingPeers {
+			peerIP := peer.IP.String()
+
+			fr := FirewallRule{
+				PolicyID:  rule.ID,
+				PeerIP:    peerIP,
+				Direction: FirewallRuleDirectionOUT,
+				Action:    string(rule.Action),
+				Protocol:  string(protocol),
+			}
+
+			if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
+				rules = append(rules, &fr)
+				continue
+			}
+
+			for _, port := range rule.Ports {
+				portRule := fr
+				portRule.Port = port
+				rules = append(rules, &portRule)
+			}
+
+			for _, portRange := range rule.PortRanges {
+				if len(rule.Ports) > 0 {
+					break
+				}
+				rangeRule := fr
+				rangeRule.PortRange = portRange
+				rules = append(rules, &rangeRule)
+			}
+		}
+	}
+
+	return rules
+}
+
+func (c *NetworkMapComponents) getRoutingPeers(router *routerTypes.NetworkRouter) []*nbpeer.Peer {
+	var peers []*nbpeer.Peer
+
+	if router.Peer != "" {
+		peer := c.GetRouterPeerInfo(router.Peer)
+		if peer == nil {
+			peer = c.GetPeerInfo(router.Peer)
+		}
+		if peer != nil {
+			peers = append(peers, peer)
+		}
+		return peers
+	}
+
+	for _, groupID := range router.PeerGroups {
+		group := c.GetGroupInfo(groupID)
+		if group == nil {
+			continue
+		}
+		for _, peerID := range group.Peers {
+			peer := c.GetRouterPeerInfo(peerID)
+			if peer == nil {
+				peer = c.GetPeerInfo(peerID)
+			}
+			if peer != nil {
+				peers = append(peers, peer)
+			}
+		}
+	}
+
+	return peers
 }
 
 func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
