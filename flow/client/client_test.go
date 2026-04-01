@@ -62,6 +62,12 @@ func (l *connTrackListener) Accept() (net.Conn, error) {
 //	Flags  (1 byte):  0x00
 //	Stream ID (4 bytes): target stream (must have bit 31 clear)
 //	Error Code (4 bytes): 0x00000001 (PROTOCOL_ERROR)
+func (l *connTrackListener) connCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.conns)
+}
+
 func (l *connTrackListener) sendRSTStream(streamID uint32) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -341,7 +347,7 @@ func TestNewClient_PermanentClose(t *testing.T) {
 
 	select {
 	case err := <-done:
-		require.Error(t, err)
+		require.ErrorIs(t, err, flow.ErrClientClosed)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Receive did not return after Close — stuck in retry loop")
 	}
@@ -467,8 +473,12 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 	//   "stream terminated by RST_STREAM with error code: PROTOCOL_ERROR"
 	server.listener.sendRSTStream(1)
 
-	// Wait for client to reconnect, then send second ack
-	time.Sleep(2 * time.Second)
+	// Wait for the client to open a new TCP connection after the RST_STREAM.
+	connsBefore := server.listener.connCount()
+	require.Eventually(t, func() bool {
+		return server.listener.connCount() > connsBefore
+	}, 5*time.Second, 50*time.Millisecond, "client did not open a new TCP connection after RST_STREAM")
+
 	server.acks <- &proto.FlowEventAck{EventId: []byte("after-close")}
 
 	select {
@@ -479,4 +489,5 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 	}
 
 	assert.GreaterOrEqual(t, int(ackCount.Load()), 2, "should have received acks before and after stream close")
+	assert.GreaterOrEqual(t, server.listener.connCount(), 2, "client should have created at least 2 TCP connections (original + reconnect)")
 }
