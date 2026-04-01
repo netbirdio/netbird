@@ -75,7 +75,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		grpc.WithDefaultServiceConfig(`{"healthCheckConfig": {"serviceName": ""}}`),
 	)
 
-	target := fmt.Sprintf("%s:%s", parsedURL.Hostname(), parsedURL.Port())
+	target := parsedURL.Host
 	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating new grpc client: %w", err)
