@@ -27,6 +27,11 @@ import (
 
 var ErrClientClosed = errors.New("client is closed")
 
+// minHealthyDuration is the minimum time a stream must survive before a failure
+// resets the backoff timer. Streams that fail faster are considered unhealthy and
+// should not reset backoff, so that MaxElapsedTime can eventually stop retries.
+const minHealthyDuration = 5 * time.Second
+
 type GRPCClient struct {
 	realClient proto.FlowServiceClient
 	clientConn *grpc.ClientConn
@@ -140,7 +145,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 			// Reset the backoff so the next retry starts with a short delay instead of
 			// continuing the already-elapsed timer. Only do this if the stream was healthy
 			// long enough; short-lived connect/drop cycles must not defeat MaxElapsedTime.
-			if time.Since(streamStart) >= interval {
+			if time.Since(streamStart) >= minHealthyDuration {
 				backOff.Reset()
 			}
 
