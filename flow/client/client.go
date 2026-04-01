@@ -130,14 +130,20 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 			return err
 		}
 
-		// we have a successful connection, reset the backoff so that if receive fails later,
-		// the next retry starts with a short delay instead of continuing the already-elapsed timer
-		backOff.Reset()
+		streamStart := time.Now()
 
 		if err := c.receive(stream, msgHandler); err != nil {
 			if isContextDone(err) {
 				return backoff.Permanent(err)
 			}
+
+			// Reset the backoff so the next retry starts with a short delay instead of
+			// continuing the already-elapsed timer. Only do this if the stream was healthy
+			// long enough; short-lived connect/drop cycles must not defeat MaxElapsedTime.
+			if time.Since(streamStart) >= interval {
+				backOff.Reset()
+			}
+
 			// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
 			if s, ok := status.FromError(err); ok && s.Code() == codes.Internal {
 				log.Warnf("connection corrupt, attempting reconnection: %v", err)
