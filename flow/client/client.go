@@ -33,8 +33,9 @@ type GRPCClient struct {
 	stream     proto.FlowService_EventsClient
 	target     string
 	opts       []grpc.DialOption
+	connGen    uint64     // incremented on each recreateConnection; used to detect stale recreate calls
 	closed     bool       // prevent creating conn in the middle of the Close
-	mu         sync.Mutex // protects clientConn, realClient, stream, and closed
+	mu         sync.Mutex // protects clientConn, realClient, stream, closed, and connGen
 }
 
 func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCClient, error) {
@@ -121,7 +122,7 @@ func (c *GRPCClient) Send(event *proto.FlowEvent) error {
 func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHandler func(msg *proto.FlowEventAck) error) error {
 	backOff := defaultBackoff(ctx, interval)
 	operation := func() error {
-		stream, err := c.establishStream(ctx)
+		stream, gen, err := c.establishStream(ctx)
 		if err != nil {
 			if isContextDone(err) {
 				return backoff.Permanent(err)
@@ -140,7 +141,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 			// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
 			if s, ok := status.FromError(err); ok && s.Code() == codes.Internal {
 				log.Warnf("connection corrupt, attempting reconnection: %v", err)
-				if err := c.recreateConnection(); err != nil {
+				if err := c.recreateConnection(gen); err != nil {
 					log.Errorf("recreate connection: %v", err)
 					return err
 				}
@@ -161,11 +162,17 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 	return nil
 }
 
-func (c *GRPCClient) recreateConnection() error {
+func (c *GRPCClient) recreateConnection(gen uint64) error {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return backoff.Permanent(ErrClientClosed)
+	}
+
+	// Another goroutine already recreated the connection; nothing to do.
+	if c.connGen != gen {
+		c.mu.Unlock()
+		return nil
 	}
 
 	conn, err := grpc.NewClient(c.target, c.opts...)
@@ -178,6 +185,7 @@ func (c *GRPCClient) recreateConnection() error {
 	c.clientConn = conn
 	c.realClient = proto.NewFlowServiceClient(conn)
 	c.stream = nil
+	c.connGen++
 	c.mu.Unlock()
 
 	_ = old.Close()
@@ -185,19 +193,20 @@ func (c *GRPCClient) recreateConnection() error {
 	return nil
 }
 
-func (c *GRPCClient) establishStream(ctx context.Context) (proto.FlowService_EventsClient, error) {
+func (c *GRPCClient) establishStream(ctx context.Context) (proto.FlowService_EventsClient, uint64, error) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return nil, backoff.Permanent(ErrClientClosed)
+		return nil, 0, backoff.Permanent(ErrClientClosed)
 	}
 	cl := c.realClient
+	gen := c.connGen
 	c.mu.Unlock()
 
 	// open stream outside the lock — blocking operation
 	stream, err := cl.Events(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("create event stream: %w", err)
+		return nil, 0, fmt.Errorf("create event stream: %w", err)
 	}
 	streamReady := false
 	defer func() {
@@ -207,23 +216,23 @@ func (c *GRPCClient) establishStream(ctx context.Context) (proto.FlowService_Eve
 	}()
 
 	if err = stream.Send(&proto.FlowEvent{IsInitiator: true}); err != nil {
-		return nil, fmt.Errorf("send initiator: %w", err)
+		return nil, 0, fmt.Errorf("send initiator: %w", err)
 	}
 
 	if err = checkHeader(stream); err != nil {
-		return nil, fmt.Errorf("check header: %w", err)
+		return nil, 0, fmt.Errorf("check header: %w", err)
 	}
 
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return nil, backoff.Permanent(ErrClientClosed)
+		return nil, 0, backoff.Permanent(ErrClientClosed)
 	}
 	c.stream = stream
 	c.mu.Unlock()
 	streamReady = true
 
-	return stream, nil
+	return stream, gen, nil
 }
 
 func (c *GRPCClient) receive(stream proto.FlowService_EventsClient, msgHandler func(msg *proto.FlowEventAck) error) error {
