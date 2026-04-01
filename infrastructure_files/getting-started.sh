@@ -1154,7 +1154,16 @@ print_builtin_traefik_instructions() {
   echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
-    echo ""
+  fi
+  echo ""
+  echo "This setup is ideal for homelabs and smaller organization deployments."
+  echo "For enterprise environments requiring high availability and advanced integrations,"
+  echo "consider a commercial on-prem license or scaling your open source deployment:"
+  echo ""
+  echo "  Commercial license: https://netbird.io/pricing#on-prem"
+  echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  echo ""
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo "NetBird Proxy:"
     echo "  The proxy service is enabled and running."
     echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
