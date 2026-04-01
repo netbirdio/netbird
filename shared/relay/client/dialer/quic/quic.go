@@ -89,7 +89,7 @@ func prepareURL(address string) (string, error) {
 	finalHost, finalPort, err := net.SplitHostPort(host)
 	if err != nil {
 		if strings.Contains(err.Error(), "missing port") {
-			return net.JoinHostPort(host, defaultPort), nil
+			return net.JoinHostPort(strings.Trim(host, "[]"), defaultPort), nil
 		}
 
 		// return any other split error as is
