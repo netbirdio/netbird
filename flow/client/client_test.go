@@ -197,16 +197,13 @@ func TestReceive(t *testing.T) {
 		assert.NoError(t, err, "failed to close flow")
 	})
 
-	receivedAcks := make(map[string]bool)
+	var ackCount atomic.Int32
 	receiveDone := make(chan struct{})
 
 	go func() {
 		err := client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
 			if !msg.IsInitiator && len(msg.EventId) > 0 {
-				id := string(msg.EventId)
-				receivedAcks[id] = true
-
-				if len(receivedAcks) >= 3 {
+				if ackCount.Add(1) >= 3 {
 					close(receiveDone)
 				}
 			}
@@ -217,7 +214,11 @@ func TestReceive(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-server.handlerStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for stream to be established")
+	}
 
 	for i := 0; i < 3; i++ {
 		eventID := uuid.New().String()
@@ -240,7 +241,7 @@ func TestReceive(t *testing.T) {
 		t.Fatal("timeout waiting for acks to be processed")
 	}
 
-	assert.Equal(t, 3, len(receivedAcks))
+	assert.Equal(t, int32(3), ackCount.Load())
 }
 
 func TestReceive_ContextCancellation(t *testing.T) {
@@ -486,7 +487,11 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 	}()
 
 	// Wait for stream to be established, then send first ack
-	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-server.handlerStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for stream to be established")
+	}
 	server.acks <- &proto.FlowEventAck{EventId: []byte("before-close")}
 
 	select {
