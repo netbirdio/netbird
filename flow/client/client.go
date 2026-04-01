@@ -123,7 +123,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 	operation := func() error {
 		stream, err := c.establishStream(ctx)
 		if err != nil {
-			if isCancellation(err) {
+			if isContextDone(err) {
 				return backoff.Permanent(err)
 			}
 			return err
@@ -134,7 +134,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 		backOff.Reset()
 
 		if err := c.receive(stream, msgHandler); err != nil {
-			if isCancellation(err) {
+			if isContextDone(err) {
 				return backoff.Permanent(err)
 			}
 			// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
@@ -270,12 +270,12 @@ func defaultBackoff(ctx context.Context, interval time.Duration) backoff.BackOff
 	}, ctx)
 }
 
-func isCancellation(err error) bool {
-	if errors.Is(err, context.Canceled) {
+func isContextDone(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	if s, ok := status.FromError(err); ok {
-		return s.Code() == codes.Canceled
+		return s.Code() == codes.Canceled || s.Code() == codes.DeadlineExceeded
 	}
 	return false
 }
