@@ -430,28 +430,36 @@ func srcAddrFromPacket(pkt []byte) netip.AddrPort {
 func srcIPFromPacket(pkt []byte) (netip.Addr, int) {
 	switch header.IPVersion(pkt) {
 	case 4:
-		if len(pkt) < header.IPv4MinimumSize {
-			return netip.Addr{}, 0
-		}
-		hdr := header.IPv4(pkt)
-		src := hdr.SourceAddress()
-		ip, ok := netip.AddrFromSlice(src.AsSlice())
-		if !ok {
-			return netip.Addr{}, 0
-		}
-		return ip, int(hdr.HeaderLength())
+		return srcIPv4(pkt)
 	case 6:
-		if len(pkt) < header.IPv6MinimumSize {
-			return netip.Addr{}, 0
-		}
-		hdr := header.IPv6(pkt)
-		src := hdr.SourceAddress()
-		ip, ok := netip.AddrFromSlice(src.AsSlice())
-		if !ok {
-			return netip.Addr{}, 0
-		}
-		return ip, header.IPv6MinimumSize
+		return srcIPv6(pkt)
 	default:
 		return netip.Addr{}, 0
 	}
+}
+
+func srcIPv4(pkt []byte) (netip.Addr, int) {
+	if len(pkt) < header.IPv4MinimumSize {
+		return netip.Addr{}, 0
+	}
+	hdr := header.IPv4(pkt)
+	src := hdr.SourceAddress()
+	ip, ok := netip.AddrFromSlice(src.AsSlice())
+	if !ok {
+		return netip.Addr{}, 0
+	}
+	return ip, int(hdr.HeaderLength())
+}
+
+func srcIPv6(pkt []byte) (netip.Addr, int) {
+	if len(pkt) < header.IPv6MinimumSize {
+		return netip.Addr{}, 0
+	}
+	hdr := header.IPv6(pkt)
+	src := hdr.SourceAddress()
+	ip, ok := netip.AddrFromSlice(src.AsSlice())
+	if !ok {
+		return netip.Addr{}, 0
+	}
+	return ip, header.IPv6MinimumSize
 }
