@@ -744,6 +744,8 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 }
 
 func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*FirewallRule {
+	sourcePeerIDs := c.getPoliciesSourcePeers([]*Policy{policy})
+
 	rules := make([]*FirewallRule, 0)
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
@@ -755,7 +757,6 @@ func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*
 			continue
 		}
 
-		sourcePeerIDs := c.getPoliciesSourcePeers([]*Policy{policy})
 		for peerID := range sourcePeerIDs {
 			peer := c.GetPeerInfo(peerID)
 			if peer == nil {
