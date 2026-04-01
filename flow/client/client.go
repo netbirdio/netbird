@@ -138,30 +138,7 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 		streamStart := time.Now()
 
 		if err := c.receive(stream, msgHandler); err != nil {
-			if isContextDone(err) {
-				return backoff.Permanent(err)
-			}
-
-			// Reset the backoff so the next retry starts with a short delay instead of
-			// continuing the already-elapsed timer. Only do this if the stream was healthy
-			// long enough; short-lived connect/drop cycles must not defeat MaxElapsedTime.
-			if time.Since(streamStart) >= minHealthyDuration {
-				backOff.Reset()
-			}
-
-			// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
-			if s, ok := status.FromError(err); ok && s.Code() == codes.Internal {
-				log.Warnf("connection corrupt, attempting reconnection: %v", err)
-				if err := c.recreateConnection(gen); err != nil {
-					log.Errorf("recreate connection: %v", err)
-					return err
-				}
-				log.Infof("connection recreated successfully")
-				return fmt.Errorf("connection recreated, re-establishing stream")
-			}
-
-			log.Errorf("receive failed: %v", err)
-			return fmt.Errorf("receive: %w", err)
+			return c.handleReceiveError(err, gen, streamStart, backOff)
 		}
 		return nil
 	}
@@ -171,6 +148,33 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 	}
 
 	return nil
+}
+
+func (c *GRPCClient) handleReceiveError(err error, gen uint64, streamStart time.Time, backOff backoff.BackOff) error {
+	if isContextDone(err) {
+		return backoff.Permanent(err)
+	}
+
+	// Reset the backoff so the next retry starts with a short delay instead of
+	// continuing the already-elapsed timer. Only do this if the stream was healthy
+	// long enough; short-lived connect/drop cycles must not defeat MaxElapsedTime.
+	if time.Since(streamStart) >= minHealthyDuration {
+		backOff.Reset()
+	}
+
+	// RST_STREAM/PROTOCOL_ERROR — connection is corrupt, recreate immediately
+	if s, ok := status.FromError(err); ok && s.Code() == codes.Internal {
+		log.Warnf("connection corrupt, attempting reconnection: %v", err)
+		if err := c.recreateConnection(gen); err != nil {
+			log.Errorf("recreate connection: %v", err)
+			return err
+		}
+		log.Infof("connection recreated successfully")
+		return fmt.Errorf("connection recreated, re-establishing stream")
+	}
+
+	log.Errorf("receive failed: %v", err)
+	return fmt.Errorf("receive: %w", err)
 }
 
 func (c *GRPCClient) recreateConnection(gen uint64) error {
