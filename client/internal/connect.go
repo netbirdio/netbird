@@ -44,6 +44,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// androidRunOverride is set on Android to inject mobile dependencies
+// when using embed.Client (which calls Run() with empty MobileDependency).
+var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath string) error
+
 type ConnectClient struct {
 	ctx            context.Context
 	config         *profilemanager.Config
@@ -76,6 +80,9 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // Run with main logic.
 func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+	if androidRunOverride != nil {
+		return androidRunOverride(c, runningChan, logPath)
+	}
 	return c.run(MobileDependency{}, runningChan, logPath)
 }
 
