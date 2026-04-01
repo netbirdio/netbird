@@ -466,15 +466,15 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 		t.Fatal("timeout waiting for first ack")
 	}
 
+	// Snapshot connection count before injecting the fault.
+	connsBefore := server.listener.connCount()
+
 	// Send a raw HTTP/2 RST_STREAM frame with PROTOCOL_ERROR on the TCP connection.
 	// gRPC multiplexes streams on stream IDs 1, 3, 5, ... (odd, client-initiated).
 	// Stream ID 1 is the client's first stream (our Events bidi stream).
 	// This produces the exact error the client sees in production:
 	//   "stream terminated by RST_STREAM with error code: PROTOCOL_ERROR"
 	server.listener.sendRSTStream(1)
-
-	// Wait for the client to open a new TCP connection after the RST_STREAM.
-	connsBefore := server.listener.connCount()
 	require.Eventually(t, func() bool {
 		return server.listener.connCount() > connsBefore
 	}, 5*time.Second, 50*time.Millisecond, "client did not open a new TCP connection after RST_STREAM")
