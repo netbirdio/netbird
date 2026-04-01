@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -117,20 +118,22 @@ func applyOverrides(cfg *migrationConfig, domain string) {
 		cfg.idpSeedInfo = val
 	}
 
-	if val, ok := os.LookupEnv("NETBIRD_DRY_RUN"); ok {
-		cfg.dryRun = val == "true"
+	// Enforce dry run if any value is provided
+	if _, ok := os.LookupEnv("NETBIRD_DRY_RUN"); ok {
+		cfg.dryRun = true
 	}
 
+	// Only allow for force if the value matches true
 	if val, ok := os.LookupEnv("NETBIRD_FORCE"); ok {
-		cfg.force = val == "true"
+		cfg.force = strings.ToLower(val) == "true"
 	}
 
-	if val, ok := os.LookupEnv("NETBIRD_SKIP_CONFIG"); ok {
-		cfg.skipConfig = val == "true"
+	if _, ok := os.LookupEnv("NETBIRD_SKIP_CONFIG"); ok {
+		cfg.skipConfig = true
 	}
 
-	if val, ok := os.LookupEnv("NETBIRD_SKIP_POPULATE_USER_INFO"); ok {
-		cfg.skipPopulateUserInfo = val == "true"
+	if _, ok := os.LookupEnv("NETBIRD_SKIP_POPULATE_USER_INFO"); ok {
+		cfg.skipPopulateUserInfo = true
 	}
 
 	if val, ok := os.LookupEnv("NETBIRD_LOG_LEVEL"); ok {
