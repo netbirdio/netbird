@@ -987,14 +987,22 @@ func (r *router) ensureNATOutputChain() error {
 		return nil
 	}
 
-	if err := r.iptablesClient.NewChain(tableNat, chainNATOutput); err != nil {
-		return fmt.Errorf("create chain %s: %w", chainNATOutput, err)
+	chainExists, err := r.iptablesClient.ChainExists(tableNat, chainNATOutput)
+	if err != nil {
+		return fmt.Errorf("check chain %s: %w", chainNATOutput, err)
+	}
+	if !chainExists {
+		if err := r.iptablesClient.NewChain(tableNat, chainNATOutput); err != nil {
+			return fmt.Errorf("create chain %s: %w", chainNATOutput, err)
+		}
 	}
 
 	jumpRule := []string{"-j", chainNATOutput}
 	if err := r.iptablesClient.Insert(tableNat, "OUTPUT", 1, jumpRule...); err != nil {
-		if delErr := r.iptablesClient.ClearAndDeleteChain(tableNat, chainNATOutput); delErr != nil {
-			log.Debugf("failed to rollback chain %s: %v", chainNATOutput, delErr)
+		if !chainExists {
+			if delErr := r.iptablesClient.ClearAndDeleteChain(tableNat, chainNATOutput); delErr != nil {
+				log.Warnf("failed to rollback chain %s: %v", chainNATOutput, delErr)
+			}
 		}
 		return fmt.Errorf("add OUTPUT jump rule: %w", err)
 	}

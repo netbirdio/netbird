@@ -540,9 +540,18 @@ func TestExchangeWithFallback_TCPContext(t *testing.T) {
 }
 
 func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
-	// Start a server on both UDP and TCP.
-	// The handler returns a small response that works on both.
-	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+	// UDP handler returns a truncated response to trigger TCP retry.
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Truncated = true
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	// TCP handler returns the full answer.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
 		m := new(dns.Msg)
 		m.SetReply(r)
 		m.Answer = append(m.Answer, &dns.A{
@@ -561,7 +570,7 @@ func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
 	udpServer := &dns.Server{
 		PacketConn: udpPC,
 		Net:        "udp",
-		Handler:    handler,
+		Handler:    udpHandler,
 	}
 
 	tcpLn, err := net.Listen("tcp", addr)
@@ -570,7 +579,7 @@ func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
 	tcpServer := &dns.Server{
 		Listener: tcpLn,
 		Net:      "tcp",
-		Handler:  handler,
+		Handler:  tcpHandler,
 	}
 
 	go func() {
@@ -588,17 +597,16 @@ func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
 		_ = tcpServer.Shutdown()
 	}()
 
-	// Normal UDP exchange without TCP context should succeed via UDP
 	ctx := context.Background()
 	client := &dns.Client{Timeout: 2 * time.Second}
 	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
 
 	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
-	require.NoError(t, err)
+	require.NoError(t, err, "should fall back to TCP after truncated UDP response")
 	require.NotNil(t, rm)
-	require.NotEmpty(t, rm.Answer)
+	require.NotEmpty(t, rm.Answer, "TCP response should contain the full answer")
 	assert.Contains(t, rm.Answer[0].String(), "10.0.0.3")
-	assert.False(t, rm.Truncated, "small response should not be truncated")
+	assert.False(t, rm.Truncated, "TCP response should not be truncated")
 }
 
 func TestExchangeWithFallback_TCPContextSkipsUDP(t *testing.T) {
