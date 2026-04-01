@@ -23,13 +23,14 @@ import (
 
 type testServer struct {
 	proto.UnimplementedFlowServiceServer
-	events      chan *proto.FlowEvent
-	acks        chan *proto.FlowEventAck
-	grpcSrv     *grpc.Server
-	addr        string
-	listener    *connTrackListener
-	closeStream chan struct{} // signal server to close the stream
-	handlerDone chan struct{} // signaled each time Events() exits
+	events         chan *proto.FlowEvent
+	acks           chan *proto.FlowEventAck
+	grpcSrv        *grpc.Server
+	addr           string
+	listener       *connTrackListener
+	closeStream    chan struct{} // signal server to close the stream
+	handlerDone    chan struct{} // signaled each time Events() exits
+	handlerStarted chan struct{} // signaled each time Events() begins
 }
 
 // connTrackListener wraps a net.Listener to track accepted connections
@@ -97,13 +98,14 @@ func newTestServer(t *testing.T) *testServer {
 	listener := &connTrackListener{Listener: rawListener}
 
 	s := &testServer{
-		events:      make(chan *proto.FlowEvent, 100),
-		acks:        make(chan *proto.FlowEventAck, 100),
-		grpcSrv:     grpc.NewServer(),
-		addr:        rawListener.Addr().String(),
-		listener:    listener,
-		closeStream: make(chan struct{}, 1),
-		handlerDone: make(chan struct{}, 10),
+		events:         make(chan *proto.FlowEvent, 100),
+		acks:           make(chan *proto.FlowEventAck, 100),
+		grpcSrv:        grpc.NewServer(),
+		addr:           rawListener.Addr().String(),
+		listener:       listener,
+		closeStream:    make(chan struct{}, 1),
+		handlerDone:    make(chan struct{}, 10),
+		handlerStarted: make(chan struct{}, 10),
 	}
 
 	proto.RegisterFlowServiceServer(s.grpcSrv, s)
@@ -132,6 +134,11 @@ func (s *testServer) Events(stream proto.FlowService_EventsServer) error {
 	err := stream.Send(&proto.FlowEventAck{IsInitiator: true})
 	if err != nil {
 		return err
+	}
+
+	select {
+	case s.handlerStarted <- struct{}{}:
+	default:
 	}
 
 	ctx, cancel := context.WithCancel(stream.Context())
@@ -406,25 +413,38 @@ func TestClose_WhileReceiving(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background() // no timeout — intentional
+	receiveDone := make(chan struct{})
 	go func() {
 		_ = client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
 			return nil
 		})
+		close(receiveDone)
 	}()
 
-	time.Sleep(100 * time.Millisecond) // let Receive establish stream
+	// Wait for the server-side handler to confirm the stream is established.
+	select {
+	case <-server.handlerStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for stream to be established")
+	}
 
-	done := make(chan struct{})
+	closeDone := make(chan struct{})
 	go func() {
 		_ = client.Close()
-		close(done)
+		close(closeDone)
 	}()
 
 	select {
-	case <-done:
+	case <-closeDone:
 		// Close returned — good
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close blocked forever — Receive stuck in retry loop")
+	}
+
+	select {
+	case <-receiveDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Receive did not exit after Close")
 	}
 }
 
