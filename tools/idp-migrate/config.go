@@ -125,28 +125,28 @@ func applyOverrides(cfg *migrationConfig, domain string) {
 		}
 	}
 
-	// Only allow for force if the value matches true
-	if sval, ok := os.LookupEnv("NETBIRD_FORCE"); ok {
-		if val, err := strconv.ParseBool(sval); err == nil {
-			cfg.force = val
-		}
-	}
-
-	if sval, ok := os.LookupEnv("NETBIRD_SKIP_CONFIG"); ok {
-		if val, err := strconv.ParseBool(sval); err == nil {
-			cfg.skipConfig = val
-		}
-	}
-
-	if sval, ok := os.LookupEnv("NETBIRD_SKIP_POPULATE_USER_INFO"); ok {
-		if val, err := strconv.ParseBool(sval); err == nil {
-			cfg.skipPopulateUserInfo = val
-		}
-	}
+	cfg.dryRun = parseBool("NETBIRD_DRY_RUN", cfg.dryRun)
+	cfg.force = parseBool("NETBIRD_FORCE", cfg.force)
+	cfg.skipConfig = parseBool("NETBIRD_SKIP_CONFIG", cfg.skipConfig)
+	cfg.skipPopulateUserInfo = parseBool("NETBIRD_SKIP_POPULATE_USER_INFO", cfg.skipPopulateUserInfo)
 
 	if val, ok := os.LookupEnv("NETBIRD_LOG_LEVEL"); ok {
 		cfg.logLevel = val
 	}
+}
+
+func parseBool(varName string, defaultVal bool) bool {
+	stringValue, ok := os.LookupEnv(varName)
+	if !ok {
+		return defaultVal
+	}
+
+	boolValue, err := strconv.ParseBool(stringValue)
+	if err != nil {
+		return defaultVal
+	}
+
+	return boolValue
 }
 
 func validateConfig(cfg *migrationConfig) error {
