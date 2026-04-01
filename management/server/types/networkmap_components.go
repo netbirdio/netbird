@@ -715,9 +715,7 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 
 		addedResourceRoute := false
 		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
-			if router, ok := networkRoutingPeers[peerID]; ok {
-				localResourceFwRule = append(localResourceFwRule, c.getLocalResourceFirewallRules(router, policy)...)
-			}
+			localResourceFwRule = append(localResourceFwRule, c.getLocalResourceFirewallRules(resource, policy)...)
 			var peers []string
 			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
 				peers = []string{policy.Rules[0].SourceResource.ID}
@@ -743,9 +741,7 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 	return isRoutingPeer, routes, allSourcePeers, localResourceFwRule
 }
 
-func (c *NetworkMapComponents) getLocalResourceFirewallRules(router *routerTypes.NetworkRouter, policy *Policy) []*FirewallRule {
-	routingPeers := c.getRoutingPeers(router)
-
+func (c *NetworkMapComponents) getLocalResourceFirewallRules(resource *resourceTypes.NetworkResource, policy *Policy) []*FirewallRule {
 	rules := make([]*FirewallRule, 0)
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
@@ -757,37 +753,34 @@ func (c *NetworkMapComponents) getLocalResourceFirewallRules(router *routerTypes
 			continue
 		}
 
-		for _, peer := range routingPeers {
-			peerIP := peer.IP.String()
-
-			fr := FirewallRule{
-				PolicyID:  rule.ID,
-				PeerIP:    peerIP,
-				Direction: FirewallRuleDirectionOUT,
-				Action:    string(rule.Action),
-				Protocol:  string(protocol),
-			}
-
-			if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
-				rules = append(rules, &fr)
-				continue
-			}
-
-			for _, port := range rule.Ports {
-				portRule := fr
-				portRule.Port = port
-				rules = append(rules, &portRule)
-			}
-
-			for _, portRange := range rule.PortRanges {
-				if len(rule.Ports) > 0 {
-					break
-				}
-				rangeRule := fr
-				rangeRule.PortRange = portRange
-				rules = append(rules, &rangeRule)
-			}
+		fr := FirewallRule{
+			PolicyID:  rule.ID,
+			PeerIP:    resource.Address,
+			Direction: FirewallRuleDirectionOUT,
+			Action:    string(rule.Action),
+			Protocol:  string(protocol),
 		}
+
+		if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
+			rules = append(rules, &fr)
+			continue
+		}
+
+		for _, port := range rule.Ports {
+			portRule := fr
+			portRule.Port = port
+			rules = append(rules, &portRule)
+		}
+
+		for _, portRange := range rule.PortRanges {
+			if len(rule.Ports) > 0 {
+				break
+			}
+			rangeRule := fr
+			rangeRule.PortRange = portRange
+			rules = append(rules, &rangeRule)
+		}
+
 	}
 
 	return rules
