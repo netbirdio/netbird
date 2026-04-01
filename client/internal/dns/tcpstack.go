@@ -304,14 +304,14 @@ func (e *dnsEndpoint) MTU() uint32                                  { return e.m
 func (e *dnsEndpoint) Capabilities() stack.LinkEndpointCapabilities { return stack.CapabilityNone }
 func (e *dnsEndpoint) MaxHeaderLength() uint16                      { return 0 }
 func (e *dnsEndpoint) LinkAddress() tcpip.LinkAddress               { return "" }
-func (e *dnsEndpoint) Wait()                                        {}
+func (e *dnsEndpoint) Wait()                                        { /* no async work */ }
 func (e *dnsEndpoint) ARPHardwareType() header.ARPHardwareType      { return header.ARPHardwareNone }
-func (e *dnsEndpoint) AddHeader(*stack.PacketBuffer)                {}
+func (e *dnsEndpoint) AddHeader(*stack.PacketBuffer)                { /* IP-level endpoint, no link header */ }
 func (e *dnsEndpoint) ParseHeader(*stack.PacketBuffer) bool         { return true }
-func (e *dnsEndpoint) Close()                                       {}
-func (e *dnsEndpoint) SetLinkAddress(tcpip.LinkAddress)             {}
+func (e *dnsEndpoint) Close()                                       { /* lifecycle managed by tcpDNSServer */ }
+func (e *dnsEndpoint) SetLinkAddress(tcpip.LinkAddress)             { /* no link address for tun */ }
 func (e *dnsEndpoint) SetMTU(mtu uint32)                            { e.mtu.Store(mtu) }
-func (e *dnsEndpoint) SetOnCloseAction(func())                      {}
+func (e *dnsEndpoint) SetOnCloseAction(func())                      { /* not needed */ }
 
 const tunPacketOffset = 40
 
@@ -383,8 +383,8 @@ func (w *tcpResponseWriter) Close() error {
 }
 
 func (w *tcpResponseWriter) TsigStatus() error   { return nil }
-func (w *tcpResponseWriter) TsigTimersOnly(bool) {}
-func (w *tcpResponseWriter) Hijack()             {}
+func (w *tcpResponseWriter) TsigTimersOnly(bool) { /* TSIG not supported */ }
+func (w *tcpResponseWriter) Hijack()             { /* not supported */ }
 
 // readTCPDNSMessage reads a single DNS message from a TCP connection (length-prefixed).
 func readTCPDNSMessage(conn *gonet.TCPConn) (*dns.Msg, error) {
@@ -418,42 +418,40 @@ func srcAddrFromPacket(pkt []byte) netip.AddrPort {
 		return netip.AddrPort{}
 	}
 
-	var srcIP netip.Addr
-	var transportOffset int
+	srcIP, transportOffset := srcIPFromPacket(pkt)
+	if !srcIP.IsValid() || len(pkt) < transportOffset+2 {
+		return netip.AddrPort{}
+	}
 
+	srcPort := uint16(pkt[transportOffset])<<8 | uint16(pkt[transportOffset+1])
+	return netip.AddrPortFrom(srcIP.Unmap(), srcPort)
+}
+
+func srcIPFromPacket(pkt []byte) (netip.Addr, int) {
 	switch header.IPVersion(pkt) {
 	case 4:
 		if len(pkt) < header.IPv4MinimumSize {
-			return netip.AddrPort{}
+			return netip.Addr{}, 0
 		}
 		hdr := header.IPv4(pkt)
 		src := hdr.SourceAddress()
-		var ok bool
-		srcIP, ok = netip.AddrFromSlice(src.AsSlice())
+		ip, ok := netip.AddrFromSlice(src.AsSlice())
 		if !ok {
-			return netip.AddrPort{}
+			return netip.Addr{}, 0
 		}
-		transportOffset = int(hdr.HeaderLength())
+		return ip, int(hdr.HeaderLength())
 	case 6:
 		if len(pkt) < header.IPv6MinimumSize {
-			return netip.AddrPort{}
+			return netip.Addr{}, 0
 		}
 		hdr := header.IPv6(pkt)
 		src := hdr.SourceAddress()
-		var ok bool
-		srcIP, ok = netip.AddrFromSlice(src.AsSlice())
+		ip, ok := netip.AddrFromSlice(src.AsSlice())
 		if !ok {
-			return netip.AddrPort{}
+			return netip.Addr{}, 0
 		}
-		transportOffset = header.IPv6MinimumSize
+		return ip, header.IPv6MinimumSize
 	default:
-		return netip.AddrPort{}
+		return netip.Addr{}, 0
 	}
-
-	// TCP source port is the first 2 bytes of the transport header.
-	if len(pkt) < transportOffset+2 {
-		return netip.AddrPort{}
-	}
-	srcPort := uint16(pkt[transportOffset])<<8 | uint16(pkt[transportOffset+1])
-	return netip.AddrPortFrom(srcIP.Unmap(), srcPort)
 }
