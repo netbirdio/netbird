@@ -787,6 +787,11 @@ func (s *Service) validateHTTPTargets() error {
 }
 
 func (s *Service) validateL4Target(target *Target) error {
+	// L4 services have a single target; per-target disable is meaningless
+	// (use the service-level Enabled flag instead). Force it on so that
+	// buildPathMappings always includes the target in the proto.
+	target.Enabled = true
+
 	if target.Port == 0 {
 		return errors.New("target port is required for L4 services")
 	}
