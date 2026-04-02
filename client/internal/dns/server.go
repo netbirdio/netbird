@@ -380,7 +380,9 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 // because the firewall is typically not available at construction time.
 func (s *DefaultServer) SetFirewall(fw Firewall) {
 	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.listenerFlagLock.Lock()
 		svc.firewall = fw
+		svc.listenerFlagLock.Unlock()
 	}
 }
 

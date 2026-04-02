@@ -87,12 +87,22 @@ func (s *serviceViaListener) Listen() error {
 	s.tcpServer.Addr = addr
 
 	log.Debugf("starting dns on %s (UDP + TCP)", addr)
-	go func() {
-		s.setListenerStatus(true)
-		defer s.setListenerStatus(false)
+	s.listenerIsRunning = true
 
+	go func() {
 		if err := s.server.ListenAndServe(); err != nil {
 			log.Errorf("failed to run DNS UDP server on port %d: %v", s.listenPort, err)
+		}
+
+		s.listenerFlagLock.Lock()
+		unexpected := s.listenerIsRunning
+		s.listenerIsRunning = false
+		s.listenerFlagLock.Unlock()
+
+		if unexpected {
+			if err := s.tcpServer.Shutdown(); err != nil {
+				log.Debugf("failed to shutdown DNS TCP server: %v", err)
+			}
 		}
 	}()
 
@@ -123,6 +133,7 @@ func (s *serviceViaListener) Stop() error {
 	if !s.listenerIsRunning {
 		return nil
 	}
+	s.listenerIsRunning = false
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -177,12 +188,6 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 	return s.listenIP
 }
 
-func (s *serviceViaListener) setListenerStatus(running bool) {
-	s.listenerFlagLock.Lock()
-	defer s.listenerFlagLock.Unlock()
-
-	s.listenerIsRunning = running
-}
 
 // evalListenAddress figure out the listen address for the DNS server
 // first check the 53 port availability on WG interface or lo, if not success

@@ -269,7 +269,7 @@ func (t *tcpDNSServer) handleTCPDNS(r *tcp.ForwarderRequest) {
 	}
 
 	for {
-		if err := conn.SetDeadline(time.Now().Add(dnsTCPReadTimeout)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(dnsTCPReadTimeout)); err != nil {
 			log.Debugf("TCP DNS: set deadline for %s: %v", remoteAddr, err)
 			break
 		}
