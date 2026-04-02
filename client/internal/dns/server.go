@@ -407,10 +407,10 @@ func (s *DefaultServer) Stop() {
 	maps.Clear(s.extraDomains)
 }
 
-func (s *DefaultServer) disableDNS() error {
+func (s *DefaultServer) disableDNS() (retErr error) {
 	defer func() {
 		if err := s.service.Stop(); err != nil {
-			log.Errorf("failed to stop DNS service: %v", err)
+			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
 		}
 	}()
 

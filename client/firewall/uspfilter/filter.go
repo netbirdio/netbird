@@ -605,6 +605,8 @@ func (m *Manager) resetState() {
 	maps.Clear(m.incomingRules)
 	maps.Clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
+	m.udpHookOut.Store(nil)
+	m.tcpHookOut.Store(nil)
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
