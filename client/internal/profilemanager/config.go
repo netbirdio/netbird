@@ -39,6 +39,18 @@ const (
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
+// mgmProber is the subset of management client needed for URL migration probes.
+type mgmProber interface {
+	GetServerPublicKey() (*wgtypes.Key, error)
+	Close() error
+}
+
+// newMgmProber creates a management client for probing URL reachability.
+// Overridden in tests to avoid real network calls.
+var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (mgmProber, error) {
+	return mgm.NewClient(ctx, addr, key, tlsEnabled)
+}
+
 var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
@@ -753,14 +765,13 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
 	}
 	defer func() {
-		err = client.Close()
-		if err != nil {
+		if err := client.Close(); err != nil {
 			log.Warnf("failed to close the Management service client %v", err)
 		}
 	}()

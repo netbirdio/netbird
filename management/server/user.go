@@ -417,6 +417,10 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	// @note this is essential to prevent non admin users with Pats create permission frpm creating one for a service user
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
@@ -455,6 +459,10 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
+	}
+
+	if targetUser.AccountID != accountID {
+		return status.NewPermissionDeniedError()
 	}
 
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
@@ -496,6 +504,10 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -521,6 +533,10 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
