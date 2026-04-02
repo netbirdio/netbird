@@ -2088,5 +2088,6 @@ func (a *Account) GetPeerGroupNames(peerID string) []string {
 			}
 		}
 	}
+	slices.Sort(names)
 	return names
 }
