@@ -73,6 +73,9 @@ func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
 		return nil
 	}
 	w.response = m
+	if m.MsgHdr.Truncated {
+		w.SetMeta("truncated", "true")
+	}
 	return w.ResponseWriter.WriteMsg(m)
 }
 

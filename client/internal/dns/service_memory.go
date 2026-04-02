@@ -140,13 +140,10 @@ func (s *ServiceViaMemory) filterDNSTraffic() error {
 			return true
 		}
 
-		writer := &truncationAwareWriter{
-			responseWriter: responseWriter{
-				remote: remoteAddrFromPacket(packet),
-				packet: packet,
-				device: dev.Device,
-			},
-			tcpDNS: s.tcpDNS,
+		writer := &responseWriter{
+			remote: remoteAddrFromPacket(packet),
+			packet: packet,
+			device: dev.Device,
 		}
 		go s.dnsMux.ServeDNS(writer, msg)
 		return true

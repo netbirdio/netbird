@@ -59,34 +59,10 @@ func newTCPDNSServer(mux *dns.ServeMux, tunDev tun.Device, ip netip.Addr, port u
 	}
 }
 
-// EnsureRunning starts the TCP stack if not already running and resets the idle timer.
-func (t *tcpDNSServer) EnsureRunning() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.closed {
-		return
-	}
-
-	if t.running {
-		t.resetTimerLocked()
-		return
-	}
-
-	if err := t.startLocked(); err != nil {
-		log.Errorf("failed to start TCP DNS stack: %v", err)
-		return
-	}
-
-	t.running = true
-	t.resetTimerLocked()
-	log.Debugf("TCP DNS stack started on %s:%d", t.ip, t.port)
-}
-
 // InjectPacket ensures the stack is running and delivers a raw IP packet into
 // the gvisor stack for TCP processing. Combining both operations under a single
 // lock prevents a race where the idle timer could stop the stack between
-// EnsureRunning and delivery.
+// start and delivery.
 func (t *tcpDNSServer) InjectPacket(payload []byte) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -118,7 +94,7 @@ func (t *tcpDNSServer) InjectPacket(payload []byte) {
 }
 
 // Stop tears down the gvisor stack and releases resources permanently.
-// After Stop, EnsureRunning becomes a no-op.
+// After Stop, InjectPacket becomes a no-op.
 func (t *tcpDNSServer) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -227,7 +203,7 @@ func (t *tcpDNSServer) resetTimerLocked() {
 		defer t.mu.Unlock()
 
 		// Only stop if this timer is still the active one.
-		// A racing EnsureRunning may have replaced it.
+		// A racing InjectPacket may have replaced it.
 		if t.timerID != id {
 			return
 		}

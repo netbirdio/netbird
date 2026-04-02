@@ -105,22 +105,6 @@ func (r *responseWriter) TsigTimersOnly(bool) {
 func (r *responseWriter) Hijack() {
 }
 
-// truncationAwareWriter wraps a UDP responseWriter and starts the TCP DNS
-// stack when a truncated response is about to be sent. This ensures the
-// TCP stack is ready when the client retries over TCP.
-type truncationAwareWriter struct {
-	responseWriter
-	tcpDNS *tcpDNSServer
-}
-
-// WriteMsg checks if the response is truncated and starts the TCP stack if needed.
-func (w *truncationAwareWriter) WriteMsg(msg *dns.Msg) error {
-	if msg.MsgHdr.Truncated && w.tcpDNS != nil {
-		w.tcpDNS.EnsureRunning()
-	}
-	return w.responseWriter.WriteMsg(msg)
-}
-
 // remoteAddrFromPacket extracts the source IP:port from a decoded packet for logging.
 func remoteAddrFromPacket(packet gopacket.Packet) *net.UDPAddr {
 	var srcIP net.IP

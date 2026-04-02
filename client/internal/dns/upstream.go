@@ -41,6 +41,10 @@ const (
 
 	reactivatePeriod = 30 * time.Second
 	probeTimeout     = 2 * time.Second
+
+	// ipv6HeaderSize + udpHeaderSize, used to derive the maximum DNS UDP
+	// payload from the tunnel MTU.
+	ipUDPHeaderSize = 60 + 8
 )
 
 const testRecord = "com."
@@ -489,6 +493,14 @@ func (u *upstreamResolverBase) testNameserver(baseCtx context.Context, externalC
 	return err
 }
 
+// clientUDPMaxSize returns the maximum UDP response size the client accepts.
+func clientUDPMaxSize(r *dns.Msg) int {
+	if opt := r.IsEdns0(); opt != nil {
+		return int(opt.UDPSize())
+	}
+	return dns.MinMsgSize
+}
+
 // ExchangeWithFallback exchanges a DNS message with the upstream server.
 // It first tries to use UDP, and if it is truncated, it falls back to TCP.
 // If the inbound request came over TCP (via context), it skips the UDP attempt.
@@ -506,9 +518,17 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 		return rm, t, nil
 	}
 
-	// MTU - ip + udp headers
-	// Note: this could be sent out on an interface that is not ours, but higher MTU settings could break truncation handling.
-	client.UDPSize = uint16(currentMTU - (60 + 8))
+	clientMaxSize := clientUDPMaxSize(r)
+
+	// Cap EDNS0 to our tunnel MTU so the upstream doesn't send a
+	// response larger than our read buffer.
+	// Note: the query could be sent out on an interface that is not ours,
+	// but higher MTU settings could break truncation handling.
+	maxUDPPayload := uint16(currentMTU - ipUDPHeaderSize)
+	client.UDPSize = maxUDPPayload
+	if opt := r.IsEdns0(); opt != nil && opt.UDPSize() > maxUDPPayload {
+		opt.SetUDPSize(maxUDPPayload)
+	}
 
 	var (
 		rm  *dns.Msg
@@ -531,8 +551,9 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 		return rm, t, nil
 	}
 
-	log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP.",
-		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	// TODO: if the upstream's truncated UDP response already contains more
+	// data than the client's buffer, we could truncate locally and skip
+	// the TCP retry.
 
 	tcpClient := *client
 	tcpClient.Net = protoTCP
@@ -549,14 +570,8 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 
 	setUpstreamProtocol(ctx, protoTCP)
 
-	// Request came in over UDP but response was fetched via TCP.
-	// Truncate to fit the client's UDP buffer.
-	maxSize := dns.MinMsgSize
-	if opt := r.IsEdns0(); opt != nil {
-		maxSize = int(opt.UDPSize())
-	}
-	if rm.Len() > maxSize {
-		rm.Truncate(maxSize)
+	if rm.Len() > clientMaxSize {
+		rm.Truncate(clientMaxSize)
 	}
 
 	return rm, t, nil
@@ -575,31 +590,29 @@ func ExchangeWithNetstack(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, 
 		return rm, nil
 	}
 
+	clientMaxSize := clientUDPMaxSize(r)
+
+	// Cap EDNS0 to our tunnel MTU so the upstream doesn't send a
+	// response larger than what we can read over UDP.
+	maxUDPPayload := uint16(currentMTU - ipUDPHeaderSize)
+	if opt := r.IsEdns0(); opt != nil && opt.UDPSize() > maxUDPPayload {
+		opt.SetUDPSize(maxUDPPayload)
+	}
+
 	reply, err := netstackExchange(ctx, nsNet, r, upstream, protoUDP)
 	if err != nil {
 		return nil, err
 	}
 
-	// If response is truncated, retry with TCP
 	if reply != nil && reply.MsgHdr.Truncated {
-		log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP",
-			r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
-
 		rm, err := netstackExchange(ctx, nsNet, r, upstream, protoTCP)
 		if err != nil {
 			return nil, err
 		}
 
 		setUpstreamProtocol(ctx, protoTCP)
-
-		// Request came in over UDP but response was fetched via TCP.
-		// Truncate to fit the client's UDP buffer.
-		maxSize := dns.MinMsgSize
-		if opt := r.IsEdns0(); opt != nil {
-			maxSize = int(opt.UDPSize())
-		}
-		if rm.Len() > maxSize {
-			rm.Truncate(maxSize)
+		if rm.Len() > clientMaxSize {
+			rm.Truncate(clientMaxSize)
 		}
 
 		return rm, nil
@@ -627,7 +640,7 @@ func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upst
 		}
 	}
 
-	dnsConn := &dns.Conn{Conn: conn}
+	dnsConn := &dns.Conn{Conn: conn, UDPSize: uint16(currentMTU - ipUDPHeaderSize)}
 
 	if err := dnsConn.WriteMsg(r); err != nil {
 		return nil, fmt.Errorf("write %s message: %w", network, err)
