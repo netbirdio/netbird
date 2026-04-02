@@ -532,13 +532,14 @@ render_docker_compose_traefik_builtin() {
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
+  # Uses host network so it can listen on arbitrary ports for TCP/UDP services
   proxy:
     image: $NETBIRD_PROXY_IMAGE
     container_name: netbird-proxy
     ports:
     - 51820:51820/udp
     restart: unless-stopped
-    networks: [netbird]
+    network_mode: host
     depends_on:
       - netbird-server
     env_file:
@@ -646,6 +647,7 @@ $traefik_dynamic_volume
     networks: [netbird]
     ports:
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+$(if [[ "$ENABLE_PROXY" == "true" ]]; then echo "      - '$MANAGEMENT_HOST_PORT:80'"; fi)
     volumes:
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
@@ -766,8 +768,8 @@ render_proxy_env() {
   cat <<EOF
 # NetBird Proxy Configuration
 NB_PROXY_DEBUG_LOGS=false
-# Use internal Docker network to connect to management (avoids hairpin NAT issues)
-NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
+# Proxy runs in host network mode for L4 port binding, connect to management via localhost
+NB_PROXY_MANAGEMENT_ADDRESS=http://localhost:$MANAGEMENT_HOST_PORT
 # Allow insecure gRPC connection to management (required for internal Docker network)
 NB_PROXY_ALLOW_INSECURE=true
 # Public URL where this proxy is reachable (used for cluster registration)
