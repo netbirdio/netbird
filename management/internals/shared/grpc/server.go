@@ -966,6 +966,7 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 			Provider: proto.DeviceAuthorizationFlowProvider(provider),
 			ProviderConfig: &proto.ProviderConfig{
 				ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
 				Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
 				Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
 				DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
@@ -1036,6 +1037,7 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 			ProviderConfig: &proto.ProviderConfig{
 				Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
 				ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+				ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
 				TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
 				AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
 				Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,

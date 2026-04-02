@@ -29,6 +29,8 @@ var _ OAuthFlow = &DeviceAuthorizationFlow{}
 type DeviceAuthProviderConfig struct {
 	// ClientID An IDP application client id
 	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
 	// Domain An IDP API domain
 	// Deprecated. Use OIDCConfigEndpoint instead
 	Domain string
