@@ -527,15 +527,46 @@ type serviceUpdateInfo struct {
 }
 
 func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
-	customPorts := m.clusterCustomPorts(ctx, service)
+	effectiveCluster, err := m.resolveEffectiveCluster(ctx, accountID, service)
+	if err != nil {
+		return nil, err
+	}
+
+	svcForCaps := *service
+	svcForCaps.ProxyCluster = effectiveCluster
+	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
 
 	var updateInfo serviceUpdateInfo
 
-	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo, customPorts)
 	})
 
 	return &updateInfo, err
+}
+
+// resolveEffectiveCluster determines the cluster that will be used after the update.
+// It reads the existing service without locking and derives the new cluster if the domain changed.
+func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string, svc *service.Service) (string, error) {
+	existing, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, svc.ID)
+	if err != nil {
+		return "", err
+	}
+
+	if existing.Domain == svc.Domain {
+		return existing.ProxyCluster, nil
+	}
+
+	if m.clusterDeriver != nil {
+		derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
+		if err != nil {
+			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
+		} else {
+			return derived, nil
+		}
+	}
+
+	return existing.ProxyCluster, nil
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool) error {
