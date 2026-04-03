@@ -223,6 +223,9 @@ func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []d
 	m.mutex.RUnlock()
 
 	if !found {
+		// DNS returned no records for this type, preserve stale with backoff
+		now := time.Now()
+		stale.lastFailedRefresh = &now
 		return stale.records
 	}
 
