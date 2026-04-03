@@ -836,3 +836,358 @@ func TestComponents_AllPeersMapConsistency(t *testing.T) {
 		assert.Equal(t, len(legacy.Peers), len(comp.Peers), "peer count mismatch for %s", peerID)
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 11. PEER-AS-RESOURCE POLICIES
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_PeerAsSourceResource verifies that a policy with SourceResource.Type=Peer
+// targets only that specific peer as the source.
+func TestComponents_PeerAsSourceResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-peer-src", Name: "Peer Source Resource", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-peer-src", Name: "Peer Source Rule", Enabled: true,
+			Action:         types.PolicyTrafficActionAccept,
+			Protocol:       types.PolicyRuleProtocolTCP,
+			Bidirectional:  true,
+			Ports:          []string{"443"},
+			SourceResource: types.Resource{ID: "peer-0", Type: types.ResourceTypePeer},
+			Destinations:   []string{"group-1"},
+		}},
+	})
+
+	// peer-0 is the source resource, should see group-1 peers
+	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm0)
+
+	has443 := false
+	for _, rule := range nm0.FirewallRules {
+		if rule.Port == "443" {
+			has443 = true
+			break
+		}
+	}
+	assert.True(t, has443, "peer-0 as source resource should have port 443 rule")
+}
+
+// TestComponents_PeerAsDestinationResource verifies that a policy with DestinationResource.Type=Peer
+// targets only that specific peer as the destination.
+func TestComponents_PeerAsDestinationResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-peer-dst", Name: "Peer Dest Resource", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-peer-dst", Name: "Peer Dest Rule", Enabled: true,
+			Action:              types.PolicyTrafficActionAccept,
+			Protocol:            types.PolicyRuleProtocolTCP,
+			Bidirectional:       true,
+			Ports:               []string{"443"},
+			Sources:             []string{"group-0"},
+			DestinationResource: types.Resource{ID: "peer-15", Type: types.ResourceTypePeer},
+		}},
+	})
+
+	// peer-0 is in group-0 (source), should see peer-15 as destination
+	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm0)
+
+	peerIDs := make(map[string]bool, len(nm0.Peers))
+	for _, p := range nm0.Peers {
+		peerIDs[p.ID] = true
+	}
+	assert.True(t, peerIDs["peer-15"], "peer-0 should see peer-15 via peer-as-destination-resource policy")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 12. MULTIPLE RULES PER POLICY
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_MultipleRulesPerPolicy verifies a policy with multiple rules generates
+// firewall rules for each.
+func TestComponents_MultipleRulesPerPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-multi-rule", Name: "Multi Rule Policy", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{
+			{
+				ID: "rule-http", Name: "Allow HTTP", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
+				Bidirectional: true, Ports: []string{"80"},
+				Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+			},
+			{
+				ID: "rule-https", Name: "Allow HTTPS", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
+				Bidirectional: true, Ports: []string{"443"},
+				Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+			},
+		},
+	})
+
+	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm)
+
+	has80, has443 := false, false
+	for _, rule := range nm.FirewallRules {
+		if rule.Port == "80" {
+			has80 = true
+		}
+		if rule.Port == "443" {
+			has443 = true
+		}
+	}
+	assert.True(t, has80, "should have firewall rule for port 80 from first rule")
+	assert.True(t, has443, "should have firewall rule for port 443 from second rule")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 13. SSH AUTHORIZED USERS CONTENT
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_SSHAuthorizedUsersContent verifies that SSH policies populate
+// the AuthorizedUsers map with the correct users and machine mappings.
+func TestComponents_SSHAuthorizedUsersContent(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	account.Users["user-dev"] = &types.User{Id: "user-dev", Role: types.UserRoleUser, AccountID: "test-account", AutoGroups: []string{"ssh-users"}}
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh", Name: "SSH Access", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: false,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root", "admin"}},
+		}},
+	})
+
+	// peer-10 is in group-1 (destination)
+	nm := componentsNetworkMap(account, "peer-10", validatedPeers)
+	require.NotNil(t, nm)
+	assert.True(t, nm.EnableSSH, "SSH should be enabled")
+	assert.NotNil(t, nm.AuthorizedUsers, "AuthorizedUsers should not be nil")
+	assert.NotEmpty(t, nm.AuthorizedUsers, "AuthorizedUsers should have entries")
+
+	// Check that "root" machine user mapping exists
+	_, hasRoot := nm.AuthorizedUsers["root"]
+	_, hasAdmin := nm.AuthorizedUsers["admin"]
+	assert.True(t, hasRoot || hasAdmin, "AuthorizedUsers should contain 'root' or 'admin' machine user mapping")
+}
+
+// TestComponents_SSHLegacyImpliedSSH verifies that a non-SSH ALL protocol policy with
+// SSHEnabled peer implies legacy SSH access.
+func TestComponents_SSHLegacyImpliedSSH(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	// Enable SSH on the destination peer
+	account.Peers["peer-10"].SSHEnabled = true
+
+	// The default "Allow All" policy with Protocol=ALL + SSHEnabled peer should imply SSH
+	nm := componentsNetworkMap(account, "peer-10", validatedPeers)
+	require.NotNil(t, nm)
+	assert.True(t, nm.EnableSSH, "SSH should be implied by ALL protocol policy with SSHEnabled peer")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 14. ROUTE DEFAULT PERMIT (no AccessControlGroups)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_RouteDefaultPermit verifies that a route without AccessControlGroups
+// generates default permit firewall rules (0.0.0.0/0 source).
+func TestComponents_RouteDefaultPermit(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	// Add a route without ACGs — this peer is the routing peer
+	routingPeerID := "peer-5"
+	account.Routes["route-no-acg"] = &route.Route{
+		ID: "route-no-acg", Network: netip.MustParsePrefix("192.168.99.0/24"),
+		PeerID: routingPeerID, Peer: account.Peers[routingPeerID].Key,
+		Enabled: true, Groups: []string{"group-all"}, PeerGroups: []string{"group-0"},
+		AccessControlGroups: []string{},
+		AccountID:           "test-account",
+	}
+
+	// The routing peer should get default permit route firewall rules
+	nm := componentsNetworkMap(account, routingPeerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	hasDefaultPermit := false
+	for _, rfr := range nm.RoutesFirewallRules {
+		for _, src := range rfr.SourceRanges {
+			if src == "0.0.0.0/0" || src == "::/0" {
+				hasDefaultPermit = true
+				break
+			}
+		}
+	}
+	assert.True(t, hasDefaultPermit, "route without ACG should have default permit rule with 0.0.0.0/0 source")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 15. MULTIPLE ROUTERS PER NETWORK
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_MultipleRoutersPerNetwork verifies that a network resource
+// with multiple routers provides routes through all available routers.
+func TestComponents_MultipleRoutersPerNetwork(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	netID := "net-multi-router"
+	resID := "res-multi-router"
+	account.Networks = append(account.Networks, &networkTypes.Network{ID: netID, Name: "Multi Router Network", AccountID: "test-account"})
+	account.NetworkResources = append(account.NetworkResources, &resourceTypes.NetworkResource{
+		ID: resID, NetworkID: netID, AccountID: "test-account", Enabled: true,
+		Address: "multi-svc.netbird.cloud",
+	})
+	account.NetworkRouters = append(account.NetworkRouters,
+		&routerTypes.NetworkRouter{ID: "router-a", NetworkID: netID, Peer: "peer-5", Enabled: true, AccountID: "test-account", Metric: 100},
+		&routerTypes.NetworkRouter{ID: "router-b", NetworkID: netID, Peer: "peer-15", Enabled: true, AccountID: "test-account", Metric: 200},
+	)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-multi-router-res", Name: "Multi Router Resource", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-multi-router-res", Name: "Allow Multi Router", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
+			Sources: []string{"group-0"}, DestinationResource: types.Resource{ID: resID},
+		}},
+	})
+
+	// peer-0 is in group-0 (source), should see both router peers
+	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm)
+
+	peerIDs := make(map[string]bool, len(nm.Peers))
+	for _, p := range nm.Peers {
+		peerIDs[p.ID] = true
+	}
+	assert.True(t, peerIDs["peer-5"], "source peer should see router-a (peer-5)")
+	assert.True(t, peerIDs["peer-15"], "source peer should see router-b (peer-15)")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 16. PEER-AS-NAMESERVER EXCLUSION
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_PeerIsNameserverExcludedFromNSGroup verifies that a peer serving
+// as a nameserver does not receive its own NS group in DNS config.
+func TestComponents_PeerIsNameserverExcludedFromNSGroup(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	// peer-0 has IP 100.64.0.0 — make it a nameserver
+	nsIP := account.Peers["peer-0"].IP
+	account.NameServerGroups["ns-self"] = &nbdns.NameServerGroup{
+		ID: "ns-self", Name: "Self NS", Enabled: true, Groups: []string{"group-all"},
+		NameServers: []nbdns.NameServer{{IP: netip.AddrFrom4([4]byte{nsIP[0], nsIP[1], nsIP[2], nsIP[3]}), NSType: nbdns.UDPNameServerType, Port: 53}},
+	}
+
+	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm)
+
+	hasSelfNS := false
+	for _, ns := range nm.DNSConfig.NameServerGroups {
+		if ns.ID == "ns-self" {
+			hasSelfNS = true
+		}
+	}
+	assert.False(t, hasSelfNS, "peer serving as nameserver should NOT receive its own NS group")
+
+	// peer-10 is NOT the nameserver, should receive the NS group
+	nm10 := componentsNetworkMap(account, "peer-10", validatedPeers)
+	require.NotNil(t, nm10)
+	hasNSForPeer10 := false
+	for _, ns := range nm10.DNSConfig.NameServerGroups {
+		if ns.ID == "ns-self" {
+			hasNSForPeer10 = true
+		}
+	}
+	assert.True(t, hasNSForPeer10, "non-nameserver peer should receive the NS group")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 17. DOMAIN NETWORK RESOURCES
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_DomainNetworkResource verifies that domain-based network resources
+// produce routes with the correct domain configuration.
+func TestComponents_DomainNetworkResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	netID := "net-domain"
+	resID := "res-domain"
+	account.Networks = append(account.Networks, &networkTypes.Network{ID: netID, Name: "Domain Network", AccountID: "test-account"})
+	account.NetworkResources = append(account.NetworkResources, &resourceTypes.NetworkResource{
+		ID: resID, NetworkID: netID, AccountID: "test-account", Enabled: true,
+		Address: "api.example.com", Type: "domain",
+	})
+	account.NetworkRouters = append(account.NetworkRouters, &routerTypes.NetworkRouter{
+		ID: "router-domain", NetworkID: netID, Peer: "peer-5", Enabled: true, AccountID: "test-account",
+	})
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-domain-res", Name: "Domain Resource Policy", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-domain-res", Name: "Allow Domain", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
+			Sources: []string{"group-0"}, DestinationResource: types.Resource{ID: resID},
+		}},
+	})
+
+	// peer-0 is source, should get route to the domain resource via peer-5
+	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm)
+
+	peerIDs := make(map[string]bool, len(nm.Peers))
+	for _, p := range nm.Peers {
+		peerIDs[p.ID] = true
+	}
+	assert.True(t, peerIDs["peer-5"], "source peer should see domain resource router peer")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 18. DISABLED RULE WITHIN ENABLED POLICY
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestComponents_DisabledRuleInEnabledPolicy verifies that a disabled rule within
+// an enabled policy does not generate firewall rules.
+func TestComponents_DisabledRuleInEnabledPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-mixed-rules", Name: "Mixed Rules", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{
+			{
+				ID: "rule-enabled", Name: "Enabled Rule", Enabled: true,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
+				Bidirectional: true, Ports: []string{"3000"},
+				Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+			},
+			{
+				ID: "rule-disabled", Name: "Disabled Rule", Enabled: false,
+				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
+				Bidirectional: true, Ports: []string{"3001"},
+				Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+			},
+		},
+	})
+
+	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm)
+
+	has3000, has3001 := false, false
+	for _, rule := range nm.FirewallRules {
+		if rule.Port == "3000" {
+			has3000 = true
+		}
+		if rule.Port == "3001" {
+			has3001 = true
+		}
+	}
+	assert.True(t, has3000, "enabled rule should generate firewall rule for port 3000")
+	assert.False(t, has3001, "disabled rule should NOT generate firewall rule for port 3001")
+}
