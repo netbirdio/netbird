@@ -18,14 +18,16 @@ import (
 )
 
 const (
-	dnsTimeout = 5 * time.Second
-	defaultTTL = 300 * time.Second
+	dnsTimeout          = 5 * time.Second
+	defaultTTL          = 300 * time.Second
+	refreshBackoff      = 30 * time.Second // wait time after failed refresh attempt
 )
 
 // cachedRecord holds DNS records with their cache timestamp.
 type cachedRecord struct {
-	records  []dns.RR
-	cachedAt time.Time
+	records           []dns.RR
+	cachedAt          time.Time
+	lastFailedRefresh *time.Time // timestamp of last failed refresh attempt, nil if never failed
 }
 
 // Resolver caches critical NetBird infrastructure domains
@@ -192,6 +194,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 
 // refreshDomain refreshes a stale cached domain using DefaultResolver.
 // On failure, it returns the stale records to avoid breaking connectivity.
+// A backoff mechanism prevents repeated blocking refresh attempts after failures.
 func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []dns.RR {
 	m.refreshMutex.Lock()
 	defer m.refreshMutex.Unlock()
@@ -201,10 +204,17 @@ func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []d
 		return stale.records
 	}
 
+	// Check if we're in backoff period after a failed refresh
+	if stale.lastFailedRefresh != nil && time.Since(*stale.lastFailedRefresh) < refreshBackoff {
+		return stale.records
+	}
+
 	d, _ := domain.FromString(question.Name)
 
 	if err := m.AddDomain(context.Background(), d); err != nil {
 		log.Warnf("failed to refresh domain=%s: %v, serving stale cache", d.SafeString(), err)
+		now := time.Now()
+		stale.lastFailedRefresh = &now
 		return stale.records
 	}
 
