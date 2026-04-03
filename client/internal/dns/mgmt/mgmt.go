@@ -17,14 +17,24 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-const dnsTimeout = 5 * time.Second
+const (
+	dnsTimeout = 5 * time.Second
+	defaultTTL = 300 * time.Second
+)
+
+// cachedRecord holds DNS records with their cache timestamp.
+type cachedRecord struct {
+	records  []dns.RR
+	cachedAt time.Time
+}
 
 // Resolver caches critical NetBird infrastructure domains
 type Resolver struct {
-	records       map[dns.Question][]dns.RR
+	records       map[dns.Question]*cachedRecord
 	mgmtDomain    *domain.Domain
 	serverDomains *dnsconfig.ServerDomains
 	mutex         sync.RWMutex
+	refreshMutex  sync.Mutex // prevents concurrent refresh of the same domain
 }
 
 type ipsResponse struct {
@@ -35,7 +45,7 @@ type ipsResponse struct {
 // NewResolver creates a new management domains cache resolver.
 func NewResolver() *Resolver {
 	return &Resolver{
-		records: make(map[dns.Question][]dns.RR),
+		records: make(map[dns.Question]*cachedRecord),
 	}
 }
 
@@ -60,12 +70,20 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	m.mutex.RLock()
-	records, found := m.records[question]
+	cached, found := m.records[question]
 	m.mutex.RUnlock()
 
 	if !found {
 		m.continueToNext(w, r)
 		return
+	}
+
+	// Check if cache entry is stale (TTL expired)
+	var records []dns.RR
+	if time.Since(cached.cachedAt) > defaultTTL {
+		records = m.refreshDomain(question, cached)
+	} else {
+		records = cached.records
 	}
 
 	resp := &dns.Msg{}
@@ -118,7 +136,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 					Name:   dnsName,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
-					Ttl:    300,
+					Ttl:    uint32(defaultTTL.Seconds()),
 				},
 				A: ip.AsSlice(),
 			}
@@ -129,7 +147,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 					Name:   dnsName,
 					Rrtype: dns.TypeAAAA,
 					Class:  dns.ClassINET,
-					Ttl:    300,
+					Ttl:    uint32(defaultTTL.Seconds()),
 				},
 				AAAA: ip.AsSlice(),
 			}
@@ -137,6 +155,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 		}
 	}
 
+	now := time.Now()
 	m.mutex.Lock()
 
 	if len(aRecords) > 0 {
@@ -145,7 +164,10 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 			Qtype:  dns.TypeA,
 			Qclass: dns.ClassINET,
 		}
-		m.records[aQuestion] = aRecords
+		m.records[aQuestion] = &cachedRecord{
+			records:  aRecords,
+			cachedAt: now,
+		}
 	}
 
 	if len(aaaaRecords) > 0 {
@@ -154,7 +176,10 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 			Qtype:  dns.TypeAAAA,
 			Qclass: dns.ClassINET,
 		}
-		m.records[aaaaQuestion] = aaaaRecords
+		m.records[aaaaQuestion] = &cachedRecord{
+			records:  aaaaRecords,
+			cachedAt: now,
+		}
 	}
 
 	m.mutex.Unlock()
@@ -163,6 +188,36 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 		d.SafeString(), len(aRecords), len(aaaaRecords))
 
 	return nil
+}
+
+// refreshDomain refreshes a stale cached domain using DefaultResolver.
+// On failure, it returns the stale records to avoid breaking connectivity.
+func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []dns.RR {
+	m.refreshMutex.Lock()
+	defer m.refreshMutex.Unlock()
+
+	// Double-check if still stale after acquiring lock
+	if time.Since(stale.cachedAt) <= defaultTTL {
+		return stale.records
+	}
+
+	d, _ := domain.FromString(question.Name)
+
+	if err := m.AddDomain(context.Background(), d); err != nil {
+		log.Warnf("failed to refresh domain=%s: %v, serving stale cache", d.SafeString(), err)
+		return stale.records
+	}
+
+	m.mutex.RLock()
+	newCached, found := m.records[question]
+	m.mutex.RUnlock()
+
+	if !found {
+		return stale.records
+	}
+
+	log.Infof("refreshed cached domain=%s", d.SafeString())
+	return newCached.records
 }
 
 func lookupIPWithExtraTimeout(ctx context.Context, d domain.Domain) ([]netip.Addr, error) {
