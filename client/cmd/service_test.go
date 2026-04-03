@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -12,6 +14,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMain intercepts when this test binary is run as a daemon subprocess.
+// On FreeBSD, the rc.d service script runs the binary via daemon(8) -r with
+// "service run ..." arguments. Since the test binary can't handle cobra CLI
+// args, it exits immediately, causing daemon -r to respawn rapidly until
+// hitting the rate limit and exiting. This makes service restart unreliable.
+// Blocking here keeps the subprocess alive until the init system sends SIGTERM.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 2 && os.Args[1] == "service" && os.Args[2] == "run" {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+		<-sig
+		return
+	}
+	os.Exit(m.Run())
+}
 
 const (
 	serviceStartTimeout = 10 * time.Second
@@ -78,6 +96,34 @@ func TestServiceLifecycle(t *testing.T) {
 	configPath = fmt.Sprintf("%s/netbird-test-config.json", tempDir)
 	logLevel = "info"
 	daemonAddr = fmt.Sprintf("unix://%s/netbird-test.sock", tempDir)
+
+	// Ensure cleanup even if a subtest fails and Stop/Uninstall subtests don't run.
+	t.Cleanup(func() {
+		cfg, err := newSVCConfig()
+		if err != nil {
+			t.Errorf("cleanup: create service config: %v", err)
+			return
+		}
+		ctxSvc, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		s, err := newSVC(newProgram(ctxSvc, cancel), cfg)
+		if err != nil {
+			t.Errorf("cleanup: create service: %v", err)
+			return
+		}
+
+		// If the subtests already cleaned up, there's nothing to do.
+		if _, err := s.Status(); err != nil {
+			return
+		}
+
+		if err := s.Stop(); err != nil {
+			t.Errorf("cleanup: stop service: %v", err)
+		}
+		if err := s.Uninstall(); err != nil {
+			t.Errorf("cleanup: uninstall service: %v", err)
+		}
+	})
 
 	ctx := context.Background()
 

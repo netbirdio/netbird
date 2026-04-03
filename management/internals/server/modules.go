@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -116,9 +117,11 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
 		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
-		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
+		if embeddedEnabled {
 			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP service: %v", err)
@@ -194,7 +197,7 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ServiceManager() service.Manager {
 	return Create(s, func() service.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ReverseProxyDomainManager())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
 	})
 }
 

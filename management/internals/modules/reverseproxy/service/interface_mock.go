@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
 
 // MockManager is a mock of Manager interface.
@@ -105,6 +106,21 @@ func (m *MockManager) GetAccountServices(ctx context.Context, accountID string) 
 func (mr *MockManagerMockRecorder) GetAccountServices(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountServices", reflect.TypeOf((*MockManager)(nil).GetAccountServices), ctx, accountID)
+}
+
+// GetActiveClusters mocks base method.
+func (m *MockManager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveClusters", ctx, accountID, userID)
+	ret0, _ := ret[0].([]proxy.Cluster)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveClusters indicates an expected call of GetActiveClusters.
+func (mr *MockManagerMockRecorder) GetActiveClusters(ctx, accountID, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusters", reflect.TypeOf((*MockManager)(nil).GetActiveClusters), ctx, accountID, userID)
 }
 
 // GetAllServices mocks base method.
@@ -211,17 +227,17 @@ func (mr *MockManagerMockRecorder) ReloadService(ctx, accountID, serviceID inter
 }
 
 // RenewServiceFromPeer mocks base method.
-func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RenewServiceFromPeer indicates an expected call of RenewServiceFromPeer.
-func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // SetCertificateIssuedAt mocks base method.
@@ -265,17 +281,17 @@ func (mr *MockManagerMockRecorder) StartExposeReaper(ctx interface{}) *gomock.Ca
 }
 
 // StopServiceFromPeer mocks base method.
-func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StopServiceFromPeer indicates an expected call of StopServiceFromPeer.
-func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // UpdateService mocks base method.

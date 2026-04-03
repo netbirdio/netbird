@@ -77,7 +77,7 @@ func (d *Resolver) ID() types.HandlerID {
 	return "local-resolver"
 }
 
-func (d *Resolver) ProbeAvailability() {}
+func (d *Resolver) ProbeAvailability(context.Context) {}
 
 // ServeDNS handles a DNS request
 func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {

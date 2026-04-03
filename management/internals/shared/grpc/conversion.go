@@ -107,7 +107,8 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
 		AutoUpdate: &proto.AutoUpdateSettings{
-			Version: settings.AutoUpdateVersion,
+			Version:      settings.AutoUpdateVersion,
+			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
 	}
 }

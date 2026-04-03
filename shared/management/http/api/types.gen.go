@@ -9,12 +9,31 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 const (
 	BearerAuthScopes = "BearerAuth.Scopes"
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
+
+// Defines values for CreateAzureIntegrationRequestHost.
+const (
+	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
+	CreateAzureIntegrationRequestHostMicrosoftUs  CreateAzureIntegrationRequestHost = "microsoft.us"
+)
+
+// Valid indicates whether the value is a known member of the CreateAzureIntegrationRequestHost enum.
+func (e CreateAzureIntegrationRequestHost) Valid() bool {
+	switch e {
+	case CreateAzureIntegrationRequestHostMicrosoftCom:
+		return true
+	case CreateAzureIntegrationRequestHostMicrosoftUs:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for CreateIntegrationRequestPlatform.
 const (
@@ -664,6 +683,24 @@ func (e NetworkResourceType) Valid() bool {
 	}
 }
 
+// Defines values for NotificationChannelType.
+const (
+	NotificationChannelTypeEmail   NotificationChannelType = "email"
+	NotificationChannelTypeWebhook NotificationChannelType = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the NotificationChannelType enum.
+func (e NotificationChannelType) Valid() bool {
+	switch e {
+	case NotificationChannelTypeEmail:
+		return true
+	case NotificationChannelTypeWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PeerNetworkRangeCheckAction.
 const (
 	PeerNetworkRangeCheckActionAllow PeerNetworkRangeCheckAction = "allow"
@@ -880,6 +917,30 @@ func (e SentinelOneMatchAttributesNetworkStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceMode.
+const (
+	ServiceModeHttp ServiceMode = "http"
+	ServiceModeTcp  ServiceMode = "tcp"
+	ServiceModeTls  ServiceMode = "tls"
+	ServiceModeUdp  ServiceMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceMode enum.
+func (e ServiceMode) Valid() bool {
+	switch e {
+	case ServiceModeHttp:
+		return true
+	case ServiceModeTcp:
+		return true
+	case ServiceModeTls:
+		return true
+	case ServiceModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceMetaStatus.
 const (
 	ServiceMetaStatusActive             ServiceMetaStatus = "active"
@@ -910,10 +971,36 @@ func (e ServiceMetaStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceRequestMode.
+const (
+	ServiceRequestModeHttp ServiceRequestMode = "http"
+	ServiceRequestModeTcp  ServiceRequestMode = "tcp"
+	ServiceRequestModeTls  ServiceRequestMode = "tls"
+	ServiceRequestModeUdp  ServiceRequestMode = "udp"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestMode enum.
+func (e ServiceRequestMode) Valid() bool {
+	switch e {
+	case ServiceRequestModeHttp:
+		return true
+	case ServiceRequestModeTcp:
+		return true
+	case ServiceRequestModeTls:
+		return true
+	case ServiceRequestModeUdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceTargetProtocol.
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
 	ServiceTargetProtocolHttps ServiceTargetProtocol = "https"
+	ServiceTargetProtocolTcp   ServiceTargetProtocol = "tcp"
+	ServiceTargetProtocolUdp   ServiceTargetProtocol = "udp"
 )
 
 // Valid indicates whether the value is a known member of the ServiceTargetProtocol enum.
@@ -923,6 +1010,10 @@ func (e ServiceTargetProtocol) Valid() bool {
 		return true
 	case ServiceTargetProtocolHttps:
 		return true
+	case ServiceTargetProtocolTcp:
+		return true
+	case ServiceTargetProtocolUdp:
+		return true
 	default:
 		return false
 	}
@@ -930,16 +1021,22 @@ func (e ServiceTargetProtocol) Valid() bool {
 
 // Defines values for ServiceTargetTargetType.
 const (
-	ServiceTargetTargetTypePeer     ServiceTargetTargetType = "peer"
-	ServiceTargetTargetTypeResource ServiceTargetTargetType = "resource"
+	ServiceTargetTargetTypeDomain ServiceTargetTargetType = "domain"
+	ServiceTargetTargetTypeHost   ServiceTargetTargetType = "host"
+	ServiceTargetTargetTypePeer   ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeSubnet ServiceTargetTargetType = "subnet"
 )
 
 // Valid indicates whether the value is a known member of the ServiceTargetTargetType enum.
 func (e ServiceTargetTargetType) Valid() bool {
 	switch e {
+	case ServiceTargetTargetTypeDomain:
+		return true
+	case ServiceTargetTargetTypeHost:
+		return true
 	case ServiceTargetTargetTypePeer:
 		return true
-	case ServiceTargetTargetTypeResource:
+	case ServiceTargetTargetTypeSubnet:
 		return true
 	default:
 		return false
@@ -1216,6 +1313,21 @@ func (e PutApiIntegrationsMspTenantsIdInviteJSONBodyValue) Valid() bool {
 	}
 }
 
+// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+type AccessRestrictions struct {
+	// AllowedCidrs CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
+	AllowedCidrs *[]string `json:"allowed_cidrs,omitempty"`
+
+	// AllowedCountries ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
+	AllowedCountries *[]string `json:"allowed_countries,omitempty"`
+
+	// BlockedCidrs CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
+	BlockedCidrs *[]string `json:"blocked_cidrs,omitempty"`
+
+	// BlockedCountries ISO 3166-1 alpha-2 country codes to block.
+	BlockedCountries *[]string `json:"blocked_countries,omitempty"`
+}
+
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
 	// CityName Commonly used English name of the city
@@ -1307,6 +1419,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// AutoUpdateAlways When true, updates are installed automatically in the background. When false, updates require user interaction from the UI.
+	AutoUpdateAlways *bool `json:"auto_update_always,omitempty"`
+
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
@@ -1370,6 +1485,39 @@ type AvailablePorts struct {
 
 	// Udp Number of available UDP ports left on the ingress peer
 	Udp int `json:"udp"`
+}
+
+// AzureIntegration defines model for AzureIntegration.
+type AzureIntegration struct {
+	// ClientId Azure AD application (client) ID
+	ClientId string `json:"client_id"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Host Azure host domain for the Graph API
+	Host string `json:"host"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// SyncInterval Sync interval in seconds
+	SyncInterval int `json:"sync_interval"`
+
+	// TenantId Azure AD tenant ID
+	TenantId string `json:"tenant_id"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
 }
 
 // BearerAuthConfig defines model for BearerAuthConfig.
@@ -1479,6 +1627,57 @@ type Country struct {
 // CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 type CountryCode = string
 
+// CreateAzureIntegrationRequest defines model for CreateAzureIntegrationRequest.
+type CreateAzureIntegrationRequest struct {
+	// ClientId Azure AD application (client) ID
+	ClientId string `json:"client_id"`
+
+	// ClientSecret Base64-encoded Azure AD client secret
+	ClientSecret string `json:"client_secret"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// Host Azure host domain for the Graph API
+	Host CreateAzureIntegrationRequestHost `json:"host"`
+
+	// SyncInterval Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// TenantId Azure AD tenant ID
+	TenantId string `json:"tenant_id"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// CreateAzureIntegrationRequestHost Azure host domain for the Graph API
+type CreateAzureIntegrationRequestHost string
+
+// CreateGoogleIntegrationRequest defines model for CreateGoogleIntegrationRequest.
+type CreateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// CustomerId Customer ID from Google Workspace Account Settings
+	CustomerId string `json:"customer_id"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// ServiceAccountKey Base64-encoded Google service account key
+	ServiceAccountKey string `json:"service_account_key"`
+
+	// SyncInterval Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
 // CreateIntegrationRequest Request payload for creating a new event streaming integration. Also used as the structure for the PUT request body, but not all fields are applicable for updates (see PUT operation description).
 type CreateIntegrationRequest struct {
 	// Config Platform-specific configuration as key-value pairs. For creation, all necessary credentials and settings must be provided. For updates, provide the fields to change or the entire new configuration.
@@ -1494,8 +1693,26 @@ type CreateIntegrationRequest struct {
 // CreateIntegrationRequestPlatform The event streaming platform to integrate with (e.g., "datadog", "s3", "firehose"). This field is used for creation. For updates (PUT), this field, if sent, is ignored by the backend.
 type CreateIntegrationRequestPlatform string
 
-// CreateScimIntegrationRequest Request payload for creating an SCIM IDP integration
+// CreateOktaScimIntegrationRequest defines model for CreateOktaScimIntegrationRequest.
+type CreateOktaScimIntegrationRequest struct {
+	// ConnectionName The Okta enterprise connection name on Auth0
+	ConnectionName string `json:"connection_name"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// CreateScimIntegrationRequest defines model for CreateScimIntegrationRequest.
 type CreateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1645,6 +1862,63 @@ type EDRFalconResponse struct {
 
 	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
+}
+
+// EDRFleetDMRequest Request payload for creating or updating a FleetDM EDR integration
+type EDRFleetDMRequest struct {
+	// ApiToken FleetDM API token
+	ApiToken string `json:"api_token"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+}
+
+// EDRFleetDMResponse Represents a FleetDM EDR integration configuration
+type EDRFleetDMResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // EDRHuntressRequest Request payload for creating or updating a EDR Huntress integration
@@ -1815,6 +2089,12 @@ type EDRSentinelOneResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// EmailTarget Target configuration for email notification channels.
+type EmailTarget struct {
+	// Emails List of email addresses to send notifications to.
+	Emails []openapi_types.Email `json:"emails"`
+}
+
 // ErrorResponse Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
 type ErrorResponse struct {
 	// Message A human-readable error message.
@@ -1854,6 +2134,24 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+type FleetDMMatchAttributes struct {
+	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
+	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
+
+	// FailingPoliciesCountMax Maximum number of allowed failing policies. Use 0 to require all policies to pass
+	FailingPoliciesCountMax *int `json:"failing_policies_count_max,omitempty"`
+
+	// RequiredPolicies List of FleetDM policy IDs that must be passing on the host. If any of these policies is failing, the host is non-compliant
+	RequiredPolicies *[]int `json:"required_policies,omitempty"`
+
+	// StatusOnline Whether the host must be online (recently seen by Fleet)
+	StatusOnline *bool `json:"status_online,omitempty"`
+
+	// VulnerableSoftwareCountMax Maximum number of allowed vulnerable software on the host
+	VulnerableSoftwareCountMax *int `json:"vulnerable_software_count_max,omitempty"`
+}
+
 // GeoLocationCheck Posture check for geo location
 type GeoLocationCheck struct {
 	// Action Action to take upon policy match
@@ -1868,6 +2166,33 @@ type GeoLocationCheckAction string
 
 // GetTenantsResponse defines model for GetTenantsResponse.
 type GetTenantsResponse = []TenantResponse
+
+// GoogleIntegration defines model for GoogleIntegration.
+type GoogleIntegration struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// CustomerId Customer ID from Google Workspace
+	CustomerId string `json:"customer_id"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// SyncInterval Sync interval in seconds
+	SyncInterval int `json:"sync_interval"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
+}
 
 // Group defines model for Group.
 type Group struct {
@@ -1923,6 +2248,18 @@ type GroupRequest struct {
 	// Peers List of peers ids
 	Peers     *[]string   `json:"peers,omitempty"`
 	Resources *[]Resource `json:"resources,omitempty"`
+}
+
+// HeaderAuthConfig Static header-value authentication. The proxy checks that the named header matches the configured value.
+type HeaderAuthConfig struct {
+	// Enabled Whether header auth is enabled
+	Enabled bool `json:"enabled"`
+
+	// Header HTTP header name to check (e.g. "Authorization", "X-API-Key")
+	Header string `json:"header"`
+
+	// Value Expected header value. For Basic auth use "Basic base64(user:pass)". For Bearer use "Bearer token". Cleared in responses.
+	Value string `json:"value"`
 }
 
 // HuntressMatchAttributes Attribute conditions to match when approving agents
@@ -2148,6 +2485,12 @@ type InstanceVersionInfo struct {
 	ManagementUpdateAvailable bool `json:"management_update_available"`
 }
 
+// IntegrationEnabled defines model for IntegrationEnabled.
+type IntegrationEnabled struct {
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // IntegrationResponse Represents an event streaming integration.
 type IntegrationResponse struct {
 	// AccountId The identifier of the account this integration belongs to.
@@ -2174,6 +2517,18 @@ type IntegrationResponse struct {
 
 // IntegrationResponsePlatform The event streaming platform.
 type IntegrationResponsePlatform string
+
+// IntegrationSyncFilters defines model for IntegrationSyncFilters.
+type IntegrationSyncFilters struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
 
 // InvoicePDFResponse defines model for InvoicePDFResponse.
 type InvoicePDFResponse struct {
@@ -2576,6 +2931,67 @@ type NetworkTrafficUser struct {
 	Name string `json:"name"`
 }
 
+// NotificationChannelRequest Request body for creating or updating a notification channel.
+type NotificationChannelRequest struct {
+	// Enabled Whether this notification channel is active.
+	Enabled bool `json:"enabled"`
+
+	// EventTypes List of activity event type codes this channel subscribes to.
+	EventTypes []NotificationEventType `json:"event_types"`
+
+	// Target Channel-specific target configuration. The shape depends on the `type` field:
+	// - `email`: requires an `EmailTarget` object
+	// - `webhook`: requires a `WebhookTarget` object
+	Target *NotificationChannelRequest_Target `json:"target,omitempty"`
+
+	// Type The type of notification channel.
+	Type NotificationChannelType `json:"type"`
+}
+
+// NotificationChannelRequest_Target Channel-specific target configuration. The shape depends on the `type` field:
+// - `email`: requires an `EmailTarget` object
+// - `webhook`: requires a `WebhookTarget` object
+type NotificationChannelRequest_Target struct {
+	union json.RawMessage
+}
+
+// NotificationChannelResponse A notification channel configuration.
+type NotificationChannelResponse struct {
+	// Enabled Whether this notification channel is active.
+	Enabled bool `json:"enabled"`
+
+	// EventTypes List of activity event type codes this channel subscribes to.
+	EventTypes []NotificationEventType `json:"event_types"`
+
+	// Id Unique identifier of the notification channel.
+	Id *string `json:"id,omitempty"`
+
+	// Target Channel-specific target configuration. The shape depends on the `type` field:
+	// - `email`: an `EmailTarget` object
+	// - `webhook`: a `WebhookTarget` object
+	Target *NotificationChannelResponse_Target `json:"target,omitempty"`
+
+	// Type The type of notification channel.
+	Type NotificationChannelType `json:"type"`
+}
+
+// NotificationChannelResponse_Target Channel-specific target configuration. The shape depends on the `type` field:
+// - `email`: an `EmailTarget` object
+// - `webhook`: a `WebhookTarget` object
+type NotificationChannelResponse_Target struct {
+	union json.RawMessage
+}
+
+// NotificationChannelType The type of notification channel.
+type NotificationChannelType string
+
+// NotificationEventType An activity event type code. See `GET /api/integrations/notifications/types` for the full list
+// of supported event types and their human-readable descriptions.
+type NotificationEventType = string
+
+// NotificationTypeEntry A map of event type codes to their human-readable descriptions.
+type NotificationTypeEntry map[string]string
+
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
 	// Android Posture check for the version of operating system
@@ -2592,6 +3008,30 @@ type OSVersionCheck struct {
 
 	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
+}
+
+// OktaScimIntegration defines model for OktaScimIntegration.
+type OktaScimIntegration struct {
+	// AuthToken SCIM API token (full on creation/regeneration, masked on retrieval)
+	AuthToken string `json:"auth_token"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes []string `json:"group_prefixes"`
+
+	// Id The unique identifier for the integration
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of the last synchronization
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes []string `json:"user_group_prefixes"`
 }
 
 // PINAuthConfig defines model for PINAuthConfig.
@@ -3246,6 +3686,9 @@ type ProxyAccessLog struct {
 	// Path Path of the request
 	Path string `json:"path"`
 
+	// Protocol Protocol type: http, tcp, or udp
+	Protocol *string `json:"protocol,omitempty"`
+
 	// Reason Reason for the request result (e.g., authentication failure)
 	Reason *string `json:"reason,omitempty"`
 
@@ -3257,6 +3700,9 @@ type ProxyAccessLog struct {
 
 	// StatusCode HTTP status code returned
 	StatusCode int `json:"status_code"`
+
+	// SubdivisionCode First-level administrative subdivision ISO code (e.g. state/province)
+	SubdivisionCode *string `json:"subdivision_code,omitempty"`
 
 	// Timestamp Timestamp when the request was made
 	Timestamp time.Time `json:"timestamp"`
@@ -3309,6 +3755,12 @@ type ReverseProxyDomain struct {
 
 	// Id Domain ID
 	Id string `json:"id"`
+
+	// RequireSubdomain Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
+	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
+
+	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
+	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
 
 	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
 	TargetCluster *string `json:"target_cluster,omitempty"`
@@ -3431,12 +3883,15 @@ type RulePortRange struct {
 	Start int `json:"start"`
 }
 
-// ScimIntegration Represents a SCIM IDP integration
+// ScimIntegration defines model for ScimIntegration.
 type ScimIntegration struct {
 	// AuthToken SCIM API token (full on creation, masked otherwise)
 	AuthToken string `json:"auth_token"`
 
-	// Enabled Indicates whether the integration is enabled
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
 	// GroupPrefixes List of start_with string patterns for groups to sync
@@ -3447,6 +3902,9 @@ type ScimIntegration struct {
 
 	// LastSyncedAt Timestamp of when the integration was last synced
 	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// Prefix The connection prefix used for the SCIM provider
+	Prefix string `json:"prefix"`
 
 	// Provider Name of the SCIM identity provider
 	Provider string `json:"provider"`
@@ -3493,7 +3951,9 @@ type SentinelOneMatchAttributesNetworkStatus string
 
 // Service defines model for Service.
 type Service struct {
-	Auth ServiceAuthConfig `json:"auth"`
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               ServiceAuthConfig   `json:"auth"`
 
 	// Domain Domain for the service
 	Domain string `json:"domain"`
@@ -3502,14 +3962,23 @@ type Service struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Service ID
-	Id   string      `json:"id"`
-	Meta ServiceMeta `json:"meta"`
+	Id string `json:"id"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only)
+	ListenPort *int        `json:"listen_port,omitempty"`
+	Meta       ServiceMeta `json:"meta"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceMode `json:"mode,omitempty"`
 
 	// Name Service name
 	Name string `json:"name"`
 
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// PortAutoAssigned Whether the listen port was auto-assigned
+	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
 
 	// ProxyCluster The proxy cluster handling this service (derived from domain)
 	ProxyCluster *string `json:"proxy_cluster,omitempty"`
@@ -3519,11 +3988,18 @@ type Service struct {
 
 	// Targets List of target backends for this service
 	Targets []ServiceTarget `json:"targets"`
+
+	// Terminated Whether the service has been terminated. Terminated services cannot be updated. Services that violate the Terms of Service will be terminated.
+	Terminated *bool `json:"terminated,omitempty"`
 }
+
+// ServiceMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceMode string
 
 // ServiceAuthConfig defines model for ServiceAuthConfig.
 type ServiceAuthConfig struct {
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	HeaderAuths  *[]HeaderAuthConfig `json:"header_auths,omitempty"`
 	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
 	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
 	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
@@ -3546,13 +4022,21 @@ type ServiceMetaStatus string
 
 // ServiceRequest defines model for ServiceRequest.
 type ServiceRequest struct {
-	Auth ServiceAuthConfig `json:"auth"`
+	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
+	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
+	Auth               *ServiceAuthConfig  `json:"auth,omitempty"`
 
 	// Domain Domain for the service
 	Domain string `json:"domain"`
 
 	// Enabled Whether the service is enabled
 	Enabled bool `json:"enabled"`
+
+	// ListenPort Port the proxy listens on (L4/TLS only). Set to 0 for auto-assignment.
+	ListenPort *int `json:"listen_port,omitempty"`
+
+	// Mode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+	Mode *ServiceRequestMode `json:"mode,omitempty"`
 
 	// Name Service name
 	Name string `json:"name"`
@@ -3564,8 +4048,11 @@ type ServiceRequest struct {
 	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
 
 	// Targets List of target backends for this service
-	Targets []ServiceTarget `json:"targets"`
+	Targets *[]ServiceTarget `json:"targets,omitempty"`
 }
+
+// ServiceRequestMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
+type ServiceRequestMode string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {
@@ -3576,10 +4063,10 @@ type ServiceTarget struct {
 	Host    *string               `json:"host,omitempty"`
 	Options *ServiceTargetOptions `json:"options,omitempty"`
 
-	// Path URL path prefix for this target
+	// Path URL path prefix for this target (HTTP only)
 	Path *string `json:"path,omitempty"`
 
-	// Port Backend port for this target. Use 0 or omit to use the scheme default (80 for http, 443 for https).
+	// Port Backend port for this target
 	Port int `json:"port"`
 
 	// Protocol Protocol to use when connecting to the backend
@@ -3588,14 +4075,14 @@ type ServiceTarget struct {
 	// TargetId Target ID
 	TargetId string `json:"target_id"`
 
-	// TargetType Target type (e.g., "peer", "resource")
+	// TargetType Target type
 	TargetType ServiceTargetTargetType `json:"target_type"`
 }
 
 // ServiceTargetProtocol Protocol to use when connecting to the backend
 type ServiceTargetProtocol string
 
-// ServiceTargetTargetType Target type (e.g., "peer", "resource")
+// ServiceTargetTargetType Target type
 type ServiceTargetTargetType string
 
 // ServiceTargetOptions defines model for ServiceTargetOptions.
@@ -3606,8 +4093,14 @@ type ServiceTargetOptions struct {
 	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
 	PathRewrite *ServiceTargetOptionsPathRewrite `json:"path_rewrite,omitempty"`
 
+	// ProxyProtocol Send PROXY Protocol v2 header to this backend (TCP/TLS only)
+	ProxyProtocol *bool `json:"proxy_protocol,omitempty"`
+
 	// RequestTimeout Per-target response timeout as a Go duration string (e.g. "30s", "2m")
 	RequestTimeout *string `json:"request_timeout,omitempty"`
+
+	// SessionIdleTimeout Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m").
+	SessionIdleTimeout *string `json:"session_idle_timeout,omitempty"`
 
 	// SkipTlsVerify Skip TLS certificate verification for this backend
 	SkipTlsVerify *bool `json:"skip_tls_verify,omitempty"`
@@ -3817,6 +4310,11 @@ type Subscription struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// SyncResult Response for a manual sync trigger
+type SyncResult struct {
+	Result *string `json:"result,omitempty"`
+}
+
 // TenantGroupResponse defines model for TenantGroupResponse.
 type TenantGroupResponse struct {
 	// Id The Group ID
@@ -3862,13 +4360,85 @@ type TenantResponse struct {
 // TenantResponseStatus The status of the tenant
 type TenantResponseStatus string
 
-// UpdateScimIntegrationRequest Request payload for updating an SCIM IDP integration
-type UpdateScimIntegrationRequest struct {
-	// Enabled Indicates whether the integration is enabled
+// UpdateAzureIntegrationRequest defines model for UpdateAzureIntegrationRequest.
+type UpdateAzureIntegrationRequest struct {
+	// ClientId Azure AD application (client) ID
+	ClientId *string `json:"client_id,omitempty"`
+
+	// ClientSecret Base64-encoded Azure AD client secret
+	ClientSecret *string `json:"client_secret,omitempty"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// SyncInterval Sync interval in seconds (minimum 300)
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// TenantId Azure AD tenant ID
+	TenantId *string `json:"tenant_id,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateGoogleIntegrationRequest defines model for UpdateGoogleIntegrationRequest.
+type UpdateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// CustomerId Customer ID from Google Workspace Account Settings
+	CustomerId *string `json:"customer_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// ServiceAccountKey Base64-encoded Google service account key
+	ServiceAccountKey *string `json:"service_account_key,omitempty"`
+
+	// SyncInterval Sync interval in seconds (minimum 300)
+	SyncInterval *int `json:"sync_interval,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateOktaScimIntegrationRequest defines model for UpdateOktaScimIntegrationRequest.
+type UpdateOktaScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
+	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
+}
+
+// UpdateScimIntegrationRequest defines model for UpdateScimIntegrationRequest.
+type UpdateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
+	// Enabled Whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// GroupPrefixes List of start_with string patterns for groups to sync
+	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
+
+	// Prefix The connection prefix used for the SCIM provider
+	Prefix *string `json:"prefix,omitempty"`
 
 	// UserGroupPrefixes List of start_with string patterns for groups which users to sync
 	UserGroupPrefixes *[]string `json:"user_group_prefixes,omitempty"`
@@ -4077,6 +4647,16 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// WebhookTarget Target configuration for webhook notification channels.
+type WebhookTarget struct {
+	// Headers Custom HTTP headers sent with each webhook request.
+	// Values are write-only; in GET responses all values are masked.
+	Headers *map[string]string `json:"headers,omitempty"`
+
+	// Url The webhook endpoint URL to send notifications to.
+	Url string `json:"url"`
+}
+
 // WorkloadRequest defines model for WorkloadRequest.
 type WorkloadRequest struct {
 	union json.RawMessage
@@ -4132,6 +4712,9 @@ type ZoneRequest struct {
 	// Name Zone name identifier
 	Name string `json:"name"`
 }
+
+// Conflict Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
+type Conflict = ErrorResponse
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
@@ -4376,6 +4959,12 @@ type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
 // PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
 type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
 
+// CreateAzureIntegrationJSONRequestBody defines body for CreateAzureIntegration for application/json ContentType.
+type CreateAzureIntegrationJSONRequestBody = CreateAzureIntegrationRequest
+
+// UpdateAzureIntegrationJSONRequestBody defines body for UpdateAzureIntegration for application/json ContentType.
+type UpdateAzureIntegrationJSONRequestBody = UpdateAzureIntegrationRequest
+
 // PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody defines body for PostApiIntegrationsBillingAwsMarketplaceActivate for application/json ContentType.
 type PostApiIntegrationsBillingAwsMarketplaceActivateJSONRequestBody PostApiIntegrationsBillingAwsMarketplaceActivateJSONBody
 
@@ -4393,6 +4982,12 @@ type CreateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
 
 // UpdateFalconEDRIntegrationJSONRequestBody defines body for UpdateFalconEDRIntegration for application/json ContentType.
 type UpdateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
+
+// CreateFleetDMEDRIntegrationJSONRequestBody defines body for CreateFleetDMEDRIntegration for application/json ContentType.
+type CreateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
+
+// UpdateFleetDMEDRIntegrationJSONRequestBody defines body for UpdateFleetDMEDRIntegration for application/json ContentType.
+type UpdateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
 
 // CreateHuntressEDRIntegrationJSONRequestBody defines body for CreateHuntressEDRIntegration for application/json ContentType.
 type CreateHuntressEDRIntegrationJSONRequestBody = EDRHuntressRequest
@@ -4412,6 +5007,12 @@ type CreateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 // UpdateSentinelOneEDRIntegrationJSONRequestBody defines body for UpdateSentinelOneEDRIntegration for application/json ContentType.
 type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 
+// CreateGoogleIntegrationJSONRequestBody defines body for CreateGoogleIntegration for application/json ContentType.
+type CreateGoogleIntegrationJSONRequestBody = CreateGoogleIntegrationRequest
+
+// UpdateGoogleIntegrationJSONRequestBody defines body for UpdateGoogleIntegration for application/json ContentType.
+type UpdateGoogleIntegrationJSONRequestBody = UpdateGoogleIntegrationRequest
+
 // PostApiIntegrationsMspTenantsJSONRequestBody defines body for PostApiIntegrationsMspTenants for application/json ContentType.
 type PostApiIntegrationsMspTenantsJSONRequestBody = CreateTenantRequest
 
@@ -4426,6 +5027,18 @@ type PostApiIntegrationsMspTenantsIdSubscriptionJSONRequestBody PostApiIntegrati
 
 // PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody defines body for PostApiIntegrationsMspTenantsIdUnlink for application/json ContentType.
 type PostApiIntegrationsMspTenantsIdUnlinkJSONRequestBody PostApiIntegrationsMspTenantsIdUnlinkJSONBody
+
+// CreateNotificationChannelJSONRequestBody defines body for CreateNotificationChannel for application/json ContentType.
+type CreateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
+// UpdateNotificationChannelJSONRequestBody defines body for UpdateNotificationChannel for application/json ContentType.
+type UpdateNotificationChannelJSONRequestBody = NotificationChannelRequest
+
+// CreateOktaScimIntegrationJSONRequestBody defines body for CreateOktaScimIntegration for application/json ContentType.
+type CreateOktaScimIntegrationJSONRequestBody = CreateOktaScimIntegrationRequest
+
+// UpdateOktaScimIntegrationJSONRequestBody defines body for UpdateOktaScimIntegration for application/json ContentType.
+type UpdateOktaScimIntegrationJSONRequestBody = UpdateOktaScimIntegrationRequest
 
 // CreateSCIMIntegrationJSONRequestBody defines body for CreateSCIMIntegration for application/json ContentType.
 type CreateSCIMIntegrationJSONRequestBody = CreateScimIntegrationRequest
@@ -4522,6 +5135,130 @@ type PutApiUsersUserIdPasswordJSONRequestBody = PasswordChangeRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest
+
+// AsEmailTarget returns the union data inside the NotificationChannelRequest_Target as a EmailTarget
+func (t NotificationChannelRequest_Target) AsEmailTarget() (EmailTarget, error) {
+	var body EmailTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEmailTarget overwrites any union data inside the NotificationChannelRequest_Target as the provided EmailTarget
+func (t *NotificationChannelRequest_Target) FromEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEmailTarget performs a merge with any union data inside the NotificationChannelRequest_Target, using the provided EmailTarget
+func (t *NotificationChannelRequest_Target) MergeEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWebhookTarget returns the union data inside the NotificationChannelRequest_Target as a WebhookTarget
+func (t NotificationChannelRequest_Target) AsWebhookTarget() (WebhookTarget, error) {
+	var body WebhookTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWebhookTarget overwrites any union data inside the NotificationChannelRequest_Target as the provided WebhookTarget
+func (t *NotificationChannelRequest_Target) FromWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWebhookTarget performs a merge with any union data inside the NotificationChannelRequest_Target, using the provided WebhookTarget
+func (t *NotificationChannelRequest_Target) MergeWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t NotificationChannelRequest_Target) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *NotificationChannelRequest_Target) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsEmailTarget returns the union data inside the NotificationChannelResponse_Target as a EmailTarget
+func (t NotificationChannelResponse_Target) AsEmailTarget() (EmailTarget, error) {
+	var body EmailTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEmailTarget overwrites any union data inside the NotificationChannelResponse_Target as the provided EmailTarget
+func (t *NotificationChannelResponse_Target) FromEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeEmailTarget performs a merge with any union data inside the NotificationChannelResponse_Target, using the provided EmailTarget
+func (t *NotificationChannelResponse_Target) MergeEmailTarget(v EmailTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWebhookTarget returns the union data inside the NotificationChannelResponse_Target as a WebhookTarget
+func (t NotificationChannelResponse_Target) AsWebhookTarget() (WebhookTarget, error) {
+	var body WebhookTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWebhookTarget overwrites any union data inside the NotificationChannelResponse_Target as the provided WebhookTarget
+func (t *NotificationChannelResponse_Target) FromWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWebhookTarget performs a merge with any union data inside the NotificationChannelResponse_Target, using the provided WebhookTarget
+func (t *NotificationChannelResponse_Target) MergeWebhookTarget(v WebhookTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t NotificationChannelResponse_Target) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *NotificationChannelResponse_Target) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // AsBundleWorkloadRequest returns the union data inside the WorkloadRequest as a BundleWorkloadRequest
 func (t WorkloadRequest) AsBundleWorkloadRequest() (BundleWorkloadRequest, error) {

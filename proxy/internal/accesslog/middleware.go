@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
+// Middleware wraps an HTTP handler to log access entries and resolve client IPs.
 func (l *Logger) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip logging for internal proxy assets (CSS, JS, etc.)
@@ -47,8 +48,9 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 		// Create a mutable struct to capture data from downstream handlers.
 		// We pass a pointer in the context - the pointer itself flows down immutably,
 		// but the struct it points to can be mutated by inner handlers.
-		capturedData := &proxy.CapturedData{RequestID: requestID}
+		capturedData := proxy.NewCapturedData(requestID)
 		capturedData.SetClientIP(sourceIp)
+
 		ctx := proxy.WithCapturedData(r.Context(), capturedData)
 
 		start := time.Now()
@@ -66,24 +68,25 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 
 		entry := logEntry{
 			ID:            requestID,
-			ServiceId:     capturedData.GetServiceId(),
-			AccountID:     string(capturedData.GetAccountId()),
+			ServiceID:     capturedData.GetServiceID(),
+			AccountID:     capturedData.GetAccountID(),
 			Host:          host,
 			Path:          r.URL.Path,
 			DurationMs:    duration.Milliseconds(),
 			Method:        r.Method,
 			ResponseCode:  int32(sw.status),
-			SourceIp:      sourceIp,
+			SourceIP:      sourceIp,
 			AuthMechanism: capturedData.GetAuthMethod(),
-			UserId:        capturedData.GetUserID(),
+			UserID:        capturedData.GetUserID(),
 			AuthSuccess:   sw.status != http.StatusUnauthorized && sw.status != http.StatusForbidden,
 			BytesUpload:   bytesUpload,
 			BytesDownload: bytesDownload,
+			Protocol:      ProtocolHTTP,
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
-			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceId(), capturedData.GetAccountId())
+			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceID(), capturedData.GetAccountID())
 
-		l.log(r.Context(), entry)
+		l.log(entry)
 
 		// Track usage for cost monitoring (upload + download) by domain
 		l.trackUsage(host, bytesUpload+bytesDownload)

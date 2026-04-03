@@ -103,7 +103,7 @@ func (p *program) Stop(srv service.Service) error {
 
 // Common setup for service control commands
 func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel context.CancelFunc) (service.Service, error) {
-	SetFlagsFromEnvVars(rootCmd)
+	// rootCmd env vars are already applied by PersistentPreRunE.
 	SetFlagsFromEnvVars(serviceCmd)
 
 	cmd.SetOut(cmd.OutOrStdout())

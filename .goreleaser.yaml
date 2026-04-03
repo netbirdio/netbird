@@ -154,6 +154,26 @@ builds:
       - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-idp-migrate
+    dir: tools/idp-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-idp-migrate
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 universal_binaries:
   - id: netbird
 
@@ -166,18 +186,22 @@ archives:
       - netbird-wasm
     name_template: "{{ .ProjectName }}_{{ .Version }}"
     format: binary
+  - id: netbird-idp-migrate
+    builds:
+      - netbird-idp-migrate
+    name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-deb
+    license: BSD-3-Clause
+    id: netbird_deb
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - deb
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -185,16 +209,19 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-rpm
+    license: BSD-3-Clause
+    id: netbird_rpm
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - rpm
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers:
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-amd64
@@ -876,7 +903,7 @@ brews:
 uploads:
   - name: debian
     ids:
-      - netbird-deb
+      - netbird_deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
@@ -884,7 +911,7 @@ uploads:
 
   - name: yum
     ids:
-      - netbird-rpm
+      - netbird_rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com

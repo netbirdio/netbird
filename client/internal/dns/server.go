@@ -57,6 +57,7 @@ type Server interface {
 	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
+	SetRouteChecker(func(netip.Addr) bool)
 }
 
 type nsGroupsByDomain struct {
@@ -104,12 +105,17 @@ type DefaultServer struct {
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+	routeMatch     func(netip.Addr) bool
+
+	probeMu     sync.Mutex
+	probeCancel context.CancelFunc
+	probeWg     sync.WaitGroup
 }
 
 type handlerWithStop interface {
 	dns.Handler
 	Stop()
-	ProbeAvailability()
+	ProbeAvailability(context.Context)
 	ID() types.HandlerID
 }
 
@@ -223,6 +229,14 @@ func newDefaultServer(
 	dnsService.RegisterMux(".", handlerChain)
 
 	return defaultServer
+}
+
+// SetRouteChecker sets the function used by upstream resolvers to determine
+// whether an IP is routed through the tunnel.
+func (s *DefaultServer) SetRouteChecker(f func(netip.Addr) bool) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.routeMatch = f
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -362,7 +376,13 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 
 // Stop stops the server
 func (s *DefaultServer) Stop() {
+	s.probeMu.Lock()
+	if s.probeCancel != nil {
+		s.probeCancel()
+	}
 	s.ctxCancel()
+	s.probeMu.Unlock()
+	s.probeWg.Wait()
 	s.shutdownWg.Wait()
 
 	s.mux.Lock()
@@ -479,7 +499,8 @@ func (s *DefaultServer) SearchDomains() []string {
 }
 
 // ProbeAvailability tests each upstream group's servers for availability
-// and deactivates the group if no server responds
+// and deactivates the group if no server responds.
+// If a previous probe is still running, it will be cancelled before starting a new one.
 func (s *DefaultServer) ProbeAvailability() {
 	if val := os.Getenv(envSkipDNSProbe); val != "" {
 		skipProbe, err := strconv.ParseBool(val)
@@ -492,15 +513,52 @@ func (s *DefaultServer) ProbeAvailability() {
 		}
 	}
 
-	var wg sync.WaitGroup
-	for _, mux := range s.dnsMuxMap {
-		wg.Add(1)
-		go func(mux handlerWithStop) {
-			defer wg.Done()
-			mux.ProbeAvailability()
-		}(mux.handler)
+	s.probeMu.Lock()
+
+	// don't start probes on a stopped server
+	if s.ctx.Err() != nil {
+		s.probeMu.Unlock()
+		return
 	}
+
+	// cancel any running probe
+	if s.probeCancel != nil {
+		s.probeCancel()
+		s.probeCancel = nil
+	}
+
+	// wait for the previous probe goroutines to finish while holding
+	// the mutex so no other caller can start a new probe concurrently
+	s.probeWg.Wait()
+
+	// start a new probe
+	probeCtx, probeCancel := context.WithCancel(s.ctx)
+	s.probeCancel = probeCancel
+
+	s.probeWg.Add(1)
+	defer s.probeWg.Done()
+
+	// Snapshot handlers under s.mux to avoid racing with updateMux/dnsMuxMap writers.
+	s.mux.Lock()
+	handlers := make([]handlerWithStop, 0, len(s.dnsMuxMap))
+	for _, mux := range s.dnsMuxMap {
+		handlers = append(handlers, mux.handler)
+	}
+	s.mux.Unlock()
+
+	var wg sync.WaitGroup
+	for _, handler := range handlers {
+		wg.Add(1)
+		go func(h handlerWithStop) {
+			defer wg.Done()
+			h.ProbeAvailability(probeCtx)
+		}(handler)
+	}
+
+	s.probeMu.Unlock()
+
 	wg.Wait()
+	probeCancel()
 }
 
 func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
@@ -695,6 +753,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	for _, ns := range originalNameservers {
 		if ns == config.ServerIP {
@@ -804,6 +863,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		if err != nil {
 			return nil, fmt.Errorf("create upstream resolver: %v", err)
 		}
+		handler.routeMatch = s.routeMatch
 
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -988,6 +1048,7 @@ func (s *DefaultServer) addHostRootZone() {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}

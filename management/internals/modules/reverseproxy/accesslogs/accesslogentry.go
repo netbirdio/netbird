@@ -10,22 +10,33 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// AccessLogProtocol identifies the transport protocol of an access log entry.
+type AccessLogProtocol string
+
+const (
+	AccessLogProtocolHTTP AccessLogProtocol = "http"
+	AccessLogProtocolTCP  AccessLogProtocol = "tcp"
+	AccessLogProtocolUDP  AccessLogProtocol = "udp"
+)
+
 type AccessLogEntry struct {
-	ID             string        `gorm:"primaryKey"`
-	AccountID      string        `gorm:"index"`
-	ServiceID      string        `gorm:"index"`
-	Timestamp      time.Time     `gorm:"index"`
-	GeoLocation    peer.Location `gorm:"embedded;embeddedPrefix:location_"`
-	Method         string        `gorm:"index"`
-	Host           string        `gorm:"index"`
-	Path           string        `gorm:"index"`
-	Duration       time.Duration `gorm:"index"`
-	StatusCode     int           `gorm:"index"`
-	Reason         string
-	UserId         string `gorm:"index"`
-	AuthMethodUsed string `gorm:"index"`
-	BytesUpload    int64  `gorm:"index"`
-	BytesDownload  int64  `gorm:"index"`
+	ID              string        `gorm:"primaryKey"`
+	AccountID       string        `gorm:"index"`
+	ServiceID       string        `gorm:"index"`
+	Timestamp       time.Time     `gorm:"index"`
+	GeoLocation     peer.Location `gorm:"embedded;embeddedPrefix:location_"`
+	SubdivisionCode string
+	Method          string        `gorm:"index"`
+	Host            string        `gorm:"index"`
+	Path            string        `gorm:"index"`
+	Duration        time.Duration `gorm:"index"`
+	StatusCode      int           `gorm:"index"`
+	Reason          string
+	UserId          string            `gorm:"index"`
+	AuthMethodUsed  string            `gorm:"index"`
+	BytesUpload     int64             `gorm:"index"`
+	BytesDownload   int64             `gorm:"index"`
+	Protocol        AccessLogProtocol `gorm:"index"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -43,17 +54,22 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.AccountID = serviceLog.GetAccountId()
 	a.BytesUpload = serviceLog.GetBytesUpload()
 	a.BytesDownload = serviceLog.GetBytesDownload()
+	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
-		if ip, err := netip.ParseAddr(sourceIP); err == nil {
-			a.GeoLocation.ConnectionIP = net.IP(ip.AsSlice())
+		if addr, err := netip.ParseAddr(sourceIP); err == nil {
+			addr = addr.Unmap()
+			a.GeoLocation.ConnectionIP = net.IP(addr.AsSlice())
 		}
 	}
 
-	if !serviceLog.GetAuthSuccess() {
-		a.Reason = "Authentication failed"
-	} else if serviceLog.GetResponseCode() >= 400 {
-		a.Reason = "Request failed"
+	// Only set reason for HTTP entries. L4 entries have no auth or status code.
+	if a.Protocol == "" || a.Protocol == AccessLogProtocolHTTP {
+		if !serviceLog.GetAuthSuccess() {
+			a.Reason = "Authentication failed"
+		} else if serviceLog.GetResponseCode() >= 400 {
+			a.Reason = "Request failed"
+		}
 	}
 }
 
@@ -90,22 +106,35 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		cityName = &a.GeoLocation.CityName
 	}
 
+	var subdivisionCode *string
+	if a.SubdivisionCode != "" {
+		subdivisionCode = &a.SubdivisionCode
+	}
+
+	var protocol *string
+	if a.Protocol != "" {
+		p := string(a.Protocol)
+		protocol = &p
+	}
+
 	return &api.ProxyAccessLog{
-		Id:             a.ID,
-		ServiceId:      a.ServiceID,
-		Timestamp:      a.Timestamp,
-		Method:         a.Method,
-		Host:           a.Host,
-		Path:           a.Path,
-		DurationMs:     int(a.Duration.Milliseconds()),
-		StatusCode:     a.StatusCode,
-		SourceIp:       sourceIP,
-		Reason:         reason,
-		UserId:         userID,
-		AuthMethodUsed: authMethod,
-		CountryCode:    countryCode,
-		CityName:       cityName,
-		BytesUpload:    a.BytesUpload,
-		BytesDownload:  a.BytesDownload,
+		Id:              a.ID,
+		ServiceId:       a.ServiceID,
+		Timestamp:       a.Timestamp,
+		Method:          a.Method,
+		Host:            a.Host,
+		Path:            a.Path,
+		DurationMs:      int(a.Duration.Milliseconds()),
+		StatusCode:      a.StatusCode,
+		SourceIp:        sourceIP,
+		Reason:          reason,
+		UserId:          userID,
+		AuthMethodUsed:  authMethod,
+		CountryCode:     countryCode,
+		CityName:        cityName,
+		SubdivisionCode: subdivisionCode,
+		BytesUpload:     a.BytesUpload,
+		BytesDownload:   a.BytesDownload,
+		Protocol:        protocol,
 	}
 }

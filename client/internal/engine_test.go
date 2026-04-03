@@ -251,9 +251,6 @@ func TestEngine_SSH(t *testing.T) {
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
-		&signal.MockClient{},
-		&mgmt.MockClient{},
-		relayMgr,
 		&EngineConfig{
 			WgIfaceName:      "utun101",
 			WgAddr:           "100.64.0.1/24",
@@ -263,10 +260,13 @@ func TestEngine_SSH(t *testing.T) {
 			MTU:              iface.DefaultMTU,
 			SSHKey:           sshKey,
 		},
+		EngineServices{
+			SignalClient:   &signal.MockClient{},
+			MgmClient:      &mgmt.MockClient{},
+			RelayManager:   relayMgr,
+			StatusRecorder: peer.NewRecorder("https://mgm"),
+		},
 		MobileDependency{},
-		peer.NewRecorder("https://mgm"),
-		nil,
-		nil,
 	)
 
 	engine.dnsServer = &dns.MockServer{
@@ -428,13 +428,18 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun102",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
 
 	wgIface := &MockWGIface{
 		NameFunc: func() string { return "utun102" },
@@ -647,13 +652,18 @@ func TestEngine_Sync(t *testing.T) {
 		return nil
 	}
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
+	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{SyncFunc: syncFunc},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
 	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
@@ -812,13 +822,18 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
+	}, EngineServices{
+				SignalClient:   &signal.MockClient{},
+				MgmClient:      &mgmt.MockClient{},
+				RelayManager:   relayMgr,
+				StatusRecorder: peer.NewRecorder("https://mgm"),
+			}, MobileDependency{})
 			engine.ctx = ctx
 			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
@@ -1014,13 +1029,18 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
+	}, EngineServices{
+				SignalClient:   &signal.MockClient{},
+				MgmClient:      &mgmt.MockClient{},
+				RelayManager:   relayMgr,
+				StatusRecorder: peer.NewRecorder("https://mgm"),
+			}, MobileDependency{})
 			engine.ctx = ctx
 
 			newNet, err := stdnet.NewNet(context.Background(), nil)
@@ -1546,7 +1566,12 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil), nil
+e, err := NewEngine(ctx, cancel, conf, EngineServices{
+		SignalClient:   signalClient,
+		MgmClient:      mgmtClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{}), nil
 	e.ctx = ctx
 	return e, err
 }

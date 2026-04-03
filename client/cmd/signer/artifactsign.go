@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
+	"github.com/netbirdio/netbird/client/internal/updater/reposign"
 )
 
 const (

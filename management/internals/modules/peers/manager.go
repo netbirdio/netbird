@@ -154,9 +154,11 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
-			eventsToStore = append(eventsToStore, func() {
-				m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
-			})
+			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
+				eventsToStore = append(eventsToStore, func() {
+					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+				})
+			}
 
 			return nil
 		})
@@ -210,7 +212,7 @@ func (m *managerImpl) CreateProxyPeer(ctx context.Context, accountID string, pee
 		},
 	}
 
-	_, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, false)
+	_, _, _, err = m.accountManager.AddPeer(ctx, accountID, "", "", peer, true)
 	if err != nil {
 		return fmt.Errorf("failed to create proxy peer: %w", err)
 	}

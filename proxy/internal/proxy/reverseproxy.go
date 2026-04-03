@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
@@ -65,19 +66,16 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set the serviceId in the context for later retrieval.
-	ctx := withServiceId(r.Context(), result.serviceID)
-	// Set the accountId in the context for later retrieval (for middleware).
-	ctx = withAccountId(ctx, result.accountID)
-	// Set the accountId in the context for the roundtripper to use.
+	ctx := r.Context()
+	// Set the account ID in the context for the roundtripper to use.
 	ctx = roundtrip.WithAccountID(ctx, result.accountID)
 
-	// Also populate captured data if it exists (allows middleware to read after handler completes).
+	// Populate captured data if it exists (allows middleware to read after handler completes).
 	// This solves the problem of passing data UP the middleware chain: we put a mutable struct
 	// pointer in the context, and mutate the struct here so outer middleware can read it.
 	if capturedData := CapturedDataFromContext(ctx); capturedData != nil {
-		capturedData.SetServiceId(result.serviceID)
-		capturedData.SetAccountId(result.accountID)
+		capturedData.SetServiceID(result.serviceID)
+		capturedData.SetAccountID(result.accountID)
 	}
 
 	pt := result.target
@@ -86,9 +84,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx = roundtrip.WithSkipTLSVerify(ctx)
 	}
 	if pt.RequestTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, pt.RequestTimeout)
-		defer cancel()
+		ctx = types.WithDialTimeout(ctx, pt.RequestTimeout)
 	}
 
 	rewriteMatchedPath := result.matchedPath
@@ -97,10 +93,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rp := &httputil.ReverseProxy{
-		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders),
+		Rewrite:       p.rewriteFunc(pt.URL, rewriteMatchedPath, result.passHostHeader, pt.PathRewrite, pt.CustomHeaders, result.stripAuthHeaders),
 		Transport:     p.transport,
 		FlushInterval: -1,
-		ErrorHandler:  proxyErrorHandler,
+		ErrorHandler:  p.proxyErrorHandler,
 	}
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
@@ -114,7 +110,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // When passHostHeader is true, the original client Host header is preserved
 // instead of being rewritten to the backend's address.
 // The pathRewrite parameter controls how the request path is transformed.
-func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool, pathRewrite PathRewriteMode, customHeaders map[string]string) func(r *httputil.ProxyRequest) {
+func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHostHeader bool, pathRewrite PathRewriteMode, customHeaders map[string]string, stripAuthHeaders []string) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
 		switch pathRewrite {
 		case PathRewritePreserve:
@@ -138,13 +134,17 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 			r.Out.Host = target.Host
 		}
 
+		for _, h := range stripAuthHeaders {
+			r.Out.Header.Del(h)
+		}
+
 		for k, v := range customHeaders {
 			r.Out.Header.Set(k, v)
 		}
 
-		clientIP := extractClientIP(r.In.RemoteAddr)
+		clientIP := extractHostIP(r.In.RemoteAddr)
 
-		if IsTrustedProxy(clientIP, p.trustedProxies) {
+		if isTrustedAddr(clientIP, p.trustedProxies) {
 			p.setTrustedForwardingHeaders(r, clientIP)
 		} else {
 			p.setUntrustedForwardingHeaders(r, clientIP)
@@ -214,12 +214,14 @@ func normalizeHost(u *url.URL) string {
 // setTrustedForwardingHeaders appends to the existing forwarding header chain
 // and preserves upstream-provided headers when the direct connection is from
 // a trusted proxy.
-func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP netip.Addr) {
+	ipStr := clientIP.String()
+
 	// Append the direct connection IP to the existing X-Forwarded-For chain.
 	if existing := r.In.Header.Get("X-Forwarded-For"); existing != "" {
-		r.Out.Header.Set("X-Forwarded-For", existing+", "+clientIP)
+		r.Out.Header.Set("X-Forwarded-For", existing+", "+ipStr)
 	} else {
-		r.Out.Header.Set("X-Forwarded-For", clientIP)
+		r.Out.Header.Set("X-Forwarded-For", ipStr)
 	}
 
 	// Preserve upstream X-Real-IP if present; otherwise resolve through the chain.
@@ -227,7 +229,7 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 		r.Out.Header.Set("X-Real-IP", realIP)
 	} else {
 		resolved := ResolveClientIP(r.In.RemoteAddr, r.In.Header.Get("X-Forwarded-For"), p.trustedProxies)
-		r.Out.Header.Set("X-Real-IP", resolved)
+		r.Out.Header.Set("X-Real-IP", resolved.String())
 	}
 
 	// Preserve upstream X-Forwarded-Host if present.
@@ -257,10 +259,11 @@ func (p *ReverseProxy) setTrustedForwardingHeaders(r *httputil.ProxyRequest, cli
 // sets them fresh based on the direct connection. This is the default
 // behavior when no trusted proxies are configured or the direct connection
 // is from an untrusted source.
-func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP string) {
+func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, clientIP netip.Addr) {
+	ipStr := clientIP.String()
 	proto := auth.ResolveProto(p.forwardedProto, r.In.TLS)
-	r.Out.Header.Set("X-Forwarded-For", clientIP)
-	r.Out.Header.Set("X-Real-IP", clientIP)
+	r.Out.Header.Set("X-Forwarded-For", ipStr)
+	r.Out.Header.Set("X-Real-IP", ipStr)
 	r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
 	r.Out.Header.Set("X-Forwarded-Proto", proto)
 	r.Out.Header.Set("X-Forwarded-Port", extractForwardedPort(r.In.Host, proto))
@@ -288,16 +291,6 @@ func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	}
 }
 
-// extractClientIP extracts the IP address from an http.Request.RemoteAddr
-// which is always in host:port format.
-func extractClientIP(remoteAddr string) string {
-	ip, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr
-	}
-	return ip
-}
-
 // extractForwardedPort returns the port from the Host header if present,
 // otherwise defaults to the standard port for the resolved protocol.
 func extractForwardedPort(host, resolvedProto string) string {
@@ -313,7 +306,7 @@ func extractForwardedPort(host, resolvedProto string) string {
 
 // proxyErrorHandler handles errors from the reverse proxy and serves
 // user-friendly error pages instead of raw error responses.
-func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+func (p *ReverseProxy) proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	if cd := CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(OriginProxyError)
 	}
@@ -321,16 +314,18 @@ func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	clientIP := getClientIP(r)
 	title, message, code, status := classifyProxyError(err)
 
-	log.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
+	p.logger.Warnf("proxy error: request_id=%s client_ip=%s method=%s host=%s path=%s status=%d title=%q err=%v",
 		requestID, clientIP, r.Method, r.Host, r.URL.Path, code, title, err)
 
 	web.ServeErrorPage(w, r, code, title, message, requestID, status)
 }
 
-// getClientIP retrieves the resolved client IP from context.
+// getClientIP retrieves the resolved client IP string from context.
 func getClientIP(r *http.Request) string {
 	if capturedData := CapturedDataFromContext(r.Context()); capturedData != nil {
-		return capturedData.GetClientIP()
+		if ip := capturedData.GetClientIP(); ip.IsValid() {
+			return ip.String()
+		}
 	}
 	return ""
 }

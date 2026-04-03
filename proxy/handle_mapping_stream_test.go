@@ -38,11 +38,18 @@ func (m *mockMappingStream) Context() context.Context { return context.Backgroun
 func (m *mockMappingStream) SendMsg(any) error        { return nil }
 func (m *mockMappingStream) RecvMsg(any) error        { return nil }
 
+func closedChan() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
 func TestHandleMappingStream_SyncCompleteFlag(t *testing.T) {
 	checker := health.NewChecker(nil, nil)
 	s := &Server{
 		Logger:        log.StandardLogger(),
 		healthChecker: checker,
+		routerReady:   closedChan(),
 	}
 
 	stream := &mockMappingStream{
@@ -62,6 +69,7 @@ func TestHandleMappingStream_NoSyncFlagDoesNotMarkDone(t *testing.T) {
 	s := &Server{
 		Logger:        log.StandardLogger(),
 		healthChecker: checker,
+		routerReady:   closedChan(),
 	}
 
 	stream := &mockMappingStream{
@@ -78,7 +86,8 @@ func TestHandleMappingStream_NoSyncFlagDoesNotMarkDone(t *testing.T) {
 
 func TestHandleMappingStream_NilHealthChecker(t *testing.T) {
 	s := &Server{
-		Logger: log.StandardLogger(),
+		Logger:      log.StandardLogger(),
+		routerReady: closedChan(),
 	}
 
 	stream := &mockMappingStream{

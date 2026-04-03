@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +31,10 @@ import (
 const ConnectTimeout = 10 * time.Second
 
 const (
+	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
+	// for the management client connection. Value is in bytes.
+	EnvMaxRecvMsgSize = "NB_MANAGEMENT_GRPC_MAX_MSG_SIZE"
+
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
 	errMsgNoMgmtConnection = "no connection to management"
 )
@@ -46,6 +52,7 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	serverURL             string
 }
 
 type ExposeRequest struct {
@@ -56,21 +63,51 @@ type ExposeRequest struct {
 	Pin        string
 	Password   string
 	UserGroups []string
+	ListenPort uint16
 }
 
 type ExposeResponse struct {
-	ServiceName string
-	Domain      string
-	ServiceURL  string
+	ServiceName      string
+	Domain           string
+	ServiceURL       string
+	PortAutoAssigned bool
+}
+
+// MaxRecvMsgSize returns the configured max gRPC receive message size from
+// the environment, or 0 if unset (which uses the gRPC default of 4 MB).
+func MaxRecvMsgSize() int {
+	val := os.Getenv(EnvMaxRecvMsgSize)
+	if val == "" {
+		return 0
+	}
+
+	size, err := strconv.Atoi(val)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default: %v", EnvMaxRecvMsgSize, val, err)
+		return 0
+	}
+
+	if size <= 0 {
+		log.Warnf("invalid %s value %d, must be positive, using default", EnvMaxRecvMsgSize, size)
+		return 0
+	}
+
+	return size
 }
 
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
+	var extraOpts []grpc.DialOption
+	if maxSize := MaxRecvMsgSize(); maxSize > 0 {
+		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
+		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
+	}
+
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
@@ -91,7 +128,13 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		ctx:                   ctx,
 		conn:                  conn,
 		connStateCallbackLock: sync.RWMutex{},
+		serverURL:             addr,
 	}, nil
+}
+
+// GetServerURL returns the management server URL
+func (c *GrpcClient) GetServerURL() string {
+	return c.serverURL
 }
 
 // Close closes connection to the Management Service
@@ -790,9 +833,10 @@ func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
 
 func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
 	return &ExposeResponse{
-		ServiceName: resp.ServiceName,
-		Domain:      resp.Domain,
-		ServiceURL:  resp.ServiceUrl,
+		ServiceName:      resp.ServiceName,
+		Domain:           resp.Domain,
+		ServiceURL:       resp.ServiceUrl,
+		PortAutoAssigned: resp.PortAutoAssigned,
 	}
 }
 
@@ -808,6 +852,8 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		protocol = proto.ExposeProtocol_EXPOSE_TCP
 	case int(proto.ExposeProtocol_EXPOSE_UDP):
 		protocol = proto.ExposeProtocol_EXPOSE_UDP
+	case int(proto.ExposeProtocol_EXPOSE_TLS):
+		protocol = proto.ExposeProtocol_EXPOSE_TLS
 	default:
 		return nil, fmt.Errorf("invalid expose protocol: %d", req.Protocol)
 	}
@@ -820,6 +866,7 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
+		ListenPort: uint32(req.ListenPort),
 	}, nil
 }
 

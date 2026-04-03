@@ -4,6 +4,7 @@ package dex
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,10 +20,13 @@ import (
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/storage"
 	"github.com/dexidp/dex/storage/sql"
+	jose "github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
+
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 // Config matches what management/internals/server/server.go expects
@@ -665,4 +669,47 @@ func (p *Provider) GetAuthorizationEndpoint() string {
 		return ""
 	}
 	return issuer + "/auth"
+}
+
+// GetJWKS reads signing keys directly from Dex storage and returns them as Jwks.
+// This avoids HTTP round-trips when the embedded IDP is co-located with the management server.
+// The key retrieval mirrors Dex's own handlePublicKeys/ValidationKeys logic:
+// SigningKeyPub first, then all VerificationKeys, serialized via go-jose.
+func (p *Provider) GetJWKS(ctx context.Context) (*nbjwt.Jwks, error) {
+	keys, err := p.storage.GetKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keys from storage: %w", err)
+	}
+
+	if keys.SigningKeyPub == nil {
+		return nil, fmt.Errorf("no public keys found in storage")
+	}
+
+	// Build the key set exactly as Dex's localSigner.ValidationKeys does:
+	// signing key first, then all verification (rotated) keys.
+	joseKeys := make([]jose.JSONWebKey, 0, len(keys.VerificationKeys)+1)
+	joseKeys = append(joseKeys, *keys.SigningKeyPub)
+	for _, vk := range keys.VerificationKeys {
+		if vk.PublicKey != nil {
+			joseKeys = append(joseKeys, *vk.PublicKey)
+		}
+	}
+
+	// Serialize through go-jose (same as Dex's handlePublicKeys handler)
+	// then deserialize into our Jwks type, so the JSON field mapping is identical
+	// to what the /keys HTTP endpoint would return.
+	joseSet := jose.JSONWebKeySet{Keys: joseKeys}
+	data, err := json.Marshal(joseSet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JWKS: %w", err)
+	}
+
+	jwks := &nbjwt.Jwks{}
+	if err := json.Unmarshal(data, jwks); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JWKS: %w", err)
+	}
+
+	jwks.ExpiresInTime = keys.NextRotation
+
+	return jwks, nil
 }

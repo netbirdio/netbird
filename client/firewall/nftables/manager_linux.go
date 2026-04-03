@@ -95,7 +95,7 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.initNoTrackChains(workTable); err != nil {
-		return fmt.Errorf("init notrack chains: %w", err)
+		log.Warnf("raw priority chains not available, notrack rules will be disabled: %v", err)
 	}
 
 	stateManager.RegisterState(&ShutdownState{})
