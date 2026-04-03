@@ -22,10 +22,22 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// scalableTestAccount creates a realistic account with the given number of peers and groups.
-// It includes policies, routes, network resources, posture checks, and DNS settings
-// to simulate a real production environment.
+// scalableTestAccountWithoutDefaultPolicy creates an account without the blanket "Allow All" policy.
+// Use this for tests that need to verify feature-specific connectivity in isolation.
+func scalableTestAccountWithoutDefaultPolicy(numPeers, numGroups int) (*types.Account, map[string]struct{}) {
+	return buildScalableTestAccount(numPeers, numGroups, false)
+}
+
+// scalableTestAccount creates a realistic account with a blanket "Allow All" policy
+// plus per-group policies, routes, network resources, posture checks, and DNS settings.
 func scalableTestAccount(numPeers, numGroups int) (*types.Account, map[string]struct{}) {
+	return buildScalableTestAccount(numPeers, numGroups, true)
+}
+
+// buildScalableTestAccount is the core builder. When withDefaultPolicy is true it adds
+// a blanket group-all <-> group-all allow rule; when false the only policies are the
+// per-group ones, so tests can verify feature-specific connectivity in isolation.
+func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (*types.Account, map[string]struct{}) {
 	peers := make(map[string]*nbpeer.Peer, numPeers)
 	allGroupPeers := make([]string, 0, numPeers)
 
@@ -80,14 +92,16 @@ func scalableTestAccount(numPeers, numGroups int) (*types.Account, map[string]st
 	}
 
 	policies := make([]*types.Policy, 0, numGroups+2)
-	policies = append(policies, &types.Policy{
-		ID: "policy-all", Name: "Default-Allow", Enabled: true,
-		Rules: []*types.PolicyRule{{
-			ID: "rule-all", Name: "Allow All", Enabled: true, Action: types.PolicyTrafficActionAccept,
-			Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
-			Sources: []string{"group-all"}, Destinations: []string{"group-all"},
-		}},
-	})
+	if withDefaultPolicy {
+		policies = append(policies, &types.Policy{
+			ID: "policy-all", Name: "Default-Allow", Enabled: true,
+			Rules: []*types.PolicyRule{{
+				ID: "rule-all", Name: "Allow All", Enabled: true, Action: types.PolicyTrafficActionAccept,
+				Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
+				Sources: []string{"group-all"}, Destinations: []string{"group-all"},
+			}},
+		})
+	}
 
 	for g := range numGroups {
 		groupID := fmt.Sprintf("group-%d", g)
@@ -285,7 +299,8 @@ func TestComponents_IntraGroupConnectivity(t *testing.T) {
 }
 
 func TestComponents_CrossGroupConnectivity(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(20, 2)
+	// Without default policy, only per-group policies provide connectivity
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
 
@@ -297,7 +312,8 @@ func TestComponents_CrossGroupConnectivity(t *testing.T) {
 }
 
 func TestComponents_BidirectionalPolicy(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(100, 5)
+	// Without default policy so bidirectional visibility comes only from per-group policies
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(100, 5)
 	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
 	nm20 := componentsNetworkMap(account, "peer-20", validatedPeers)
 	require.NotNil(t, nm0)
@@ -569,7 +585,8 @@ func TestComponents_HARouteDeduplication(t *testing.T) {
 			haRoutes++
 		}
 	}
-	assert.GreaterOrEqual(t, haRoutes, 1, "should have at least one HA route to 172.16.0.0/16")
+	// Components deduplicates HA routes with the same HA unique ID, returning one entry per HA group
+	assert.Equal(t, 1, haRoutes, "HA routes with same network should be deduplicated into one entry")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -633,15 +650,33 @@ func TestComponents_PostureCheckFiltering_PassingPeer(t *testing.T) {
 }
 
 func TestComponents_PostureCheckFiltering_FailingPeer(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(100, 5)
+	// peer-0 has version 0.40.0 (passes posture check >= 0.26.0)
+	// peer-1 has version 0.25.0 (fails posture check >= 0.26.0)
+	// Resource policies require posture-check-ver, so the failing peer
+	// should not see the router peer for those resources.
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(100, 5)
+
 	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
 	nm1 := componentsNetworkMap(account, "peer-1", validatedPeers)
 	require.NotNil(t, nm0)
 	require.NotNil(t, nm1)
+
+	// The passing peer should have more peers visible (including resource router peers)
+	// than the failing peer, because the failing peer is excluded from resource policies.
+	assert.Greater(t, len(nm0.Peers), len(nm1.Peers),
+		"passing peer (0.40.0) should see more peers than failing peer (0.25.0) due to posture-gated resource policies")
 }
 
 func TestComponents_MultiplePostureChecks(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(50, 2)
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(50, 2)
+
+	// Keep only the posture-gated policy — remove per-group policies so connectivity is isolated
+	account.Policies = []*types.Policy{}
+
+	// Set kernel version on peers so the OS posture check can evaluate
+	for _, p := range account.Peers {
+		p.Meta.KernelVersion = "5.15.0"
+	}
 
 	account.PostureChecks = append(account.PostureChecks, &posture.Checks{
 		ID: "posture-check-os", Name: "Check OS",
@@ -660,8 +695,16 @@ func TestComponents_MultiplePostureChecks(t *testing.T) {
 		}},
 	})
 
-	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
-	require.NotNil(t, nm)
+	// peer-0 (0.40.0, kernel 5.15.0) passes both checks, should see group-1 peers
+	nm0 := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nm0)
+	assert.NotEmpty(t, nm0.Peers, "peer passing both posture checks should see destination peers")
+
+	// peer-1 (0.25.0, kernel 5.15.0) fails version check, should NOT see group-1 peers
+	nm1 := componentsNetworkMap(account, "peer-1", validatedPeers)
+	require.NotNil(t, nm1)
+	assert.Empty(t, nm1.Peers,
+		"peer failing posture check should see no peers when posture-gated policy is the only connectivity")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -876,7 +919,7 @@ func TestComponents_PeerAsSourceResource(t *testing.T) {
 // TestComponents_PeerAsDestinationResource verifies that a policy with DestinationResource.Type=Peer
 // targets only that specific peer as the destination.
 func TestComponents_PeerAsDestinationResource(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(20, 2)
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
 
 	account.Policies = append(account.Policies, &types.Policy{
 		ID: "policy-peer-dst", Name: "Peer Dest Resource", Enabled: true, AccountID: "test-account",
@@ -1037,7 +1080,7 @@ func TestComponents_RouteDefaultPermit(t *testing.T) {
 // TestComponents_MultipleRoutersPerNetwork verifies that a network resource
 // with multiple routers provides routes through all available routers.
 func TestComponents_MultipleRoutersPerNetwork(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(20, 2)
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
 
 	netID := "net-multi-router"
 	resID := "res-multi-router"
@@ -1117,7 +1160,7 @@ func TestComponents_PeerIsNameserverExcludedFromNSGroup(t *testing.T) {
 // TestComponents_DomainNetworkResource verifies that domain-based network resources
 // produce routes with the correct domain configuration.
 func TestComponents_DomainNetworkResource(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(20, 2)
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
 
 	netID := "net-domain"
 	resID := "res-domain"

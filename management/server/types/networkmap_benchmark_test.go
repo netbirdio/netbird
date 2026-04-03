@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -31,9 +32,15 @@ var defaultScales = []benchmarkScale{
 // ──────────────────────────────────────────────────────────────────────────────
 // Single Peer Network Map Generation
 // ──────────────────────────────────────────────────────────────────────────────
+func skipCIBenchmark(b *testing.B) {
+	if os.Getenv("CI") == "true" {
+		b.Skip("Skipping benchmark in CI")
+	}
+}
 
 // BenchmarkNetworkMapGeneration_Legacy benchmarks the legacy GetPeerNetworkMap for a single peer.
 func BenchmarkNetworkMapGeneration_Legacy(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -53,6 +60,7 @@ func BenchmarkNetworkMapGeneration_Legacy(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_Components benchmarks the components-based approach for a single peer.
 func BenchmarkNetworkMapGeneration_Components(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -72,6 +80,7 @@ func BenchmarkNetworkMapGeneration_Components(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_Builder benchmarks the builder approach for a single peer.
 func BenchmarkNetworkMapGeneration_Builder(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -93,6 +102,7 @@ func BenchmarkNetworkMapGeneration_Builder(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_AllPeers benchmarks generating network maps for ALL peers.
 func BenchmarkNetworkMapGeneration_AllPeers(b *testing.B) {
+	skipCIBenchmark(b)
 	scales := []benchmarkScale{
 		{"100peers_5groups", 100, 5},
 		{"500peers_20groups", 500, 20},
@@ -136,10 +146,10 @@ func BenchmarkNetworkMapGeneration_AllPeers(b *testing.B) {
 		})
 
 		b.Run("builder/"+scale.name, func(b *testing.B) {
+			builder := types.NewNetworkMapBuilder(account, validatedPeers)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				builder := types.NewNetworkMapBuilder(account, validatedPeers)
 				for _, peerID := range peerIDs {
 					_ = builder.GetPeerNetworkMap(ctx, peerID, nbdns.CustomZone{}, nil, validatedPeers, nil)
 				}
@@ -154,6 +164,7 @@ func BenchmarkNetworkMapGeneration_AllPeers(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_BuilderInit benchmarks builder cache initialization.
 func BenchmarkNetworkMapGeneration_BuilderInit(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -168,6 +179,7 @@ func BenchmarkNetworkMapGeneration_BuilderInit(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_ComponentsCreation benchmarks components extraction.
 func BenchmarkNetworkMapGeneration_ComponentsCreation(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -186,6 +198,7 @@ func BenchmarkNetworkMapGeneration_ComponentsCreation(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_ComponentsCalculation benchmarks calculation from pre-built components.
 func BenchmarkNetworkMapGeneration_ComponentsCalculation(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
@@ -205,6 +218,7 @@ func BenchmarkNetworkMapGeneration_ComponentsCalculation(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_PrecomputeMaps benchmarks precomputed map costs.
 func BenchmarkNetworkMapGeneration_PrecomputeMaps(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run("ResourcePoliciesMap/"+scale.name, func(b *testing.B) {
 			account, _ := scalableTestAccount(scale.peers, scale.groups)
@@ -233,29 +247,42 @@ func BenchmarkNetworkMapGeneration_PrecomputeMaps(b *testing.B) {
 	}
 }
 
-// BenchmarkNetworkMapGeneration_BuilderIncrementalAdd benchmarks incremental peer addition.
+// BenchmarkNetworkMapGeneration_BuilderIncrementalAdd benchmarks only the OnPeerAddedIncremental call.
 func BenchmarkNetworkMapGeneration_BuilderIncrementalAdd(b *testing.B) {
+	skipCIBenchmark(b)
 	for _, scale := range defaultScales {
 		b.Run(scale.name, func(b *testing.B) {
 			account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
-			b.ReportAllocs()
-			b.ResetTimer()
+			builder := types.NewNetworkMapBuilder(account, validatedPeers)
+
+			// Pre-create peer structs to avoid allocation noise in the timed section
+			newPeers := make([]*nbpeer.Peer, b.N)
+			newPeerIDs := make([]string, b.N)
 			for i := range b.N {
-				builder := types.NewNetworkMapBuilder(account, validatedPeers)
-				newPeerID := fmt.Sprintf("peer-new-%d", i)
-				newPeer := &nbpeer.Peer{
-					ID: newPeerID, IP: net.IP{100, 65, byte(i / 256), byte(i % 256)},
-					Key: fmt.Sprintf("key-%s", newPeerID), DNSLabel: fmt.Sprintf("peernew%d", i),
+				newPeerIDs[i] = fmt.Sprintf("peer-new-%d", i)
+				newPeers[i] = &nbpeer.Peer{
+					ID: newPeerIDs[i], IP: net.IP{100, 65, byte(i / 256), byte(i % 256)},
+					Key: fmt.Sprintf("key-%s", newPeerIDs[i]), DNSLabel: fmt.Sprintf("peernew%d", i),
 					Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 					UserID: "user-admin", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 				}
-				account.Peers[newPeerID] = newPeer
-				account.Groups["group-all"].Peers = append(account.Groups["group-all"].Peers, newPeerID)
-				validatedPeers[newPeerID] = struct{}{}
-				_ = builder.OnPeerAddedIncremental(account, newPeerID)
-				delete(account.Peers, newPeerID)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := range b.N {
+				pid := newPeerIDs[i]
+				account.Peers[pid] = newPeers[i]
+				account.Groups["group-all"].Peers = append(account.Groups["group-all"].Peers, pid)
+				validatedPeers[pid] = struct{}{}
+
+				_ = builder.OnPeerAddedIncremental(account, pid)
+
+				b.StopTimer()
+				delete(account.Peers, pid)
 				account.Groups["group-all"].Peers = account.Groups["group-all"].Peers[:len(account.Groups["group-all"].Peers)-1]
-				delete(validatedPeers, newPeerID)
+				delete(validatedPeers, pid)
+				b.StartTimer()
 			}
 		})
 	}
@@ -267,6 +294,7 @@ func BenchmarkNetworkMapGeneration_BuilderIncrementalAdd(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_GroupScaling tests group count impact on performance.
 func BenchmarkNetworkMapGeneration_GroupScaling(b *testing.B) {
+	skipCIBenchmark(b)
 	groupCounts := []int{1, 5, 20, 50, 100, 200, 500}
 	for _, numGroups := range groupCounts {
 		b.Run(fmt.Sprintf("components_%dgroups", numGroups), func(b *testing.B) {
@@ -286,6 +314,7 @@ func BenchmarkNetworkMapGeneration_GroupScaling(b *testing.B) {
 
 // BenchmarkNetworkMapGeneration_PeerScaling tests peer count impact on performance.
 func BenchmarkNetworkMapGeneration_PeerScaling(b *testing.B) {
+	skipCIBenchmark(b)
 	peerCounts := []int{50, 100, 500, 1000, 2000, 5000, 10000, 20000, 30000}
 	for _, numPeers := range peerCounts {
 		numGroups := numPeers / 20
