@@ -83,7 +83,7 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	// Check if cache entry is stale (TTL expired)
 	var records []dns.RR
 	if time.Since(cached.cachedAt) > defaultTTL {
-		records = m.refreshDomain(question, cached)
+		records = m.refreshDomain(question)
 	} else {
 		records = cached.records
 	}
@@ -195,18 +195,27 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 // refreshDomain refreshes a stale cached domain using DefaultResolver.
 // On failure, it returns the stale records to avoid breaking connectivity.
 // A backoff mechanism prevents repeated blocking refresh attempts after failures.
-func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []dns.RR {
+func (m *Resolver) refreshDomain(question dns.Question) []dns.RR {
 	m.refreshMutex.Lock()
 	defer m.refreshMutex.Unlock()
 
-	// Double-check if still stale after acquiring lock
-	if time.Since(stale.cachedAt) <= defaultTTL {
-		return stale.records
+	// Re-read from map after acquiring lock to check if another goroutine refreshed
+	m.mutex.RLock()
+	current, found := m.records[question]
+	m.mutex.RUnlock()
+
+	if !found {
+		return nil
+	}
+
+	// Check if already refreshed by another goroutine
+	if time.Since(current.cachedAt) <= defaultTTL {
+		return current.records
 	}
 
 	// Check if we're in backoff period after a failed refresh
-	if stale.lastFailedRefresh != nil && time.Since(*stale.lastFailedRefresh) < refreshBackoff {
-		return stale.records
+	if current.lastFailedRefresh != nil && time.Since(*current.lastFailedRefresh) < refreshBackoff {
+		return current.records
 	}
 
 	d, _ := domain.FromString(question.Name)
@@ -214,8 +223,8 @@ func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []d
 	if err := m.AddDomain(context.Background(), d); err != nil {
 		log.Warnf("failed to refresh domain=%s: %v, serving stale cache", d.SafeString(), err)
 		now := time.Now()
-		stale.lastFailedRefresh = &now
-		return stale.records
+		current.lastFailedRefresh = &now
+		return current.records
 	}
 
 	m.mutex.RLock()
@@ -225,8 +234,8 @@ func (m *Resolver) refreshDomain(question dns.Question, stale *cachedRecord) []d
 	if !found {
 		// DNS returned no records for this type, preserve stale with backoff
 		now := time.Now()
-		stale.lastFailedRefresh = &now
-		return stale.records
+		current.lastFailedRefresh = &now
+		return current.records
 	}
 
 	log.Infof("refreshed cached domain=%s", d.SafeString())
