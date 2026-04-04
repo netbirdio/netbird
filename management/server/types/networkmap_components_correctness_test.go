@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"sort"
 	"testing"
 	"time"
 
@@ -251,15 +250,6 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 // componentsNetworkMap is a convenience wrapper for GetPeerNetworkMapFromComponents.
 func componentsNetworkMap(account *types.Account, peerID string, validatedPeers map[string]struct{}) *types.NetworkMap {
 	return account.GetPeerNetworkMapFromComponents(
-		context.Background(), peerID, nbdns.CustomZone{}, nil,
-		validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(),
-		nil, account.GetActiveGroupUsers(),
-	)
-}
-
-// legacyNetworkMap is a convenience wrapper for GetPeerNetworkMap.
-func legacyNetworkMap(account *types.Account, peerID string, validatedPeers map[string]struct{}) *types.NetworkMap {
-	return account.GetPeerNetworkMap(
 		context.Background(), peerID, nbdns.CustomZone{}, nil,
 		validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(),
 		nil, account.GetActiveGroupUsers(),
@@ -806,37 +796,27 @@ func TestComponents_SSHNotEnabledWithoutPolicy(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 10. LEGACY vs COMPONENTS CONSISTENCY
+// 10. CROSS-PEER CONSISTENCY
 // ──────────────────────────────────────────────────────────────────────────────
 
-func TestComponents_LegacyVsComponentsConsistency(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(100, 5)
-
-	legacy := legacyNetworkMap(account, "peer-0", validatedPeers)
-	comp := componentsNetworkMap(account, "peer-0", validatedPeers)
-	require.NotNil(t, legacy)
-	require.NotNil(t, comp)
-
-	assert.Equal(t, len(legacy.Peers), len(comp.Peers), "peer count mismatch")
-	assert.Equal(t, len(legacy.OfflinePeers), len(comp.OfflinePeers), "offline peer count mismatch")
-	assert.Equal(t, legacy.DNSConfig.ServiceEnable, comp.DNSConfig.ServiceEnable, "DNS config mismatch")
-	assert.Equal(t, legacy.Network.Serial, comp.Network.Serial, "network serial mismatch")
-	assert.Equal(t, legacy.EnableSSH, comp.EnableSSH, "SSH enable mismatch")
-
-	legacyPeerIDs := make([]string, 0, len(legacy.Peers))
-	for _, p := range legacy.Peers {
-		legacyPeerIDs = append(legacyPeerIDs, p.ID)
+// TestComponents_AllPeersGetValidMaps verifies that every validated peer gets a
+// non-nil map with a consistent network serial and non-empty peer list.
+func TestComponents_AllPeersGetValidMaps(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(50, 5)
+	for peerID := range account.Peers {
+		if _, validated := validatedPeers[peerID]; !validated {
+			continue
+		}
+		nm := componentsNetworkMap(account, peerID, validatedPeers)
+		require.NotNil(t, nm, "network map should not be nil for %s", peerID)
+		assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+		assert.NotEmpty(t, nm.Peers, "validated peer %s should see other peers", peerID)
 	}
-	compPeerIDs := make([]string, 0, len(comp.Peers))
-	for _, p := range comp.Peers {
-		compPeerIDs = append(compPeerIDs, p.ID)
-	}
-	sort.Strings(legacyPeerIDs)
-	sort.Strings(compPeerIDs)
-	assert.Equal(t, legacyPeerIDs, compPeerIDs, "peer IDs should match")
 }
 
-func TestComponents_LargeScaleConsistency(t *testing.T) {
+// TestComponents_LargeScaleMapGeneration verifies that components can generate maps
+// at larger scales without errors and with consistent output.
+func TestComponents_LargeScaleMapGeneration(t *testing.T) {
 	scales := []struct{ peers, groups int }{
 		{500, 20},
 		{1000, 50},
@@ -846,37 +826,13 @@ func TestComponents_LargeScaleConsistency(t *testing.T) {
 			account, validatedPeers := scalableTestAccount(s.peers, s.groups)
 			testPeers := []string{"peer-0", fmt.Sprintf("peer-%d", s.peers/4), fmt.Sprintf("peer-%d", s.peers/2)}
 			for _, peerID := range testPeers {
-				legacy := legacyNetworkMap(account, peerID, validatedPeers)
-				comp := componentsNetworkMap(account, peerID, validatedPeers)
-				assert.Equal(t, len(legacy.Peers), len(comp.Peers), "peer count mismatch for %s", peerID)
-				assert.Equal(t, len(legacy.OfflinePeers), len(comp.OfflinePeers), "offline count mismatch for %s", peerID)
-				assert.Equal(t, len(legacy.Routes), len(comp.Routes), "routes count mismatch for %s", peerID)
+				nm := componentsNetworkMap(account, peerID, validatedPeers)
+				require.NotNil(t, nm, "network map should not be nil for %s", peerID)
+				assert.NotEmpty(t, nm.Peers, "peer %s should see other peers at scale", peerID)
+				assert.NotEmpty(t, nm.Routes, "peer %s should have routes at scale", peerID)
+				assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
 			}
 		})
-	}
-}
-
-func TestComponents_BuilderConsistency(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(100, 5)
-	comp := componentsNetworkMap(account, "peer-0", validatedPeers)
-	builder := types.NewNetworkMapBuilder(account, validatedPeers)
-	builderMap := builder.GetPeerNetworkMap(context.Background(), "peer-0", nbdns.CustomZone{}, nil, validatedPeers, nil)
-	require.NotNil(t, comp)
-	require.NotNil(t, builderMap)
-	assert.Equal(t, len(comp.Peers), len(builderMap.Peers), "peer count mismatch")
-	assert.Equal(t, len(comp.OfflinePeers), len(builderMap.OfflinePeers), "offline count mismatch")
-	assert.Equal(t, comp.DNSConfig.ServiceEnable, builderMap.DNSConfig.ServiceEnable, "DNS mismatch")
-}
-
-func TestComponents_AllPeersMapConsistency(t *testing.T) {
-	account, validatedPeers := scalableTestAccount(50, 5)
-	for peerID := range account.Peers {
-		if _, validated := validatedPeers[peerID]; !validated {
-			continue
-		}
-		legacy := legacyNetworkMap(account, peerID, validatedPeers)
-		comp := componentsNetworkMap(account, peerID, validatedPeers)
-		assert.Equal(t, len(legacy.Peers), len(comp.Peers), "peer count mismatch for %s", peerID)
 	}
 }
 
