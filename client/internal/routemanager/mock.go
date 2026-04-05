@@ -69,6 +69,14 @@ func (m *MockManager) GetClientRoutes() route.HAMap {
 	return nil
 }
 
+// GetSelectedClientRoutes mock implementation of GetSelectedClientRoutes from Manager interface
+func (m *MockManager) GetSelectedClientRoutes() route.HAMap {
+	if m.GetClientRoutesFunc != nil {
+		return m.GetClientRoutesFunc()
+	}
+	return nil
+}
+
 // GetClientRoutesWithNetID mock implementation of GetClientRoutesWithNetID from Manager interface
 func (m *MockManager) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
 	if m.GetClientRoutesWithNetIDFunc != nil {
