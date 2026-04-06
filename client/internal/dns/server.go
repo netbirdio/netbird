@@ -190,13 +190,12 @@ func NewDefaultServerIos(
 	statusRecorder *peer.Status,
 	disableSys bool,
 ) *DefaultServer {
-	log.Infof("iOS host dns address list is: %v", hostsDnsList)
+	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
-	log.Infof("iOS DNS server initialized: permanent=%v, hostDNS=%v", ds.permanent, hostsDnsList)
 	return ds
 }
 
@@ -1039,10 +1038,9 @@ func (s *DefaultServer) upstreamCallbacks(
 func (s *DefaultServer) addHostRootZone() {
 	hostDNSServers := s.hostsDNSHolder.get()
 	if len(hostDNSServers) == 0 {
-		log.Info("no host DNS servers available, skipping root zone handler creation")
+		log.Debug("no host DNS servers available, skipping root zone handler creation")
 		return
 	}
-	log.Infof("creating root zone handler with host DNS servers: %v", maps.Keys(hostDNSServers))
 
 	handler, err := newUpstreamResolver(
 		s.ctx,

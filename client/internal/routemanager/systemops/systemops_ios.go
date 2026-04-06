@@ -42,7 +42,6 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 	defer r.mu.Unlock()
 
 	delete(r.prefixes, prefix)
-	log.Infof("iOS RemoveVPNRoute: removed %s, remaining %d prefixes", prefix, len(r.prefixes))
 	r.notify()
 	return nil
 }
@@ -52,7 +51,6 @@ func (r *SysOps) notify() {
 	for prefix := range r.prefixes {
 		prefixes = append(prefixes, prefix)
 	}
-	log.Infof("iOS notify: sending %d prefixes to Swift", len(prefixes))
 	r.notifier.OnNewPrefixes(prefixes)
 }
 
