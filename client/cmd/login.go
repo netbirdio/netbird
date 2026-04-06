@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -349,7 +350,7 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 			verificationURIComplete + " " + codeMsg)
 	}
 
-	if showQR {
+	if showQR && term.IsTerminal(int(os.Stdout.Fd())) {
 		printQRCode(cmd.OutOrStdout(), verificationURIComplete)
 	}
 
