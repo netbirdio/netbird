@@ -113,6 +113,11 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 			return true
 		}
 
+		if len(msg.Question) > 0 {
+			log.Infof("iOS DNS hook: received query for %s (type=%d) dst=%s:%d",
+				msg.Question[0].Name, msg.Question[0].Qtype, s.runtimeIP, s.runtimePort)
+		}
+
 		writer := responseWriter{
 			packet: packet,
 			device: s.wgInterface.GetDevice().Device,

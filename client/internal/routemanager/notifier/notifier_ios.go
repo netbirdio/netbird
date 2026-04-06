@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/route"
 )
@@ -47,9 +49,11 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	sort.Strings(newNets)
 
 	if slices.Equal(n.currentPrefixes, newNets) {
+		log.Debugf("iOS notifier: prefixes unchanged (%d), skipping", len(newNets))
 		return
 	}
 
+	log.Infof("iOS notifier: prefixes changed: %v -> %v", n.currentPrefixes, newNets)
 	n.currentPrefixes = newNets
 	n.notify()
 }
@@ -58,11 +62,15 @@ func (n *Notifier) notify() {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()
 	if n.listener == nil {
+		log.Warn("iOS notifier: listener is nil, cannot notify Swift")
 		return
 	}
 
+	routes := strings.Join(n.addIPv6RangeIfNeeded(n.currentPrefixes), ",")
+	log.Infof("iOS notifier: calling OnNetworkChanged with: %s", routes)
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(n.currentPrefixes), ","))
+		l.OnNetworkChanged(routes)
+		log.Infof("iOS notifier: OnNetworkChanged returned")
 	}(n.listener)
 }
 
