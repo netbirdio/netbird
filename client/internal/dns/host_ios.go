@@ -26,7 +26,8 @@ func (a iosHostManager) applyDNSConfig(config HostDNSConfig, _ *statemanager.Man
 		return fmt.Errorf("marshal: %w", err)
 	}
 	jsonString := string(jsonData)
-	log.Debugf("Applying DNS settings: %s", jsonString)
+	log.Infof("iOS applyDNSConfig: routeAll=%v serverIP=%s domains=%d", config.RouteAll, config.ServerIP, len(config.Domains))
+	log.Debugf("iOS applyDNSConfig: %s", jsonString)
 	a.dnsManager.ApplyDns(jsonString)
 	return nil
 }

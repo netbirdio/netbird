@@ -111,6 +111,7 @@ func (c *ConnectClient) RunOniOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
+	dnsAddresses []netip.AddrPort,
 	stateFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
@@ -120,6 +121,7 @@ func (c *ConnectClient) RunOniOS(
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
+		HostDNSAddresses:      dnsAddresses,
 		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil, "")
