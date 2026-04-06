@@ -350,8 +350,10 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 			verificationURIComplete + " " + codeMsg)
 	}
 
-	if showQR && term.IsTerminal(int(os.Stdout.Fd())) {
-		printQRCode(cmd.OutOrStdout(), verificationURIComplete)
+	if showQR {
+		if f, ok := cmd.OutOrStdout().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+			printQRCode(f, verificationURIComplete)
+		}
 	}
 
 	cmd.Println("")
