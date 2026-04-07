@@ -70,6 +70,7 @@ type Info struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
 
@@ -84,7 +85,7 @@ func (i *Info) SetFlags(
 	rosenpassEnabled, rosenpassPermissive bool,
 	serverSSHAllowed *bool,
 	disableClientRoutes, disableServerRoutes,
-	disableDNS, disableFirewall, blockLANAccess, blockInbound, lazyConnectionEnabled bool,
+	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6, lazyConnectionEnabled bool,
 	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
 	disableSSHAuth *bool,
 ) {
@@ -100,6 +101,7 @@ func (i *Info) SetFlags(
 	i.DisableFirewall = disableFirewall
 	i.BlockLANAccess = blockLANAccess
 	i.BlockInbound = blockInbound
+	i.DisableIPv6 = disableIPv6
 
 	i.LazyConnectionEnabled = lazyConnectionEnabled
 

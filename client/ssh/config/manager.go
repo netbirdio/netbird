@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,7 +92,8 @@ type Manager struct {
 // PeerSSHInfo represents a peer's SSH configuration information
 type PeerSSHInfo struct {
 	Hostname string
-	IP       string
+	IP       netip.Addr
+	IPv6     netip.Addr
 	FQDN     string
 }
 
@@ -211,8 +213,11 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	var hostPatterns []string
-	if peer.IP != "" {
-		hostPatterns = append(hostPatterns, peer.IP)
+	if peer.IP.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IP.String())
+	}
+	if peer.IPv6.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IPv6.String())
 	}
 	if peer.FQDN != "" {
 		hostPatterns = append(hostPatterns, peer.FQDN)

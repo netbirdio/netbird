@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -441,7 +442,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    interfaceName,
-		Address:      ipAddressCIDR,
+		Address:      wgaddr.MustParseWGAddress(ipAddressCIDR),
 		WGPrivKey:    peerPrivateKey.String(),
 		WGPort:       listenPort,
 		MTU:          iface.DefaultMTU,

@@ -173,7 +173,7 @@ func (t *TunKernelDevice) FilteredDevice() *FilteredDevice {
 
 // assignAddr Adds IP address to the tunnel interface
 func (t *TunKernelDevice) assignAddr() error {
-	return t.link.assignAddr(t.address)
+	return t.link.assignAddr(&t.address)
 }
 
 func (t *TunKernelDevice) GetNet() *netstack.Net {

@@ -345,6 +345,7 @@ func (a *Auth) setSystemInfoFlags(info *system.Info) {
 		a.config.DisableFirewall,
 		a.config.BlockLANAccess,
 		a.config.BlockInbound,
+		a.config.DisableIPv6,
 		a.config.LazyConnectionEnabled,
 		a.config.EnableSSHRoot,
 		a.config.EnableSSHSFTP,

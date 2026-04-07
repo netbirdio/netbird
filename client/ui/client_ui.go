@@ -278,6 +278,7 @@ type serviceClient struct {
 	sDisableDNS                 *widget.Check
 	sDisableClientRoutes        *widget.Check
 	sDisableServerRoutes        *widget.Check
+	sDisableIPv6                *widget.Check
 	sBlockLANAccess             *widget.Check
 	sEnableSSHRoot              *widget.Check
 	sEnableSSHSFTP              *widget.Check
@@ -298,6 +299,7 @@ type serviceClient struct {
 	disableDNS                 bool
 	disableClientRoutes        bool
 	disableServerRoutes        bool
+	disableIPv6                bool
 	blockLANAccess             bool
 	enableSSHRoot              bool
 	enableSSHSFTP              bool
@@ -463,6 +465,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableDNS = widget.NewCheck("Keeps system DNS settings unchanged", nil)
 	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
 	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
+	s.sDisableIPv6 = widget.NewCheck("Disable IPv6 overlay addressing", nil)
 	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
 	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
 	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
@@ -580,6 +583,7 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.disableDNS != s.sDisableDNS.Checked ||
 		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.disableIPv6 != s.sDisableIPv6.Checked ||
 		s.blockLANAccess != s.sBlockLANAccess.Checked ||
 		s.hasSSHChanges()
 }
@@ -632,6 +636,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.DisableDns = &s.sDisableDNS.Checked
 	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
 	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.DisableIpv6 = &s.sDisableIPv6.Checked
 	req.BlockLanAccess = &s.sBlockLANAccess.Checked
 
 	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
@@ -671,24 +676,23 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 		return fmt.Errorf("set config: %w", err)
 	}
 
-	// Reconnect if connected to apply the new settings
+	// Reconnect if connected to apply the new settings.
+	// Use a background context so the reconnect outlives the settings window.
 	go func() {
-		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("get service status: %v", err)
+			log.Errorf("failed to get service status: %v", err)
 			return
 		}
 		if status.Status == string(internal.StatusConnected) {
-			// run down & up
-			_, err = conn.Down(s.ctx, &proto.DownRequest{})
-			if err != nil {
-				log.Errorf("down service: %v", err)
+			if _, err = conn.Down(ctx, &proto.DownRequest{}); err != nil {
+				log.Errorf("failed to stop service: %v", err)
 			}
-
-			_, err = conn.Up(s.ctx, &proto.UpRequest{})
-			if err != nil {
-				log.Errorf("up service: %v", err)
-				return
+			// TODO: wait for the service to be idle before calling Up, or use a fresh connection
+			if _, err = conn.Up(ctx, &proto.UpRequest{}); err != nil {
+				log.Errorf("failed to start service: %v", err)
 			}
 		}
 	}()
@@ -725,6 +729,7 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
+			{Text: "Disable IPv6", Widget: s.sDisableIPv6},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
 	}
@@ -1369,6 +1374,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableDNS = cfg.DisableDNS
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
+	s.disableIPv6 = cfg.DisableIPv6
 	s.blockLANAccess = cfg.BlockLANAccess
 
 	if cfg.EnableSSHRoot != nil {
@@ -1409,6 +1415,7 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableDNS.SetChecked(cfg.DisableDNS)
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
+		s.sDisableIPv6.SetChecked(cfg.DisableIPv6)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
 		if cfg.EnableSSHRoot != nil {
 			s.sEnableSSHRoot.SetChecked(*cfg.EnableSSHRoot)
@@ -1496,6 +1503,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableDNS = cfg.DisableDns
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
+	config.DisableIPv6 = cfg.DisableIpv6
 	config.BlockLANAccess = cfg.BlockLanAccess
 
 	config.EnableSSHRoot = &cfg.EnableSSHRoot

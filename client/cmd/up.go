@@ -430,6 +430,10 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.BlockInbound = &blockInbound
 	}
 
+	if cmd.Flag(disableIPv6Flag).Changed {
+		req.DisableIpv6 = &disableIPv6
+	}
+
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		req.LazyConnectionEnabled = &lazyConnEnabled
 	}
@@ -547,6 +551,10 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.BlockInbound = &blockInbound
 	}
 
+	if cmd.Flag(disableIPv6Flag).Changed {
+		ic.DisableIPv6 = &disableIPv6
+	}
+
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
@@ -659,6 +667,10 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(blockInboundFlag).Changed {
 		loginRequest.BlockInbound = &blockInbound
+	}
+
+	if cmd.Flag(disableIPv6Flag).Changed {
+		loginRequest.DisableIpv6 = &disableIPv6
 	}
 
 	if cmd.Flag(enableLazyConnectionFlag).Changed {

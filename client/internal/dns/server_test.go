@@ -347,7 +347,7 @@ func TestUpdateDNSServer(t *testing.T) {
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun230%d", n),
-				Address:      fmt.Sprintf("100.66.100.%d/32", n+1),
+				Address:      wgaddr.MustParseWGAddress(fmt.Sprintf("100.66.100.%d/32", n+1)),
 				WGPort:       33100,
 				WGPrivKey:    privKey.String(),
 				MTU:          iface.DefaultMTU,
@@ -448,7 +448,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	privKey, _ := wgtypes.GeneratePrivateKey()
 	opts := iface.WGIFaceOpts{
 		IFaceName:    "utun2301",
-		Address:      "100.66.100.1/32",
+		Address:      wgaddr.MustParseWGAddress("100.66.100.1/32"),
 		WGPort:       33100,
 		WGPrivKey:    privKey.String(),
 		MTU:          iface.DefaultMTU,
@@ -929,7 +929,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    "utun2301",
-		Address:      "100.66.100.2/24",
+		Address:      wgaddr.MustParseWGAddress("100.66.100.2/24"),
 		WGPort:       33100,
 		WGPrivKey:    privKey.String(),
 		MTU:          iface.DefaultMTU,

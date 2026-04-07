@@ -195,7 +195,7 @@ func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	for _, route := range routes {
-		if route.Range == "0.0.0.0/0" {
+		if route.Range == "0.0.0.0/0" || route.Range == "::/0" {
 			filteredRoutes = append(filteredRoutes, route)
 		}
 	}
@@ -489,7 +489,7 @@ func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.N
 
 	var exitNodes []*proto.Network
 	for _, network := range resp.Routes {
-		if network.Range == "0.0.0.0/0" {
+		if network.Range == "0.0.0.0/0" || network.Range == "::/0" {
 			exitNodes = append(exitNodes, network)
 		}
 	}

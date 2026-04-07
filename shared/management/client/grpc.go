@@ -924,8 +924,22 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			DisableFirewall:     info.DisableFirewall,
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
+			DisableIPv6:         info.DisableIPv6,
 
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
+
+		Capabilities: peerCapabilities(*info),
 	}
+}
+
+// peerCapabilities returns the capabilities this client supports.
+func peerCapabilities(info system.Info) []proto.PeerCapability {
+	caps := []proto.PeerCapability{
+		proto.PeerCapability_PeerCapabilitySourcePrefixes,
+	}
+	if !info.DisableIPv6 {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
+	}
+	return caps
 }

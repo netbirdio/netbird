@@ -77,6 +77,7 @@ type ConfigInput struct {
 	DisableFirewall     *bool
 	BlockLANAccess      *bool
 	BlockInbound        *bool
+	DisableIPv6         *bool
 
 	DisableNotifications *bool
 
@@ -115,6 +116,7 @@ type Config struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	DisableNotifications *bool
 
@@ -527,6 +529,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("allowing inbound connections")
 		}
 		config.BlockInbound = *input.BlockInbound
+		updated = true
+	}
+
+	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
+		if *input.DisableIPv6 {
+			log.Infof("disabling IPv6 overlay")
+		} else {
+			log.Infof("enabling IPv6 overlay")
+		}
+		config.DisableIPv6 = *input.DisableIPv6
 		updated = true
 	}
 

@@ -79,6 +79,8 @@ type Options struct {
 	StatePath string
 	// DisableClientRoutes disables the client routes
 	DisableClientRoutes bool
+	// DisableIPv6 disables IPv6 overlay addressing
+	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
 	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
@@ -170,6 +172,7 @@ func New(opts Options) (*Client, error) {
 		PreSharedKey:        &opts.PreSharedKey,
 		DisableServerRoutes: &t,
 		DisableClientRoutes: &opts.DisableClientRoutes,
+		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,

@@ -71,6 +71,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableNotifications := true
 	lazyConnectionEnabled := true
 	blockInbound := true
+	disableIPv6 := true
 	mtu := int64(1280)
 	sshJWTCacheTTL := int32(300)
 
@@ -95,6 +96,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DisableNotifications:  &disableNotifications,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,
+		DisableIpv6:          &disableIPv6,
 		NatExternalIPs:        []string{"1.2.3.4", "5.6.7.8"},
 		CleanNATExternalIPs:   false,
 		CustomDNSAddress:      []byte("1.1.1.1:53"),
@@ -140,6 +142,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, disableNotifications, *cfg.DisableNotifications)
 	require.Equal(t, lazyConnectionEnabled, cfg.LazyConnectionEnabled)
 	require.Equal(t, blockInbound, cfg.BlockInbound)
+	require.Equal(t, disableIPv6, cfg.DisableIPv6)
 	require.Equal(t, []string{"1.2.3.4", "5.6.7.8"}, cfg.NATExternalIPs)
 	require.Equal(t, "1.1.1.1:53", cfg.CustomDNSAddress)
 	// IFaceBlackList contains defaults + extras
@@ -189,6 +192,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"DisableNotifications":          true,
 		"LazyConnectionEnabled":         true,
 		"BlockInbound":                  true,
+		"DisableIpv6":                   true,
 		"NatExternalIPs":                true,
 		"CustomDNSAddress":              true,
 		"ExtraIFaceBlacklist":           true,
@@ -247,6 +251,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"disable-firewall":                  "DisableFirewall",
 		"block-lan-access":                  "BlockLanAccess",
 		"block-inbound":                     "BlockInbound",
+		"disable-ipv6":                      "DisableIpv6",
 		"enable-lazy-connection":            "LazyConnectionEnabled",
 		"external-ip-map":                   "NatExternalIPs",
 		"dns-resolver-address":              "CustomDNSAddress",
