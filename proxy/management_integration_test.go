@@ -200,7 +200,7 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 // testProxyManager is a mock implementation of proxy.Manager for testing.
 type testProxyManager struct{}
 
-func (m *testProxyManager) Connect(_ context.Context, _, _, _ string) error {
+func (m *testProxyManager) Connect(_ context.Context, _, _, _ string, _ *nbproxy.Capabilities) error {
 	return nil
 }
 
@@ -218,6 +218,14 @@ func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]strin
 
 func (m *testProxyManager) GetActiveClusters(_ context.Context) ([]nbproxy.Cluster, error) {
 	return nil, nil
+}
+
+func (m *testProxyManager) ClusterSupportsCustomPorts(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
 }
 
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
@@ -244,14 +252,6 @@ func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, _, _
 }
 
 func (c *testProxyController) GetProxiesForCluster(_ string) []string {
-	return nil
-}
-
-func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
-	return nil
-}
-
-func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
 	return nil
 }
 

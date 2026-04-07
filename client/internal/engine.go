@@ -504,7 +504,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetClientRoutes() {
+		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
 			for _, r := range routes {
 				if r.Network.Contains(ip) {
 					return true
@@ -1919,6 +1919,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
+}
+
+// IsBlockInbound returns whether inbound connections are blocked.
+func (e *Engine) IsBlockInbound() bool {
+	return e.config.BlockInbound
 }
 
 // GetClientMetrics returns the client metrics

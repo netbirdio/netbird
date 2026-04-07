@@ -184,6 +184,7 @@ type Service struct {
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
+	Terminated        bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
 	Auth              AuthConfig         `gorm:"serializer:json"`
@@ -256,7 +257,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 			Protocol:   api.ServiceTargetProtocol(target.Protocol),
 			TargetId:   target.TargetId,
 			TargetType: api.ServiceTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled,
+			Enabled:    target.Enabled && !s.Terminated,
 		}
 		opts := targetOptionsToAPI(target.Options)
 		if opts == nil {
@@ -286,7 +287,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Name:               s.Name,
 		Domain:             s.Domain,
 		Targets:            apiTargets,
-		Enabled:            s.Enabled,
+		Enabled:            s.Enabled && !s.Terminated,
+		Terminated:         &s.Terminated,
 		PassHostHeader:     &s.PassHostHeader,
 		RewriteRedirects:   &s.RewriteRedirects,
 		Auth:               authConfig,
@@ -785,6 +787,11 @@ func (s *Service) validateHTTPTargets() error {
 }
 
 func (s *Service) validateL4Target(target *Target) error {
+	// L4 services have a single target; per-target disable is meaningless
+	// (use the service-level Enabled flag instead). Force it on so that
+	// buildPathMappings always includes the target in the proto.
+	target.Enabled = true
+
 	if target.Port == 0 {
 		return errors.New("target port is required for L4 services")
 	}
@@ -1125,6 +1132,7 @@ func (s *Service) Copy() *Service {
 		ProxyCluster:      s.ProxyCluster,
 		Targets:           targets,
 		Enabled:           s.Enabled,
+		Terminated:        s.Terminated,
 		PassHostHeader:    s.PassHostHeader,
 		RewriteRedirects:  s.RewriteRedirects,
 		Auth:              authCopy,

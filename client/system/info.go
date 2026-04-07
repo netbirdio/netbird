@@ -155,6 +155,9 @@ func networkAddresses() ([]NetworkAddress, error) {
 
 	var netAddresses []NetworkAddress
 	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
 		if iface.HardwareAddr.String() == "" {
 			continue
 		}
