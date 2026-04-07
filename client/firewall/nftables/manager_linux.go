@@ -143,31 +143,14 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.aclManager.init(workTable); err != nil {
-		if err := m.router.Reset(); err != nil {
-			log.Warnf("rollback router after acl init failure: %v", err)
-		}
-		if err := m.cleanupNetbirdTables(); err != nil {
-			log.Warnf("cleanup tables after acl init failure: %v", err)
-		}
-		if err := m.rConn.Flush(); err != nil {
-			log.Warnf("flush after acl init failure: %v", err)
-		}
+		m.rollbackInit()
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
 	if m.hasIPv6() {
 		if err := m.initIPv6(); err != nil {
 			// Peer has a v6 address: v6 firewall MUST work or we risk fail-open.
-			// Best-effort rollback of already-initialized v4 state.
-			if err := m.router.Reset(); err != nil {
-				log.Warnf("rollback v4 router after v6 init failure: %v", err)
-			}
-			if err := m.cleanupNetbirdTables(); err != nil {
-				log.Warnf("cleanup tables after v6 init failure: %v", err)
-			}
-			if err := m.rConn.Flush(); err != nil {
-				log.Warnf("flush after v6 init failure: %v", err)
-			}
+			m.rollbackInit()
 			return fmt.Errorf("init IPv6 firewall (required because peer has IPv6 address): %w", err)
 		}
 	}
@@ -201,6 +184,19 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}()
 
 	return nil
+}
+
+// rollbackInit performs best-effort cleanup of already-initialized state when Init fails partway through.
+func (m *Manager) rollbackInit() {
+	if err := m.router.Reset(); err != nil {
+		log.Warnf("rollback router: %v", err)
+	}
+	if err := m.cleanupNetbirdTables(); err != nil {
+		log.Warnf("cleanup tables: %v", err)
+	}
+	if err := m.rConn.Flush(); err != nil {
+		log.Warnf("flush: %v", err)
+	}
 }
 
 // AddPeerFiltering rule to the firewall
