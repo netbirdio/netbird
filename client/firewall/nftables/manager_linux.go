@@ -133,6 +133,16 @@ func (m *Manager) initIPv6() error {
 
 // Init nftables firewall manager
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
+	if err := m.initFirewall(); err != nil {
+		return err
+	}
+
+	m.persistState(stateManager)
+
+	return nil
+}
+
+func (m *Manager) initFirewall() error {
 	workTable, err := m.createWorkTable()
 	if err != nil {
 		return fmt.Errorf("create work table: %w", err)
@@ -159,12 +169,16 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Warnf("raw priority chains not available, notrack rules will be disabled: %v", err)
 	}
 
+	return nil
+}
+
+// persistState saves the current interface state for potential recreation on restart.
+// Unlike iptables, which requires tracking individual rules, nftables maintains
+// a known state (our netbird table plus a few static rules). This allows for easy
+// cleanup using Close() without needing to store specific rules.
+func (m *Manager) persistState(stateManager *statemanager.Manager) {
 	stateManager.RegisterState(&ShutdownState{})
 
-	// We only need to record minimal interface state for potential recreation.
-	// Unlike iptables, which requires tracking individual rules, nftables maintains
-	// a known state (our netbird table plus a few static rules). This allows for easy
-	// cleanup using Close() without needing to store specific rules.
 	if err := stateManager.UpdateState(&ShutdownState{
 		InterfaceState: &InterfaceState{
 			NameStr:       m.wgIface.Name(),
@@ -176,14 +190,11 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Errorf("failed to update state: %v", err)
 	}
 
-	// persist early
 	go func() {
 		if err := stateManager.PersistState(context.Background()); err != nil {
 			log.Errorf("failed to persist state: %v", err)
 		}
 	}()
-
-	return nil
 }
 
 // rollbackInit performs best-effort cleanup of already-initialized state when Init fails partway through.
