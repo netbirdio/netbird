@@ -11,9 +11,11 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -141,13 +143,31 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.aclManager.init(workTable); err != nil {
-		// TODO: cleanup router
+		if err := m.router.Reset(); err != nil {
+			log.Warnf("rollback router after acl init failure: %v", err)
+		}
+		if err := m.cleanupNetbirdTables(); err != nil {
+			log.Warnf("cleanup tables after acl init failure: %v", err)
+		}
+		if err := m.rConn.Flush(); err != nil {
+			log.Warnf("flush after acl init failure: %v", err)
+		}
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
 	if m.hasIPv6() {
 		if err := m.initIPv6(); err != nil {
 			// Peer has a v6 address: v6 firewall MUST work or we risk fail-open.
+			// Best-effort rollback of already-initialized v4 state.
+			if err := m.router.Reset(); err != nil {
+				log.Warnf("rollback v4 router after v6 init failure: %v", err)
+			}
+			if err := m.cleanupNetbirdTables(); err != nil {
+				log.Warnf("cleanup tables after v6 init failure: %v", err)
+			}
+			if err := m.rConn.Flush(); err != nil {
+				log.Warnf("flush after v6 init failure: %v", err)
+			}
 			return fmt.Errorf("init IPv6 firewall (required because peer has IPv6 address): %w", err)
 		}
 	}
@@ -378,29 +398,31 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	var merr *multierror.Error
+
 	if err := m.router.Reset(); err != nil {
-		return fmt.Errorf("reset router: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("reset router: %v", err))
 	}
 
 	if m.hasIPv6() {
 		if err := m.router6.Reset(); err != nil {
-			return fmt.Errorf("reset v6 router: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("reset v6 router: %v", err))
 		}
 	}
 
 	if err := m.cleanupNetbirdTables(); err != nil {
-		return fmt.Errorf("cleanup netbird tables: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("cleanup netbird tables: %v", err))
 	}
 
 	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf(flushError, err)
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
 	}
 
 	if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
-		return fmt.Errorf("delete state: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("delete state: %v", err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (m *Manager) cleanupNetbirdTables() error {
