@@ -84,6 +84,12 @@ func setupTestAccount() *Account {
 			},
 		},
 		Groups: map[string]*Group{
+			"groupAll": {
+				ID:    "groupAll",
+				Name:  "All",
+				Peers: []string{"peer1", "peer2", "peer3", "peer11", "peer12", "peer21", "peer31", "peer32", "peer41", "peer51", "peer61"},
+				Issued: GroupIssuedAPI,
+			},
 			"group1": {
 				ID:    "group1",
 				Peers: []string{"peer11", "peer12"},
