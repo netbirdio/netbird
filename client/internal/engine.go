@@ -28,11 +28,10 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -63,6 +62,7 @@ import (
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
@@ -1263,7 +1263,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)
+	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address())
 
 	if err := e.dnsServer.UpdateDNSServer(serial, dnsConfig); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
@@ -1418,7 +1418,9 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 	return entries
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, addr wgaddr.Address) nbdns.Config {
+	network := addr.Network
+	networkV6 := addr.IPv6Net
 	//nolint
 	forwarderPort := uint16(protoDNSConfig.GetForwarderPort())
 	if forwarderPort == 0 {
@@ -1475,6 +1477,9 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 
 	if len(dnsUpdate.CustomZones) > 0 {
 		addReverseZone(&dnsUpdate, network)
+		if networkV6.IsValid() {
+			addReverseZone(&dnsUpdate, networkV6)
+		}
 	}
 
 	return dnsUpdate
@@ -1800,7 +1805,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		return nil, nil, false, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address())
 	dnsFeatureFlag := toDNSFeatureFlag(netMap)
 	return routes, &dnsCfg, dnsFeatureFlag, nil
 }

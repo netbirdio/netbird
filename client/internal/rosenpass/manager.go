@@ -75,7 +75,7 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		if err != nil {
 			return fmt.Errorf("failed to parse rosenpass address: %w", err)
 		}
-		peerAddr := fmt.Sprintf("%s:%s", wireGuardIP, strPort)
+		peerAddr := net.JoinHostPort(wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
