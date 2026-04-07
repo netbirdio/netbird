@@ -42,7 +42,7 @@ require (
 	github.com/coreos/go-iptables v0.7.0
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/creack/pty v1.1.24
-	github.com/crowdsecurity/crowdsec v1.7.7-rc1
+	github.com/crowdsecurity/crowdsec v1.7.7
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
 	github.com/dexidp/dex v0.0.0-00010101000000-000000000000
 	github.com/dexidp/dex/api/v2 v2.4.0

@@ -122,8 +122,8 @@ github.com/cpuguy83/dockercfg v0.3.2/go.mod h1:sugsbF4//dDlL/i+S+rtpIWp+5h0BHJHf
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/creack/pty v1.1.24 h1:bJrF4RRfyJnbTJqzRLHzcGaZK1NeM5kTC9jGgovnR1s=
 github.com/creack/pty v1.1.24/go.mod h1:08sCNb52WyoAwi2QDyzUCTgcvVFhUzewun7wtTfvcwE=
-github.com/crowdsecurity/crowdsec v1.7.7-rc1 h1:py4hn/rgghJX8AqHGGhqH+T0NN0WTB/wD0gl4WgHZlY=
-github.com/crowdsecurity/crowdsec v1.7.7-rc1/go.mod h1:L1HLGPDnBYCcY+yfSFnuBbQ1G9DHEJN9c+Kevv9F+4Q=
+github.com/crowdsecurity/crowdsec v1.7.7 h1:sduZN763iXsrZodocWDrsR//7nLeffGu+RVkkIsbQkE=
+github.com/crowdsecurity/crowdsec v1.7.7/go.mod h1:L1HLGPDnBYCcY+yfSFnuBbQ1G9DHEJN9c+Kevv9F+4Q=
 github.com/crowdsecurity/go-cs-bouncer v0.0.21 h1:arPz0VtdVSaz+auOSfHythzkZVLyy18CzYvYab8UJDU=
 github.com/crowdsecurity/go-cs-bouncer v0.0.21/go.mod h1:4JiH0XXA4KKnnWThItUpe5+heJHWzsLOSA2IWJqUDBA=
 github.com/crowdsecurity/go-cs-lib v0.0.25 h1:Ov6VPW9yV+OPsbAIQk1iTkEWhwkpaG0v3lrBzeqjzj4=
