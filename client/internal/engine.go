@@ -1837,6 +1837,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	return e.exposeManager
 }
 
+// IsBlockInbound returns whether inbound connections are blocked.
+func (e *Engine) IsBlockInbound() bool {
+	return e.config.BlockInbound
+}
+
 // GetClientMetrics returns the client metrics
 func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
