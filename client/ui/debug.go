@@ -24,9 +24,10 @@ import (
 
 // Initial state for the debug collection
 type debugInitialState struct {
-	wasDown      bool
-	logLevel     proto.LogLevel
-	isLevelTrace bool
+	wasDown        bool
+	needsRestoreUp bool
+	logLevel       proto.LogLevel
+	isLevelTrace   bool
 }
 
 // Debug collection parameters
@@ -392,6 +393,7 @@ func (s *serviceClient) configureServiceForDebug(
 	if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
 		log.Warnf("failed to bring service down: %v", err)
 	} else {
+		state.needsRestoreUp = !state.wasDown
 		time.Sleep(time.Second)
 	}
 
@@ -408,6 +410,7 @@ func (s *serviceClient) configureServiceForDebug(
 	if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		log.Warnf("failed to bring service back up: %v", err)
 	} else {
+		state.needsRestoreUp = false
 		time.Sleep(time.Second * 3)
 	}
 
@@ -483,6 +486,14 @@ func (s *serviceClient) createDebugBundleFromCollection(
 
 // Restore service to original state
 func (s *serviceClient) restoreServiceState(conn proto.DaemonServiceClient, state *debugInitialState) {
+	if state.needsRestoreUp {
+		if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
+			log.Warnf("failed to restore up state: %v", err)
+		} else {
+			log.Info("Service state restored to up")
+		}
+	}
+
 	if state.wasDown {
 		if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
 			log.Warnf("failed to restore down state: %v", err)
