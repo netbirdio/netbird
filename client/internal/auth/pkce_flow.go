@@ -38,6 +38,8 @@ const (
 type PKCEAuthProviderConfig struct {
 	// ClientID An IDP application client id
 	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
 	// Audience An Audience for to authorization validation
 	Audience string
 	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
@@ -109,7 +111,8 @@ func NewPKCEAuthorizationFlow(config PKCEAuthProviderConfig) (*PKCEAuthorization
 	}
 
 	cfg := &oauth2.Config{
-		ClientID: config.ClientID,
+		ClientID:     config.ClientID,
+		ClientSecret: config.ClientSecret,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  config.AuthorizationEndpoint,
 			TokenURL: config.TokenEndpoint,

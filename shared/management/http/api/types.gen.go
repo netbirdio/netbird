@@ -1522,6 +1522,9 @@ type AzureIntegration struct {
 	// ClientId Azure AD application (client) ID
 	ClientId string `json:"client_id"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
@@ -1662,6 +1665,9 @@ type CreateAzureIntegrationRequest struct {
 	// ClientSecret Base64-encoded Azure AD client secret
 	ClientSecret string `json:"client_secret"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1683,6 +1689,9 @@ type CreateAzureIntegrationRequestHost string
 
 // CreateGoogleIntegrationRequest defines model for CreateGoogleIntegrationRequest.
 type CreateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace Account Settings
 	CustomerId string `json:"customer_id"`
 
@@ -1719,6 +1728,9 @@ type CreateOktaScimIntegrationRequest struct {
 	// ConnectionName The Okta enterprise connection name on Auth0
 	ConnectionName string `json:"connection_name"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1728,6 +1740,9 @@ type CreateOktaScimIntegrationRequest struct {
 
 // CreateScimIntegrationRequest defines model for CreateScimIntegrationRequest.
 type CreateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -2184,6 +2199,9 @@ type GetTenantsResponse = []TenantResponse
 
 // GoogleIntegration defines model for GoogleIntegration.
 type GoogleIntegration struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace
 	CustomerId string `json:"customer_id"`
 
@@ -2532,6 +2550,9 @@ type IntegrationResponsePlatform string
 
 // IntegrationSyncFilters defines model for IntegrationSyncFilters.
 type IntegrationSyncFilters struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -3023,6 +3044,9 @@ type OSVersionCheck struct {
 type OktaScimIntegration struct {
 	// AuthToken SCIM API token (full on creation/regeneration, masked on retrieval)
 	AuthToken string `json:"auth_token"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
 
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
@@ -3900,6 +3924,9 @@ type ScimIntegration struct {
 	// AuthToken SCIM API token (full on creation, masked otherwise)
 	AuthToken string `json:"auth_token"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
@@ -4377,6 +4404,9 @@ type UpdateAzureIntegrationRequest struct {
 	// ClientSecret Base64-encoded Azure AD client secret
 	ClientSecret *string `json:"client_secret,omitempty"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -4395,6 +4425,9 @@ type UpdateAzureIntegrationRequest struct {
 
 // UpdateGoogleIntegrationRequest defines model for UpdateGoogleIntegrationRequest.
 type UpdateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace Account Settings
 	CustomerId *string `json:"customer_id,omitempty"`
 
@@ -4416,6 +4449,9 @@ type UpdateGoogleIntegrationRequest struct {
 
 // UpdateOktaScimIntegrationRequest defines model for UpdateOktaScimIntegrationRequest.
 type UpdateOktaScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -4428,6 +4464,9 @@ type UpdateOktaScimIntegrationRequest struct {
 
 // UpdateScimIntegrationRequest defines model for UpdateScimIntegrationRequest.
 type UpdateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 

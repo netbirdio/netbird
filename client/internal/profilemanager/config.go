@@ -41,7 +41,7 @@ const (
 
 // mgmProber is the subset of management client needed for URL migration probes.
 type mgmProber interface {
-	GetServerPublicKey() (*wgtypes.Key, error)
+	HealthCheck() error
 	Close() error
 }
 
@@ -777,8 +777,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 	}()
 
 	// gRPC check
-	_, err = client.GetServerPublicKey()
-	if err != nil {
+	if err = client.HealthCheck(); err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return nil, err
 	}

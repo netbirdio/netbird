@@ -52,7 +52,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 	groupName := r.URL.Query().Get("name")
 	if groupName != "" {
 		// Get single group by name
-		group, err := h.accountManager.GetGroupByName(r.Context(), groupName, accountID)
+		group, err := h.accountManager.GetGroupByName(r.Context(), groupName, accountID, userID)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
@@ -118,7 +118,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID)
+	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

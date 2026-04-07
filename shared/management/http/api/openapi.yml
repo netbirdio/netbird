@@ -4438,6 +4438,9 @@ components:
           items:
             type: string
           example: [ "Users" ]
+        connector_id:
+          type: string
+          description: DEX connector ID for embedded IDP setups
     IntegrationEnabled:
       type: object
       properties:

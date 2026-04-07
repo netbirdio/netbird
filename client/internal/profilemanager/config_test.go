@@ -17,12 +17,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-type mockMgmProber struct {
-	key wgtypes.Key
-}
+type mockMgmProber struct{}
 
-func (m *mockMgmProber) GetServerPublicKey() (*wgtypes.Key, error) {
-	return &m.key, nil
+func (m *mockMgmProber) HealthCheck() error {
+	return nil
 }
 
 func (m *mockMgmProber) Close() error { return nil }
@@ -247,11 +245,7 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 func TestUpdateOldManagementURL(t *testing.T) {
 	origProber := newMgmProber
 	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
-		key, err := wgtypes.GenerateKey()
-		if err != nil {
-			return nil, err
-		}
-		return &mockMgmProber{key: key.PublicKey()}, nil
+		return &mockMgmProber{}, nil
 	}
 	t.Cleanup(func() { newMgmProber = origProber })
 

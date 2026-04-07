@@ -617,12 +617,6 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
-
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
-	}
-
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -641,12 +635,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
-	if err != nil {
-		return nil, err
-	}
-
-	return loginResp, nil
+	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
