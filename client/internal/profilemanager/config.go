@@ -41,7 +41,7 @@ const (
 
 // mgmProber is the subset of management client needed for URL migration probes.
 type mgmProber interface {
-	GetServerPublicKey() (*wgtypes.Key, error)
+	HealthCheck() error
 	Close() error
 }
 
