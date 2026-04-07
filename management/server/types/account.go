@@ -913,6 +913,11 @@ func (a *Account) Copy() *Account {
 		services = append(services, svc.Copy())
 	}
 
+	domains := []*proxydomain.Domain{}
+	for _, domain := range a.Domains {
+		domains = append(domains, domain.Copy())
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -938,6 +943,7 @@ func (a *Account) Copy() *Account {
 		Onboarding:             a.Onboarding,
 		NetworkMapCache:        a.NetworkMapCache,
 		nmapInitOnce:           a.nmapInitOnce,
+		Domains:                domains,
 	}
 }
 
