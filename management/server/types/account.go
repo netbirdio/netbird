@@ -18,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
+	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -101,6 +102,7 @@ type Account struct {
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	Services               []*service.Service                `gorm:"foreignKey:AccountID;references:id"`
+	Domains                []*proxydomain.Domain             `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings         *Settings                        `gorm:"embedded;embeddedPrefix:settings_"`
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`

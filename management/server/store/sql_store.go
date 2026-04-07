@@ -396,6 +396,11 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
+		result = tx.Select(clause.Associations).Delete(account.Services, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
 		result = tx.Select(clause.Associations).Delete(account)
 		if result.Error != nil {
 			return result.Error
