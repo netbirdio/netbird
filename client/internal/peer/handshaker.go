@@ -228,6 +228,9 @@ func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
 			h.log.Infof("remote peer started sending ICE credentials")
 		} else {
 			h.log.Infof("remote peer stopped sending ICE credentials")
+			if h.ice != nil {
+				h.ice.Close()
+			}
 		}
 	}
 }
