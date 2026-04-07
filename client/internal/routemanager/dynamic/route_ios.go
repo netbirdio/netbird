@@ -26,6 +26,7 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	startTime := time.Now()
 
 	var ips []net.IP
+	var queryErr error
 
 	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
 		msg := new(dns.Msg)
@@ -33,7 +34,10 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 
 		response, _, err := nbdns.ExchangeWithFallback(nil, privateClient, msg, r.resolverAddr.String())
 		if err != nil {
-			return nil, fmt.Errorf("DNS query for %s (type %d) after %s: %s", domain.SafeString(), qtype, time.Since(startTime), err)
+			if queryErr == nil {
+				queryErr = fmt.Errorf("DNS query for %s (type %d) after %s: %w", domain.SafeString(), qtype, time.Since(startTime), err)
+			}
+			continue
 		}
 
 		if response.Rcode != dns.RcodeSuccess {
@@ -51,6 +55,9 @@ func (r *Route) getIPsFromResolver(domain domain.Domain) ([]net.IP, error) {
 	}
 
 	if len(ips) == 0 {
+		if queryErr != nil {
+			return nil, queryErr
+		}
 		return nil, fmt.Errorf("no A or AAAA records found for %s", domain.SafeString())
 	}
 
