@@ -183,15 +183,18 @@ func (h *Handshaker) sendAnswer() error {
 }
 
 func (h *Handshaker) buildOfferAnswer() OfferAnswer {
-	uFrag, pwd := h.ice.GetLocalUserCredentials()
-	sid := h.ice.SessionID()
 	answer := OfferAnswer{
-		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
 		RosenpassAddr:   h.config.RosenpassConfig.Addr,
-		SessionID:       &sid,
+	}
+
+	if h.ice != nil {
+		uFrag, pwd := h.ice.GetLocalUserCredentials()
+		sid := h.ice.SessionID()
+		answer.IceCredentials = IceCredentials{uFrag, pwd}
+		answer.SessionID = &sid
 	}
 
 	if addr, err := h.relay.RelayInstanceAddress(); err == nil {

@@ -181,17 +181,20 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
-	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
-	if err != nil {
-		return err
+	forceRelay := IsForceRelayed()
+	if !forceRelay {
+		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
+		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
+		if err != nil {
+			return err
+		}
+		conn.workerICE = workerICE
 	}
-	conn.workerICE = workerICE
 
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !isForceRelayed() {
+	if !forceRelay {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
@@ -247,7 +250,9 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgWatcherCancel()
 	}
 	conn.workerRelay.CloseConn()
-	conn.workerICE.Close()
+	if conn.workerICE != nil {
+		conn.workerICE.Close()
+	}
 
 	if conn.wgProxyRelay != nil {
 		err := conn.wgProxyRelay.CloseConn()
@@ -290,7 +295,9 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) {
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	conn.dumpState.RemoteCandidate()
-	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
+	if conn.workerICE != nil {
+		conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
+	}
 }
 
 // SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
@@ -717,12 +724,15 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		}
 	}()
 
-	// For JS platform: only relay connection is supported
-	if runtime.GOOS == "js" {
+	// For force-relayed connections (JS or NB_FORCE_RELAY): only relay status matters
+	if IsForceRelayed() {
+		if !conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+			return false
+		}
 		return conn.statusRelay.Get() == worker.StatusConnected
 	}
 
-	// For non-JS platforms: check ICE connection status
+	// For non-forced platforms: check ICE connection status
 	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false
 	}
