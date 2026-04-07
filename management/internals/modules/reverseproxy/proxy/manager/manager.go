@@ -16,6 +16,8 @@ type store interface {
 	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 }
 
@@ -38,9 +40,14 @@ func NewManager(store store, meter metric.Meter) (*Manager, error) {
 	}, nil
 }
 
-// Connect registers a new proxy connection in the database
-func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+// Connect registers a new proxy connection in the database.
+// capabilities may be nil for old proxies that do not report them.
+func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string, capabilities *proxy.Capabilities) error {
 	now := time.Now()
+	var caps proxy.Capabilities
+	if capabilities != nil {
+		caps = *capabilities
+	}
 	p := &proxy.Proxy{
 		ID:             proxyID,
 		ClusterAddress: clusterAddress,
@@ -48,6 +55,7 @@ func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress
 		LastSeen:       now,
 		ConnectedAt:    &now,
 		Status:         "connected",
+		Capabilities:   caps,
 	}
 
 	if err := m.store.SaveProxy(ctx, p); err != nil {
@@ -116,6 +124,18 @@ func (m Manager) GetActiveClusters(ctx context.Context) ([]proxy.Cluster, error)
 		return nil, err
 	}
 	return clusters, nil
+}
+
+// ClusterSupportsCustomPorts returns whether any active proxy in the cluster
+// supports custom ports. Returns nil when no proxy has reported capabilities.
+func (m Manager) ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterSupportsCustomPorts(ctx, clusterAddr)
+}
+
+// ClusterRequireSubdomain returns whether any active proxy in the cluster
+// requires a subdomain. Returns nil when no proxy has reported capabilities.
+func (m Manager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterRequireSubdomain(ctx, clusterAddr)
 }
 
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration
