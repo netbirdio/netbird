@@ -206,7 +206,7 @@ func (c *Client) PeersList() *PeerInfoArray {
 			IP:         p.IP,
 			IPv6:       p.IPv6,
 			FQDN:       p.FQDN,
-			ConnStatus: p.ConnStatus.String(),
+			ConnStatus: int(p.ConnStatus),
 			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
 		peerInfos[n] = pi

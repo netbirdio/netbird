@@ -406,8 +406,10 @@ func TestNftablesManagerIPv6CompatibilityWithIp6tables(t *testing.T) {
 		t.Skip("nftables not supported on this system")
 	}
 
-	if _, err := exec.LookPath("ip6tables-save"); err != nil {
-		t.Skipf("ip6tables-save not available on this system: %v", err)
+	for _, bin := range []string{"ip6tables", "ip6tables-save", "iptables-save"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available on this system: %v", bin, err)
+		}
 	}
 
 	// Seed ip6 tables in the nft backend. Docker may not create them.

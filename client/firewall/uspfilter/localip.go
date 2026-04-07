@@ -88,6 +88,8 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 	if err != nil {
 		log.Warnf("failed to get interfaces: %v", err)
 	} else {
+		// TODO: filter out down interfaces (net.FlagUp). Also handle the reverse
+		// case where an interface comes up between refreshes.
 		for _, intf := range interfaces {
 			processInterface(intf, ips, &addresses)
 		}

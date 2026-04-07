@@ -11,9 +11,11 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -131,6 +133,16 @@ func (m *Manager) initIPv6() error {
 
 // Init nftables firewall manager
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
+	if err := m.initFirewall(); err != nil {
+		return err
+	}
+
+	m.persistState(stateManager)
+
+	return nil
+}
+
+func (m *Manager) initFirewall() error {
 	workTable, err := m.createWorkTable()
 	if err != nil {
 		return fmt.Errorf("create work table: %w", err)
@@ -141,13 +153,14 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.aclManager.init(workTable); err != nil {
-		// TODO: cleanup router
+		m.rollbackInit()
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
 	if m.hasIPv6() {
 		if err := m.initIPv6(); err != nil {
 			// Peer has a v6 address: v6 firewall MUST work or we risk fail-open.
+			m.rollbackInit()
 			return fmt.Errorf("init IPv6 firewall (required because peer has IPv6 address): %w", err)
 		}
 	}
@@ -156,12 +169,16 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Warnf("raw priority chains not available, notrack rules will be disabled: %v", err)
 	}
 
+	return nil
+}
+
+// persistState saves the current interface state for potential recreation on restart.
+// Unlike iptables, which requires tracking individual rules, nftables maintains
+// a known state (our netbird table plus a few static rules). This allows for easy
+// cleanup using Close() without needing to store specific rules.
+func (m *Manager) persistState(stateManager *statemanager.Manager) {
 	stateManager.RegisterState(&ShutdownState{})
 
-	// We only need to record minimal interface state for potential recreation.
-	// Unlike iptables, which requires tracking individual rules, nftables maintains
-	// a known state (our netbird table plus a few static rules). This allows for easy
-	// cleanup using Close() without needing to store specific rules.
 	if err := stateManager.UpdateState(&ShutdownState{
 		InterfaceState: &InterfaceState{
 			NameStr:       m.wgIface.Name(),
@@ -173,14 +190,24 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Errorf("failed to update state: %v", err)
 	}
 
-	// persist early
 	go func() {
 		if err := stateManager.PersistState(context.Background()); err != nil {
 			log.Errorf("failed to persist state: %v", err)
 		}
 	}()
+}
 
-	return nil
+// rollbackInit performs best-effort cleanup of already-initialized state when Init fails partway through.
+func (m *Manager) rollbackInit() {
+	if err := m.router.Reset(); err != nil {
+		log.Warnf("rollback router: %v", err)
+	}
+	if err := m.cleanupNetbirdTables(); err != nil {
+		log.Warnf("cleanup tables: %v", err)
+	}
+	if err := m.rConn.Flush(); err != nil {
+		log.Warnf("flush: %v", err)
+	}
 }
 
 // AddPeerFiltering rule to the firewall
@@ -378,29 +405,31 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	var merr *multierror.Error
+
 	if err := m.router.Reset(); err != nil {
-		return fmt.Errorf("reset router: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("reset router: %v", err))
 	}
 
 	if m.hasIPv6() {
 		if err := m.router6.Reset(); err != nil {
-			return fmt.Errorf("reset v6 router: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("reset v6 router: %v", err))
 		}
 	}
 
 	if err := m.cleanupNetbirdTables(); err != nil {
-		return fmt.Errorf("cleanup netbird tables: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("cleanup netbird tables: %v", err))
 	}
 
 	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf(flushError, err)
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
 	}
 
 	if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
-		return fmt.Errorf("delete state: %v", err)
+		merr = multierror.Append(merr, fmt.Errorf("delete state: %v", err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (m *Manager) cleanupNetbirdTables() error {
