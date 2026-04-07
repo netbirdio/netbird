@@ -33,13 +33,13 @@ var (
 	ErrConfigNotInitialized = errors.New("config not initialized")
 )
 
-// PeerConnStatus is a peer's connection status.
-type PeerConnStatus = peer.ConnStatus
-
 const (
 	// PeerStatusConnected indicates the peer is in connected state.
 	PeerStatusConnected = peer.StatusConnected
 )
+
+// PeerConnStatus is a peer's connection status.
+type PeerConnStatus = peer.ConnStatus
 
 // Client manages a netbird embedded client instance.
 type Client struct {
@@ -373,6 +373,32 @@ func (c *Client) NewHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: transport,
 	}
+}
+
+// Expose exposes a local service via the NetBird reverse proxy, making it accessible through a public URL.
+// It returns an ExposeSession. Call Wait on the session to keep it alive.
+func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("expose manager not available")
+	}
+
+	resp, err := mgr.Expose(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("expose: %w", err)
+	}
+
+	return &ExposeSession{
+		Domain:      resp.Domain,
+		ServiceName: resp.ServiceName,
+		ServiceURL:  resp.ServiceURL,
+		mgr:         mgr,
+	}, nil
 }
 
 // Status returns the current status of the client.

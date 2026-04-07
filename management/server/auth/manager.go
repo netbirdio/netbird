@@ -33,15 +33,20 @@ type manager struct {
 	extractor *nbjwt.ClaimsExtractor
 }
 
-func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool) Manager {
-	// @note if invalid/missing parameters are sent the validator will instantiate
-	// but it will fail when validating and parsing the token
-	jwtValidator := nbjwt.NewValidator(
-		issuer,
-		allAudiences,
-		keysLocation,
-		idpRefreshKeys,
-	)
+func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool, keyFetcher nbjwt.KeyFetcher) Manager {
+	var jwtValidator *nbjwt.Validator
+	if keyFetcher != nil {
+		jwtValidator = nbjwt.NewValidatorWithKeyFetcher(issuer, allAudiences, keyFetcher)
+	} else {
+		// @note if invalid/missing parameters are sent the validator will instantiate
+		// but it will fail when validating and parsing the token
+		jwtValidator = nbjwt.NewValidator(
+			issuer,
+			allAudiences,
+			keysLocation,
+			idpRefreshKeys,
+		)
+	}
 
 	claimsExtractor := nbjwt.NewClaimsExtractor(
 		nbjwt.WithAudience(audience),

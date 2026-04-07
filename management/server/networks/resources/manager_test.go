@@ -7,13 +7,11 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	reverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
@@ -27,41 +25,17 @@ func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
 	require.NoError(t, err)
 	require.Len(t, resources, 2)
 }
 
-func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	accountID := "testAccountId"
-	userID := "testUserId"
-	networkID := "testNetworkId"
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	resources, err := manager.GetAllResourcesInNetwork(ctx, accountID, userID, networkID)
-	require.Error(t, err)
-	require.Equal(t, status.NewPermissionDeniedError(), err)
-	require.Nil(t, resources)
-}
 func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
@@ -72,39 +46,15 @@ func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
 	require.NoError(t, err)
 	require.Len(t, resources, 2)
-}
-
-func Test_GetAllResourcesInAccountReturnsPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	accountID := "testAccountId"
-	userID := "testUserId"
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	resources, err := manager.GetAllResourcesInAccount(ctx, accountID, userID)
-	require.Error(t, err)
-	require.Equal(t, status.NewPermissionDeniedError(), err)
-	require.Nil(t, resources)
 }
 
 func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
@@ -119,41 +69,15 @@ func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	resource, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
 	require.Equal(t, resourceID, resource.ID)
-}
-
-func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	accountID := "testAccountId"
-	userID := "testUserId"
-	networkID := "testNetworkId"
-	resourceID := "testResourceId"
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	resources, err := manager.GetResource(ctx, accountID, userID, networkID, resourceID)
-	require.Error(t, err)
-	require.Equal(t, status.NewPermissionDeniedError(), err)
-	require.Nil(t, resources)
 }
 
 func Test_CreateResourceSuccessfully(t *testing.T) {
@@ -172,46 +96,16 @@ func Test_CreateResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
 	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), resource.AccountID).Return(nil).AnyTimes()
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.NoError(t, err)
 	require.Equal(t, resource.Name, createdResource.Name)
-}
-
-func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	userID := "testUserId"
-	resource := &types.NetworkResource{
-		AccountID:   "testAccountId",
-		NetworkID:   "testNetworkId",
-		Name:        "testResourceId",
-		Description: "description",
-		Address:     "192.168.1.1",
-	}
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	createdResource, err := manager.CreateResource(ctx, userID, resource)
-	require.Error(t, err)
-	require.Equal(t, status.NewPermissionDeniedError(), err)
-	require.Nil(t, createdResource)
 }
 
 func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
@@ -230,12 +124,11 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -258,12 +151,11 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	createdResource, err := manager.CreateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -290,13 +182,12 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
 	serviceManager.EXPECT().ReloadAllServicesForAccount(gomock.Any(), accountID).Return(nil).AnyTimes()
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.NoError(t, err)
@@ -325,12 +216,11 @@ func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -357,43 +247,11 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
-	require.Error(t, err)
-	require.Nil(t, updatedResource)
-}
-
-func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	accountID := "testAccountId"
-	userID := "testUserId"
-	networkID := "testNetworkId"
-	resourceID := "testResourceId"
-	resource := &types.NetworkResource{
-		AccountID:   accountID,
-		NetworkID:   networkID,
-		Name:        resourceID,
-		Description: "new-description",
-		Address:     "1.2.3.0/24",
-	}
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	updatedResource, err := manager.UpdateResource(ctx, userID, resource)
 	require.Error(t, err)
@@ -412,37 +270,13 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	ctrl := gomock.NewController(t)
 	serviceManager := reverseproxy.NewMockManager(ctrl)
 	serviceManager.EXPECT().GetServiceIDByTargetID(gomock.Any(), accountID, resourceID).Return("", nil).AnyTimes()
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
+	manager := NewManager(store, groupsManager, &am, serviceManager)
 
 	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
 	require.NoError(t, err)
-}
-
-func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-	accountID := "testAccountId"
-	userID := "testUserId"
-	networkID := "testNetworkId"
-	resourceID := "testResourceId"
-
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManager(store)
-	am := mock_server.MockAccountManager{}
-	groupsManager := groups.NewManagerMock()
-	ctrl := gomock.NewController(t)
-	serviceManager := reverseproxy.NewMockManager(ctrl)
-	manager := NewManager(store, permissionsManager, groupsManager, &am, serviceManager)
-
-	err = manager.DeleteResource(ctx, accountID, userID, networkID, resourceID)
-	require.Error(t, err)
 }

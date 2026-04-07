@@ -3139,7 +3139,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
-	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, proxyController, nil))
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, proxyController, proxyManager, nil))
 
 	return manager, updateManager, nil
 }

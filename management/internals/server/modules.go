@@ -117,9 +117,11 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
 		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
-		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
+		if embeddedEnabled {
 			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP service: %v", err)
@@ -165,19 +167,19 @@ func (s *BaseServer) GroupsManager() groups.Manager {
 
 func (s *BaseServer) ResourcesManager() resources.Manager {
 	return Create(s, func() resources.Manager {
-		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ServiceManager())
+		return resources.NewManager(s.Store(), s.GroupsManager(), s.AccountManager(), s.ServiceManager())
 	})
 }
 
 func (s *BaseServer) RoutesManager() routers.Manager {
 	return Create(s, func() routers.Manager {
-		return routers.NewManager(s.Store(), s.PermissionsManager(), s.AccountManager())
+		return routers.NewManager(s.Store(), s.AccountManager())
 	})
 }
 
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
-		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+		return networks.NewManager(s.Store(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
 	})
 }
 
@@ -195,7 +197,7 @@ func (s *BaseServer) RecordsManager() records.Manager {
 
 func (s *BaseServer) ServiceManager() service.Manager {
 	return Create(s, func() service.Manager {
-		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.ServiceProxyController(), s.ReverseProxyDomainManager())
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
 	})
 }
 
@@ -212,9 +214,6 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.AccountManager())
-		s.AfterInit(func(s *BaseServer) {
-			m.SetClusterCapabilities(s.ServiceProxyController())
-		})
 		return &m
 	})
 }

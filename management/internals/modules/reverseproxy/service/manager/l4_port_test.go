@@ -74,24 +74,27 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	require.NoError(t, err)
 
 	mockCtrl := proxy.NewMockController(ctrl)
-	mockCtrl.EXPECT().ClusterSupportsCustomPorts(gomock.Any()).Return(customPortsSupported).AnyTimes()
-	mockCtrl.EXPECT().ClusterRequireSubdomain(gomock.Any()).Return((*bool)(nil)).AnyTimes()
 	mockCtrl.EXPECT().SendServiceUpdateToCluster(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	mockCtrl.EXPECT().GetOIDCValidationConfig().Return(proxy.OIDCValidationConfig{}).AnyTimes()
+
+	mockCaps := proxy.NewMockManager(ctrl)
+	mockCaps.EXPECT().ClusterSupportsCustomPorts(gomock.Any(), testCluster).Return(customPortsSupported).AnyTimes()
+	mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), testCluster).Return((*bool)(nil)).AnyTimes()
 
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
-		GetGroupByNameFunc: func(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID string) (*types.Group, error) {
+			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
 
 	mgr := &Manager{
-		store:          testStore,
-		accountManager: accountMgr,
+		store:           testStore,
+		accountManager:  accountMgr,
 		proxyController: mockCtrl,
-		clusterDeriver: &testClusterDeriver{domains: []string{"test.netbird.io"}},
+		capabilities:    mockCaps,
+		clusterDeriver:  &testClusterDeriver{domains: []string{"test.netbird.io"}},
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 

@@ -27,19 +27,15 @@ type store interface {
 
 type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
-}
-
-type clusterCapabilities interface {
-	ClusterSupportsCustomPorts(clusterAddr string) *bool
-	ClusterRequireSubdomain(clusterAddr string) *bool
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
-	store               store
-	validator           domain.Validator
-	proxyManager        proxyManager
-	clusterCapabilities clusterCapabilities
-	accountManager      account.Manager
+	store          store
+	validator      domain.Validator
+	proxyManager   proxyManager
+	accountManager account.Manager
 }
 
 func NewManager(store store, proxyMgr proxyManager, accountManager account.Manager) Manager {
@@ -49,11 +45,6 @@ func NewManager(store store, proxyMgr proxyManager, accountManager account.Manag
 		validator:      domain.Validator{Resolver: net.DefaultResolver},
 		accountManager: accountManager,
 	}
-}
-
-// SetClusterCapabilities sets the cluster capabilities provider for domain queries.
-func (m *Manager) SetClusterCapabilities(caps clusterCapabilities) {
-	m.clusterCapabilities = caps
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
@@ -83,10 +74,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 			Type:      domain.TypeFree,
 			Validated: true,
 		}
-		if m.clusterCapabilities != nil {
-			d.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(cluster)
-			d.RequireSubdomain = m.clusterCapabilities.ClusterRequireSubdomain(cluster)
-		}
+		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
+		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -100,8 +89,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 			Type:          domain.TypeCustom,
 			Validated:     d.Validated,
 		}
-		if m.clusterCapabilities != nil && d.TargetCluster != "" {
-			cd.SupportsCustomPorts = m.clusterCapabilities.ClusterSupportsCustomPorts(d.TargetCluster)
+		if d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since
 		// the account owns them and should be able to use the bare domain.

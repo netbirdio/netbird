@@ -68,8 +68,17 @@ tags:
   - name: MSP
     description: MSP portal for Tenant management.
     x-cloud-only: true
-  - name: IDP
-    description: Manage identity provider integrations for user and group sync.
+  - name: IDP SCIM Integrations
+    description: Manage generic SCIM identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Google Integrations
+    description: Manage Google Workspace identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Azure Integrations
+    description: Manage Azure AD identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Okta SCIM Integrations
+    description: Manage Okta SCIM identity provider integrations for user and group sync.
     x-cloud-only: true
   - name: EDR Intune Integrations
     description: Manage Microsoft Intune EDR integrations.
@@ -82,6 +91,9 @@ tags:
     x-cloud-only: true
   - name: EDR Huntress Integrations
     description: Manage Huntress EDR integrations.
+    x-cloud-only: true
+  - name: EDR FleetDM Integrations
+    description: Manage FleetDM EDR integrations.
     x-cloud-only: true
   - name: EDR Peers
     description: Manage EDR compliance bypass for peers.
@@ -4267,75 +4279,129 @@ components:
           description: Status of agent firewall. Can be one of Disabled, Enabled, Pending Isolation, Isolated, Pending Release.
           example: "Enabled"
 
-    CreateScimIntegrationRequest:
+    EDRFleetDMRequest:
       type: object
-      description: Request payload for creating an SCIM IDP integration
-      required:
-        - prefix
-        - provider
+      description: Request payload for creating or updating a FleetDM EDR integration
       properties:
-        prefix:
+        api_url:
           type: string
-          description: The connection prefix used for the SCIM provider
-        provider:
+          description: FleetDM server URL
+        api_token:
           type: string
-          description: Name of the SCIM identity provider
-        group_prefixes:
+          description: FleetDM API token
+        groups:
           type: array
-          description: List of start_with string patterns for groups to sync
+          description: The Groups this integrations applies to
           items:
             type: string
-          example: [ "Engineering", "Sales" ]
-        user_group_prefixes:
-          type: array
-          description: List of start_with string patterns for groups which users to sync
-          items:
-            type: string
-          example: [ "Users" ]
-    UpdateScimIntegrationRequest:
-      type: object
-      description: Request payload for updating an SCIM IDP integration
-      properties:
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours. Minimum value is 24 hours
+          minimum: 24
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
-          example: true
-        group_prefixes:
-          type: array
-          description: List of start_with string patterns for groups to sync
-          items:
-            type: string
-          example: [ "Engineering", "Sales" ]
-        user_group_prefixes:
-          type: array
-          description: List of start_with string patterns for groups which users to sync
-          items:
-            type: string
-          example: [ "Users" ]
-    ScimIntegration:
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/FleetDMMatchAttributes'
+      required:
+        - api_url
+        - api_token
+        - groups
+        - last_synced_interval
+        - match_attributes
+    EDRFleetDMResponse:
       type: object
-      description: Represents a SCIM IDP integration
+      description: Represents a FleetDM EDR integration configuration
       required:
         - id
-        - enabled
-        - provider
-        - group_prefixes
-        - user_group_prefixes
-        - auth_token
+        - account_id
+        - api_url
+        - created_by
         - last_synced_at
+        - created_at
+        - updated_at
+        - groups
+        - last_synced_interval
+        - match_attributes
+        - enabled
       properties:
         id:
           type: integer
           format: int64
-          description: The unique identifier for the integration
+          description: The unique numeric identifier for the integration.
           example: 123
+        account_id:
+          type: string
+          description: The identifier of the account this integration belongs to.
+          example: "ch8i4ug6lnn4g9hqv7l0"
+        api_url:
+          type: string
+          description: FleetDM server URL
+        last_synced_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last synced.
+          example: "2023-05-15T10:30:00Z"
+        created_by:
+          type: string
+          description: The user id that created the integration
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was created.
+          example: "2023-05-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp of when the integration was last updated.
+          example: "2023-05-16T11:45:00Z"
+        groups:
+          type: array
+          description: List of groups
+          items:
+            $ref: '#/components/schemas/Group'
+        last_synced_interval:
+          type: integer
+          description: The devices last sync requirement interval in hours.
         enabled:
           type: boolean
           description: Indicates whether the integration is enabled
-          example: true
-        provider:
-          type: string
-          description: Name of the SCIM identity provider
+          default: true
+        match_attributes:
+          $ref: '#/components/schemas/FleetDMMatchAttributes'
+
+    FleetDMMatchAttributes:
+      type: object
+      description: Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+      additionalProperties: false
+      properties:
+        disk_encryption_enabled:
+          type: boolean
+          description: Whether disk encryption (FileVault/BitLocker) must be enabled on the host
+        failing_policies_count_max:
+          type: integer
+          description: Maximum number of allowed failing policies. Use 0 to require all policies to pass
+          minimum: 0
+          example: 0
+        vulnerable_software_count_max:
+          type: integer
+          description: Maximum number of allowed vulnerable software on the host
+          minimum: 0
+          example: 0
+        status_online:
+          type: boolean
+          description: Whether the host must be online (recently seen by Fleet)
+        required_policies:
+          type: array
+          description: List of FleetDM policy IDs that must be passing on the host. If any of these policies is failing, the host is non-compliant
+          items:
+            type: integer
+          example: [1, 5, 12]
+
+    IntegrationSyncFilters:
+      type: object
+      properties:
         group_prefixes:
           type: array
           description: List of start_with string patterns for groups to sync
@@ -4348,15 +4414,77 @@ components:
           items:
             type: string
           example: [ "Users" ]
-        auth_token:
+        connector_id:
           type: string
-          description: SCIM API token (full on creation, masked otherwise)
-          example: "nbs_abc***********************************"
-        last_synced_at:
-          type: string
-          format: date-time
-          description: Timestamp of when the integration was last synced
-          example: "2023-05-15T10:30:00Z"
+          description: DEX connector ID for embedded IDP setups
+    IntegrationEnabled:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the integration is enabled
+          example: true
+    CreateScimIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for creating an SCIM IDP integration
+          required:
+            - prefix
+            - provider
+          properties:
+            prefix:
+              type: string
+              description: The connection prefix used for the SCIM provider
+            provider:
+              type: string
+              description: Name of the SCIM identity provider
+    UpdateScimIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for updating an SCIM IDP integration
+          properties:
+            prefix:
+              type: string
+              description: The connection prefix used for the SCIM provider
+    ScimIntegration:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Represents a SCIM IDP integration
+          required:
+            - id
+            - enabled
+            - prefix
+            - provider
+            - group_prefixes
+            - user_group_prefixes
+            - auth_token
+            - last_synced_at
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: The unique identifier for the integration
+              example: 123
+            prefix:
+              type: string
+              description: The connection prefix used for the SCIM provider
+            provider:
+              type: string
+              description: Name of the SCIM identity provider
+            auth_token:
+              type: string
+              description: SCIM API token (full on creation, masked otherwise)
+              example: "nbs_abc***********************************"
+            last_synced_at:
+              type: string
+              format: date-time
+              description: Timestamp of when the integration was last synced
+              example: "2023-05-15T10:30:00Z"
     IdpIntegrationSyncLog:
       type: object
       description: Represents a synchronization log entry for an integration
@@ -4394,6 +4522,229 @@ components:
           type: string
           description: The newly generated SCIM API token
           example: "nbs_F3f0d..."
+    CreateGoogleIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for creating a Google Workspace IDP integration
+          required:
+            - service_account_key
+            - customer_id
+          properties:
+            service_account_key:
+              type: string
+              description: Base64-encoded Google service account key
+              example: "eyJ0eXBlIjoic2VydmljZV9hY2NvdW50Ii..."
+            customer_id:
+              type: string
+              description: Customer ID from Google Workspace Account Settings
+              example: "C01234567"
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+              minimum: 300
+              example: 300
+    UpdateGoogleIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for updating a Google Workspace IDP integration. All fields are optional.
+          properties:
+            service_account_key:
+              type: string
+              description: Base64-encoded Google service account key
+            customer_id:
+              type: string
+              description: Customer ID from Google Workspace Account Settings
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds (minimum 300)
+              minimum: 300
+    GoogleIntegration:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Represents a Google Workspace IDP integration
+          required:
+            - id
+            - customer_id
+            - sync_interval
+            - enabled
+            - group_prefixes
+            - user_group_prefixes
+            - last_synced_at
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: The unique identifier for the integration
+              example: 1
+            customer_id:
+              type: string
+              description: Customer ID from Google Workspace
+              example: "C01234567"
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds
+              example: 300
+            last_synced_at:
+              type: string
+              format: date-time
+              description: Timestamp of the last synchronization
+              example: "2023-05-15T10:30:00Z"
+    CreateAzureIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for creating an Azure AD IDP integration
+          required:
+            - client_secret
+            - client_id
+            - tenant_id
+            - host
+          properties:
+            client_secret:
+              type: string
+              description: Base64-encoded Azure AD client secret
+              example: "c2VjcmV0..."
+            client_id:
+              type: string
+              description: Azure AD application (client) ID
+              example: "12345678-1234-1234-1234-123456789012"
+            tenant_id:
+              type: string
+              description: Azure AD tenant ID
+              example: "87654321-4321-4321-4321-210987654321"
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds (minimum 300). Defaults to 300 if not specified.
+              minimum: 300
+              example: 300
+            host:
+              type: string
+              description: Azure host domain for the Graph API
+              enum:
+                - microsoft.com
+                - microsoft.us
+              example: "microsoft.com"
+    UpdateAzureIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for updating an Azure AD IDP integration. All fields are optional.
+          properties:
+            client_secret:
+              type: string
+              description: Base64-encoded Azure AD client secret
+            client_id:
+              type: string
+              description: Azure AD application (client) ID
+            tenant_id:
+              type: string
+              description: Azure AD tenant ID
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds (minimum 300)
+              minimum: 300
+    AzureIntegration:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Represents an Azure AD IDP integration
+          required:
+            - id
+            - client_id
+            - tenant_id
+            - sync_interval
+            - enabled
+            - group_prefixes
+            - user_group_prefixes
+            - host
+            - last_synced_at
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: The unique identifier for the integration
+              example: 1
+            client_id:
+              type: string
+              description: Azure AD application (client) ID
+              example: "12345678-1234-1234-1234-123456789012"
+            tenant_id:
+              type: string
+              description: Azure AD tenant ID
+              example: "87654321-4321-4321-4321-210987654321"
+            sync_interval:
+              type: integer
+              description: Sync interval in seconds
+              example: 300
+            host:
+              type: string
+              description: Azure host domain for the Graph API
+              example: "microsoft.com"
+            last_synced_at:
+              type: string
+              format: date-time
+              description: Timestamp of the last synchronization
+              example: "2023-05-15T10:30:00Z"
+    CreateOktaScimIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for creating an Okta SCIM IDP integration
+          required:
+            - connection_name
+          properties:
+            connection_name:
+              type: string
+              description: The Okta enterprise connection name on Auth0
+              example: "my-okta-connection"
+    UpdateOktaScimIntegrationRequest:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Request payload for updating an Okta SCIM IDP integration. All fields are optional.
+    OktaScimIntegration:
+      allOf:
+        - $ref: '#/components/schemas/IntegrationEnabled'
+        - $ref: '#/components/schemas/IntegrationSyncFilters'
+        - type: object
+          description: Represents an Okta SCIM IDP integration
+          required:
+            - id
+            - enabled
+            - group_prefixes
+            - user_group_prefixes
+            - auth_token
+            - last_synced_at
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: The unique identifier for the integration
+              example: 1
+            auth_token:
+              type: string
+              description: SCIM API token (full on creation/regeneration, masked on retrieval)
+              example: "nbs_abc***********************************"
+            last_synced_at:
+              type: string
+              format: date-time
+              description: Timestamp of the last synchronization
+              example: "2023-05-15T10:30:00Z"
+    SyncResult:
+      type: object
+      description: Response for a manual sync trigger
+      properties:
+        result:
+          type: string
+          example: "ok"
     NotificationChannelType:
       type: string
       description: The type of notification channel.
@@ -9147,10 +9498,877 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/integrations/google-idp:
+    post:
+      tags:
+        - IDP Google Integrations
+      summary: Create Google IDP Integration
+      description: Creates a new Google Workspace IDP integration
+      operationId: createGoogleIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGoogleIntegrationRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - IDP Google Integrations
+      summary: Get All Google IDP Integrations
+      description: Retrieves all Google Workspace IDP integrations for the authenticated account
+      operationId: getAllGoogleIntegrations
+      responses:
+        '200':
+          description: A list of Google IDP integrations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GoogleIntegration'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/google-idp/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Google IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Google Integrations
+      summary: Get Google IDP Integration
+      description: Retrieves a Google IDP integration by ID.
+      operationId: getGoogleIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleIntegration'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - IDP Google Integrations
+      summary: Update Google IDP Integration
+      description: Updates an existing Google Workspace IDP integration.
+      operationId: updateGoogleIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGoogleIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - IDP Google Integrations
+      summary: Delete Google IDP Integration
+      description: Deletes a Google IDP integration by ID.
+      operationId: deleteGoogleIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/google-idp/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Google IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    post:
+      tags:
+        - IDP Google Integrations
+      summary: Sync Google IDP Integration
+      description: Triggers a manual synchronization for a Google IDP integration.
+      operationId: syncGoogleIntegration
+      responses:
+        '200':
+          description: Sync triggered successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResult'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/google-idp/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Google IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Google Integrations
+      summary: Get Google Integration Sync Logs
+      description: Retrieves synchronization logs for a Google IDP integration.
+      operationId: getGoogleIntegrationLogs
+      responses:
+        '200':
+          description: Successfully retrieved the integration sync logs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdpIntegrationSyncLog'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/azure-idp:
+    post:
+      tags:
+        - IDP Azure Integrations
+      summary: Create Azure IDP Integration
+      description: Creates a new Azure AD IDP integration
+      operationId: createAzureIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAzureIntegrationRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AzureIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - IDP Azure Integrations
+      summary: Get All Azure IDP Integrations
+      description: Retrieves all Azure AD IDP integrations for the authenticated account
+      operationId: getAllAzureIntegrations
+      responses:
+        '200':
+          description: A list of Azure IDP integrations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AzureIntegration'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/azure-idp/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Azure IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Azure Integrations
+      summary: Get Azure IDP Integration
+      description: Retrieves an Azure IDP integration by ID.
+      operationId: getAzureIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AzureIntegration'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - IDP Azure Integrations
+      summary: Update Azure IDP Integration
+      description: Updates an existing Azure AD IDP integration.
+      operationId: updateAzureIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAzureIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AzureIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - IDP Azure Integrations
+      summary: Delete Azure IDP Integration
+      description: Deletes an Azure IDP integration by ID.
+      operationId: deleteAzureIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/azure-idp/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Azure IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    post:
+      tags:
+        - IDP Azure Integrations
+      summary: Sync Azure IDP Integration
+      description: Triggers a manual synchronization for an Azure IDP integration.
+      operationId: syncAzureIntegration
+      responses:
+        '200':
+          description: Sync triggered successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResult'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/azure-idp/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Azure IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Azure Integrations
+      summary: Get Azure Integration Sync Logs
+      description: Retrieves synchronization logs for an Azure IDP integration.
+      operationId: getAzureIntegrationLogs
+      responses:
+        '200':
+          description: Successfully retrieved the integration sync logs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdpIntegrationSyncLog'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/okta-scim-idp:
+    post:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Create Okta SCIM IDP Integration
+      description: Creates a new Okta SCIM IDP integration
+      operationId: createOktaScimIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOktaScimIntegrationRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OktaScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Get All Okta SCIM IDP Integrations
+      description: Retrieves all Okta SCIM IDP integrations for the authenticated account
+      operationId: getAllOktaScimIntegrations
+      responses:
+        '200':
+          description: A list of Okta SCIM IDP integrations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OktaScimIntegration'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/okta-scim-idp/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Okta SCIM IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Get Okta SCIM IDP Integration
+      description: Retrieves an Okta SCIM IDP integration by ID.
+      operationId: getOktaScimIntegration
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OktaScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Update Okta SCIM IDP Integration
+      description: Updates an existing Okta SCIM IDP integration.
+      operationId: updateOktaScimIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOktaScimIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OktaScimIntegration'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Delete Okta SCIM IDP Integration
+      description: Deletes an Okta SCIM IDP integration by ID.
+      operationId: deleteOktaScimIntegration
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/okta-scim-idp/{id}/token:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Okta SCIM IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    post:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Regenerate Okta SCIM Token
+      description: Regenerates the SCIM API token for an Okta SCIM IDP integration.
+      operationId: regenerateOktaScimToken
+      responses:
+        '200':
+          description: Token regenerated successfully. Returns the new token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScimTokenResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/integrations/okta-scim-idp/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The unique identifier of the Okta SCIM IDP integration.
+        schema:
+          type: integer
+          format: int64
+          example: 1
+    get:
+      tags:
+        - IDP Okta SCIM Integrations
+      summary: Get Okta SCIM Integration Sync Logs
+      description: Retrieves synchronization logs for an Okta SCIM IDP integration.
+      operationId: getOktaScimIntegrationLogs
+      responses:
+        '200':
+          description: Successfully retrieved the integration sync logs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IdpIntegrationSyncLog'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/integrations/scim-idp:
     post:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Create SCIM IDP Integration
       description: Creates a new SCIM integration
       operationId: createSCIMIntegration
@@ -9187,7 +10405,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     get:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Get All SCIM IDP Integrations
       description: Retrieves all SCIM IDP integrations for the authenticated account
       operationId: getAllSCIMIntegrations
@@ -9219,11 +10437,12 @@ paths:
         required: true
         description: The unique identifier of the SCIM IDP integration.
         schema:
-          type: string
-          example: "ch8i4ug6lnn4g9hqv7m0"
+          type: integer
+          format: int64
+          example: 1
     get:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Get SCIM IDP Integration
       description: Retrieves an SCIM IDP integration by ID.
       operationId: getSCIMIntegration
@@ -9260,7 +10479,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     put:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Update SCIM IDP Integration
       description: Updates an existing SCIM IDP Integration.
       operationId: updateSCIMIntegration
@@ -9303,7 +10522,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     delete:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Delete SCIM IDP Integration
       description: Deletes an SCIM IDP integration by ID.
       operationId: deleteSCIMIntegration
@@ -9346,11 +10565,12 @@ paths:
         required: true
         description: The unique identifier of the SCIM IDP integration.
         schema:
-          type: string
-          example: "ch8i4ug6lnn4g9hqv7m0"
+          type: integer
+          format: int64
+          example: 1
     post:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Regenerate SCIM Token
       description: Regenerates the SCIM API token for an SCIM IDP integration.
       operationId: regenerateSCIMToken
@@ -9392,11 +10612,12 @@ paths:
         required: true
         description: The unique identifier of the SCIM IDP integration.
         schema:
-          type: string
-          example: "ch8i4ug6lnn4g9hqv7m0"
+          type: integer
+          format: int64
+          example: 1
     get:
       tags:
-        - IDP
+        - IDP SCIM Integrations
       summary: Get SCIM Integration Sync Logs
       description: Retrieves synchronization logs for a SCIM IDP integration.
       operationId: getSCIMIntegrationLogs
@@ -9556,6 +10777,161 @@ paths:
         - EDR Huntress Integrations
       summary: Delete EDR Huntress Integration
       description: Deletes an EDR Huntress Integration by its ID.
+      responses:
+        '200':
+          description: Integration deleted successfully. Returns an empty object.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/integrations/edr/fleetdm:
+    post:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Create EDR FleetDM Integration
+      description: Creates a new EDR FleetDM integration
+      operationId: createFleetDMEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFleetDMRequest'
+      responses:
+        '200':
+          description: Integration created successfully. Returns the created integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, missing required fields, validation error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (e.g., missing or invalid authentication token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Get EDR FleetDM Integration
+      description: Retrieves a specific EDR FleetDM integration by its ID.
+      responses:
+        '200':
+          description: Successfully retrieved the integration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid integration ID format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found (e.g., integration with the given ID does not exist).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Update EDR FleetDM Integration
+      description: Updates an existing EDR FleetDM Integration.
+      operationId: updateFleetDMEDRIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFleetDMRequest'
+      responses:
+        '200':
+          description: Integration updated successfully. Returns the updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFleetDMResponse'
+        '400':
+          description: Bad Request (e.g., invalid JSON, validation error, invalid ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not Found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - EDR FleetDM Integrations
+      summary: Delete EDR FleetDM Integration
+      description: Deletes an EDR FleetDM Integration by its ID.
       responses:
         '200':
           description: Integration deleted successfully. Returns an empty object.

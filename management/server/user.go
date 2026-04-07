@@ -375,6 +375,10 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	// @note this is essential to prevent non admin users with Pats create permission frpm creating one for a service user
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
@@ -405,6 +409,10 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
+	}
+
+	if targetUser.AccountID != accountID {
+		return status.NewPermissionDeniedError()
 	}
 
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
@@ -438,6 +446,10 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -455,6 +467,10 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
@@ -691,9 +707,15 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
-	// these two fields can't be set via API, only via direct call to the method
+	// these fields can't be set via API, only via direct call to the method
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
+	if update.Name != "" {
+		updatedUser.Name = update.Name
+	}
+	if update.Email != "" {
+		updatedUser.Email = update.Email
+	}
 
 	var transferredOwnerRole bool
 	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
