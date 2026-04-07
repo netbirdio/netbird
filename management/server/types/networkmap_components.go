@@ -2,7 +2,6 @@ package types
 
 import (
 	"context"
-	"maps"
 	"net"
 	"net/netip"
 	"slices"
@@ -17,6 +16,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"golang.org/x/exp/maps"
 )
 
 const EnvNewNetworkMapCompacted = "NB_NETWORK_MAP_COMPACTED"
@@ -746,6 +746,11 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*FirewallRule {
 	sourcePeerIDs := c.getPoliciesSourcePeers([]*Policy{policy})
 
+	postureValidatedPeerIDs := make([]string, 0)
+	for _, pID := range c.getPostureValidPeers(maps.Keys(sourcePeerIDs), policy.SourcePostureChecks) {
+		postureValidatedPeerIDs = append(postureValidatedPeerIDs, pID)
+	}
+
 	rules := make([]*FirewallRule, 0)
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
@@ -757,7 +762,7 @@ func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*
 			continue
 		}
 
-		for peerID := range sourcePeerIDs {
+		for _, peerID := range postureValidatedPeerIDs {
 			peer := c.GetPeerInfo(peerID)
 			if peer == nil {
 				continue
