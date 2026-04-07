@@ -115,15 +115,32 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.aclMgr.init(stateManager); err != nil {
-		// TODO: cleanup router
+		if err := m.router.Reset(); err != nil {
+			log.Warnf("rollback router after acl init failure: %v", err)
+		}
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
 	if m.hasIPv6() {
 		if err := m.router6.init(stateManager); err != nil {
+			if err := m.aclMgr.Reset(); err != nil {
+				log.Warnf("rollback acl after v6 router init failure: %v", err)
+			}
+			if err := m.router.Reset(); err != nil {
+				log.Warnf("rollback router after v6 router init failure: %v", err)
+			}
 			return fmt.Errorf("v6 router init: %w", err)
 		}
 		if err := m.aclMgr6.init(stateManager); err != nil {
+			if err := m.router6.Reset(); err != nil {
+				log.Warnf("rollback v6 router after v6 acl init failure: %v", err)
+			}
+			if err := m.aclMgr.Reset(); err != nil {
+				log.Warnf("rollback acl after v6 acl init failure: %v", err)
+			}
+			if err := m.router.Reset(); err != nil {
+				log.Warnf("rollback router after v6 acl init failure: %v", err)
+			}
 			return fmt.Errorf("v6 acl manager init: %w", err)
 		}
 	}
