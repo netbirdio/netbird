@@ -500,7 +500,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetClientRoutes() {
+		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
 			for _, r := range routes {
 				if r.Network.Contains(ip) {
 					return true

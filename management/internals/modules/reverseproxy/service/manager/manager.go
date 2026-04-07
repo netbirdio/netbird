@@ -288,6 +288,8 @@ func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, clus
 }
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
+	customPorts := m.clusterCustomPorts(ctx, svc)
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
@@ -295,7 +297,7 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 			}
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
 			return err
 		}
 
@@ -315,12 +317,23 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	})
 }
 
-// ensureL4Port auto-assigns a listen port when needed and validates cluster support.
-func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service) error {
+// clusterCustomPorts queries whether the cluster supports custom ports.
+// Must be called before entering a transaction: the underlying query uses
+// the main DB handle, which deadlocks when called inside a transaction
+// that already holds the connection.
+func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) *bool {
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	customPorts := m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+}
+
+// ensureL4Port auto-assigns a listen port when needed and validates cluster support.
+// customPorts must be pre-computed via clusterCustomPorts before entering a transaction.
+func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service, customPorts *bool) error {
+	if !service.IsL4Protocol(svc.Mode) {
+		return nil
+	}
 	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
@@ -404,12 +417,14 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 // The count and exists queries use FOR UPDATE locking to serialize concurrent creates
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
+	customPorts := m.clusterCustomPorts(ctx, svc)
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
 			return err
 		}
 
@@ -512,16 +527,49 @@ type serviceUpdateInfo struct {
 }
 
 func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
+	effectiveCluster, err := m.resolveEffectiveCluster(ctx, accountID, service)
+	if err != nil {
+		return nil, err
+	}
+
+	svcForCaps := *service
+	svcForCaps.ProxyCluster = effectiveCluster
+	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
+
 	var updateInfo serviceUpdateInfo
 
-	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo)
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo, customPorts)
 	})
 
 	return &updateInfo, err
 }
 
-func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo) error {
+// resolveEffectiveCluster determines the cluster that will be used after the update.
+// It reads the existing service without locking and derives the new cluster if the domain changed.
+func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string, svc *service.Service) (string, error) {
+	existing, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, svc.ID)
+	if err != nil {
+		return "", err
+	}
+
+	if existing.Domain == svc.Domain {
+		return existing.ProxyCluster, nil
+	}
+
+	if m.clusterDeriver != nil {
+		derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
+		if err != nil {
+			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
+		} else {
+			return derived, nil
+		}
+	}
+
+	return existing.ProxyCluster, nil
+}
+
+func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool) error {
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -558,7 +606,7 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	m.preserveListenPort(service, existingService)
 	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
 
-	if err := m.ensureL4Port(ctx, transaction, service); err != nil {
+	if err := m.ensureL4Port(ctx, transaction, service, customPorts); err != nil {
 		return err
 	}
 	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
