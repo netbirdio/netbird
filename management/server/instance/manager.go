@@ -64,10 +64,19 @@ type Manager interface {
 	GetVersionInfo(ctx context.Context) (*VersionInfo, error)
 }
 
+type instanceStore interface {
+	GetAccountsCounter(ctx context.Context) (int64, error)
+}
+
+type embeddedIdP interface {
+	CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	GetAllAccounts(ctx context.Context) (map[string][]*idp.UserData, error)
+}
+
 // DefaultManager is the default implementation of Manager.
 type DefaultManager struct {
-	store              store.Store
-	embeddedIdpManager *idp.EmbeddedIdPManager
+	store              instanceStore
+	embeddedIdpManager embeddedIdP
 
 	setupRequired bool
 	setupMu       sync.RWMutex
@@ -82,18 +91,18 @@ type DefaultManager struct {
 // NewManager creates a new instance manager.
 // If idpManager is not an EmbeddedIdPManager, setup-related operations will return appropriate defaults.
 func NewManager(ctx context.Context, store store.Store, idpManager idp.Manager) (Manager, error) {
-	embeddedIdp, _ := idpManager.(*idp.EmbeddedIdPManager)
+	embeddedIdp, ok := idpManager.(*idp.EmbeddedIdPManager)
 
 	m := &DefaultManager{
-		store:              store,
-		embeddedIdpManager: embeddedIdp,
-		setupRequired:      false,
+		store:         store,
+		setupRequired: false,
 		httpClient: &http.Client{
 			Timeout: httpTimeout,
 		},
 	}
 
-	if embeddedIdp != nil {
+	if ok && embeddedIdp != nil {
+		m.embeddedIdpManager = embeddedIdp
 		err := m.loadSetupRequired(ctx)
 		if err != nil {
 			return nil, err
@@ -143,20 +152,27 @@ func (m *DefaultManager) IsSetupRequired(_ context.Context) (bool, error) {
 // CreateOwnerUser creates the initial owner user in the embedded IDP.
 func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error) {
 
-	if err := m.validateSetupInfo(email, password, name); err != nil {
-		return nil, err
-	}
-
 	if m.embeddedIdpManager == nil {
 		return nil, errors.New("embedded IDP is not enabled")
 	}
 
-	m.setupMu.RLock()
-	setupRequired := m.setupRequired
-	m.setupMu.RUnlock()
+	if err := m.validateSetupInfo(email, password, name); err != nil {
+		return nil, err
+	}
 
-	if !setupRequired {
+	m.setupMu.Lock()
+	defer m.setupMu.Unlock()
+
+	if !m.setupRequired {
 		return nil, status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	if err := m.checkSetupRequiredFromDB(ctx); err != nil {
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.PreconditionFailed {
+			m.setupRequired = false
+		}
+		return nil, err
 	}
 
 	userData, err := m.embeddedIdpManager.CreateUserWithPassword(ctx, email, password, name)
@@ -164,13 +180,31 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 		return nil, fmt.Errorf("failed to create user in embedded IdP: %w", err)
 	}
 
-	m.setupMu.Lock()
 	m.setupRequired = false
-	m.setupMu.Unlock()
 
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
 	return userData, nil
+}
+
+func (m *DefaultManager) checkSetupRequiredFromDB(ctx context.Context) error {
+	numAccounts, err := m.store.GetAccountsCounter(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check accounts: %w", err)
+	}
+	if numAccounts > 0 {
+		return status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	users, err := m.embeddedIdpManager.GetAllAccounts(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check IdP users: %w", err)
+	}
+	if len(users) > 0 {
+		return status.Errorf(status.PreconditionFailed, "setup already completed")
+	}
+
+	return nil
 }
 
 func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
@@ -188,6 +222,9 @@ func (m *DefaultManager) validateSetupInfo(email, password, name string) error {
 	}
 	if len(password) < 8 {
 		return status.Errorf(status.InvalidArgument, "password must be at least 8 characters")
+	}
+	if len(password) > 72 {
+		return status.Errorf(status.InvalidArgument, "password must be at most 72 characters")
 	}
 	return nil
 }

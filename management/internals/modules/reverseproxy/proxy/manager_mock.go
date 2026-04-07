@@ -50,18 +50,46 @@ func (mr *MockManagerMockRecorder) CleanupStale(ctx, inactivityDuration interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStale", reflect.TypeOf((*MockManager)(nil).CleanupStale), ctx, inactivityDuration)
 }
 
-// Connect mocks base method.
-func (m *MockManager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+// ClusterSupportsCustomPorts mocks base method.
+func (m *MockManager) ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Connect", ctx, proxyID, clusterAddress, ipAddress)
+	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterSupportsCustomPorts indicates an expected call of ClusterSupportsCustomPorts.
+func (mr *MockManagerMockRecorder) ClusterSupportsCustomPorts(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockManager)(nil).ClusterSupportsCustomPorts), ctx, clusterAddr)
+}
+
+// ClusterRequireSubdomain mocks base method.
+func (m *MockManager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterRequireSubdomain", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterRequireSubdomain indicates an expected call of ClusterRequireSubdomain.
+func (mr *MockManagerMockRecorder) ClusterRequireSubdomain(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterRequireSubdomain", reflect.TypeOf((*MockManager)(nil).ClusterRequireSubdomain), ctx, clusterAddr)
+}
+
+// Connect mocks base method.
+func (m *MockManager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string, capabilities *Capabilities) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Connect", ctx, proxyID, clusterAddress, ipAddress, capabilities)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Connect indicates an expected call of Connect.
-func (mr *MockManagerMockRecorder) Connect(ctx, proxyID, clusterAddress, ipAddress interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) Connect(ctx, proxyID, clusterAddress, ipAddress, capabilities interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockManager)(nil).Connect), ctx, proxyID, clusterAddress, ipAddress)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockManager)(nil).Connect), ctx, proxyID, clusterAddress, ipAddress, capabilities)
 }
 
 // Disconnect mocks base method.
@@ -143,34 +171,6 @@ func NewMockController(ctrl *gomock.Controller) *MockController {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
-}
-
-// ClusterSupportsCustomPorts mocks base method.
-func (m *MockController) ClusterSupportsCustomPorts(clusterAddr string) *bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", clusterAddr)
-	ret0, _ := ret[0].(*bool)
-	return ret0
-}
-
-// ClusterSupportsCustomPorts indicates an expected call of ClusterSupportsCustomPorts.
-func (mr *MockControllerMockRecorder) ClusterSupportsCustomPorts(clusterAddr interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockController)(nil).ClusterSupportsCustomPorts), clusterAddr)
-}
-
-// ClusterRequireSubdomain mocks base method.
-func (m *MockController) ClusterRequireSubdomain(clusterAddr string) *bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterRequireSubdomain", clusterAddr)
-	ret0, _ := ret[0].(*bool)
-	return ret0
-}
-
-// ClusterRequireSubdomain indicates an expected call of ClusterRequireSubdomain.
-func (mr *MockControllerMockRecorder) ClusterRequireSubdomain(clusterAddr interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterRequireSubdomain", reflect.TypeOf((*MockController)(nil).ClusterRequireSubdomain), clusterAddr)
 }
 
 // GetOIDCValidationConfig mocks base method.

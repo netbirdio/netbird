@@ -2080,7 +2080,8 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
 	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
 		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
-		pass_host_header, rewrite_redirects, session_private_key, session_public_key
+		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
+		mode, listen_port, port_auto_assigned, source, source_peer, terminated
 		FROM services WHERE account_id = $1`
 
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
@@ -2097,6 +2098,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		var auth []byte
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
+		var mode, source, sourcePeer sql.NullString
 		err := row.Scan(
 			&s.ID,
 			&s.AccountID,
@@ -2112,6 +2114,12 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&s.RewriteRedirects,
 			&sessionPrivateKey,
 			&sessionPublicKey,
+			&mode,
+			&s.ListenPort,
+			&s.PortAutoAssigned,
+			&source,
+			&sourcePeer,
+			&s.Terminated,
 		)
 		if err != nil {
 			return nil, err
@@ -2142,6 +2150,15 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		}
 		if sessionPublicKey.Valid {
 			s.SessionPublicKey = sessionPublicKey.String
+		}
+		if mode.Valid {
+			s.Mode = mode.String
+		}
+		if source.Valid {
+			s.Source = source.String
+		}
+		if sourcePeer.Valid {
+			s.SourcePeer = sourcePeer.String
 		}
 
 		s.Targets = []*rpservice.Target{}
@@ -5445,7 +5462,7 @@ func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string
 
 	result := s.db.WithContext(ctx).
 		Model(&proxy.Proxy{}).
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
 		Distinct("cluster_address").
 		Pluck("cluster_address", &addresses)
 
@@ -5463,7 +5480,7 @@ func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster,
 
 	result := s.db.Model(&proxy.Proxy{}).
 		Select("cluster_address as address, COUNT(*) as connected_proxies").
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-2*time.Minute)).
+		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
 		Group("cluster_address").
 		Scan(&clusters)
 
@@ -5473,6 +5490,63 @@ func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster,
 	}
 
 	return clusters, nil
+}
+
+// proxyActiveThreshold is the maximum age of a heartbeat for a proxy to be
+// considered active. Must be at least 2x the heartbeat interval (1 min).
+const proxyActiveThreshold = 2 * time.Minute
+
+var validCapabilityColumns = map[string]struct{}{
+	"supports_custom_ports": {},
+	"require_subdomain":     {},
+}
+
+// GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
+// supports custom ports. Returns nil when no proxy reported the capability.
+func (s *SqlStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "supports_custom_ports")
+}
+
+// GetClusterRequireSubdomain returns whether any active proxy in the cluster
+// requires a subdomain. Returns nil when no proxy reported the capability.
+func (s *SqlStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "require_subdomain")
+}
+
+// getClusterCapability returns an aggregated boolean capability for the given
+// cluster. It checks active (connected, recently seen) proxies and returns:
+//   - *true if any proxy in the cluster has the capability set to true,
+//   - *false if at least one proxy reported but none set it to true,
+//   - nil if no proxy reported the capability at all.
+func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column string) *bool {
+	if _, ok := validCapabilityColumns[column]; !ok {
+		log.WithContext(ctx).Errorf("invalid capability column: %s", column)
+		return nil
+	}
+
+	var result struct {
+		HasCapability bool
+		AnyTrue       bool
+	}
+
+	err := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select("COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) > 0 AS has_capability, "+
+			"COALESCE(MAX(CASE WHEN "+column+" = true THEN 1 ELSE 0 END), 0) = 1 AS any_true").
+		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
+		Scan(&result).Error
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("query cluster capability %s for %s: %v", column, clusterAddr, err)
+		return nil
+	}
+
+	if !result.HasCapability {
+		return nil
+	}
+
+	return &result.AnyTrue
 }
 
 // CleanupStaleProxies deletes proxies that haven't sent heartbeat in the specified duration
@@ -5493,4 +5567,62 @@ func (s *SqlStore) CleanupStaleProxies(ctx context.Context, inactivityDuration t
 	}
 
 	return nil
+}
+
+// GetRoutingPeerNetworks returns the distinct network names where the peer is assigned as a routing peer
+// in an enabled network router, either directly or via peer groups.
+func (s *SqlStore) GetRoutingPeerNetworks(_ context.Context, accountID, peerID string) ([]string, error) {
+	var routers []*routerTypes.NetworkRouter
+	if err := s.db.Select("peer, peer_groups, network_id").Where("account_id = ? AND enabled = true", accountID).Find(&routers).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get enabled routers: %v", err)
+	}
+
+	if len(routers) == 0 {
+		return nil, nil
+	}
+
+	var groupPeers []types.GroupPeer
+	if err := s.db.Select("group_id").Where("account_id = ? AND peer_id = ?", accountID, peerID).Find(&groupPeers).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get peer group memberships: %v", err)
+	}
+
+	groupSet := make(map[string]struct{}, len(groupPeers))
+	for _, gp := range groupPeers {
+		groupSet[gp.GroupID] = struct{}{}
+	}
+
+	networkIDs := make(map[string]struct{})
+	for _, r := range routers {
+		if r.Peer == peerID {
+			networkIDs[r.NetworkID] = struct{}{}
+		} else if r.Peer == "" {
+			for _, pg := range r.PeerGroups {
+				if _, ok := groupSet[pg]; ok {
+					networkIDs[r.NetworkID] = struct{}{}
+					break
+				}
+			}
+		}
+	}
+
+	if len(networkIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(networkIDs))
+	for id := range networkIDs {
+		ids = append(ids, id)
+	}
+
+	var networks []*networkTypes.Network
+	if err := s.db.Select("name").Where("account_id = ? AND id IN ?", accountID, ids).Find(&networks).Error; err != nil {
+		return nil, status.Errorf(status.Internal, "failed to get networks: %v", err)
+	}
+
+	names := make([]string, 0, len(networks))
+	for _, n := range networks {
+		names = append(names, n.Name)
+	}
+
+	return names, nil
 }
