@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
@@ -59,6 +60,10 @@ type Handshaker struct {
 	relayListener *AsyncOfferListener
 	iceListener   func(remoteOfferAnswer *OfferAnswer)
 
+	// remoteICESupported tracks whether the remote peer includes ICE credentials in its offers/answers.
+	// When false, the local side skips ICE listener dispatch and suppresses ICE credentials in responses.
+	remoteICESupported atomic.Bool
+
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
@@ -66,7 +71,7 @@ type Handshaker struct {
 }
 
 func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
-	return &Handshaker{
+	h := &Handshaker{
 		log:            log,
 		config:         config,
 		signaler:       signaler,
@@ -76,6 +81,13 @@ func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *W
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 	}
+	// assume remote supports ICE until we learn otherwise from received offers
+	h.remoteICESupported.Store(ice != nil)
+	return h
+}
+
+func (h *Handshaker) RemoteICESupported() bool {
+	return h.remoteICESupported.Load()
 }
 
 func (h *Handshaker) AddRelayListener(offer func(remoteOfferAnswer *OfferAnswer)) {
@@ -97,11 +109,13 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.metricsStages.RecordSignalingReceived()
 			}
 
+			h.updateRemoteICEState(&remoteOfferAnswer)
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil {
+			if h.iceListener != nil && h.RemoteICESupported() {
 				h.iceListener(&remoteOfferAnswer)
 			}
 
@@ -117,11 +131,13 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.metricsStages.RecordSignalingReceived()
 			}
 
+			h.updateRemoteICEState(&remoteOfferAnswer)
+
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil {
+			if h.iceListener != nil && h.RemoteICESupported() {
 				h.iceListener(&remoteOfferAnswer)
 			}
 		case <-ctx.Done():
@@ -190,7 +206,7 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 		RosenpassAddr:   h.config.RosenpassConfig.Addr,
 	}
 
-	if h.ice != nil {
+	if h.ice != nil && h.RemoteICESupported() {
 		uFrag, pwd := h.ice.GetLocalUserCredentials()
 		sid := h.ice.SessionID()
 		answer.IceCredentials = IceCredentials{uFrag, pwd}
@@ -202,4 +218,16 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 	}
 
 	return answer
+}
+
+func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
+	hasICE := offer.IceCredentials.UFrag != "" && offer.IceCredentials.Pwd != ""
+	prev := h.remoteICESupported.Swap(hasICE)
+	if prev != hasICE {
+		if hasICE {
+			h.log.Infof("remote peer started sending ICE credentials")
+		} else {
+			h.log.Infof("remote peer stopped sending ICE credentials")
+		}
+	}
 }

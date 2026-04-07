@@ -732,9 +732,11 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		return conn.statusRelay.Get() == worker.StatusConnected
 	}
 
-	// For non-forced platforms: check ICE connection status
-	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
-		return false
+	// For non-forced platforms: check ICE connection status only if remote peer supports ICE
+	if conn.handshaker.RemoteICESupported() {
+		if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
+			return false
+		}
 	}
 
 	// If relay is supported with peer, it must also be connected
