@@ -803,39 +803,6 @@ func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*
 	return rules
 }
 
-func (c *NetworkMapComponents) getRoutingPeers(router *routerTypes.NetworkRouter) []*nbpeer.Peer {
-	var peers []*nbpeer.Peer
-
-	if router.Peer != "" {
-		peer := c.GetRouterPeerInfo(router.Peer)
-		if peer == nil {
-			peer = c.GetPeerInfo(router.Peer)
-		}
-		if peer != nil {
-			peers = append(peers, peer)
-		}
-		return peers
-	}
-
-	for _, groupID := range router.PeerGroups {
-		group := c.GetGroupInfo(groupID)
-		if group == nil {
-			continue
-		}
-		for _, peerID := range group.Peers {
-			peer := c.GetRouterPeerInfo(peerID)
-			if peer == nil {
-				peer = c.GetPeerInfo(peerID)
-			}
-			if peer != nil {
-				peers = append(peers, peer)
-			}
-		}
-	}
-
-	return peers
-}
-
 func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
 	resourceAppliedPolicies := c.ResourcePoliciesMap[resource.ID]
 
