@@ -162,8 +162,8 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	hostDNS := []netip.AddrPort{
-		netip.MustParseAddrPort("1.1.1.1:53"),
-		netip.MustParseAddrPort("1.0.0.1:53"),
+		netip.MustParseAddrPort("9.9.9.9:53"),
+		netip.MustParseAddrPort("149.112.112.112:53"),
 	}
 	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, hostDNS, c.stateFile)
 }
