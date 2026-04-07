@@ -86,7 +86,7 @@ func TestNewRequest(t *testing.T) {
 	exposeReq := NewRequest(req)
 
 	assert.Equal(t, uint16(8080), exposeReq.Port, "port should match")
-	assert.Equal(t, int(daemonProto.ExposeProtocol_EXPOSE_HTTPS), exposeReq.Protocol, "protocol should match")
+	assert.Equal(t, ProtocolType(daemonProto.ExposeProtocol_EXPOSE_HTTPS), exposeReq.Protocol, "protocol should match")
 	assert.Equal(t, "123456", exposeReq.Pin, "pin should match")
 	assert.Equal(t, "secret", exposeReq.Password, "password should match")
 	assert.Equal(t, []string{"group1", "group2"}, exposeReq.UserGroups, "user groups should match")

@@ -2,6 +2,17 @@ package proxy
 
 import "time"
 
+// Capabilities describes what a proxy can handle, as reported via gRPC.
+// Nil fields mean the proxy never reported this capability.
+type Capabilities struct {
+	// SupportsCustomPorts indicates whether this proxy can bind arbitrary
+	// ports for TCP/UDP services. TLS uses SNI routing and is not gated.
+	SupportsCustomPorts *bool
+	// RequireSubdomain indicates whether a subdomain label is required in
+	// front of the cluster domain.
+	RequireSubdomain *bool
+}
+
 // Proxy represents a reverse proxy instance
 type Proxy struct {
 	ID             string    `gorm:"primaryKey;type:varchar(255)"`
@@ -11,6 +22,7 @@ type Proxy struct {
 	ConnectedAt    *time.Time
 	DisconnectedAt *time.Time
 	Status         string `gorm:"type:varchar(20);not null;index:idx_proxy_cluster_status"`
+	Capabilities   Capabilities `gorm:"embedded"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

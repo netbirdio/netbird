@@ -121,7 +121,7 @@ type Store interface {
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
-	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
 	CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error
 	UpdateGroups(ctx context.Context, accountID string, groups []*types.Group) error
@@ -287,9 +287,13 @@ type Store interface {
 	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 const (

@@ -53,14 +53,6 @@ func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clus
 	return nil
 }
 
-func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
-	return ptr(true)
-}
-
-func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
-	return nil
-}
-
 func (c *testProxyController) GetProxiesForCluster(clusterAddr string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -355,14 +347,14 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	const cluster = "proxy.example.com"
 
-	// Proxy A supports custom ports.
-	chA := registerFakeProxyWithCaps(s, "proxy-a", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
-	// Proxy B does NOT support custom ports (shared cloud proxy).
-	chB := registerFakeProxyWithCaps(s, "proxy-b", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+	// Modern proxy reports capabilities.
+	chModern := registerFakeProxyWithCaps(s, "proxy-modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
+	// Legacy proxy never reported capabilities (nil).
+	chLegacy := registerFakeProxy(s, "proxy-legacy", cluster)
 
 	ctx := context.Background()
 
-	// TLS passthrough works on all proxies regardless of custom port support.
+	// TLS passthrough with custom port: all proxies receive it (SNI routing).
 	tlsMapping := &proto.ProxyMapping{
 		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:         "service-tls",
@@ -375,12 +367,26 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(ctx, tlsMapping, cluster)
 
-	msgA := drainMapping(chA)
-	msgB := drainMapping(chB)
-	assert.NotNil(t, msgA, "proxy-a should receive TLS mapping")
-	assert.NotNil(t, msgB, "proxy-b should receive TLS mapping (passthrough works on all proxies)")
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive TLS mapping")
+	assert.NotNil(t, drainMapping(chLegacy), "legacy proxy should receive TLS mapping (SNI works on all)")
 
-	// Send an HTTP mapping: both should receive it.
+	// TCP mapping with custom port: only modern proxy receives it.
+	tcpMapping := &proto.ProxyMapping{
+		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:         "service-tcp",
+		AccountId:  "account-1",
+		Domain:     "db.example.com",
+		Mode:       "tcp",
+		ListenPort: 5432,
+		Path:       []*proto.PathMapping{{Target: "10.0.0.5:5432"}},
+	}
+
+	s.SendServiceUpdateToCluster(ctx, tcpMapping, cluster)
+
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive TCP custom-port mapping")
+	assert.Nil(t, drainMapping(chLegacy), "legacy proxy should NOT receive TCP custom-port mapping")
+
+	// HTTP mapping (no listen port): both receive it.
 	httpMapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-http",
@@ -391,10 +397,16 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(ctx, httpMapping, cluster)
 
-	msgA = drainMapping(chA)
-	msgB = drainMapping(chB)
-	assert.NotNil(t, msgA, "proxy-a should receive HTTP mapping")
-	assert.NotNil(t, msgB, "proxy-b should receive HTTP mapping")
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive HTTP mapping")
+	assert.NotNil(t, drainMapping(chLegacy), "legacy proxy should receive HTTP mapping")
+
+	// Proxy that reports SupportsCustomPorts=false still receives custom-port
+	// mappings because it understands the protocol (it's new enough).
+	chNewNoCustom := registerFakeProxyWithCaps(s, "proxy-new-no-custom", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+
+	s.SendServiceUpdateToCluster(ctx, tcpMapping, cluster)
+
+	assert.NotNil(t, drainMapping(chNewNoCustom), "new proxy with SupportsCustomPorts=false should still receive mapping")
 }
 
 func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
@@ -408,7 +420,8 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 
 	const cluster = "proxy.example.com"
 
-	chShared := registerFakeProxyWithCaps(s, "proxy-shared", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+	// Legacy proxy (no capabilities) still receives TLS since it uses SNI.
+	chLegacy := registerFakeProxy(s, "proxy-legacy", cluster)
 
 	tlsMapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
@@ -421,8 +434,8 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(context.Background(), tlsMapping, cluster)
 
-	msg := drainMapping(chShared)
-	assert.NotNil(t, msg, "shared proxy should receive TLS mapping even without custom port support")
+	msg := drainMapping(chLegacy)
+	assert.NotNil(t, msg, "legacy proxy should receive TLS mapping (SNI works without custom port support)")
 }
 
 // TestServiceModifyNotifications exercises every possible modification
@@ -589,7 +602,7 @@ func TestServiceModifyNotifications(t *testing.T) {
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
 		chModern := registerFakeProxyWithCaps(s, "modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+		chLegacy := registerFakeProxy(s, "legacy", cluster)
 
 		// TLS passthrough works on all proxies regardless of custom port support
 		s.SendServiceUpdateToCluster(ctx, tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), cluster)
@@ -608,7 +621,7 @@ func TestServiceModifyNotifications(t *testing.T) {
 		}
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+		chLegacy := registerFakeProxy(s, "legacy", cluster)
 
 		mapping := tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
 		mapping.ListenPort = 0 // default port

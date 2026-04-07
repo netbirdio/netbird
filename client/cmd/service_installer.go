@@ -119,6 +119,10 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
+		if err := loadAndApplyServiceParams(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
 		svcConfig, err := createServiceConfigForInstall()
 		if err != nil {
 			return err
@@ -134,6 +138,10 @@ var installCmd = &cobra.Command{
 
 		if err := s.Install(); err != nil {
 			return fmt.Errorf("install service: %w", err)
+		}
+
+		if err := saveServiceParams(currentServiceParams()); err != nil {
+			cmd.PrintErrf("Warning: failed to save service params: %v\n", err)
 		}
 
 		cmd.Println("NetBird service has been installed")
@@ -187,6 +195,10 @@ This command will temporarily stop the service, update its configuration, and re
 			return err
 		}
 
+		if err := loadAndApplyServiceParams(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
 		wasRunning, err := isServiceRunning()
 		if err != nil && !errors.Is(err, ErrGetServiceStatus) {
 			return fmt.Errorf("check service status: %w", err)
@@ -220,6 +232,10 @@ This command will temporarily stop the service, update its configuration, and re
 		cmd.Println("Installing service with new configuration...")
 		if err := s.Install(); err != nil {
 			return fmt.Errorf("install service with new config: %w", err)
+		}
+
+		if err := saveServiceParams(currentServiceParams()); err != nil {
+			cmd.PrintErrf("Warning: failed to save service params: %v\n", err)
 		}
 
 		if wasRunning {
