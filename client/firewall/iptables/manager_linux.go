@@ -17,6 +17,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
+type resetter interface {
+	Reset() error
+}
+
 // Manager of iptables firewall
 type Manager struct {
 	mutex sync.Mutex
@@ -110,39 +114,8 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		log.Errorf("failed to update state: %v", err)
 	}
 
-	if err := m.router.init(stateManager); err != nil {
-		return fmt.Errorf("router init: %w", err)
-	}
-
-	if err := m.aclMgr.init(stateManager); err != nil {
-		if err := m.router.Reset(); err != nil {
-			log.Warnf("rollback router after acl init failure: %v", err)
-		}
-		return fmt.Errorf("acl manager init: %w", err)
-	}
-
-	if m.hasIPv6() {
-		if err := m.router6.init(stateManager); err != nil {
-			if err := m.aclMgr.Reset(); err != nil {
-				log.Warnf("rollback acl after v6 router init failure: %v", err)
-			}
-			if err := m.router.Reset(); err != nil {
-				log.Warnf("rollback router after v6 router init failure: %v", err)
-			}
-			return fmt.Errorf("v6 router init: %w", err)
-		}
-		if err := m.aclMgr6.init(stateManager); err != nil {
-			if err := m.router6.Reset(); err != nil {
-				log.Warnf("rollback v6 router after v6 acl init failure: %v", err)
-			}
-			if err := m.aclMgr.Reset(); err != nil {
-				log.Warnf("rollback acl after v6 acl init failure: %v", err)
-			}
-			if err := m.router.Reset(); err != nil {
-				log.Warnf("rollback router after v6 acl init failure: %v", err)
-			}
-			return fmt.Errorf("v6 acl manager init: %w", err)
-		}
+	if err := m.initChains(stateManager); err != nil {
+		return err
 	}
 
 	if err := m.initNoTrackChain(); err != nil {
@@ -156,6 +129,41 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		}
 	}()
 
+	return nil
+}
+
+// initChains initializes router and ACL chains for both address families,
+// rolling back on failure.
+func (m *Manager) initChains(stateManager *statemanager.Manager) error {
+	type initStep struct {
+		name string
+		init func(*statemanager.Manager) error
+		mgr  resetter
+	}
+
+	steps := []initStep{
+		{"router", m.router.init, m.router},
+		{"acl manager", m.aclMgr.init, m.aclMgr},
+	}
+	if m.hasIPv6() {
+		steps = append(steps,
+			initStep{"v6 router", m.router6.init, m.router6},
+			initStep{"v6 acl manager", m.aclMgr6.init, m.aclMgr6},
+		)
+	}
+
+	var initialized []initStep
+	for _, s := range steps {
+		if err := s.init(stateManager); err != nil {
+			for i := len(initialized) - 1; i >= 0; i-- {
+				if rerr := initialized[i].mgr.Reset(); rerr != nil {
+					log.Warnf("rollback %s: %v", initialized[i].name, rerr)
+				}
+			}
+			return fmt.Errorf("%s init: %w", s.name, err)
+		}
+		initialized = append(initialized, s)
+	}
 	return nil
 }
 
