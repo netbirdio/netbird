@@ -90,6 +90,11 @@ func (m *MockServer) SetRouteChecker(func(netip.Addr) bool) {
 	// Mock implementation - no-op
 }
 
+// SetFirewall mock implementation of SetFirewall from Server interface
+func (m *MockServer) SetFirewall(Firewall) {
+	// Mock implementation - no-op
+}
+
 // BeginBatch mock implementation of BeginBatch from Server interface
 func (m *MockServer) BeginBatch() {
 	// Mock implementation - no-op

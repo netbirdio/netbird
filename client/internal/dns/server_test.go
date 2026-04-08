@@ -476,8 +476,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
 	packetfilter.EXPECT().FilterOutbound(gomock.Any(), gomock.Any()).AnyTimes()
-	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
-	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
+	packetfilter.EXPECT().SetUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().SetTCPPacketHook(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	if err := wgIface.SetFilter(packetfilter); err != nil {
 		t.Errorf("set packet filter: %v", err)
@@ -1071,7 +1071,7 @@ func (m *mockHandler) ID() types.HandlerID                   { return types.Hand
 type mockService struct{}
 
 func (m *mockService) Listen() error                   { return nil }
-func (m *mockService) Stop()                           {}
+func (m *mockService) Stop() error                     { return nil }
 func (m *mockService) RuntimeIP() netip.Addr           { return netip.MustParseAddr("127.0.0.1") }
 func (m *mockService) RuntimePort() int                { return 53 }
 func (m *mockService) RegisterMux(string, dns.Handler) {}

@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -18,7 +20,8 @@ type ServiceViaMemory struct {
 	dnsMux            *dns.ServeMux
 	runtimeIP         netip.Addr
 	runtimePort       int
-	udpFilterHookID   string
+	tcpDNS            *tcpDNSServer
+	tcpHookSet        bool
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
 }
@@ -28,14 +31,13 @@ func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
 	if err != nil {
 		log.Errorf("get last ip from network: %v", err)
 	}
-	s := &ServiceViaMemory{
+
+	return &ServiceViaMemory{
 		wgInterface: wgIface,
 		dnsMux:      dns.NewServeMux(),
-
 		runtimeIP:   lastIP,
 		runtimePort: DefaultPort,
 	}
-	return s
 }
 
 func (s *ServiceViaMemory) Listen() error {
@@ -46,10 +48,8 @@ func (s *ServiceViaMemory) Listen() error {
 		return nil
 	}
 
-	var err error
-	s.udpFilterHookID, err = s.filterDNSTraffic()
-	if err != nil {
-		return fmt.Errorf("filter dns traffice: %w", err)
+	if err := s.filterDNSTraffic(); err != nil {
+		return fmt.Errorf("filter dns traffic: %w", err)
 	}
 	s.listenerIsRunning = true
 
@@ -57,19 +57,29 @@ func (s *ServiceViaMemory) Listen() error {
 	return nil
 }
 
-func (s *ServiceViaMemory) Stop() {
+func (s *ServiceViaMemory) Stop() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
 	if !s.listenerIsRunning {
-		return
+		return nil
 	}
 
-	if err := s.wgInterface.GetFilter().RemovePacketHook(s.udpFilterHookID); err != nil {
-		log.Errorf("unable to remove DNS packet hook: %s", err)
+	filter := s.wgInterface.GetFilter()
+	if filter != nil {
+		filter.SetUDPPacketHook(s.runtimeIP, uint16(s.runtimePort), nil)
+		if s.tcpHookSet {
+			filter.SetTCPPacketHook(s.runtimeIP, uint16(s.runtimePort), nil)
+		}
+	}
+
+	if s.tcpDNS != nil {
+		s.tcpDNS.Stop()
 	}
 
 	s.listenerIsRunning = false
+
+	return nil
 }
 
 func (s *ServiceViaMemory) RegisterMux(pattern string, handler dns.Handler) {
@@ -88,10 +98,18 @@ func (s *ServiceViaMemory) RuntimeIP() netip.Addr {
 	return s.runtimeIP
 }
 
-func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
+func (s *ServiceViaMemory) filterDNSTraffic() error {
 	filter := s.wgInterface.GetFilter()
 	if filter == nil {
-		return "", fmt.Errorf("can't set DNS filter, filter not initialized")
+		return errors.New("DNS filter not initialized")
+	}
+
+	// Create TCP DNS server lazily here since the device may not exist at construction time.
+	if s.tcpDNS == nil {
+		if dev := s.wgInterface.GetDevice(); dev != nil {
+			// MTU only affects TCP segment sizing; DNS messages are small so this has no practical impact.
+			s.tcpDNS = newTCPDNSServer(s.dnsMux, dev.Device, s.runtimeIP, uint16(s.runtimePort), iface.DefaultMTU)
+		}
 	}
 
 	firstLayerDecoder := layers.LayerTypeIPv4
@@ -100,12 +118,16 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 	}
 
 	hook := func(packetData []byte) bool {
-		// Decode the packet
 		packet := gopacket.NewPacket(packetData, firstLayerDecoder, gopacket.Default)
 
-		// Get the UDP layer
 		udpLayer := packet.Layer(layers.LayerTypeUDP)
-		udp := udpLayer.(*layers.UDP)
+		if udpLayer == nil {
+			return true
+		}
+		udp, ok := udpLayer.(*layers.UDP)
+		if !ok {
+			return true
+		}
 
 		msg := new(dns.Msg)
 		if err := msg.Unpack(udp.Payload); err != nil {
@@ -113,13 +135,30 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 			return true
 		}
 
-		writer := responseWriter{
-			packet: packet,
-			device: s.wgInterface.GetDevice().Device,
+		dev := s.wgInterface.GetDevice()
+		if dev == nil {
+			return true
 		}
-		go s.dnsMux.ServeDNS(&writer, msg)
+
+		writer := &responseWriter{
+			remote: remoteAddrFromPacket(packet),
+			packet: packet,
+			device: dev.Device,
+		}
+		go s.dnsMux.ServeDNS(writer, msg)
 		return true
 	}
 
-	return filter.AddUDPPacketHook(false, s.runtimeIP, uint16(s.runtimePort), hook), nil
+	filter.SetUDPPacketHook(s.runtimeIP, uint16(s.runtimePort), hook)
+
+	if s.tcpDNS != nil {
+		tcpHook := func(packetData []byte) bool {
+			s.tcpDNS.InjectPacket(packetData)
+			return true
+		}
+		filter.SetTCPPacketHook(s.runtimeIP, uint16(s.runtimePort), tcpHook)
+		s.tcpHookSet = true
+	}
+
+	return nil
 }
