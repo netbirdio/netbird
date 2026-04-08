@@ -209,6 +209,13 @@ func (p *PacketBuilder) buildICMPLayer(ipLayer gopacket.SerializableLayer) ([]go
 		if nl, ok := ipLayer.(gopacket.NetworkLayer); ok {
 			_ = icmp.SetNetworkLayerForChecksum(nl)
 		}
+		if p.ICMPType == layers.ICMPv6TypeEchoRequest || p.ICMPType == layers.ICMPv6TypeEchoReply {
+			echo := &layers.ICMPv6Echo{
+				Identifier: 1,
+				SeqNumber:  1,
+			}
+			return []gopacket.SerializableLayer{icmp, echo}, nil
+		}
 		return []gopacket.SerializableLayer{icmp}, nil
 	}
 	icmp := &layers.ICMPv4{
@@ -353,6 +360,13 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 			flags&conntrack.TCPFin != 0)
 	case layers.LayerTypeICMPv4:
 		msg += fmt.Sprintf(" (ICMP ID=%d, Seq=%d)", d.icmp4.Id, d.icmp4.Seq)
+	case layers.LayerTypeICMPv6:
+		var id, seq uint16
+		if len(d.icmp6.Payload) >= 4 {
+			id = uint16(d.icmp6.Payload[0])<<8 | uint16(d.icmp6.Payload[1])
+			seq = uint16(d.icmp6.Payload[2])<<8 | uint16(d.icmp6.Payload[3])
+		}
+		msg += fmt.Sprintf(" (ICMPv6 ID=%d, Seq=%d)", id, seq)
 	}
 	return msg
 }
