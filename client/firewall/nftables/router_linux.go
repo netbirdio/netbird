@@ -1928,7 +1928,7 @@ func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol,
 		return err
 	}
 
-	protoNum, err := protoToInt(protocol)
+	protoNum, err := r.af.protoNum(protocol)
 	if err != nil {
 		return fmt.Errorf("convert protocol to number: %w", err)
 	}
@@ -1953,7 +1953,11 @@ func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol,
 		},
 	}
 
-	exprs = append(exprs, applyPrefix(netip.PrefixFrom(localAddr, 32), false)...)
+	bits := 32
+	if localAddr.Is6() {
+		bits = 128
+	}
+	exprs = append(exprs, r.applyPrefix(netip.PrefixFrom(localAddr, bits), false)...)
 
 	exprs = append(exprs,
 		&expr.Immediate{
@@ -1966,7 +1970,7 @@ func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol,
 		},
 		&expr.NAT{
 			Type:        expr.NATTypeDestNAT,
-			Family:      uint32(nftables.TableFamilyIPv4),
+			Family:      uint32(r.af.tableFamily),
 			RegAddrMin:  1,
 			RegProtoMin: 2,
 		},
