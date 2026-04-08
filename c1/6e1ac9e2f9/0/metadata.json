@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "c16e1ac9e2f9",
+  "session_id": "4fdf2ae9-b9d6-409e-b520-5aa6e08772a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T09:04:42.150969Z",
+  "branch": "main",
+  "checkpoints_count": 12,
+  "files_touched": [
+    "cmd",
+    "explain/cmd/config.yaml",
+    "explain/cmd/main.go",
+    "explain/doc.go",
+    "explain/handler.go",
+    "explain/middleware.go",
+    "explain/provider.go",
+    "explain/provider_anthropic.go",
+    "explain/provider_dify.go",
+    "explain/provider_openai.go",
+    "explain/types.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "f4eebe20-83f2-4d06-a02d-3238d2969645",
+  "token_usage": {
+    "input_tokens": 103,
+    "cache_creation_tokens": 69044,
+    "cache_read_tokens": 4064418,
+    "output_tokens": 28778,
+    "api_call_count": 75
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T09:04:42.095886Z",
+    "agent_lines": 743,
+    "human_added": 103009,
+    "human_modified": 69,
+    "human_removed": 0,
+    "total_committed": 103804,
+    "agent_percentage": 0.7157720319062849
+  }
+}
