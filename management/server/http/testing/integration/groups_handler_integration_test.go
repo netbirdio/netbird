@@ -216,7 +216,6 @@ func Test_Groups_Create(t *testing.T) {
 					}
 					tc.verifyResponse(t, got)
 
-					// Verify group exists in DB
 					db := testing_tools.GetDB(t, am.GetStore())
 					dbGroup := testing_tools.VerifyGroupInDB(t, db, got.Id)
 					assert.Equal(t, tc.requestBody.Name, dbGroup.Name)

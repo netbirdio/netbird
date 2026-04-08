@@ -18,7 +18,7 @@ var Admin = RolePermissions{
 		modules.Accounts: {
 			operations.Read:   true,
 			operations.Create: false,
-			operations.Update: false,
+			operations.Update: true,
 			operations.Delete: false,
 		},
 	},
