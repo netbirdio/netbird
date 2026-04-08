@@ -892,10 +892,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database: %w", err)
 	}
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}

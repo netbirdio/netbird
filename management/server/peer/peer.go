@@ -222,8 +222,8 @@ func (p *Peer) AddedWithSSOLogin() bool {
 }
 
 // HasCapability reports whether the peer has the given capability.
-func (p *Peer) HasCapability(cap int32) bool {
-	return slices.Contains(p.Meta.Capabilities, cap)
+func (p *Peer) HasCapability(capability int32) bool {
+	return slices.Contains(p.Meta.Capabilities, capability)
 }
 
 // SupportsIPv6 reports whether the peer supports IPv6 overlay.

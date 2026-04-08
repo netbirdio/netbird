@@ -317,14 +317,6 @@ func isHostAllZeroOrOnes(ip []byte, prefixLen int) bool {
 	return slices.Equal(hostSlice, onesMask)
 }
 
-func ipToUint32(ip net.IP) uint32 {
-	ip = ip.To4()
-	if len(ip) < 4 {
-		return 0
-	}
-	return binary.BigEndian.Uint32(ip)
-}
-
 func uint32ToIP(n uint32) netip.Addr {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], n)
