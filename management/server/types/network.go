@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -255,7 +256,7 @@ func AllocateRandomPeerIP(prefix netip.Prefix) (netip.Addr, error) {
 // Only the host bits (after the prefix length) are randomized.
 func AllocateRandomPeerIPv6(prefix netip.Prefix) (netip.Addr, error) {
 	ones := prefix.Bits()
-	if ones == 0 || !prefix.Addr().Is6() {
+	if ones == 0 || ones > 126 || !prefix.Addr().Is6() {
 		return netip.Addr{}, fmt.Errorf("invalid IPv6 subnet: %s", prefix.String())
 	}
 
@@ -280,31 +281,40 @@ func AllocateRandomPeerIPv6(prefix netip.Prefix) (netip.Addr, error) {
 		ip[i] = byte(rng.Intn(256))
 	}
 
-	// Avoid all-zeros and all-ones host parts
-	hostStart := ones / 8
-	if isZeroSuffix(ip[hostStart:]) || isAllOnesSuffix(ip[hostStart:]) {
-		ip[15] = 1
+	// Avoid all-zeros and all-ones host parts by checking only host bits.
+	if isHostAllZeroOrOnes(ip[:], ones) {
+		ip = prefix.Masked().Addr().As16()
+		ip[15] |= 0x01
 	}
 
 	return netip.AddrFrom16(ip).Unmap(), nil
 }
 
-func isZeroSuffix(b []byte) bool {
-	for _, v := range b {
-		if v != 0 {
-			return false
-		}
-	}
-	return true
-}
+// isHostAllZeroOrOnes checks whether all host bits (after prefixLen) are zero or all ones.
+func isHostAllZeroOrOnes(ip []byte, prefixLen int) bool {
+	hostStart := prefixLen / 8
+	partialBits := prefixLen % 8
 
-func isAllOnesSuffix(b []byte) bool {
-	for _, v := range b {
-		if v != 0xff {
-			return false
-		}
+	hostSlice := slices.Clone(ip[hostStart:])
+	if partialBits > 0 {
+		hostSlice[0] &= 0xff >> partialBits
 	}
-	return true
+
+	allZero := !slices.ContainsFunc(hostSlice, func(v byte) bool { return v != 0 })
+	if allZero {
+		return true
+	}
+
+	// Build the all-ones mask for host bits
+	onesMask := make([]byte, len(hostSlice))
+	for i := range onesMask {
+		onesMask[i] = 0xff
+	}
+	if partialBits > 0 {
+		onesMask[0] = 0xff >> partialBits
+	}
+
+	return slices.Equal(hostSlice, onesMask)
 }
 
 func ipToUint32(ip net.IP) uint32 {
