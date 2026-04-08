@@ -715,38 +715,45 @@ func (conn *Conn) evalStatus() ConnStatus {
 	return StatusConnecting
 }
 
-func (conn *Conn) isConnectedOnAllWay() (connected bool) {
+func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	// would be better to protect this with a mutex, but it could cause deadlock with Close function
 
 	defer func() {
-		if !connected {
+		if status != guard.ConnStatusConnected {
 			conn.logTraceConnState()
 		}
 	}()
 
+	relayConnected := conn.workerRelay.IsRelayConnectionSupportedWithPeer() &&
+		conn.statusRelay.Get() == worker.StatusConnected
+
 	// For force-relayed connections (JS or NB_FORCE_RELAY): only relay status matters
 	if IsForceRelayed() {
-		if !conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-			return false
+		if relayConnected {
+			return guard.ConnStatusConnected
 		}
-		return conn.statusRelay.Get() == worker.StatusConnected
+		return guard.ConnStatusDisconnected
 	}
 
+	iceConnected := true
 	// For non-forced platforms: check ICE connection status only if remote peer supports ICE
 	if conn.handshaker.RemoteICESupported() {
-		if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
-			return false
-		}
+		iceConnected = conn.statusICE.Get() != worker.StatusDisconnected || conn.workerICE.InProgress()
 	}
 
-	// If relay is supported with peer, it must also be connected
-	if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-		if conn.statusRelay.Get() == worker.StatusDisconnected {
-			return false
-		}
+	relayNeeded := conn.workerRelay.IsRelayConnectionSupportedWithPeer()
+	relayOK := !relayNeeded || relayConnected
+
+	if iceConnected && relayOK {
+		return guard.ConnStatusConnected
 	}
 
-	return true
+	// Relay is up but ICE is not
+	if relayConnected && !iceConnected {
+		return guard.ConnStatusPartiallyConnected
+	}
+
+	return guard.ConnStatusDisconnected
 }
 
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
