@@ -75,7 +75,7 @@ type Manager interface {
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
 	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error

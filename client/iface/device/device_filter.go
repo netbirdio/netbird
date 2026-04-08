@@ -15,14 +15,17 @@ type PacketFilter interface {
 	// FilterInbound filter incoming packets from external sources to host
 	FilterInbound(packetData []byte, size int) bool
 
-	// AddUDPPacketHook calls hook when UDP packet from given direction matched
-	//
-	// Hook function returns flag which indicates should be the matched package dropped or not.
-	// Hook function receives raw network packet data as argument.
-	AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string
+	// SetUDPPacketHook registers a hook for outbound UDP packets matching the given IP and port.
+	// Hook function returns true if the packet should be dropped.
+	// Only one UDP hook is supported; calling again replaces the previous hook.
+	// Pass nil hook to remove.
+	SetUDPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool)
 
-	// RemovePacketHook removes hook by ID
-	RemovePacketHook(hookID string) error
+	// SetTCPPacketHook registers a hook for outbound TCP packets matching the given IP and port.
+	// Hook function returns true if the packet should be dropped.
+	// Only one TCP hook is supported; calling again replaces the previous hook.
+	// Pass nil hook to remove.
+	SetTCPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool)
 }
 
 // FilteredDevice to override Read or Write of packets
