@@ -3,10 +3,16 @@
   "checkpoint_id": "c16e1ac9e2f9",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 12,
+  "checkpoints_count": 22,
   "files_touched": [
+    ".gitignore",
     "cmd",
     "explain/cmd/config.yaml",
+    "explain/cmd/config.yaml.example",
+    "explain/cmd/docs.bleve/index_meta.json",
+    "explain/cmd/docs.bleve/store/000000000002.zap",
+    "explain/cmd/docs.bleve/store/root.bolt",
+    "explain/cmd/index/main.go",
     "explain/cmd/main.go",
     "explain/doc.go",
     "explain/handler.go",
@@ -15,6 +21,9 @@
     "explain/provider_anthropic.go",
     "explain/provider_dify.go",
     "explain/provider_openai.go",
+    "explain/rag/chunker.go",
+    "explain/rag/index.go",
+    "explain/rag/middleware.go",
     "explain/types.go"
   ],
   "sessions": [
@@ -24,13 +33,20 @@
       "context": "/c1/6e1ac9e2f9/0/context.md",
       "content_hash": "/c1/6e1ac9e2f9/0/content_hash.txt",
       "prompt": "/c1/6e1ac9e2f9/0/prompt.txt"
+    },
+    {
+      "metadata": "/c1/6e1ac9e2f9/1/metadata.json",
+      "transcript": "/c1/6e1ac9e2f9/1/full.jsonl",
+      "context": "/c1/6e1ac9e2f9/1/context.md",
+      "content_hash": "/c1/6e1ac9e2f9/1/content_hash.txt",
+      "prompt": "/c1/6e1ac9e2f9/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 103,
-    "cache_creation_tokens": 69044,
-    "cache_read_tokens": 4064418,
-    "output_tokens": 28778,
-    "api_call_count": 75
+    "input_tokens": 234,
+    "cache_creation_tokens": 199368,
+    "cache_read_tokens": 9276367,
+    "output_tokens": 52030,
+    "api_call_count": 170
   }
 }

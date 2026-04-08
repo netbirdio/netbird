@@ -1,0 +1,84 @@
+given the combiend setup in the combined/ see if I we can configure embedded Idp store to be the default store of the instance instead of creating a sperate one unless explicitly configured in authStore parameter. You shoudl also check whether it is actually feasible as the store.db may not be created yet
+
+---
+
+I need an idea of what AI tools and platfroms to use to enrich my model responses with our GitHub docs.
+
+---
+
+I wanna try #5
+
+---
+
+2
+
+---
+
+my docs folder is here ../docs/ the actual mdx pages are here ../docs/src/pages
+
+---
+
+how do I see that my query hits certain pages? can we add logs?
+
+---
+
+when running my server in Goland: [rag] search error: open index: cannot open index, path does not exist
+
+---
+
+I want to disable passed context (docs) for a while
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+no, the API sends docs context, I just want to exclude it in the model
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+in the handler just skip context docs
+
+---
+
+I got these kind of answers when user asks for "What is a reverse proxy?" Based on the provided documentation context, the specific definition of a reverse proxy isn't covered in the excerpts available to me.
+
+However, in general networking terms, a reverse proxy is a server that sits in front of one or more backend services and forwards client requests to them — acting as an intermediary.
+
+In the context of NetBird's Reverse Proxy feature, based on what's available in the docs, it appears to allow you to expose internal services (HTTP, TCP, UDP, TLS) through NetBird's network, making them accessible without exposing them directly to the internet.
+
+For a complete and accurate explanation of NetBird's specific Reverse Proxy implementation, I'd recommend checking the full NetBird documentation directly, particularly the Reverse Proxy > Concepts section.. However the docs fully explain this
+
+---
+
+Is lower score better? E.g., here: 2026/04/07 16:41:04 [rag] query="Explain \"Service Type\" on Add Service modal in Reverse Proxy" matched 5 chunks:
+2026/04/07 16:41:04 [rag]   1. score=0.04  manage/reverse-proxy/index.mdx | Step 2: Configure service details
+2026/04/07 16:41:04 [rag]   2. score=0.04  manage/reverse-proxy/authentication.mdx | Configuring authentication
+2026/04/07 16:41:04 [rag]   3. score=0.04  manage/reverse-proxy/index.mdx | Step 1: Open the Reverse Proxy page
+2026/04/07 16:41:04 [rag]   4. score=0.03  manage/reverse-proxy/custom-domains.mdx | Adding a custom domain
+2026/04/07 16:41:04 [rag]   5. score=0.03  manage/reverse-proxy/troubleshooting.mdx | 2. Is the reverse proxy service showing in the dashboard?
+
+---
+
+I will have quotes commonly
+
+---
+
+create config.yaml.example and add config.yaml to git ignore along with the output of the docs.bleve store
+
+---
+
+I now want to try using https://github.com/arabold/docs-mcp-server with claude as an mcp server. Could u plz add the mcp config?
+
+---
+
+Sorry, I couldn't get a response. Error: 502: {"error":"Anthropic API error 400: {"type":"error","error":{"type":"invalid_request_error","message":"Connection error while communicating with MCP server: Server error: Access to this MCP server is blocked"},"request_id":"req_011CZphVC5BBRMtyVf7TZCXE"}"}
+
+---
+
+❌ Search failed: Library netbird not found in store. Did you mean: netbird docs?

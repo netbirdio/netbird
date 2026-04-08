@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "c16e1ac9e2f9",
+  "session_id": "605bd668-c127-4419-bd3f-8341d31b8c00",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T09:04:43.241429Z",
+  "branch": "main",
+  "checkpoints_count": 10,
+  "files_touched": [
+    ".gitignore",
+    "explain/cmd/config.yaml",
+    "explain/cmd/config.yaml.example",
+    "explain/cmd/docs.bleve/index_meta.json",
+    "explain/cmd/docs.bleve/store/000000000002.zap",
+    "explain/cmd/docs.bleve/store/root.bolt",
+    "explain/cmd/index/main.go",
+    "explain/cmd/main.go",
+    "explain/handler.go",
+    "explain/rag/chunker.go",
+    "explain/rag/index.go",
+    "explain/rag/middleware.go"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "9b441af0-fe89-4705-8525-c1f6a2f43f4c",
+  "token_usage": {
+    "input_tokens": 131,
+    "cache_creation_tokens": 130324,
+    "cache_read_tokens": 5211949,
+    "output_tokens": 23252,
+    "api_call_count": 95
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T09:04:43.20677Z",
+    "agent_lines": 229,
+    "human_added": 103712,
+    "human_modified": 220,
+    "human_removed": 0,
+    "total_committed": 104130,
+    "agent_percentage": 0.21991741092864686
+  }
+}
