@@ -3,33 +3,26 @@ package quic
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/quic-go/quic-go"
 )
 
 type Conn struct {
-	session   *quic.Conn
-	closed    bool
-	closedMu  sync.Mutex
-	ctx       context.Context
-	ctxCancel context.CancelFunc
+	session  *quic.Conn
+	closed   bool
+	closedMu sync.Mutex
 }
 
 func NewConn(session *quic.Conn) *Conn {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &Conn{
-		session:   session,
-		ctx:       ctx,
-		ctxCancel: cancel,
+		session: session,
 	}
 }
 
-func (c *Conn) Read(b []byte) (n int, err error) {
-	dgram, err := c.session.ReceiveDatagram(c.ctx)
+func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
+	dgram, err := c.session.ReceiveDatagram(ctx)
 	if err != nil {
 		return 0, c.remoteCloseErrHandling(err)
 	}
@@ -38,31 +31,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	return n, nil
 }
 
-func (c *Conn) Write(b []byte) (int, error) {
+func (c *Conn) Write(_ context.Context, b []byte) (int, error) {
 	if err := c.session.SendDatagram(b); err != nil {
 		return 0, c.remoteCloseErrHandling(err)
 	}
 	return len(b), nil
 }
 
-func (c *Conn) LocalAddr() net.Addr {
-	return c.session.LocalAddr()
-}
-
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.session.RemoteAddr()
-}
-
-func (c *Conn) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return fmt.Errorf("SetWriteDeadline is not implemented")
-}
-
-func (c *Conn) SetDeadline(t time.Time) error {
-	return fmt.Errorf("SetDeadline is not implemented")
 }
 
 func (c *Conn) Close() error {
@@ -73,8 +50,6 @@ func (c *Conn) Close() error {
 	}
 	c.closed = true
 	c.closedMu.Unlock()
-
-	c.ctxCancel() // Cancel the context
 
 	sessionErr := c.session.CloseWithError(0, "normal closure")
 	return sessionErr

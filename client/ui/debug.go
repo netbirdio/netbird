@@ -24,9 +24,10 @@ import (
 
 // Initial state for the debug collection
 type debugInitialState struct {
-	wasDown      bool
-	logLevel     proto.LogLevel
-	isLevelTrace bool
+	wasDown        bool
+	needsRestoreUp bool
+	logLevel       proto.LogLevel
+	isLevelTrace   bool
 }
 
 // Debug collection parameters
@@ -371,46 +372,51 @@ func (s *serviceClient) configureServiceForDebug(
 	conn proto.DaemonServiceClient,
 	state *debugInitialState,
 	enablePersistence bool,
-) error {
+) {
 	if state.wasDown {
 		if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-			return fmt.Errorf("bring service up: %v", err)
+			log.Warnf("failed to bring service up: %v", err)
+		} else {
+			log.Info("Service brought up for debug")
+			time.Sleep(time.Second * 10)
 		}
-		log.Info("Service brought up for debug")
-		time.Sleep(time.Second * 10)
 	}
 
 	if !state.isLevelTrace {
 		if _, err := conn.SetLogLevel(s.ctx, &proto.SetLogLevelRequest{Level: proto.LogLevel_TRACE}); err != nil {
-			return fmt.Errorf("set log level to TRACE: %v", err)
+			log.Warnf("failed to set log level to TRACE: %v", err)
+		} else {
+			log.Info("Log level set to TRACE for debug")
 		}
-		log.Info("Log level set to TRACE for debug")
 	}
 
 	if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
-		return fmt.Errorf("bring service down: %v", err)
+		log.Warnf("failed to bring service down: %v", err)
+	} else {
+		state.needsRestoreUp = !state.wasDown
+		time.Sleep(time.Second)
 	}
-	time.Sleep(time.Second)
 
 	if enablePersistence {
 		if _, err := conn.SetSyncResponsePersistence(s.ctx, &proto.SetSyncResponsePersistenceRequest{
 			Enabled: true,
 		}); err != nil {
-			return fmt.Errorf("enable sync response persistence: %v", err)
+			log.Warnf("failed to enable sync response persistence: %v", err)
+		} else {
+			log.Info("Sync response persistence enabled for debug")
 		}
-		log.Info("Sync response persistence enabled for debug")
 	}
 
 	if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("bring service back up: %v", err)
+		log.Warnf("failed to bring service back up: %v", err)
+	} else {
+		state.needsRestoreUp = false
+		time.Sleep(time.Second * 3)
 	}
-	time.Sleep(time.Second * 3)
 
 	if _, err := conn.StartCPUProfile(s.ctx, &proto.StartCPUProfileRequest{}); err != nil {
 		log.Warnf("failed to start CPU profiling: %v", err)
 	}
-
-	return nil
 }
 
 func (s *serviceClient) collectDebugData(
@@ -424,9 +430,7 @@ func (s *serviceClient) collectDebugData(
 	var wg sync.WaitGroup
 	startProgressTracker(ctx, &wg, params.duration, progress)
 
-	if err := s.configureServiceForDebug(conn, state, params.enablePersistence); err != nil {
-		return err
-	}
+	s.configureServiceForDebug(conn, state, params.enablePersistence)
 
 	wg.Wait()
 	progress.progressBar.Hide()
@@ -482,9 +486,17 @@ func (s *serviceClient) createDebugBundleFromCollection(
 
 // Restore service to original state
 func (s *serviceClient) restoreServiceState(conn proto.DaemonServiceClient, state *debugInitialState) {
+	if state.needsRestoreUp {
+		if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
+			log.Warnf("failed to restore up state: %v", err)
+		} else {
+			log.Info("Service state restored to up")
+		}
+	}
+
 	if state.wasDown {
 		if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("Failed to restore down state: %v", err)
+			log.Warnf("failed to restore down state: %v", err)
 		} else {
 			log.Info("Service state restored to down")
 		}
@@ -492,7 +504,7 @@ func (s *serviceClient) restoreServiceState(conn proto.DaemonServiceClient, stat
 
 	if !state.isLevelTrace {
 		if _, err := conn.SetLogLevel(s.ctx, &proto.SetLogLevelRequest{Level: state.logLevel}); err != nil {
-			log.Errorf("Failed to restore log level: %v", err)
+			log.Warnf("failed to restore log level: %v", err)
 		} else {
 			log.Info("Log level restored to original setting")
 		}
