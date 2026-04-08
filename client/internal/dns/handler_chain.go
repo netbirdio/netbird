@@ -73,6 +73,9 @@ func (w *ResponseWriterChain) WriteMsg(m *dns.Msg) error {
 		return nil
 	}
 	w.response = m
+	if m.MsgHdr.Truncated {
+		w.SetMeta("truncated", "true")
+	}
 	return w.ResponseWriter.WriteMsg(m)
 }
 
@@ -195,10 +198,14 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	startTime := time.Now()
 	requestID := resutil.GenerateRequestID()
-	logger := log.WithFields(log.Fields{
+	fields := log.Fields{
 		"request_id": requestID,
 		"dns_id":     fmt.Sprintf("%04x", r.Id),
-	})
+	}
+	if addr := w.RemoteAddr(); addr != nil {
+		fields["client"] = addr.String()
+	}
+	logger := log.WithFields(fields)
 
 	question := r.Question[0]
 	qname := strings.ToLower(question.Name)
@@ -261,9 +268,9 @@ func (c *HandlerChain) logResponse(logger *log.Entry, cw *ResponseWriterChain, q
 		meta += " " + k + "=" + v
 	}
 
-	logger.Tracef("response: domain=%s rcode=%s answers=%s%s took=%s",
+	logger.Tracef("response: domain=%s rcode=%s answers=%s size=%dB%s took=%s",
 		qname, dns.RcodeToString[cw.response.Rcode], resutil.FormatAnswers(cw.response.Answer),
-		meta, time.Since(startTime))
+		cw.response.Len(), meta, time.Since(startTime))
 }
 
 func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {
