@@ -475,3 +475,298 @@ func TestFormatFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestDNSProtocolContext(t *testing.T) {
+	t.Run("roundtrip udp", func(t *testing.T) {
+		ctx := contextWithDNSProtocol(context.Background(), protoUDP)
+		assert.Equal(t, protoUDP, dnsProtocolFromContext(ctx))
+	})
+
+	t.Run("roundtrip tcp", func(t *testing.T) {
+		ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+		assert.Equal(t, protoTCP, dnsProtocolFromContext(ctx))
+	})
+
+	t.Run("missing returns empty", func(t *testing.T) {
+		assert.Equal(t, "", dnsProtocolFromContext(context.Background()))
+	})
+}
+
+func TestExchangeWithFallback_TCPContext(t *testing.T) {
+	// Start a local DNS server that responds on TCP only
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.1"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpServer := &dns.Server{
+		Addr:    "127.0.0.1:0",
+		Net:     "tcp",
+		Handler: tcpHandler,
+	}
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	tcpServer.Listener = tcpLn
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// With TCP context, should connect directly via TCP without trying UDP
+	ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.1")
+}
+
+func TestExchangeWithFallback_UDPFallbackToTCP(t *testing.T) {
+	// UDP handler returns a truncated response to trigger TCP retry.
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Truncated = true
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	// TCP handler returns the full answer.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.3"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{
+		PacketConn: udpPC,
+		Net:        "udp",
+		Handler:    udpHandler,
+	}
+
+	tcpLn, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  tcpHandler,
+	}
+
+	go func() {
+		if err := udpServer.ActivateAndServe(); err != nil {
+			t.Logf("udp server: %v", err)
+		}
+	}()
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	}()
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err, "should fall back to TCP after truncated UDP response")
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer, "TCP response should contain the full answer")
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.3")
+	assert.False(t, rm.Truncated, "TCP response should not be truncated")
+}
+
+func TestExchangeWithFallback_TCPContextSkipsUDP(t *testing.T) {
+	// Start only a TCP server (no UDP). With TCP context it should succeed.
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.2"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	tcpServer := &dns.Server{
+		Listener: tcpLn,
+		Net:      "tcp",
+		Handler:  tcpHandler,
+	}
+
+	go func() {
+		if err := tcpServer.ActivateAndServe(); err != nil {
+			t.Logf("tcp server: %v", err)
+		}
+	}()
+	defer func() {
+		_ = tcpServer.Shutdown()
+	}()
+
+	upstream := tcpLn.Addr().String()
+
+	// TCP context: should skip UDP entirely and go directly to TCP
+	ctx := contextWithDNSProtocol(context.Background(), protoTCP)
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, upstream)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	require.NotEmpty(t, rm.Answer)
+	assert.Contains(t, rm.Answer[0].String(), "10.0.0.2")
+
+	// Without TCP context, trying to reach a TCP-only server via UDP should fail
+	ctx2 := context.Background()
+	client2 := &dns.Client{Timeout: 500 * time.Millisecond}
+	_, _, err = ExchangeWithFallback(ctx2, client2, r, upstream)
+	assert.Error(t, err, "should fail when no UDP server and no TCP context")
+}
+
+func TestExchangeWithFallback_EDNS0Capped(t *testing.T) {
+	// Verify that a client EDNS0 larger than our MTU-derived limit gets
+	// capped in the outgoing request so the upstream doesn't send a
+	// response larger than our read buffer.
+	var receivedUDPSize uint16
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		if opt := r.IsEdns0(); opt != nil {
+			receivedUDPSize = opt.UDPSize()
+		}
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.ParseIP("10.0.0.1"),
+		})
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{PacketConn: udpPC, Net: "udp", Handler: udpHandler}
+	go func() { _ = udpServer.ActivateAndServe() }()
+	t.Cleanup(func() { _ = udpServer.Shutdown() })
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	r.SetEdns0(4096, false)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+
+	expectedMax := uint16(currentMTU - ipUDPHeaderSize)
+	assert.Equal(t, expectedMax, receivedUDPSize,
+		"upstream should see capped EDNS0, not the client's 4096")
+}
+
+func TestExchangeWithFallback_TCPTruncatesToClientSize(t *testing.T) {
+	// When the client advertises a large EDNS0 (4096) and the upstream
+	// truncates, the TCP response should NOT be truncated since the full
+	// answer fits within the client's original buffer.
+	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Truncated = true
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	tcpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		// Add enough records to exceed MTU but fit within 4096
+		for i := range 20 {
+			m.Answer = append(m.Answer, &dns.TXT{
+				Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 60},
+				Txt: []string{fmt.Sprintf("record-%d-padding-data-to-make-it-longer", i)},
+			})
+		}
+		if err := w.WriteMsg(m); err != nil {
+			t.Logf("write msg: %v", err)
+		}
+	})
+
+	udpPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := udpPC.LocalAddr().String()
+
+	udpServer := &dns.Server{PacketConn: udpPC, Net: "udp", Handler: udpHandler}
+	tcpLn, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+	tcpServer := &dns.Server{Listener: tcpLn, Net: "tcp", Handler: tcpHandler}
+
+	go func() { _ = udpServer.ActivateAndServe() }()
+	go func() { _ = tcpServer.ActivateAndServe() }()
+	t.Cleanup(func() {
+		_ = udpServer.Shutdown()
+		_ = tcpServer.Shutdown()
+	})
+
+	ctx := context.Background()
+	client := &dns.Client{Timeout: 2 * time.Second}
+
+	// Client with large buffer: should get all records without truncation
+	r := new(dns.Msg).SetQuestion("example.com.", dns.TypeTXT)
+	r.SetEdns0(4096, false)
+
+	rm, _, err := ExchangeWithFallback(ctx, client, r, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm)
+	assert.Len(t, rm.Answer, 20, "large EDNS0 client should get all records")
+	assert.False(t, rm.Truncated, "response should not be truncated for large buffer client")
+
+	// Client with small buffer: should get truncated response
+	r2 := new(dns.Msg).SetQuestion("example.com.", dns.TypeTXT)
+	r2.SetEdns0(512, false)
+
+	rm2, _, err := ExchangeWithFallback(ctx, &dns.Client{Timeout: 2 * time.Second}, r2, addr)
+	require.NoError(t, err)
+	require.NotNil(t, rm2)
+	assert.Less(t, len(rm2.Answer), 20, "small EDNS0 client should get fewer records")
+	assert.True(t, rm2.Truncated, "response should be truncated for small buffer client")
+}

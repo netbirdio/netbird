@@ -521,6 +521,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return err
 	}
 
+	// Inject firewall into DNS server now that it's available.
+	// The DNS server is created before the firewall because the route manager
+	// depends on the DNS server, and the firewall depends on the wg interface.
+	e.dnsServer.SetFirewall(e.firewall)
+
 	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
