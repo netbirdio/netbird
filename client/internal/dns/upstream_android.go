@@ -51,7 +51,7 @@ func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream strin
 	upstreamExchangeClient := &dns.Client{
 		Timeout: ClientTimeout,
 	}
-	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	return ExchangeWithFallback(ctx, upstreamExchangeClient, r, upstream)
 }
 
 // exchangeWithoutVPN protect the UDP socket by Android SDK to avoid to goes through the VPN
@@ -76,7 +76,7 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 		Timeout: timeout,
 	}
 
-	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	return ExchangeWithFallback(ctx, upstreamExchangeClient, r, upstream)
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
