@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/gorilla/mux"
 
 	goversion "github.com/hashicorp/go-version"
@@ -98,6 +100,9 @@ func (h *handler) parseAndValidateNetworkRange(ctx context.Context, accountID, u
 	prefix = prefix.Masked()
 	if requireV6 && !prefix.Addr().Is6() {
 		return netip.Prefix{}, status.Errorf(status.InvalidArgument, "network range must be an IPv6 address")
+	}
+	if !requireV6 && prefix.Addr().Is6() {
+		return netip.Prefix{}, status.Errorf(status.InvalidArgument, "network range must be an IPv4 address")
 	}
 	if err := h.validateNetworkRange(ctx, accountID, userID, prefix); err != nil {
 		return netip.Prefix{}, err
@@ -193,7 +198,10 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 
 	// Populate effective network ranges when settings don't have explicit overrides.
 	if resp.Settings.NetworkRange == nil || resp.Settings.NetworkRangeV6 == nil {
-		if v4, v6, err := h.settingsManager.GetEffectiveNetworkRanges(r.Context(), accountID); err == nil {
+		v4, v6, err := h.settingsManager.GetEffectiveNetworkRanges(r.Context(), accountID)
+		if err != nil {
+			log.WithContext(r.Context()).Warnf("get effective network ranges: %v", err)
+		} else {
 			if resp.Settings.NetworkRange == nil && v4.IsValid() {
 				s := v4.String()
 				resp.Settings.NetworkRange = &s

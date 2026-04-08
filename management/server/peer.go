@@ -804,11 +804,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		if len(settings.IPv6EnabledGroups) > 0 && network.NetV6.IP != nil {
 			var allGroupID string
 			if !peer.ProxyMeta.Embedded {
-				if allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All"); err == nil {
-					allGroupID = allGroup.ID
-				} else {
-					log.WithContext(ctx).Debugf("failed to get All group for IPv6 check: %v", err)
+				allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("get All group: %w", err)
 				}
+				allGroupID = allGroup.ID
 			}
 			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {
 				v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
