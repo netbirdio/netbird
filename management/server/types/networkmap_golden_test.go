@@ -147,15 +147,16 @@ func TestGetPeerNetworkMap_Golden_WithNewPeer(t *testing.T) {
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newPeerID := "peer-new-101"
-	newPeerIP := net.IP{100, 64, 1, 1}
+	newPeerIP := netip.MustParseAddr("100.64.1.1")
 	newPeer := &nbpeer.Peer{
 		ID:        newPeerID,
 		IP:        newPeerIP,
+		IPv6:      netip.MustParseAddr("fd00:1234:5678::101"),
 		Key:       fmt.Sprintf("key-%s", newPeerID),
 		DNSLabel:  "peernew101",
 		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
 	}
 
@@ -224,12 +225,13 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	newPeerID := "peer-new-101"
 	newPeer := &nbpeer.Peer{
 		ID:       newPeerID,
-		IP:       net.IP{100, 64, 1, 1},
+		IP:       netip.MustParseAddr("100.64.1.1"),
+		IPv6:     netip.MustParseAddr("fd00:1234:5678::101"),
 		Key:      fmt.Sprintf("key-%s", newPeerID),
 		DNSLabel: "peernew101",
 		Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 		UserID:   "user-admin",
-		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		Meta:     nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 	}
 
 	account.Peers[newPeerID] = newPeer
@@ -273,15 +275,16 @@ func TestGetPeerNetworkMap_Golden_WithNewRoutingPeer(t *testing.T) {
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newRouterID := "peer-new-router-102"
-	newRouterIP := net.IP{100, 64, 1, 2}
+	newRouterIP := netip.MustParseAddr("100.64.1.2")
 	newRouter := &nbpeer.Peer{
 		ID:        newRouterID,
 		IP:        newRouterIP,
+		IPv6:      netip.MustParseAddr("fd00:1234:5678::102"),
 		Key:       fmt.Sprintf("key-%s", newRouterID),
 		DNSLabel:  "newrouter102",
 		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
 	}
 
@@ -362,15 +365,16 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 	}
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 	newRouterID := "peer-new-router-102"
-	newRouterIP := net.IP{100, 64, 1, 2}
+	newRouterIP := netip.MustParseAddr("100.64.1.2")
 	newRouter := &nbpeer.Peer{
 		ID:        newRouterID,
 		IP:        newRouterIP,
+		IPv6:      netip.MustParseAddr("fd00:1234:5678::102"),
 		Key:       fmt.Sprintf("key-%s", newRouterID),
 		DNSLabel:  "newrouter102",
 		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
 	}
 
@@ -729,16 +733,21 @@ func createTestAccountWithEntities() *types.Account {
 
 	for i := range numPeers {
 		peerID := fmt.Sprintf("peer-%d", i)
-		ip := net.IP{100, 64, 0, byte(i + 1)}
+		ip := netip.MustParseAddr(fmt.Sprintf("100.64.0.%d", i+1))
+		ipv6 := netip.MustParseAddr(fmt.Sprintf("fd00:1234:5678::%d", i+1))
 		wtVersion := "0.25.0"
 		if i%2 == 0 {
 			wtVersion = "0.40.0"
 		}
 
 		p := &nbpeer.Peer{
-			ID: peerID, IP: ip, Key: fmt.Sprintf("key-%s", peerID), DNSLabel: fmt.Sprintf("peer%d", i+1),
-			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
-			UserID: "user-admin", Meta: nbpeer.PeerSystemMeta{WtVersion: wtVersion, GoOS: "linux"},
+			ID:       peerID,
+			IP:       ip,
+			IPv6:     ipv6,
+			Key:      fmt.Sprintf("key-%s", peerID),
+			DNSLabel: fmt.Sprintf("peer%d", i+1),
+			Status:   &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
+			UserID:   "user-admin", Meta: nbpeer.PeerSystemMeta{WtVersion: wtVersion, GoOS: "linux"},
 		}
 
 		if peerID == expiredPeerID {
@@ -850,7 +859,10 @@ func createTestAccountWithEntities() *types.Account {
 		Id: testAccountID, Peers: peers, Groups: groups, Policies: policies, Routes: routes,
 		Users: users,
 		Network: &types.Network{
-			Identifier: "net-golden-test", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(16, 32)}, Serial: 1,
+			Identifier: "net-golden-test",
+			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(16, 32)},
+			NetV6:      net.IPNet{IP: net.ParseIP("fd00:1234:5678::"), Mask: net.CIDRMask(64, 128)},
+			Serial:     1,
 		},
 		DNSSettings: types.DNSSettings{DisabledManagementGroups: []string{opsGroupID}},
 		NameServerGroups: map[string]*dns.NameServerGroup{
@@ -871,7 +883,7 @@ func createTestAccountWithEntities() *types.Account {
 		NetworkRouters: []*routerTypes.NetworkRouter{
 			{ID: networkRouterID, NetworkID: networkID, Peer: routingPeerID, Enabled: true, AccountID: testAccountID},
 		},
-		Settings: &types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: 1 * time.Hour},
+		Settings: &types.Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: 1 * time.Hour, IPv6EnabledGroups: []string{allGroupID}},
 	}
 
 	for _, p := range account.Policies {
@@ -900,15 +912,16 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter_Batched(t *testing.T
 	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newRouterID := "peer-new-router-102"
-	newRouterIP := net.IP{100, 64, 1, 2}
+	newRouterIP := netip.MustParseAddr("100.64.1.2")
 	newRouter := &nbpeer.Peer{
 		ID:        newRouterID,
 		IP:        newRouterIP,
+		IPv6:      netip.MustParseAddr("fd00:1234:5678::102"),
 		Key:       fmt.Sprintf("key-%s", newRouterID),
 		DNSLabel:  "newrouter102",
 		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 		UserID:    "user-admin",
-		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.26.0", GoOS: "linux"},
+		Meta:      nbpeer.PeerSystemMeta{WtVersion: "0.40.0", GoOS: "linux"},
 		LastLogin: func() *time.Time { t := time.Now(); return &t }(),
 	}
 

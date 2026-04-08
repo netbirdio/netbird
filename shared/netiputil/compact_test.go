@@ -80,6 +80,26 @@ func TestEncodePrefixUnmaps(t *testing.T) {
 	assert.Equal(t, netip.MustParsePrefix("10.1.2.3/32"), decoded)
 }
 
+func TestEncodePrefixUnmapsClampsBits(t *testing.T) {
+	// v4-mapped v6 with bits > 32 should clamp to /32
+	mapped := netip.MustParsePrefix("::ffff:10.1.2.3/128")
+	b := EncodePrefix(mapped)
+	assert.Equal(t, 5, len(b), "v4-mapped should encode as 5 bytes")
+
+	decoded, err := DecodePrefix(b)
+	require.NoError(t, err)
+	assert.Equal(t, netip.MustParsePrefix("10.1.2.3/32"), decoded)
+
+	// v4-mapped v6 with bits=96 should also clamp to /32
+	mapped96 := netip.MustParsePrefix("::ffff:10.0.0.0/96")
+	b96 := EncodePrefix(mapped96)
+	assert.Equal(t, 5, len(b96))
+
+	decoded96, err := DecodePrefix(b96)
+	require.NoError(t, err)
+	assert.Equal(t, 32, decoded96.Bits())
+}
+
 func TestDecodeAddr(t *testing.T) {
 	v4 := netip.MustParseAddr("100.64.0.5")
 	b := EncodeAddr(v4)

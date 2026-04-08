@@ -3,7 +3,6 @@ package types
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"slices"
 	"testing"
@@ -466,9 +465,9 @@ const (
 )
 
 var (
-	accNetResourcePeer1IP    = net.IP{192, 168, 1, 1}
-	accNetResourcePeer2IP    = net.IP{192, 168, 1, 2}
-	accNetResourceRouter1IP  = net.IP{192, 168, 1, 3}
+	accNetResourcePeer1IP    = netip.AddrFrom4([4]byte{192, 168, 1, 1})
+	accNetResourcePeer2IP    = netip.AddrFrom4([4]byte{192, 168, 1, 2})
+	accNetResourceRouter1IP  = netip.AddrFrom4([4]byte{192, 168, 1, 3})
 	accNetResourceValidPeers = map[string]struct{}{accNetResourcePeer1ID: {}, accNetResourcePeer2ID: {}}
 )
 
@@ -832,7 +831,13 @@ func Test_NetworksNetMapGenWithTwoPostureChecks(t *testing.T) {
 func Test_NetworksNetMapGenShouldExcludeOtherRouters(t *testing.T) {
 	account := getBasicAccountsWithResource()
 
-	account.Peers["router2Id"] = &nbpeer.Peer{Key: "router2Key", ID: "router2Id", AccountID: accID, IP: net.IP{192, 168, 1, 4}}
+	account.Peers["router2Id"] = &nbpeer.Peer{
+		Key:       "router2Key",
+		ID:        "router2Id",
+		AccountID: accID,
+		IP:        netip.AddrFrom4([4]byte{192, 168, 1, 4}),
+		IPv6:      netip.MustParseAddr("fd00::c0a8:104"),
+	}
 	account.NetworkRouters = append(account.NetworkRouters, &routerTypes.NetworkRouter{
 		ID:        "router2Id",
 		NetworkID: network1ID,
@@ -1320,7 +1325,11 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 			},
 			peersToConnect: []*nbpeer.Peer{},
 			expiredPeers:   []*nbpeer.Peer{},
-			peer:           &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
 			},
@@ -1347,14 +1356,19 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				var peers []*nbpeer.Peer
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
 					peers = append(peers, &nbpeer.Peer{
-						ID: fmt.Sprintf("peer%d", i),
-						IP: net.ParseIP(fmt.Sprintf("10.0.%d.%d", i/256, i%256)),
+						ID:   fmt.Sprintf("peer%d", i),
+						IP:   netip.MustParseAddr(fmt.Sprintf("10.0.%d.%d", i/256, i%256)),
+						IPv6: netip.MustParseAddr(fmt.Sprintf("fd00::%d", i)),
 					})
 				}
 				return peers
 			}(),
 			expiredPeers: []*nbpeer.Peer{},
-			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: func() []nbdns.SimpleRecord {
 				var records []nbdns.SimpleRecord
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
@@ -1385,11 +1399,27 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				},
 			},
 			peersToConnect: []*nbpeer.Peer{
-				{ID: "peer1", IP: net.ParseIP("10.0.0.1"), DNSLabel: "peer1", ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"}},
-				{ID: "peer2", IP: net.ParseIP("10.0.0.2"), DNSLabel: "peer2", ExtraDNSLabels: []string{"peer2-service"}},
+				{
+					ID:             "peer1",
+					IP:             netip.MustParseAddr("10.0.0.1"),
+					IPv6:           netip.MustParseAddr("fd00::a00:1"),
+					DNSLabel:       "peer1",
+					ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"},
+				},
+				{
+					ID:             "peer2",
+					IP:             netip.MustParseAddr("10.0.0.2"),
+					IPv6:           netip.MustParseAddr("fd00::a00:2"),
+					DNSLabel:       "peer2",
+					ExtraDNSLabels: []string{"peer2-service"},
+				},
 			},
 			expiredPeers: []*nbpeer.Peer{},
-			peer:         &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
 				{Name: "peer1-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
@@ -1411,12 +1441,24 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				},
 			},
 			peersToConnect: []*nbpeer.Peer{
-				{ID: "peer1", IP: net.ParseIP("10.0.0.1")},
+				{
+					ID:   "peer1",
+					IP:   netip.MustParseAddr("10.0.0.1"),
+					IPv6: netip.MustParseAddr("fd00::a00:1"),
+				},
 			},
 			expiredPeers: []*nbpeer.Peer{
-				{ID: "expired-peer", IP: net.ParseIP("10.0.0.99")},
+				{
+					ID:   "expired-peer",
+					IP:   netip.MustParseAddr("10.0.0.99"),
+					IPv6: netip.MustParseAddr("fd00::a00:63"),
+				},
 			},
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
+			peer: &nbpeer.Peer{
+				ID:   "router",
+				IP:   netip.MustParseAddr("10.0.0.100"),
+				IPv6: netip.MustParseAddr("fd00::a00:64"),
+			},
 			expectedRecords: []nbdns.SimpleRecord{
 				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
 				{Name: "expired-peer.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.99"},

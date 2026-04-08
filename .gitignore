@@ -33,3 +33,4 @@ infrastructure_files/setup-*.env
 vendor/
 /netbird
 client/netbird-electron/
+management/server/types/testdata/
