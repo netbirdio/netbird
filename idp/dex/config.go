@@ -170,18 +170,64 @@ type Connector struct {
 }
 
 // ToStorageConnector converts a Connector to storage.Connector type.
+// It maps custom connector types (e.g., "zitadel", "entra") to Dex-native types
+// and augments the config with OIDC defaults when needed.
 func (c *Connector) ToStorageConnector() (storage.Connector, error) {
-	data, err := json.Marshal(c.Config)
+	dexType, augmentedConfig := mapConnectorToDex(c.Type, c.Config)
+
+	data, err := json.Marshal(augmentedConfig)
 	if err != nil {
 		return storage.Connector{}, fmt.Errorf("failed to marshal connector config: %v", err)
 	}
 
 	return storage.Connector{
 		ID:     c.ID,
-		Type:   c.Type,
+		Type:   dexType,
 		Name:   c.Name,
 		Config: data,
 	}, nil
+}
+
+// mapConnectorToDex maps custom connector types to Dex-native types and applies
+// OIDC defaults. This ensures static connectors from config files or env vars
+// are stored with types that Dex can open.
+func mapConnectorToDex(connType string, config map[string]interface{}) (string, map[string]interface{}) {
+	switch connType {
+	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
+		return "oidc", applyOIDCDefaults(connType, config)
+	default:
+		return connType, config
+	}
+}
+
+// applyOIDCDefaults clones the config map, sets common OIDC defaults,
+// and applies provider-specific overrides.
+func applyOIDCDefaults(connType string, config map[string]interface{}) map[string]interface{} {
+	augmented := make(map[string]interface{}, len(config)+4)
+	for k, v := range config {
+		augmented[k] = v
+	}
+	setDefault(augmented, "scopes", []string{"openid", "profile", "email"})
+	setDefault(augmented, "insecureEnableGroups", true)
+	setDefault(augmented, "insecureSkipEmailVerified", true)
+
+	switch connType {
+	case "zitadel":
+		setDefault(augmented, "getUserInfo", true)
+	case "entra":
+		setDefault(augmented, "claimMapping", map[string]string{"email": "preferred_username"})
+	case "okta", "pocketid":
+		augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
+	}
+
+	return augmented
+}
+
+// setDefault sets a key in the map only if it doesn't already exist.
+func setDefault(m map[string]interface{}, key string, value interface{}) {
+	if _, ok := m[key]; !ok {
+		m[key] = value
+	}
 }
 
 // StorageConfig is a configuration that can create a storage.

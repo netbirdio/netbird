@@ -57,7 +57,7 @@ type wgProxyFactory interface {
 
 type WGIFaceOpts struct {
 	IFaceName    string
-	Address      string
+	Address      wgaddr.Address
 	WGPort       int
 	WGPrivKey    string
 	MTU          uint16
@@ -141,16 +141,11 @@ func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 }
 
 // UpdateAddr updates address of the interface
-func (w *WGIface) UpdateAddr(newAddr string) error {
+func (w *WGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := wgaddr.ParseWGAddress(newAddr)
-	if err != nil {
-		return err
-	}
-
-	return w.tun.UpdateAddr(addr)
+	return w.tun.UpdateAddr(newAddr)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist

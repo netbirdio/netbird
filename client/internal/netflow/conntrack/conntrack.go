@@ -188,7 +188,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 	case nftypes.TCP, nftypes.UDP, nftypes.SCTP:
 		srcPort = flow.TupleOrig.Proto.SourcePort
 		dstPort = flow.TupleOrig.Proto.DestinationPort
-	case nftypes.ICMP:
+	case nftypes.ICMP, nftypes.ICMPv6:
 		icmpType = flow.TupleOrig.Proto.ICMPType
 		icmpCode = flow.TupleOrig.Proto.ICMPCode
 	}
@@ -231,8 +231,14 @@ func (c *ConnTrack) relevantFlow(mark uint32, srcIP, dstIP netip.Addr) bool {
 	}
 
 	// fallback if mark rules are not in place
-	wgnet := c.iface.Address().Network
-	return wgnet.Contains(srcIP) || wgnet.Contains(dstIP)
+	addr := c.iface.Address()
+	if addr.Network.Contains(srcIP) || addr.Network.Contains(dstIP) {
+		return true
+	}
+	if addr.IPv6Net.IsValid() {
+		return addr.IPv6Net.Contains(srcIP) || addr.IPv6Net.Contains(dstIP)
+	}
+	return false
 }
 
 // mapRxPackets maps packet counts to RX based on flow direction
@@ -291,17 +297,16 @@ func (c *ConnTrack) inferDirection(mark uint32, srcIP, dstIP netip.Addr) nftypes
 	}
 
 	// fallback if marks are not set
-	wgaddr := c.iface.Address().IP
-	wgnetwork := c.iface.Address().Network
+	addr := c.iface.Address()
 	switch {
-	case wgaddr == srcIP:
+	case addr.IP == srcIP || (addr.IPv6.IsValid() && addr.IPv6 == srcIP):
 		return nftypes.Egress
-	case wgaddr == dstIP:
+	case addr.IP == dstIP || (addr.IPv6.IsValid() && addr.IPv6 == dstIP):
 		return nftypes.Ingress
-	case wgnetwork.Contains(srcIP):
+	case addr.Network.Contains(srcIP) || (addr.IPv6Net.IsValid() && addr.IPv6Net.Contains(srcIP)):
 		// netbird network -> resource network
 		return nftypes.Ingress
-	case wgnetwork.Contains(dstIP):
+	case addr.Network.Contains(dstIP) || (addr.IPv6Net.IsValid() && addr.IPv6Net.Contains(dstIP)):
 		// resource network -> netbird network
 		return nftypes.Egress
 	}

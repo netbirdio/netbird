@@ -53,6 +53,7 @@ type RouterState struct {
 type State struct {
 	Mux                        *sync.RWMutex
 	IP                         string
+	IPv6                       string
 	PubKey                     string
 	FQDN                       string
 	ConnStatus                 ConnStatus
@@ -106,6 +107,7 @@ func (s *State) GetRoutes() map[string]struct{} {
 // LocalPeerState contains the latest state of the local peer
 type LocalPeerState struct {
 	IP              string
+	IPv6            string
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
@@ -259,7 +261,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
+func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string, ipv6 string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -270,6 +272,7 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
 	d.peers[peerPubKey] = State{
 		PubKey:     peerPubKey,
 		IP:         ip,
+		IPv6:       ipv6,
 		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
@@ -1239,6 +1242,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	}
 
 	pbFullStatus.LocalPeerState.IP = fs.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.Ipv6 = fs.LocalPeerState.IPv6
 	pbFullStatus.LocalPeerState.PubKey = fs.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fs.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fs.LocalPeerState.FQDN
@@ -1254,6 +1258,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 
 		pbPeerState := &proto.PeerState{
 			IP:                         peerState.IP,
+			Ipv6:                       peerState.IPv6,
 			PubKey:                     peerState.PubKey,
 			ConnStatus:                 peerState.ConnStatus.String(),
 			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),

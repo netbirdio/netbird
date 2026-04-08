@@ -52,7 +52,7 @@ func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	user, pat, _, _, err := manager.GetPATInfo(context.Background(), token)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestAuthManager_MarkPATUsed(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	err = manager.MarkPATUsed(context.Background(), "tokenId")
 	if err != nil {
@@ -142,7 +142,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	// these tests only assert groups are parsed from token as per account settings
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"idp-groups": []interface{}{"group1", "group2"}})
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
 		userAuth, err := manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
@@ -225,7 +225,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	keyId := "test-key"
 
 	// note, we can use a nil store because ValidateAndParseToken does not use it in it's flow
-	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false)
+	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false, nil)
 
 	customClaim := func(name string) string {
 		return fmt.Sprintf("%s/%s", audience, name)

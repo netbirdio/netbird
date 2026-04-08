@@ -21,6 +21,8 @@ type upstreamResolverIOS struct {
 	*upstreamResolverBase
 	lIP           netip.Addr
 	lNet          netip.Prefix
+	lIPv6         netip.Addr
+	lNetV6        netip.Prefix
 	interfaceName string
 }
 
@@ -37,6 +39,8 @@ func newUpstreamResolver(
 		upstreamResolverBase: upstreamResolverBase,
 		lIP:                  wgIface.Address().IP,
 		lNet:                 wgIface.Address().Network,
+		lIPv6:                wgIface.Address().IPv6,
+		lNetV6:               wgIface.Address().IPv6Net,
 		interfaceName:        wgIface.Name(),
 	}
 	ios.upstreamClient = ios
@@ -65,11 +69,24 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	} else {
 		upstreamIP = upstreamIP.Unmap()
 	}
-	if u.lNet.Contains(upstreamIP) || upstreamIP.IsPrivate() {
-		log.Debugf("using private client to query upstream: %s", upstream)
-		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)
-		if err != nil {
-			return nil, 0, fmt.Errorf("error while creating private client: %s", err)
+	needsPrivate := u.lNet.Contains(upstreamIP) ||
+		u.lNetV6.Contains(upstreamIP) ||
+		(u.routeMatch != nil && u.routeMatch(upstreamIP))
+	if needsPrivate {
+		var bindIP netip.Addr
+		switch {
+		case upstreamIP.Is6() && u.lIPv6.IsValid():
+			bindIP = u.lIPv6
+		case upstreamIP.Is4() && u.lIP.IsValid():
+			bindIP = u.lIP
+		}
+
+		if bindIP.IsValid() {
+			log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
+			client, err = GetClientPrivate(bindIP, u.interfaceName, timeout)
+			if err != nil {
+				return nil, 0, fmt.Errorf("create private client: %s", err)
+			}
 		}
 	}
 
@@ -86,16 +103,18 @@ func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Dura
 		return nil, err
 	}
 
+	proto, opt := unix.IPPROTO_IP, unix.IP_BOUND_IF
+	if ip.Is6() {
+		proto, opt = unix.IPPROTO_IPV6, unix.IPV6_BOUND_IF
+	}
+
 	dialer := &net.Dialer{
-		LocalAddr: &net.UDPAddr{
-			IP:   ip.AsSlice(),
-			Port: 0, // Let the OS pick a free port
-		},
+		LocalAddr: net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, 0)),
 		Timeout: dialTimeout,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var operr error
 			fn := func(s uintptr) {
-				operr = unix.SetsockoptInt(int(s), unix.IPPROTO_IP, unix.IP_BOUND_IF, index)
+				operr = unix.SetsockoptInt(int(s), proto, opt, index)
 			}
 
 			if err := c.Control(fn); err != nil {

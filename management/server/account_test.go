@@ -3177,7 +3177,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
-	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, nil))
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, proxyManager, nil))
 
 	return manager, updateManager, nil
 }

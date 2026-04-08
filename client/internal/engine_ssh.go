@@ -41,6 +41,14 @@ func (e *Engine) setupSSHPortRedirection() error {
 	}
 	log.Infof("SSH port redirection enabled: %s:22 -> %s:22022", localAddr, localAddr)
 
+	if v6 := e.wgInterface.Address().IPv6; v6.IsValid() {
+		if err := e.firewall.AddInboundDNAT(v6, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Warnf("failed to add IPv6 SSH port redirection: %v", err)
+		} else {
+			log.Infof("SSH port redirection enabled: [%s]:22 -> [%s]:22022", v6, v6)
+		}
+	}
+
 	return nil
 }
 
@@ -137,12 +145,13 @@ func (e *Engine) extractPeerSSHInfo(remotePeers []*mgmProto.RemotePeerConfig) []
 			continue
 		}
 
-		peerIP := e.extractPeerIP(peerConfig)
+		peerIP, peerIPv6 := e.extractPeerIPs(peerConfig)
 		hostname := e.extractHostname(peerConfig)
 
 		peerInfo = append(peerInfo, sshconfig.PeerSSHInfo{
 			Hostname: hostname,
 			IP:       peerIP,
+			IPv6:     peerIPv6,
 			FQDN:     peerConfig.GetFqdn(),
 		})
 	}
@@ -150,16 +159,26 @@ func (e *Engine) extractPeerSSHInfo(remotePeers []*mgmProto.RemotePeerConfig) []
 	return peerInfo
 }
 
-// extractPeerIP extracts IP address from peer's allowed IPs
-func (e *Engine) extractPeerIP(peerConfig *mgmProto.RemotePeerConfig) string {
-	if len(peerConfig.GetAllowedIps()) == 0 {
-		return ""
+// extractPeerIPs extracts IPv4 and IPv6 overlay addresses from peer's allowed IPs.
+// Only considers host routes (/32, /128) within the overlay networks to avoid
+// picking up routed prefixes or static routes like 2620:fe::fe/128.
+func (e *Engine) extractPeerIPs(peerConfig *mgmProto.RemotePeerConfig) (v4, v6 netip.Addr) {
+	wgAddr := e.wgInterface.Address()
+	for _, allowedIP := range peerConfig.GetAllowedIps() {
+		prefix, err := netip.ParsePrefix(allowedIP)
+		if err != nil {
+			log.Warnf("failed to parse AllowedIP %q: %v", allowedIP, err)
+			continue
+		}
+		addr := prefix.Addr().Unmap()
+		switch {
+		case addr.Is4() && prefix.Bits() == 32 && wgAddr.Network.Contains(addr) && !v4.IsValid():
+			v4 = addr
+		case addr.Is6() && prefix.Bits() == 128 && wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr) && !v6.IsValid():
+			v6 = addr
+		}
 	}
-
-	if prefix, err := netip.ParsePrefix(peerConfig.GetAllowedIps()[0]); err == nil {
-		return prefix.Addr().String()
-	}
-	return ""
+	return v4, v6
 }
 
 // extractHostname extracts short hostname from FQDN
@@ -208,7 +227,7 @@ func (e *Engine) GetPeerSSHKey(peerAddress string) ([]byte, bool) {
 
 	fullStatus := statusRecorder.GetFullStatus()
 	for _, peerState := range fullStatus.Peers {
-		if peerState.IP == peerAddress || peerState.FQDN == peerAddress {
+		if peerState.IP == peerAddress || peerState.FQDN == peerAddress || peerState.IPv6 == peerAddress {
 			if len(peerState.SSHHostKey) > 0 {
 				return peerState.SSHHostKey, true
 			}
@@ -260,6 +279,13 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 
 	if err := server.Start(e.ctx, listenAddr); err != nil {
 		return fmt.Errorf("start SSH server: %w", err)
+	}
+
+	if v6 := wgAddr.IPv6; v6.IsValid() {
+		v6Addr := netip.AddrPortFrom(v6, sshserver.InternalSSHPort)
+		if err := server.AddListener(e.ctx, v6Addr); err != nil {
+			log.Warnf("failed to add IPv6 SSH listener: %v", err)
+		}
 	}
 
 	e.sshServer = server
@@ -329,6 +355,12 @@ func (e *Engine) cleanupSSHPortRedirection() error {
 		return fmt.Errorf("remove SSH port redirection: %w", err)
 	}
 	log.Debugf("SSH port redirection removed: %s:22 -> %s:22022", localAddr, localAddr)
+
+	if v6 := e.wgInterface.Address().IPv6; v6.IsValid() {
+		if err := e.firewall.RemoveInboundDNAT(v6, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Debugf("failed to remove IPv6 SSH port redirection: %v", err)
+		}
+	}
 
 	return nil
 }

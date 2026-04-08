@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"syscall/js"
 	"time"
 
@@ -79,6 +80,10 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 
 	if deviceName := jsOptions.Get("deviceName"); !deviceName.IsNull() && !deviceName.IsUndefined() {
 		options.DeviceName = deviceName.String()
+	}
+
+	if disableIPv6 := jsOptions.Get("disableIPv6"); !disableIPv6.IsNull() && !disableIPv6.IsUndefined() {
+		options.DisableIPv6 = disableIPv6.Bool()
 	}
 
 	return options, nil
@@ -227,7 +232,7 @@ func performPingTCP(client *netbird.Client, hostname string, port int) {
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", hostname, port)
+	address := net.JoinHostPort(hostname, fmt.Sprintf("%d", port))
 	start := time.Now()
 	conn, err := client.Dial(ctx, "tcp", address)
 	if err != nil {

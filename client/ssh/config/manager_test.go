@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,12 +29,12 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 	peers := []PeerSSHInfo{
 		{
 			Hostname: "peer1",
-			IP:       "100.125.1.1",
+			IP:       netip.MustParseAddr("100.125.1.1"),
 			FQDN:     "peer1.nb.internal",
 		},
 		{
 			Hostname: "peer2",
-			IP:       "100.125.1.2",
+			IP:       netip.MustParseAddr("100.125.1.2"),
 			FQDN:     "peer2.nb.internal",
 		},
 	}
@@ -101,7 +102,7 @@ func TestManager_PeerLimit(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}
@@ -136,7 +137,7 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}

@@ -84,7 +84,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 // DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

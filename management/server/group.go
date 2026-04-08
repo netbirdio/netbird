@@ -61,7 +61,10 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
-func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error) {
+func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
+		return nil, err
+	}
 	return am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 }
 

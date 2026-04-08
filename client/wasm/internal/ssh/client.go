@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -47,7 +48,7 @@ func NewClient(nbClient *netbird.Client) *Client {
 
 // Connect establishes an SSH connection through NetBird network
 func (c *Client) Connect(host string, port int, username, jwtToken string) error {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	logrus.Infof("SSH: Connecting to %s as %s", addr, username)
 
 	authMethods, err := c.getAuthMethods(jwtToken)

@@ -194,6 +194,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		pi := PeerInfo{
 			IP:                         p.IP,
+			IPv6:                       p.IPv6,
 			FQDN:                       p.FQDN,
 			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
@@ -212,7 +213,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		peerInfos[n] = pi
 	}
-	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP}
+	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP, ipv6: fullStatus.LocalPeerState.IPv6}
 }
 
 // SetConnectionListener set the network connection listener

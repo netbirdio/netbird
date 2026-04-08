@@ -195,7 +195,7 @@ func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	for _, route := range routes {
-		if route.Range == "0.0.0.0/0" {
+		if route.Range == "0.0.0.0/0" || route.Range == "::/0" {
 			filteredRoutes = append(filteredRoutes, route)
 		}
 	}
@@ -421,6 +421,10 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 		node.Remove()
 	}
 	s.mExitNodeItems = nil
+	if s.mExitNodeSeparator != nil {
+		s.mExitNodeSeparator.Remove()
+		s.mExitNodeSeparator = nil
+	}
 	if s.mExitNodeDeselectAll != nil {
 		s.mExitNodeDeselectAll.Remove()
 		s.mExitNodeDeselectAll = nil
@@ -453,29 +457,35 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 	}
 
 	if showDeselectAll {
-		s.mExitNode.AddSeparator()
-		deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
-		s.mExitNodeDeselectAll = deselectAllItem
-		go func() {
-			for {
-				_, ok := <-deselectAllItem.ClickedCh
-				if !ok {
-					// channel closed: exit the goroutine
-					return
-				}
-				exitNodes, err := s.handleExitNodeMenuDeselectAll()
-				if err != nil {
-					log.Warnf("failed to handle deselect all exit nodes: %v", err)
-				} else {
-					s.exitNodeMu.Lock()
-					s.recreateExitNodeMenu(exitNodes)
-					s.exitNodeMu.Unlock()
-				}
-			}
-
-		}()
+		s.addExitNodeDeselectAll()
 	}
 
+}
+
+func (s *serviceClient) addExitNodeDeselectAll() {
+	sep := s.mExitNode.AddSubMenuItem("───────────────", "")
+	sep.Disable()
+	s.mExitNodeSeparator = sep
+
+	deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
+	s.mExitNodeDeselectAll = deselectAllItem
+
+	go func() {
+		for {
+			_, ok := <-deselectAllItem.ClickedCh
+			if !ok {
+				return
+			}
+			exitNodes, err := s.handleExitNodeMenuDeselectAll()
+			if err != nil {
+				log.Warnf("failed to handle deselect all exit nodes: %v", err)
+			} else {
+				s.exitNodeMu.Lock()
+				s.recreateExitNodeMenu(exitNodes)
+				s.exitNodeMu.Unlock()
+			}
+		}
+	}()
 }
 
 func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.Network, error) {
@@ -489,7 +499,7 @@ func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.N
 
 	var exitNodes []*proto.Network
 	for _, network := range resp.Routes {
-		if network.Range == "0.0.0.0/0" {
+		if network.Range == "0.0.0.0/0" || network.Range == "::/0" {
 			exitNodes = append(exitNodes, network)
 		}
 	}

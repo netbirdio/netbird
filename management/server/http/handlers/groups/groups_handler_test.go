@@ -71,7 +71,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return groups, nil
 			},
-			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
+			GetGroupByNameFunc: func(ctx context.Context, groupName, _, _ string) (*types.Group, error) {
 				if groupName == "All" {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
