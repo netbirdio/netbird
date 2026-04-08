@@ -57,7 +57,7 @@ func (f *Forwarder) handleICMPEcho(flowID uuid.UUID, id stack.TransportEndpointI
 			defer func() { <-f.pingSemaphore }()
 
 			if f.hasRawICMPAccess {
-				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
+				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes, false)
 			} else {
 				f.handleICMPViaPing(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
 			}
@@ -102,11 +102,11 @@ func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []by
 	return conn, nil
 }
 
-// handleICMPViaSocket handles ICMP echo requests using raw sockets.
-func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, icmpData []byte, rxBytes int) {
+// handleICMPViaSocket handles ICMP echo requests using raw sockets for both v4 and v6.
+func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndpointID, icmpType, icmpCode uint8, icmpData []byte, rxBytes int, v6 bool) {
 	sendTime := time.Now()
 
-	conn, err := f.forwardICMPPacket(id, icmpData, icmpType, icmpCode, false, 5*time.Second)
+	conn, err := f.forwardICMPPacket(id, icmpData, icmpType, icmpCode, v6, 5*time.Second)
 	if err != nil {
 		f.logger.Error2("forwarder: Failed to send ICMP packet for %v: %v", epID(id), err)
 		return
@@ -117,16 +117,20 @@ func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndp
 		}
 	}()
 
-	txBytes := f.handleEchoResponse(conn, id)
+	txBytes := f.handleEchoResponse(conn, id, v6)
 	rtt := time.Since(sendTime).Round(10 * time.Microsecond)
 
-	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, raw socket)",
-		epID(id), icmpType, icmpCode, rtt)
+	proto := "ICMP"
+	if v6 {
+		proto = "ICMPv6"
+	}
+	f.logger.Trace5("forwarder: Forwarded %s echo reply %v type %v code %v (rtt=%v, raw socket)",
+		proto, epID(id), icmpType, icmpCode, rtt)
 
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
 
-func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEndpointID) int {
+func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEndpointID, v6 bool) int {
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		f.logger.Error1("forwarder: Failed to set read deadline for ICMP response: %v", err)
 		return 0
@@ -139,6 +143,19 @@ func (f *Forwarder) handleEchoResponse(conn net.PacketConn, id stack.TransportEn
 			f.logger.Error1("forwarder: Failed to read ICMP response: %v", err)
 		}
 		return 0
+	}
+
+	if v6 {
+		// Recompute checksum: the raw socket response has a checksum computed
+		// over the real endpoint addresses, but we inject with overlay addresses.
+		icmpHdr := header.ICMPv6(response[:n])
+		icmpHdr.SetChecksum(0)
+		icmpHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
+			Header: icmpHdr,
+			Src:    id.LocalAddress,
+			Dst:    id.RemoteAddress,
+		}))
+		return f.injectICMPv6Reply(id, response[:n])
 	}
 
 	return f.injectICMPReply(id, response[:n])
@@ -247,7 +264,7 @@ func (f *Forwarder) handleICMPv6(id stack.TransportEndpointID, pkt *stack.Packet
 	return true
 }
 
-// handleICMPv6Echo handles ICMPv6 echo requests using the ping binary.
+// handleICMPv6Echo handles ICMPv6 echo requests via raw socket or ping binary fallback.
 func (f *Forwarder) handleICMPv6Echo(flowID uuid.UUID, id stack.TransportEndpointID, pkt *stack.PacketBuffer, icmpType, icmpCode uint8) bool {
 	select {
 	case f.pingSemaphore <- struct{}{}:
@@ -256,7 +273,12 @@ func (f *Forwarder) handleICMPv6Echo(flowID uuid.UUID, id stack.TransportEndpoin
 
 		go func() {
 			defer func() { <-f.pingSemaphore }()
-			f.handleICMPv6ViaPing(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
+
+			if f.hasRawICMPv6Access {
+				f.handleICMPViaSocket(flowID, id, icmpType, icmpCode, icmpData, rxBytes, true)
+			} else {
+				f.handleICMPv6ViaPing(flowID, id, icmpType, icmpCode, icmpData, rxBytes)
+			}
 		}()
 	default:
 		f.logger.Debug3("forwarder: ICMPv6 rate limit exceeded for %v type %v code %v", epID(id), icmpType, icmpCode)
