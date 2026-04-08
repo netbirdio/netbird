@@ -932,3 +932,71 @@ func TestProtect_HeaderAuth_SubsequentRequestUsesSessionCookie(t *testing.T) {
 	assert.Equal(t, "header-user", capturedData2.GetUserID())
 	assert.Equal(t, "header", capturedData2.GetAuthMethod())
 }
+
+// TestProtect_HeaderAuth_MultipleValuesSameHeader verifies that the proxy
+// correctly handles multiple valid credentials for the same header name.
+// In production, the mgmt gRPC authenticateHeader iterates all configured
+// header auths and accepts if any hash matches (OR semantics). The proxy
+// creates one Header scheme per entry, but a single gRPC call checks all.
+func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	// Mock simulates mgmt behavior: accepts either token-a or token-b.
+	accepted := map[string]bool{"Bearer token-a": true, "Bearer token-b": true}
+	mock := &mockAuthenticator{fn: func(_ context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
+		ha := req.GetHeaderAuth()
+		if ha != nil && accepted[ha.GetHeaderValue()] {
+			token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "example.com", auth.MethodHeader, time.Hour)
+			require.NoError(t, err)
+			return &proto.AuthenticateResponse{Success: true, SessionToken: token}, nil
+		}
+		return &proto.AuthenticateResponse{Success: false}, nil
+	}}
+
+	// Single Header scheme (as if one entry existed), but the mock checks both values.
+	hdr := NewHeader(mock, "svc1", "acc1", "Authorization")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+
+	var backendCalled bool
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("first value accepted", func(t *testing.T) {
+		backendCalled = false
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set("Authorization", "Bearer token-a")
+		req = req.WithContext(proxy.WithCapturedData(req.Context(), proxy.NewCapturedData("")))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.True(t, backendCalled, "first token should be accepted")
+	})
+
+	t.Run("second value accepted", func(t *testing.T) {
+		backendCalled = false
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set("Authorization", "Bearer token-b")
+		req = req.WithContext(proxy.WithCapturedData(req.Context(), proxy.NewCapturedData("")))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.True(t, backendCalled, "second token should be accepted")
+	})
+
+	t.Run("unknown value rejected", func(t *testing.T) {
+		backendCalled = false
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set("Authorization", "Bearer token-c")
+		req = req.WithContext(proxy.WithCapturedData(req.Context(), proxy.NewCapturedData("")))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		assert.False(t, backendCalled, "unknown token should be rejected")
+	})
+}
