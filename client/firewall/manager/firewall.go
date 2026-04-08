@@ -169,6 +169,14 @@ type Manager interface {
 	// RemoveInboundDNAT removes inbound DNAT rule
 	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
 
+	// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+	// localAddr must be IPv4; the underlying iptables/nftables backends are IPv4-only.
+	AddOutputDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+
+	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+	// localAddr must be IPv4; the underlying iptables/nftables backends are IPv4-only.
+	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+
 	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
 	// This prevents conntrack from interfering with WireGuard proxy communication.
 	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error

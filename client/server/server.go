@@ -1359,6 +1359,10 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
 	}
 
+	if engine.IsBlockInbound() {
+		return gstatus.Errorf(codes.FailedPrecondition, "expose requires inbound connections but 'block inbound' is enabled, disable it first")
+	}
+
 	mgr := engine.GetExposeManager()
 	if mgr == nil {
 		return gstatus.Errorf(codes.Internal, "expose manager not available")

@@ -1492,6 +1492,9 @@ type AzureIntegration struct {
 	// ClientId Azure AD application (client) ID
 	ClientId string `json:"client_id"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
@@ -1632,6 +1635,9 @@ type CreateAzureIntegrationRequest struct {
 	// ClientSecret Base64-encoded Azure AD client secret
 	ClientSecret string `json:"client_secret"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1653,6 +1659,9 @@ type CreateAzureIntegrationRequestHost string
 
 // CreateGoogleIntegrationRequest defines model for CreateGoogleIntegrationRequest.
 type CreateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace Account Settings
 	CustomerId string `json:"customer_id"`
 
@@ -1689,6 +1698,9 @@ type CreateOktaScimIntegrationRequest struct {
 	// ConnectionName The Okta enterprise connection name on Auth0
 	ConnectionName string `json:"connection_name"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1698,6 +1710,9 @@ type CreateOktaScimIntegrationRequest struct {
 
 // CreateScimIntegrationRequest defines model for CreateScimIntegrationRequest.
 type CreateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -1847,6 +1862,63 @@ type EDRFalconResponse struct {
 
 	// ZtaScoreThreshold The minimum Zero Trust Assessment score required for agent approval (0-100)
 	ZtaScoreThreshold int `json:"zta_score_threshold"`
+}
+
+// EDRFleetDMRequest Request payload for creating or updating a FleetDM EDR integration
+type EDRFleetDMRequest struct {
+	// ApiToken FleetDM API token
+	ApiToken string `json:"api_token"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Groups The Groups this integrations applies to
+	Groups []string `json:"groups"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+}
+
+// EDRFleetDMResponse Represents a FleetDM EDR integration configuration
+type EDRFleetDMResponse struct {
+	// AccountId The identifier of the account this integration belongs to.
+	AccountId string `json:"account_id"`
+
+	// ApiUrl FleetDM server URL
+	ApiUrl string `json:"api_url"`
+
+	// CreatedAt Timestamp of when the integration was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy The user id that created the integration
+	CreatedBy string `json:"created_by"`
+
+	// Enabled Indicates whether the integration is enabled
+	Enabled bool `json:"enabled"`
+
+	// Groups List of groups
+	Groups []Group `json:"groups"`
+
+	// Id The unique numeric identifier for the integration.
+	Id int64 `json:"id"`
+
+	// LastSyncedAt Timestamp of when the integration was last synced.
+	LastSyncedAt time.Time `json:"last_synced_at"`
+
+	// LastSyncedInterval The devices last sync requirement interval in hours.
+	LastSyncedInterval int `json:"last_synced_interval"`
+
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
+
+	// UpdatedAt Timestamp of when the integration was last updated.
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // EDRHuntressRequest Request payload for creating or updating a EDR Huntress integration
@@ -2062,6 +2134,24 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+type FleetDMMatchAttributes struct {
+	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
+	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
+
+	// FailingPoliciesCountMax Maximum number of allowed failing policies. Use 0 to require all policies to pass
+	FailingPoliciesCountMax *int `json:"failing_policies_count_max,omitempty"`
+
+	// RequiredPolicies List of FleetDM policy IDs that must be passing on the host. If any of these policies is failing, the host is non-compliant
+	RequiredPolicies *[]int `json:"required_policies,omitempty"`
+
+	// StatusOnline Whether the host must be online (recently seen by Fleet)
+	StatusOnline *bool `json:"status_online,omitempty"`
+
+	// VulnerableSoftwareCountMax Maximum number of allowed vulnerable software on the host
+	VulnerableSoftwareCountMax *int `json:"vulnerable_software_count_max,omitempty"`
+}
+
 // GeoLocationCheck Posture check for geo location
 type GeoLocationCheck struct {
 	// Action Action to take upon policy match
@@ -2079,6 +2169,9 @@ type GetTenantsResponse = []TenantResponse
 
 // GoogleIntegration defines model for GoogleIntegration.
 type GoogleIntegration struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace
 	CustomerId string `json:"customer_id"`
 
@@ -2427,6 +2520,9 @@ type IntegrationResponsePlatform string
 
 // IntegrationSyncFilters defines model for IntegrationSyncFilters.
 type IntegrationSyncFilters struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// GroupPrefixes List of start_with string patterns for groups to sync
 	GroupPrefixes *[]string `json:"group_prefixes,omitempty"`
 
@@ -2918,6 +3014,9 @@ type OSVersionCheck struct {
 type OktaScimIntegration struct {
 	// AuthToken SCIM API token (full on creation/regeneration, masked on retrieval)
 	AuthToken string `json:"auth_token"`
+
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
 
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
@@ -3789,6 +3888,9 @@ type ScimIntegration struct {
 	// AuthToken SCIM API token (full on creation, masked otherwise)
 	AuthToken string `json:"auth_token"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled bool `json:"enabled"`
 
@@ -4266,6 +4368,9 @@ type UpdateAzureIntegrationRequest struct {
 	// ClientSecret Base64-encoded Azure AD client secret
 	ClientSecret *string `json:"client_secret,omitempty"`
 
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -4284,6 +4389,9 @@ type UpdateAzureIntegrationRequest struct {
 
 // UpdateGoogleIntegrationRequest defines model for UpdateGoogleIntegrationRequest.
 type UpdateGoogleIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// CustomerId Customer ID from Google Workspace Account Settings
 	CustomerId *string `json:"customer_id,omitempty"`
 
@@ -4305,6 +4413,9 @@ type UpdateGoogleIntegrationRequest struct {
 
 // UpdateOktaScimIntegrationRequest defines model for UpdateOktaScimIntegrationRequest.
 type UpdateOktaScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -4317,6 +4428,9 @@ type UpdateOktaScimIntegrationRequest struct {
 
 // UpdateScimIntegrationRequest defines model for UpdateScimIntegrationRequest.
 type UpdateScimIntegrationRequest struct {
+	// ConnectorId DEX connector ID for embedded IDP setups
+	ConnectorId *string `json:"connector_id,omitempty"`
+
 	// Enabled Whether the integration is enabled
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -4868,6 +4982,12 @@ type CreateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
 
 // UpdateFalconEDRIntegrationJSONRequestBody defines body for UpdateFalconEDRIntegration for application/json ContentType.
 type UpdateFalconEDRIntegrationJSONRequestBody = EDRFalconRequest
+
+// CreateFleetDMEDRIntegrationJSONRequestBody defines body for CreateFleetDMEDRIntegration for application/json ContentType.
+type CreateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
+
+// UpdateFleetDMEDRIntegrationJSONRequestBody defines body for UpdateFleetDMEDRIntegration for application/json ContentType.
+type UpdateFleetDMEDRIntegrationJSONRequestBody = EDRFleetDMRequest
 
 // CreateHuntressEDRIntegrationJSONRequestBody defines body for CreateHuntressEDRIntegration for application/json ContentType.
 type CreateHuntressEDRIntegrationJSONRequestBody = EDRHuntressRequest

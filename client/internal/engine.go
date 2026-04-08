@@ -503,7 +503,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
 	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetClientRoutes() {
+		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
 			for _, r := range routes {
 				if r.Network.Contains(ip) {
 					return true
@@ -523,6 +523,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		e.close()
 		return err
 	}
+
+	// Inject firewall into DNS server now that it's available.
+	// The DNS server is created before the firewall because the route manager
+	// depends on the DNS server, and the firewall depends on the wg interface.
+	e.dnsServer.SetFirewall(e.firewall)
 
 	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
@@ -1852,6 +1857,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
+}
+
+// IsBlockInbound returns whether inbound connections are blocked.
+func (e *Engine) IsBlockInbound() bool {
+	return e.config.BlockInbound
 }
 
 // GetClientMetrics returns the client metrics

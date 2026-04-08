@@ -25,10 +25,10 @@ func TestServiceParamsPath(t *testing.T) {
 	t.Cleanup(func() { configs.StateDir = original })
 
 	configs.StateDir = "/var/lib/netbird"
-	assert.Equal(t, "/var/lib/netbird/service.json", serviceParamsPath())
+	assert.Equal(t, filepath.Join("/var/lib/netbird", "service.json"), serviceParamsPath())
 
 	configs.StateDir = "/custom/state"
-	assert.Equal(t, "/custom/state/service.json", serviceParamsPath())
+	assert.Equal(t, filepath.Join("/custom/state", "service.json"), serviceParamsPath())
 }
 
 func TestSaveAndLoadServiceParams(t *testing.T) {

@@ -44,6 +44,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// androidRunOverride is set on Android to inject mobile dependencies
+// when using embed.Client (which calls Run() with empty MobileDependency).
+var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath string) error
+
 type ConnectClient struct {
 	ctx            context.Context
 	config         *profilemanager.Config
@@ -76,6 +80,9 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // Run with main logic.
 func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+	if androidRunOverride != nil {
+		return androidRunOverride(c, runningChan, logPath)
+	}
 	return c.run(MobileDependency{}, runningChan, logPath)
 }
 
@@ -610,12 +617,6 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
-
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
-	}
-
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -634,12 +635,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
-	if err != nil {
-		return nil, err
-	}
-
-	return loginResp, nil
+	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
