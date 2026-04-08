@@ -737,7 +737,7 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 
 	iceConnected := true
 	// For non-forced platforms: check ICE connection status only if remote peer supports ICE
-	if conn.handshaker.RemoteICESupported() {
+	if conn.handshaker.RemoteICESupported() && conn.workerICE != nil {
 		iceConnected = conn.statusICE.Get() != worker.StatusDisconnected || conn.workerICE.InProgress()
 	}
 
