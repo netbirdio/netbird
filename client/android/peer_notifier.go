@@ -2,11 +2,20 @@
 
 package android
 
+import "github.com/netbirdio/netbird/client/internal/peer"
+
+// Connection status constants exported via gomobile.
+const (
+	ConnStatusIdle       = int(peer.StatusIdle)
+	ConnStatusConnecting = int(peer.StatusConnecting)
+	ConnStatusConnected  = int(peer.StatusConnected)
+)
+
 // PeerInfo describe information about the peers. It designed for the UI usage
 type PeerInfo struct {
 	IP         string
 	FQDN       string
-	ConnStatus string // Todo replace to enum
+	ConnStatus int
 	Routes     PeerRoutes
 }
 

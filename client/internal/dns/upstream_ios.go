@@ -65,11 +65,13 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	} else {
 		upstreamIP = upstreamIP.Unmap()
 	}
-	if u.lNet.Contains(upstreamIP) || upstreamIP.IsPrivate() {
-		log.Debugf("using private client to query upstream: %s", upstream)
+	needsPrivate := u.lNet.Contains(upstreamIP) ||
+		(u.routeMatch != nil && u.routeMatch(upstreamIP))
+	if needsPrivate {
+		log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
 		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)
 		if err != nil {
-			return nil, 0, fmt.Errorf("error while creating private client: %s", err)
+			return nil, 0, fmt.Errorf("create private client: %s", err)
 		}
 	}
 

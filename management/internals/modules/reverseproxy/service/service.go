@@ -184,6 +184,7 @@ type Service struct {
 	ProxyCluster      string    `gorm:"index"`
 	Targets           []*Target `gorm:"foreignKey:ServiceID;constraint:OnDelete:CASCADE"`
 	Enabled           bool
+	Terminated        bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
 	Auth              AuthConfig         `gorm:"serializer:json"`
@@ -256,13 +257,15 @@ func (s *Service) ToAPIResponse() *api.Service {
 			Protocol:   api.ServiceTargetProtocol(target.Protocol),
 			TargetId:   target.TargetId,
 			TargetType: api.ServiceTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled,
+			Enabled:    target.Enabled && !s.Terminated,
 		}
 		opts := targetOptionsToAPI(target.Options)
 		if opts == nil {
 			opts = &api.ServiceTargetOptions{}
 		}
-		opts.ProxyProtocol = &target.ProxyProtocol
+		if target.ProxyProtocol {
+			opts.ProxyProtocol = &target.ProxyProtocol
+		}
 		st.Options = opts
 		apiTargets = append(apiTargets, st)
 	}
@@ -284,7 +287,8 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Name:               s.Name,
 		Domain:             s.Domain,
 		Targets:            apiTargets,
-		Enabled:            s.Enabled,
+		Enabled:            s.Enabled && !s.Terminated,
+		Terminated:         &s.Terminated,
 		PassHostHeader:     &s.PassHostHeader,
 		RewriteRedirects:   &s.RewriteRedirects,
 		Auth:               authConfig,
@@ -783,6 +787,11 @@ func (s *Service) validateHTTPTargets() error {
 }
 
 func (s *Service) validateL4Target(target *Target) error {
+	// L4 services have a single target; per-target disable is meaningless
+	// (use the service-level Enabled flag instead). Force it on so that
+	// buildPathMappings always includes the target in the proto.
+	target.Enabled = true
+
 	if target.Port == 0 {
 		return errors.New("target port is required for L4 services")
 	}
@@ -848,7 +857,7 @@ func IsPortBasedProtocol(mode string) bool {
 }
 
 const (
-	maxCustomHeaders = 16
+	maxCustomHeaders  = 16
 	maxHeaderKeyLen   = 128
 	maxHeaderValueLen = 4096
 )
@@ -945,7 +954,6 @@ func containsCRLF(s string) bool {
 }
 
 func validateHeaderAuths(headers []*HeaderAuthConfig) error {
-	seen := make(map[string]struct{})
 	for i, h := range headers {
 		if h == nil || !h.Enabled {
 			continue
@@ -966,10 +974,6 @@ func validateHeaderAuths(headers []*HeaderAuthConfig) error {
 		if canonical == "Host" {
 			return fmt.Errorf("header_auths[%d]: Host header cannot be used for auth", i)
 		}
-		if _, dup := seen[canonical]; dup {
-			return fmt.Errorf("header_auths[%d]: duplicate header %q (same canonical form already configured)", i, h.Header)
-		}
-		seen[canonical] = struct{}{}
 		if len(h.Value) > maxHeaderValueLen {
 			return fmt.Errorf("header_auths[%d]: value exceeds maximum length of %d", i, maxHeaderValueLen)
 		}
@@ -1128,6 +1132,7 @@ func (s *Service) Copy() *Service {
 		ProxyCluster:      s.ProxyCluster,
 		Targets:           targets,
 		Enabled:           s.Enabled,
+		Terminated:        s.Terminated,
 		PassHostHeader:    s.PassHostHeader,
 		RewriteRedirects:  s.RewriteRedirects,
 		Auth:              authCopy,
