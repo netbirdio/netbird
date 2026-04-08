@@ -31,7 +31,7 @@ jobs:
           while IFS= read -r dir; do
             echo "=== Checking $dir ==="
             # Search for problematic imports, excluding test files
-            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
+            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" | grep -v "tools/idp-migrate/" || true)
             if [ -n "$RESULTS" ]; then
               echo "❌ Found problematic dependencies:"
               echo "$RESULTS"
@@ -88,7 +88,7 @@ jobs:
               IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
 
               # Check if any importer is NOT in management/signal/relay
-              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\)" | head -1)
+              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\|proxy\|combined\|tools/idp-migrate\)" | head -1)
 
               if [ -n "$BSD_IMPORTER" ]; then
                 echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"

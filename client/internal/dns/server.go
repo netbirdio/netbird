@@ -57,6 +57,8 @@ type Server interface {
 	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
+	SetRouteChecker(func(netip.Addr) bool)
+	SetFirewall(Firewall)
 }
 
 type nsGroupsByDomain struct {
@@ -104,6 +106,7 @@ type DefaultServer struct {
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+	routeMatch     func(netip.Addr) bool
 
 	probeMu     sync.Mutex
 	probeCancel context.CancelFunc
@@ -149,7 +152,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -227,6 +230,14 @@ func newDefaultServer(
 	dnsService.RegisterMux(".", handlerChain)
 
 	return defaultServer
+}
+
+// SetRouteChecker sets the function used by upstream resolvers to determine
+// whether an IP is routed through the tunnel.
+func (s *DefaultServer) SetRouteChecker(f func(netip.Addr) bool) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.routeMatch = f
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -364,6 +375,17 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
 }
 
+// SetFirewall sets the firewall used for DNS port DNAT rules.
+// This must be called before Initialize when using the listener-based service,
+// because the firewall is typically not available at construction time.
+func (s *DefaultServer) SetFirewall(fw Firewall) {
+	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.listenerFlagLock.Lock()
+		svc.firewall = fw
+		svc.listenerFlagLock.Unlock()
+	}
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.probeMu.Lock()
@@ -385,8 +407,12 @@ func (s *DefaultServer) Stop() {
 	maps.Clear(s.extraDomains)
 }
 
-func (s *DefaultServer) disableDNS() error {
-	defer s.service.Stop()
+func (s *DefaultServer) disableDNS() (retErr error) {
+	defer func() {
+		if err := s.service.Stop(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
+		}
+	}()
 
 	if s.isUsingNoopHostManager() {
 		return nil
@@ -743,6 +769,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	for _, ns := range originalNameservers {
 		if ns == config.ServerIP {
@@ -852,6 +879,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		if err != nil {
 			return nil, fmt.Errorf("create upstream resolver: %v", err)
 		}
+		handler.routeMatch = s.routeMatch
 
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -1036,6 +1064,7 @@ func (s *DefaultServer) addHostRootZone() {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}

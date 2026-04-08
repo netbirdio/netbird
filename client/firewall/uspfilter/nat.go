@@ -421,6 +421,7 @@ func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.Laye
 }
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+// TODO: also delegate to nativeFirewall when available for kernel WG mode
 func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	var layerType gopacket.LayerType
 	switch protocol {
@@ -464,6 +465,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	}
 
 	return m.removePortRedirection(localAddr, layerType, sourcePort, targetPort)
+}
+
+// AddOutputDNAT delegates to the native firewall if available.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if m.nativeFirewall == nil {
+		return fmt.Errorf("output DNAT not supported without native firewall")
+	}
+	return m.nativeFirewall.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT delegates to the native firewall if available.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
 // translateInboundPortDNAT applies port-specific DNAT translation to inbound packets.

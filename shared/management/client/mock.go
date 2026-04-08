@@ -3,8 +3,6 @@ package client
 import (
 	"context"
 
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -14,12 +12,12 @@ import (
 type MockClient struct {
 	CloseFunc                      func() error
 	SyncFunc                       func(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
-	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
-	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
-	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
-	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
-	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
+	RegisterFunc                   func(setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
+	LoginFunc                      func(info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
+	GetDeviceAuthorizationFlowFunc func() (*proto.DeviceAuthorizationFlow, error)
+	GetPKCEAuthorizationFlowFunc   func() (*proto.PKCEAuthorizationFlow, error)
 	GetServerURLFunc               func() string
+	HealthCheckFunc                func() error
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
@@ -53,39 +51,39 @@ func (m *MockClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequ
 	return m.JobFunc(ctx, msgHandler)
 }
 
-func (m *MockClient) GetServerPublicKey() (*wgtypes.Key, error) {
-	if m.GetServerPublicKeyFunc == nil {
-		return nil, nil
-	}
-	return m.GetServerPublicKeyFunc()
-}
-
-func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+func (m *MockClient) Register(setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	if m.RegisterFunc == nil {
 		return nil, nil
 	}
-	return m.RegisterFunc(serverKey, setupKey, jwtToken, info, sshKey, dnsLabels)
+	return m.RegisterFunc(setupKey, jwtToken, info, sshKey, dnsLabels)
 }
 
-func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+func (m *MockClient) Login(info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	if m.LoginFunc == nil {
 		return nil, nil
 	}
-	return m.LoginFunc(serverKey, info, sshKey, dnsLabels)
+	return m.LoginFunc(info, sshKey, dnsLabels)
 }
 
-func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
+func (m *MockClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error) {
 	if m.GetDeviceAuthorizationFlowFunc == nil {
 		return nil, nil
 	}
-	return m.GetDeviceAuthorizationFlowFunc(serverKey)
+	return m.GetDeviceAuthorizationFlowFunc()
 }
 
-func (m *MockClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
+func (m *MockClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
 	if m.GetPKCEAuthorizationFlowFunc == nil {
 		return nil, nil
 	}
-	return m.GetPKCEAuthorizationFlowFunc(serverKey)
+	return m.GetPKCEAuthorizationFlowFunc()
+}
+
+func (m *MockClient) HealthCheck() error {
+	if m.HealthCheckFunc == nil {
+		return nil
+	}
+	return m.HealthCheckFunc()
 }
 
 // GetNetworkMap mock implementation of GetNetworkMap from Client interface.
