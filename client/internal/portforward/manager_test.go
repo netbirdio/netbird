@@ -77,7 +77,7 @@ func TestManager_CreateMapping(t *testing.T) {
 	m.wgPort = 51820
 
 	gateway := newMockNAT()
-	mapping, ttl, err := m.createMapping(context.Background(), gateway)
+	mapping, err := m.createMapping(context.Background(), gateway)
 	require.NoError(t, err)
 	require.NotNil(t, mapping)
 
@@ -86,7 +86,7 @@ func TestManager_CreateMapping(t *testing.T) {
 	assert.Equal(t, uint16(51820), mapping.ExternalPort)
 	assert.Equal(t, "Mock-NAT", mapping.NATType)
 	assert.Equal(t, net.ParseIP("203.0.113.50").To4(), mapping.ExternalIP.To4())
-	assert.Equal(t, defaultMappingTTL, ttl)
+	assert.Equal(t, defaultMappingTTL, mapping.TTL)
 }
 
 func TestManager_GetMapping_ReturnsNilWhenNotReady(t *testing.T) {
@@ -146,12 +146,12 @@ func TestManager_CreateMapping_PermanentLeaseFallback(t *testing.T) {
 	gateway := newMockNAT()
 	gateway.onlyPermanentLeases = true
 
-	mapping, ttl, err := m.createMapping(context.Background(), gateway)
+	mapping, err := m.createMapping(context.Background(), gateway)
 	require.NoError(t, err)
 	require.NotNil(t, mapping)
 
 	assert.Equal(t, uint16(51820), mapping.InternalPort)
-	assert.Equal(t, time.Duration(0), ttl, "should return zero TTL for permanent lease")
+	assert.Equal(t, time.Duration(0), mapping.TTL, "should return zero TTL for permanent lease")
 	assert.Equal(t, time.Duration(0), gateway.lastTimeout, "should have retried with zero duration")
 }
 

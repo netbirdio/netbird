@@ -24,12 +24,15 @@ const (
 // allowing for whitespace/newlines between tags from different router firmware.
 var upnpErrPermanentLeaseOnly = regexp.MustCompile(`<errorCode>\s*725\s*</errorCode>`)
 
+// Mapping represents an active NAT port mapping.
 type Mapping struct {
 	Protocol     string
 	InternalPort uint16
 	ExternalPort uint16
 	ExternalIP   net.IP
 	NATType      string
+	// TTL is the lease duration. Zero means a permanent lease that never expires.
+	TTL time.Duration
 }
 
 // TODO: persist mapping state for crash recovery cleanup of permanent leases.
@@ -84,7 +87,7 @@ func (m *Manager) Start(ctx context.Context, wgPort uint16) {
 	ctx, m.cancel = context.WithCancel(ctx)
 	m.mu.Unlock()
 
-	gateway, mapping, ttl, err := m.setup(ctx)
+	gateway, mapping, err := m.setup(ctx)
 	if err != nil {
 		log.Infof("port forwarding setup: %v", err)
 		return
@@ -94,7 +97,7 @@ func (m *Manager) Start(ctx context.Context, wgPort uint16) {
 	m.mapping = mapping
 	m.mappingLock.Unlock()
 
-	m.renewLoop(ctx, gateway, ttl)
+	m.renewLoop(ctx, gateway, mapping.TTL)
 
 	select {
 	case cleanupCtx := <-m.stopCtx:
@@ -147,25 +150,25 @@ func (m *Manager) GracefullyStop(ctx context.Context) error {
 	}
 }
 
-func (m *Manager) setup(ctx context.Context) (nat.NAT, *Mapping, time.Duration, error) {
+func (m *Manager) setup(ctx context.Context) (nat.NAT, *Mapping, error) {
 	discoverCtx, discoverCancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer discoverCancel()
 
 	gateway, err := nat.DiscoverGateway(discoverCtx)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("discover gateway: %w", err)
+		return nil, nil, fmt.Errorf("discover gateway: %w", err)
 	}
 
 	log.Infof("discovered NAT gateway: %s", gateway.Type())
 
-	mapping, ttl, err := m.createMapping(ctx, gateway)
+	mapping, err := m.createMapping(ctx, gateway)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("create port mapping: %w", err)
+		return nil, nil, fmt.Errorf("create port mapping: %w", err)
 	}
-	return gateway, mapping, ttl, nil
+	return gateway, mapping, nil
 }
 
-func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping, time.Duration, error) {
+func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -173,13 +176,13 @@ func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping,
 	externalPort, err := gateway.AddPortMapping(ctx, "udp", int(m.wgPort), mappingDescription, ttl)
 	if err != nil {
 		if !isPermanentLeaseRequired(err) {
-			return nil, 0, err
+			return nil, err
 		}
 		log.Infof("gateway only supports permanent leases, retrying with indefinite duration")
 		ttl = 0
 		externalPort, err = gateway.AddPortMapping(ctx, "udp", int(m.wgPort), mappingDescription, ttl)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 	}
 
@@ -195,11 +198,12 @@ func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping,
 		ExternalPort: uint16(externalPort),
 		ExternalIP:   externalIP,
 		NATType:      gateway.Type(),
+		TTL:          ttl,
 	}
 
 	log.Infof("created port mapping: %d -> %d via %s (external IP: %s)",
 		m.wgPort, externalPort, gateway.Type(), externalIP)
-	return mapping, ttl, nil
+	return mapping, nil
 }
 
 func (m *Manager) renewLoop(ctx context.Context, gateway nat.NAT, ttl time.Duration) {
@@ -217,7 +221,7 @@ func (m *Manager) renewLoop(ctx context.Context, gateway nat.NAT, ttl time.Durat
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := m.renewMapping(ctx, gateway, ttl); err != nil {
+			if err := m.renewMapping(ctx, gateway); err != nil {
 				log.Warnf("failed to renew port mapping: %v", err)
 				continue
 			}
@@ -225,11 +229,11 @@ func (m *Manager) renewLoop(ctx context.Context, gateway nat.NAT, ttl time.Durat
 	}
 }
 
-func (m *Manager) renewMapping(ctx context.Context, gateway nat.NAT, ttl time.Duration) error {
+func (m *Manager) renewMapping(ctx context.Context, gateway nat.NAT) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	externalPort, err := gateway.AddPortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort), mappingDescription, ttl)
+	externalPort, err := gateway.AddPortMapping(ctx, m.mapping.Protocol, int(m.mapping.InternalPort), mappingDescription, m.mapping.TTL)
 	if err != nil {
 		return fmt.Errorf("add port mapping: %w", err)
 	}

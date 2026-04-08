@@ -3,15 +3,18 @@ package portforward
 import (
 	"context"
 	"net"
+	"time"
 )
 
-// Mapping represents port mapping information.
+// Mapping represents an active NAT port mapping.
 type Mapping struct {
 	Protocol     string
 	InternalPort uint16
 	ExternalPort uint16
 	ExternalIP   net.IP
 	NATType      string
+	// TTL is the lease duration. Zero means a permanent lease that never expires.
+	TTL time.Duration
 }
 
 // Manager is a stub for js/wasm builds where NAT-PMP/UPnP is not supported.
