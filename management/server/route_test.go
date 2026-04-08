@@ -2812,7 +2812,6 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 				RouteID:      "resource4:peerA",
-				IPv6:         true,
 			},
 			{
 				SourceRanges: []string{"fd00::b/128"},
@@ -2822,7 +2821,6 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				Domains:      domain.List{"example.com"},
 				IsDynamic:    true,
 				RouteID:      "resource4:peerA",
-				IPv6:         true,
 			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
