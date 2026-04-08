@@ -545,11 +545,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	}
 
 	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
-		if *input.DisableIPv6 {
-			log.Infof("disabling IPv6 overlay")
-		} else {
-			log.Infof("enabling IPv6 overlay")
-		}
+		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
 		config.DisableIPv6 = *input.DisableIPv6
 		updated = true
 	}
