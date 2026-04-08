@@ -2099,6 +2099,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
+		var terminated sql.NullBool
 		err := row.Scan(
 			&s.ID,
 			&s.AccountID,
@@ -2119,7 +2120,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&s.PortAutoAssigned,
 			&source,
 			&sourcePeer,
-			&s.Terminated,
+			&terminated,
 		)
 		if err != nil {
 			return nil, err
@@ -2160,7 +2161,9 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		if sourcePeer.Valid {
 			s.SourcePeer = sourcePeer.String
 		}
-
+		if terminated.Valid {
+			s.Terminated = terminated.Bool
+		}
 		s.Targets = []*rpservice.Target{}
 		return &s, nil
 	})
