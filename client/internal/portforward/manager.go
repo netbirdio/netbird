@@ -11,13 +11,16 @@ import (
 
 	"github.com/libp2p/go-nat"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
 )
 
 const (
-	defaultMappingTTL  = 2 * time.Hour
-	renewalInterval    = defaultMappingTTL / 2
-	discoveryTimeout   = 10 * time.Second
-	mappingDescription = "NetBird"
+	defaultMappingTTL   = 2 * time.Hour
+	renewalInterval     = defaultMappingTTL / 2
+	healthCheckInterval = 1 * time.Minute
+	discoveryTimeout    = 10 * time.Second
+	mappingDescription  = "NetBird"
 )
 
 type Mapping struct {
@@ -143,7 +146,7 @@ func (m *Manager) setup(ctx context.Context) (nat.NAT, *Mapping, error) {
 	discoverCtx, discoverCancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer discoverCancel()
 
-	gateway, err := nat.DiscoverGateway(discoverCtx)
+	gateway, err := discoverGateway(discoverCtx)
 	if err != nil {
 		log.Infof("NAT gateway discovery failed: %v (port forwarding disabled)", err)
 		return nil, nil, err
@@ -171,7 +174,6 @@ func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping,
 	externalIP, err := gateway.GetExternalAddress()
 	if err != nil {
 		log.Debugf("failed to get external address: %v", err)
-		// todo return with err?
 	}
 
 	mapping := &Mapping{
@@ -188,20 +190,65 @@ func (m *Manager) createMapping(ctx context.Context, gateway nat.NAT) (*Mapping,
 }
 
 func (m *Manager) renewLoop(ctx context.Context, gateway nat.NAT) {
-	ticker := time.NewTicker(renewalInterval)
-	defer ticker.Stop()
+	renewTicker := time.NewTicker(renewalInterval)
+	healthTicker := time.NewTicker(healthCheckInterval)
+	defer renewTicker.Stop()
+	defer healthTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-renewTicker.C:
 			if err := m.renewMapping(ctx, gateway); err != nil {
 				log.Warnf("failed to renew port mapping: %v", err)
 				continue
 			}
+		case <-healthTicker.C:
+			if m.checkHealthAndRecreate(ctx, gateway) {
+				renewTicker.Reset(renewalInterval)
+			}
 		}
 	}
+}
+
+func (m *Manager) checkHealthAndRecreate(ctx context.Context, gateway nat.NAT) bool {
+	if isHealthCheckDisabled() {
+		return false
+	}
+
+	m.mappingLock.Lock()
+	hasMapping := m.mapping != nil
+	m.mappingLock.Unlock()
+
+	if !hasMapping {
+		return false
+	}
+
+	pcpNAT, ok := gateway.(*pcp.NAT)
+	if !ok {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	epoch, serverRestarted, err := pcpNAT.CheckServerHealth(ctx)
+	if err != nil {
+		log.Debugf("PCP health check failed: %v", err)
+		return false
+	}
+
+	if serverRestarted {
+		log.Warnf("PCP server restart detected (epoch=%d), recreating port mapping", epoch)
+		if err := m.renewMapping(ctx, gateway); err != nil {
+			log.Errorf("failed to recreate port mapping after server restart: %v", err)
+			return false
+		}
+		return true
+	}
+
+	return false
 }
 
 func (m *Manager) renewMapping(ctx context.Context, gateway nat.NAT) error {
@@ -248,3 +295,4 @@ func (m *Manager) startTearDown(ctx context.Context) {
 	default:
 	}
 }
+

@@ -8,11 +8,24 @@ import (
 
 	"github.com/libp2p/go-nat"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
 )
 
 // discoverGateway is the function used for NAT gateway discovery.
 // It can be replaced in tests to avoid real network operations.
-var discoverGateway = nat.DiscoverGateway
+// Tries PCP first, then falls back to NAT-PMP/UPnP.
+var discoverGateway = defaultDiscoverGateway
+
+func defaultDiscoverGateway(ctx context.Context) (nat.NAT, error) {
+	pcpGateway, err := pcp.DiscoverPCP(ctx)
+	if err == nil {
+		return pcpGateway, nil
+	}
+	log.Debugf("PCP discovery failed: %v, trying NAT-PMP/UPnP", err)
+
+	return nat.DiscoverGateway(ctx)
+}
 
 // State is persisted only for crash recovery cleanup
 type State struct {
