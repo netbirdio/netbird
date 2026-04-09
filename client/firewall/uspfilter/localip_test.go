@@ -202,4 +202,3 @@ func TestLocalIPManager_AllInterfaces(t *testing.T) {
 		})
 	}
 }
-
