@@ -241,7 +241,7 @@ func (r *SysOps) parseRouteResponse(buf []byte) error {
 
 	rtMsg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
 	if rtMsg.Errno != 0 {
-		return fmt.Errorf("parse: %d", rtMsg.Errno)
+		return fmt.Errorf("route socket: %w", syscall.Errno(rtMsg.Errno))
 	}
 
 	return nil
