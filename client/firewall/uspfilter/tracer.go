@@ -2,7 +2,9 @@ package uspfilter
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/google/gopacket"
@@ -443,7 +445,7 @@ func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP n
 	trace.AddResult(StageRouteACL, msg, allowed)
 
 	if allowed && m.forwarder.Load() != nil {
-		m.addForwardingResult(trace, "proxy-remote", fmt.Sprintf("%s:%d", dstIP, dstPort), true)
+		m.addForwardingResult(trace, "proxy-remote", net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort))), true)
 	}
 
 	trace.AddResult(StageCompleted, msgProcessingCompleted, allowed)

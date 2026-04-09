@@ -286,6 +286,16 @@ func TestAnonymizeString_IPAddresses(t *testing.T) {
 			input:  "IPv4: 142.108.0.1 and IPv6: 2001:db8::ff00:43",
 			expect: "IPv4: 198.51.100.1 and IPv6: 2001:db8:ffff::1",
 		},
+		{
+			name:   "STUN URI with IPv6",
+			input:  "Connecting to stun:[2001:db8::ff00:42]:3478",
+			expect: "Connecting to stun:[2001:db8:ffff::]:3478",
+		},
+		{
+			name:   "HTTPS URI with IPv6",
+			input:  "Visit https://[2001:db8::ff00:42]:443/path",
+			expect: "Visit https://[2001:db8:ffff::]:443/path",
+		},
 	}
 
 	for _, tc := range tests {

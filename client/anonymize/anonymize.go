@@ -157,7 +157,7 @@ func (a *Anonymizer) AnonymizeURI(uri string) string {
 	if u.Opaque != "" {
 		host, port, err := net.SplitHostPort(u.Opaque)
 		if err == nil {
-			anonymizedHost = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+			anonymizedHost = net.JoinHostPort(a.AnonymizeDomain(host), port)
 		} else {
 			anonymizedHost = a.AnonymizeDomain(u.Opaque)
 		}
@@ -165,7 +165,7 @@ func (a *Anonymizer) AnonymizeURI(uri string) string {
 	} else if u.Host != "" {
 		host, port, err := net.SplitHostPort(u.Host)
 		if err == nil {
-			anonymizedHost = fmt.Sprintf("%s:%s", a.AnonymizeDomain(host), port)
+			anonymizedHost = net.JoinHostPort(a.AnonymizeDomain(host), port)
 		} else {
 			anonymizedHost = a.AnonymizeDomain(u.Host)
 		}

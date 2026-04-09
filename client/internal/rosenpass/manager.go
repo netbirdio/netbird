@@ -259,6 +259,9 @@ func findRandomAvailableUDPPort() (int, error) {
 	}
 	defer conn.Close()
 
-	splitAddress := strings.Split(conn.LocalAddr().String(), ":")
-	return strconv.Atoi(splitAddress[len(splitAddress)-1])
+	_, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		return 0, fmt.Errorf("parse local address %s: %w", conn.LocalAddr(), err)
+	}
+	return strconv.Atoi(portStr)
 }
