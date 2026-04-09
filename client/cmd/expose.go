@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/proto"
@@ -201,7 +202,7 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 
 	stream, err := client.ExposeService(ctx, req)
 	if err != nil {
-		return fmt.Errorf("expose service: %w", err)
+		return fmt.Errorf("expose service: %v", status.Convert(err).Message())
 	}
 
 	if err := handleExposeReady(cmd, stream, port); err != nil {
@@ -236,7 +237,7 @@ func toExposeProtocol(exposeProtocol string) (proto.ExposeProtocol, error) {
 func handleExposeReady(cmd *cobra.Command, stream proto.DaemonService_ExposeServiceClient, port uint64) error {
 	event, err := stream.Recv()
 	if err != nil {
-		return fmt.Errorf("receive expose event: %w", err)
+		return fmt.Errorf("receive expose event: %v", status.Convert(err).Message())
 	}
 
 	ready, ok := event.Event.(*proto.ExposeServiceEvent_Ready)

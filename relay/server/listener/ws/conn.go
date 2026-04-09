@@ -18,25 +18,21 @@ const (
 
 type Conn struct {
 	*websocket.Conn
-	lAddr *net.TCPAddr
 	rAddr *net.TCPAddr
 
 	closed   bool
 	closedMu sync.Mutex
-	ctx      context.Context
 }
 
-func NewConn(wsConn *websocket.Conn, lAddr, rAddr *net.TCPAddr) *Conn {
+func NewConn(wsConn *websocket.Conn, rAddr *net.TCPAddr) *Conn {
 	return &Conn{
 		Conn:  wsConn,
-		lAddr: lAddr,
 		rAddr: rAddr,
-		ctx:   context.Background(),
 	}
 }
 
-func (c *Conn) Read(b []byte) (n int, err error) {
-	t, r, err := c.Reader(c.ctx)
+func (c *Conn) Read(ctx context.Context, b []byte) (n int, err error) {
+	t, r, err := c.Reader(ctx)
 	if err != nil {
 		return 0, c.ioErrHandling(err)
 	}
@@ -56,32 +52,16 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 // Write writes a binary message with the given payload.
 // It does not block until fill the internal buffer.
 // If the buffer filled up, wait until the buffer is drained or timeout.
-func (c *Conn) Write(b []byte) (int, error) {
-	ctx, ctxCancel := context.WithTimeout(c.ctx, writeTimeout)
+func (c *Conn) Write(ctx context.Context, b []byte) (int, error) {
+	ctx, ctxCancel := context.WithTimeout(ctx, writeTimeout)
 	defer ctxCancel()
 
 	err := c.Conn.Write(ctx, websocket.MessageBinary, b)
 	return len(b), err
 }
 
-func (c *Conn) LocalAddr() net.Addr {
-	return c.lAddr
-}
-
 func (c *Conn) RemoteAddr() net.Addr {
 	return c.rAddr
-}
-
-func (c *Conn) SetReadDeadline(t time.Time) error {
-	return fmt.Errorf("SetReadDeadline is not implemented")
-}
-
-func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return fmt.Errorf("SetWriteDeadline is not implemented")
-}
-
-func (c *Conn) SetDeadline(t time.Time) error {
-	return fmt.Errorf("SetDeadline is not implemented")
 }
 
 func (c *Conn) Close() error {

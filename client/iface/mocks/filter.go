@@ -34,18 +34,28 @@ func (m *MockPacketFilter) EXPECT() *MockPacketFilterMockRecorder {
 	return m.recorder
 }
 
-// AddUDPPacketHook mocks base method.
-func (m *MockPacketFilter) AddUDPPacketHook(arg0 bool, arg1 netip.Addr, arg2 uint16, arg3 func([]byte) bool) string {
+// SetUDPPacketHook mocks base method.
+func (m *MockPacketFilter) SetUDPPacketHook(arg0 netip.Addr, arg1 uint16, arg2 func([]byte) bool) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddUDPPacketHook", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(string)
-	return ret0
+	m.ctrl.Call(m, "SetUDPPacketHook", arg0, arg1, arg2)
 }
 
-// AddUDPPacketHook indicates an expected call of AddUDPPacketHook.
-func (mr *MockPacketFilterMockRecorder) AddUDPPacketHook(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+// SetUDPPacketHook indicates an expected call of SetUDPPacketHook.
+func (mr *MockPacketFilterMockRecorder) SetUDPPacketHook(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUDPPacketHook", reflect.TypeOf((*MockPacketFilter)(nil).AddUDPPacketHook), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUDPPacketHook", reflect.TypeOf((*MockPacketFilter)(nil).SetUDPPacketHook), arg0, arg1, arg2)
+}
+
+// SetTCPPacketHook mocks base method.
+func (m *MockPacketFilter) SetTCPPacketHook(arg0 netip.Addr, arg1 uint16, arg2 func([]byte) bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetTCPPacketHook", arg0, arg1, arg2)
+}
+
+// SetTCPPacketHook indicates an expected call of SetTCPPacketHook.
+func (mr *MockPacketFilterMockRecorder) SetTCPPacketHook(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTCPPacketHook", reflect.TypeOf((*MockPacketFilter)(nil).SetTCPPacketHook), arg0, arg1, arg2)
 }
 
 // FilterInbound mocks base method.
@@ -74,18 +84,4 @@ func (m *MockPacketFilter) FilterOutbound(arg0 []byte, arg1 int) bool {
 func (mr *MockPacketFilterMockRecorder) FilterOutbound(arg0 interface{}, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FilterOutbound", reflect.TypeOf((*MockPacketFilter)(nil).FilterOutbound), arg0, arg1)
-}
-
-// RemovePacketHook mocks base method.
-func (m *MockPacketFilter) RemovePacketHook(arg0 string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RemovePacketHook", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RemovePacketHook indicates an expected call of RemovePacketHook.
-func (mr *MockPacketFilterMockRecorder) RemovePacketHook(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePacketHook", reflect.TypeOf((*MockPacketFilter)(nil).RemovePacketHook), arg0)
 }

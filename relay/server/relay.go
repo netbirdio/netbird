@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -13,10 +12,19 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/netbirdio/netbird/relay/healthcheck/peerid"
+	"github.com/netbirdio/netbird/relay/protocol"
+	"github.com/netbirdio/netbird/relay/server/listener"
+
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
 )
+
+type Listener interface {
+	Listen(func(conn listener.Conn)) error
+	Shutdown(ctx context.Context) error
+	Protocol() protocol.Protocol
+}
 
 type Config struct {
 	Meter          metric.Meter
@@ -109,7 +117,7 @@ func NewRelay(config Config) (*Relay, error) {
 }
 
 // Accept start to handle a new peer connection
-func (r *Relay) Accept(conn net.Conn) {
+func (r *Relay) Accept(conn listener.Conn) {
 	acceptTime := time.Now()
 	r.closeMu.RLock()
 	defer r.closeMu.RUnlock()
@@ -117,12 +125,15 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
+	hsCtx, hsCancel := context.WithTimeout(context.Background(), handshakeTimeout)
+	defer hsCancel()
+
 	h := handshake{
 		conn:        conn,
 		validator:   r.validator,
 		preparedMsg: r.preparedMsg,
 	}
-	peerID, err := h.handshakeReceive()
+	peerID, err := h.handshakeReceive(hsCtx)
 	if err != nil {
 		if peerid.IsHealthCheck(peerID) {
 			log.Debugf("health check connection from %s", conn.RemoteAddr())
@@ -154,7 +165,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		r.metrics.PeerDisconnected(peer.String())
 	}()
 
-	if err := h.handshakeResponse(); err != nil {
+	if err := h.handshakeResponse(hsCtx); err != nil {
 		log.Errorf("failed to send handshake response, close peer: %s", err)
 		peer.Close()
 	}

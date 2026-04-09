@@ -1119,7 +1119,7 @@ func (m *Manager) getGroupIDsFromNames(ctx context.Context, accountID string, gr
 	}
 	groupIDs := make([]string, 0, len(groupNames))
 	for _, groupName := range groupNames {
-		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
+		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID, activity.SystemInitiator)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get group by name %s: %w", groupName, err)
 		}
