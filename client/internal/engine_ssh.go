@@ -145,40 +145,18 @@ func (e *Engine) extractPeerSSHInfo(remotePeers []*mgmProto.RemotePeerConfig) []
 			continue
 		}
 
-		peerIP, peerIPv6 := e.extractPeerIPs(peerConfig)
+		peerV4, peerV6 := overlayAddrsFromAllowedIPs(peerConfig.GetAllowedIps(), e.wgInterface.Address().IPv6Net)
 		hostname := e.extractHostname(peerConfig)
 
 		peerInfo = append(peerInfo, sshconfig.PeerSSHInfo{
 			Hostname: hostname,
-			IP:       peerIP,
-			IPv6:     peerIPv6,
+			IP:       peerV4,
+			IPv6:     peerV6,
 			FQDN:     peerConfig.GetFqdn(),
 		})
 	}
 
 	return peerInfo
-}
-
-// extractPeerIPs extracts IPv4 and IPv6 overlay addresses from peer's allowed IPs.
-// Only considers host routes (/32, /128) within the overlay networks to avoid
-// picking up routed prefixes or static routes like 2620:fe::fe/128.
-func (e *Engine) extractPeerIPs(peerConfig *mgmProto.RemotePeerConfig) (v4, v6 netip.Addr) {
-	wgAddr := e.wgInterface.Address()
-	for _, allowedIP := range peerConfig.GetAllowedIps() {
-		prefix, err := netip.ParsePrefix(allowedIP)
-		if err != nil {
-			log.Warnf("failed to parse AllowedIP %q: %v", allowedIP, err)
-			continue
-		}
-		addr := prefix.Addr().Unmap()
-		switch {
-		case addr.Is4() && prefix.Bits() == 32 && wgAddr.Network.Contains(addr) && !v4.IsValid():
-			v4 = addr
-		case addr.Is6() && prefix.Bits() == 128 && wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr) && !v6.IsValid():
-			v6 = addr
-		}
-	}
-	return v4, v6
 }
 
 // extractHostname extracts short hostname from FQDN

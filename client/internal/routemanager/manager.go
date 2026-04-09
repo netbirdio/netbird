@@ -159,15 +159,23 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 	if config.DNSFeatureFlag {
 		m.fakeIPManager = fakeip.NewManager()
 
-		id := uuid.NewString()
-		fakeIPRoute := &route.Route{
-			ID:          route.ID(id),
+		v4ID := uuid.NewString()
+		cr = append(cr, &route.Route{
+			ID:          route.ID(v4ID),
 			Network:     m.fakeIPManager.GetFakeIPBlock(),
-			NetID:       route.NetID(id),
+			NetID:       route.NetID(v4ID),
 			Peer:        m.pubKey,
 			NetworkType: route.IPv4Network,
-		}
-		cr = append(cr, fakeIPRoute)
+		})
+
+		v6ID := uuid.NewString()
+		cr = append(cr, &route.Route{
+			ID:          route.ID(v6ID),
+			Network:     m.fakeIPManager.GetFakeIPv6Block(),
+			NetID:       route.NetID(v6ID),
+			Peer:        m.pubKey,
+			NetworkType: route.IPv6Network,
+		})
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)

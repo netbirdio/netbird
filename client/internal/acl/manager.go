@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"strconv"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
 var ErrSourceRangesEmpty = errors.New("sources range is empty")
@@ -105,6 +105,10 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 	newRulePairs := make(map[id.RuleID][]firewall.Rule)
 	ipsetByRuleSelectors := make(map[string]string)
 
+	// TODO: deny rules should be fatal: if a deny rule fails to apply, we must
+	// roll back all allow rules to avoid a fail-open where allowed traffic bypasses
+	// the missing deny. Currently we accumulate errors and continue.
+	var merr *multierror.Error
 	for _, r := range rules {
 		// if this rule is member of rule selection with more than DefaultIPsCountForSet
 		// it's IP address can be used in the ipset for firewall manager which supports it
@@ -117,14 +121,17 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 		}
 		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
-			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
-			d.rollBack(newRulePairs)
-			break
+			merr = multierror.Append(merr, fmt.Errorf("apply firewall rule: %w", err))
+			continue
 		}
 		if len(rulePair) > 0 {
 			d.peerRulesPairs[pairID] = rulePair
 			newRulePairs[pairID] = rulePair
 		}
+	}
+
+	if merr != nil {
+		log.Errorf("failed to apply %d peer ACL rule(s): %v", merr.Len(), nberrors.FormatErrorOrNil(merr))
 	}
 
 	for pairID, rules := range d.peerRulesPairs {
@@ -216,10 +223,9 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	r *mgmProto.FirewallRule,
 	ipsetName string,
 ) (id.RuleID, []firewall.Rule, error) {
-	//nolint:staticcheck // PeerIP used for backward compatibility with old management
-	ip := net.ParseIP(r.PeerIP)
-	if ip == nil {
-		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
+	ip, err := extractRuleIP(r)
+	if err != nil {
+		return "", nil, err
 	}
 
 	protocol, err := convertToFirewallProtocol(r.Protocol)
@@ -290,13 +296,13 @@ func portInfoEmpty(portInfo *mgmProto.PortInfo) bool {
 
 func (d *DefaultManager) addInRules(
 	id []byte,
-	ip net.IP,
+	ip netip.Addr,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
 ) ([]firewall.Rule, error) {
-	rule, err := d.firewall.AddPeerFiltering(id, ip, protocol, nil, port, action, ipsetName)
+	rule, err := d.firewall.AddPeerFiltering(id, ip.AsSlice(), protocol, nil, port, action, ipsetName)
 	if err != nil {
 		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
@@ -306,7 +312,7 @@ func (d *DefaultManager) addInRules(
 
 func (d *DefaultManager) addOutRules(
 	id []byte,
-	ip net.IP,
+	ip netip.Addr,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
@@ -316,7 +322,7 @@ func (d *DefaultManager) addOutRules(
 		return nil, nil
 	}
 
-	rule, err := d.firewall.AddPeerFiltering(id, ip, protocol, port, nil, action, ipsetName)
+	rule, err := d.firewall.AddPeerFiltering(id, ip.AsSlice(), protocol, port, nil, action, ipsetName)
 	if err != nil {
 		return nil, fmt.Errorf("add firewall rule: %w", err)
 	}
@@ -324,9 +330,9 @@ func (d *DefaultManager) addOutRules(
 	return rule, nil
 }
 
-// getPeerRuleID() returns unique ID for the rule based on its parameters.
+// getPeerRuleID returns unique ID for the rule based on its parameters.
 func (d *DefaultManager) getPeerRuleID(
-	ip net.IP,
+	ip netip.Addr,
 	proto firewall.Protocol,
 	direction int,
 	port *firewall.Port,
@@ -345,15 +351,25 @@ func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) st
 	return fmt.Sprintf("%v:%v:%v:%s:%v", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port, rule.PortInfo)
 }
 
-func (d *DefaultManager) rollBack(newRulePairs map[id.RuleID][]firewall.Rule) {
-	log.Debugf("rollback ACL to previous state")
-	for _, rules := range newRulePairs {
-		for _, rule := range rules {
-			if err := d.firewall.DeletePeerRule(rule); err != nil {
-				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.ID(), err)
-			}
+
+// extractRuleIP extracts the peer IP from a firewall rule.
+// If sourcePrefixes is populated (new management), decode the first entry and use its address.
+// Otherwise fall back to the deprecated PeerIP string field (old management).
+func extractRuleIP(r *mgmProto.FirewallRule) (netip.Addr, error) {
+	if len(r.SourcePrefixes) > 0 {
+		addr, err := netiputil.DecodeAddr(r.SourcePrefixes[0])
+		if err != nil {
+			return netip.Addr{}, fmt.Errorf("decode source prefix: %w", err)
 		}
+		return addr.Unmap(), nil
 	}
+
+	//nolint:staticcheck // PeerIP used for backward compatibility with old management
+	addr, err := netip.ParseAddr(r.PeerIP)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("invalid IP address, skipping firewall rule")
+	}
+	return addr.Unmap(), nil
 }
 
 func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewall.Protocol, error) {

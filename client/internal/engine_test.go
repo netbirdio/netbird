@@ -1837,7 +1837,7 @@ func TestFilterAllowedIPs(t *testing.T) {
 	}
 }
 
-func TestSplitAllowedIPs(t *testing.T) {
+func TestOverlayAddrsFromAllowedIPs(t *testing.T) {
 	ourV6Net := netip.MustParsePrefix("fd00:1234:5678:abcd::/64")
 
 	tests := []struct {
@@ -1900,9 +1900,17 @@ func TestSplitAllowedIPs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			v4, v6 := splitAllowedIPs(tt.allowedIPs, tt.ourV6Net)
-			assert.Equal(t, tt.wantV4, v4, "v4")
-			assert.Equal(t, tt.wantV6, v6, "v6")
+			v4, v6 := overlayAddrsFromAllowedIPs(tt.allowedIPs, tt.ourV6Net)
+			if tt.wantV4 == "" {
+				assert.False(t, v4.IsValid(), "expected no v4")
+			} else {
+				assert.Equal(t, tt.wantV4, v4.String(), "v4")
+			}
+			if tt.wantV6 == "" {
+				assert.False(t, v6.IsValid(), "expected no v6")
+			} else {
+				assert.Equal(t, tt.wantV6, v6.String(), "v6")
+			}
 		})
 	}
 }

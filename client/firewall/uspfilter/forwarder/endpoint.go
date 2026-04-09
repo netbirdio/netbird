@@ -1,7 +1,8 @@
 package forwarder
 
 import (
-	"fmt"
+	"net"
+	"strconv"
 	"sync/atomic"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
@@ -47,17 +48,23 @@ func (e *endpoint) LinkAddress() tcpip.LinkAddress {
 func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	var written int
 	for _, pkt := range pkts.AsSlice() {
-		netHeader := header.IPv4(pkt.NetworkHeader().View().AsSlice())
-
 		data := stack.PayloadSince(pkt.NetworkHeader())
 		if data == nil {
 			continue
 		}
 
-		// Send the packet through WireGuard
-		address := netHeader.DestinationAddress()
-		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
-		if err != nil {
+		raw := pkt.NetworkHeader().View().AsSlice()
+		if len(raw) == 0 {
+			continue
+		}
+		var address tcpip.Address
+		if raw[0]>>4 == 6 {
+			address = header.IPv6(raw).DestinationAddress()
+		} else {
+			address = header.IPv4(raw).DestinationAddress()
+		}
+
+		if err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice()); err != nil {
 			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
 		}
@@ -103,5 +110,7 @@ type epID stack.TransportEndpointID
 
 func (i epID) String() string {
 	// src and remote is swapped
-	return fmt.Sprintf("%s:%d → %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
+	return net.JoinHostPort(i.RemoteAddress.String(), strconv.Itoa(int(i.RemotePort))) +
+		" → " +
+		net.JoinHostPort(i.LocalAddress.String(), strconv.Itoa(int(i.LocalPort)))
 }
