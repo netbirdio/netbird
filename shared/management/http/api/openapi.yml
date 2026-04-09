@@ -3263,13 +3263,6 @@ components:
             pattern: '^[a-zA-Z]{2}$'
             example: "DE"
           description: ISO 3166-1 alpha-2 country codes to block.
-        trusted_cidrs:
-          type: array
-          items:
-            type: string
-            format: cidr
-            example: "10.0.0.0/8"
-          description: Trusted CIDR ranges that bypass all restriction layers (CIDR, country, CrowdSec). Use for office networks or VPNs that should always be allowed.
         crowdsec_mode:
           type: string
           enum:

@@ -108,8 +108,6 @@ message AccessRestrictions {
   repeated string blocked_countries = 4;
   // CrowdSec IP reputation mode: "", "off", "enforce", or "observe".
   string crowdsec_mode = 5;
-  // Trusted CIDRs bypass all restriction layers (CIDR, country, CrowdSec).
-  repeated string trusted_cidrs = 6;
 }
 
 message ProxyMapping {

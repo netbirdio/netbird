@@ -168,10 +168,6 @@ func TestFilter_HasRestrictions(t *testing.T) {
 	assert.False(t, (&Filter{}).HasRestrictions())
 	assert.True(t, ParseFilter(FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}).HasRestrictions())
 	assert.True(t, ParseFilter(FilterConfig{AllowedCountries: []string{"US"}}).HasRestrictions())
-
-	// Trusted CIDRs alone don't constitute restrictions: they only bypass
-	// other layers, so without deny rules the filter is nil (no-op).
-	assert.Nil(t, ParseFilter(FilterConfig{TrustedCIDRs: []string{"10.0.0.0/8"}}))
 }
 
 func TestFilter_Check_IPv6CIDR(t *testing.T) {
@@ -374,14 +370,12 @@ func TestFilter_IsObserveOnly(t *testing.T) {
 	assert.False(t, f2.IsObserveOnly(DenyCrowdSecBan))
 }
 
-// TestFilter_LayerInteraction exercises the evaluation order across all
-// restriction layers: Trusted -> CIDR -> Country -> CrowdSec.
-// Trusted CIDRs bypass everything. Each subsequent layer can only further
+// TestFilter_LayerInteraction exercises the evaluation order across all three
+// restriction layers: CIDR -> Country -> CrowdSec. Each layer can only further
 // restrict; no layer can relax a denial from an earlier layer.
 //
 //	Layer order    | Behavior
 //	---------------|-------------------------------------------------------
-//	0. Trusted     | Bypass all restrictions. Immediate allow.
 //	1. CIDR        | Allowlist narrows to specific ranges, blocklist removes
 //	               | specific ranges. Deny here → stop, CrowdSec never runs.
 //	2. Country     | Allowlist/blocklist by geo. Deny here → stop.
@@ -486,44 +480,6 @@ func TestFilter_LayerInteraction(t *testing.T) {
 			config: FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecObserve},
 			addr:   bannedIP,
 			want:   DenyCrowdSecBan, // verdict is ban, caller checks IsObserveOnly
-		},
-
-		// Trusted CIDRs bypass all layers
-		{
-			name:   "trusted CIDR bypasses CIDR deny",
-			config: FilterConfig{TrustedCIDRs: []string{"192.168.0.0/16"}, AllowedCIDRs: []string{"10.0.0.0/8"}},
-			addr:   outsideIP, // 192.168.x not in CIDR allowlist, but trusted
-			want:   Allow,
-		},
-		{
-			name:   "trusted CIDR bypasses country deny",
-			config: FilterConfig{TrustedCIDRs: []string{"192.168.0.0/16"}, AllowedCountries: []string{"US"}},
-			addr:   outsideIP, // CN country, but trusted
-			want:   Allow,
-		},
-		{
-			name:   "trusted CIDR bypasses CrowdSec ban",
-			config: FilterConfig{TrustedCIDRs: []string{"10.0.0.0/8"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
-			addr:   bannedIP, // banned by CrowdSec, but trusted
-			want:   Allow,
-		},
-		{
-			name: "trusted CIDR bypasses all layers combined",
-			config: FilterConfig{
-				TrustedCIDRs:     []string{"10.0.0.0/8"},
-				AllowedCIDRs:     []string{"172.16.0.0/12"},
-				AllowedCountries: []string{"FR"},
-				CrowdSec:         cs,
-				CrowdSecMode:     CrowdSecEnforce,
-			},
-			addr: bannedIP, // not in allowed CIDR, wrong country, banned, but trusted
-			want: Allow,
-		},
-		{
-			name:   "non-trusted IP still checked normally",
-			config: FilterConfig{TrustedCIDRs: []string{"172.16.0.0/12"}, CrowdSec: cs, CrowdSecMode: CrowdSecEnforce},
-			addr:   bannedIP, // not in trusted range, banned
-			want:   DenyCrowdSecBan,
 		},
 	}
 
