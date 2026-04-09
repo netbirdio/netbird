@@ -3665,7 +3665,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("should skip propagation when the user has no groups", func(t *testing.T) {
-		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		groupsUpdated, groupChangesAffectPeers, err := manager.propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.False(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
@@ -3681,7 +3681,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		user.AutoGroups = append(user.AutoGroups, group1.ID)
 		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
-		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		groupsUpdated, groupChangesAffectPeers, err := manager.propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.True(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
@@ -3719,7 +3719,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		}, true)
 		require.NoError(t, err)
 
-		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		groupsUpdated, groupChangesAffectPeers, err := manager.propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.True(t, groupsUpdated)
 		assert.True(t, groupChangesAffectPeers)
@@ -3734,7 +3734,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	})
 
 	t.Run("should not update membership or account peers when no changes", func(t *testing.T) {
-		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		groupsUpdated, groupChangesAffectPeers, err := manager.propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.False(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
@@ -3747,7 +3747,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		user.AutoGroups = []string{"group1"}
 		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
-		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		groupsUpdated, groupChangesAffectPeers, err := manager.propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.False(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
