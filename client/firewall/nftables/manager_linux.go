@@ -101,6 +101,10 @@ func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mt
 		return fmt.Errorf("create v6 router: %w", err)
 	}
 
+	// Share the same IP forwarding state with the v4 router, since
+	// EnableIPForwarding controls both v4 and v6 sysctls.
+	m.router6.ipFwdState = m.router.ipFwdState
+
 	m.aclManager6, err = newAclManager(workTable6, wgIface, chainNameRoutingFw)
 	if err != nil {
 		return fmt.Errorf("create v6 acl manager: %w", err)
@@ -201,6 +205,11 @@ func (m *Manager) persistState(stateManager *statemanager.Manager) {
 func (m *Manager) rollbackInit() {
 	if err := m.router.Reset(); err != nil {
 		log.Warnf("rollback router: %v", err)
+	}
+	if m.hasIPv6() {
+		if err := m.router6.Reset(); err != nil {
+			log.Warnf("rollback v6 router: %v", err)
+		}
 	}
 	if err := m.cleanupNetbirdTables(); err != nil {
 		log.Warnf("cleanup tables: %v", err)

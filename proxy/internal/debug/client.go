@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -249,9 +250,9 @@ func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, 
 
 func (c *Client) printPingResult(data map[string]any) {
 	success, _ := data["success"].(bool)
+	host := net.JoinHostPort(fmt.Sprint(data["host"]), fmt.Sprint(data["port"]))
 	if success {
 		remote, _ := data["remote"].(string)
-		host := fmt.Sprintf("%v:%v", data["host"], data["port"])
 		if remote != "" && remote != host {
 			_, _ = fmt.Fprintf(c.out, "Success: %s (via %s)\n", host, remote)
 		} else {
@@ -259,7 +260,7 @@ func (c *Client) printPingResult(data map[string]any) {
 		}
 		_, _ = fmt.Fprintf(c.out, "Latency: %v\n", data["latency"])
 	} else {
-		_, _ = fmt.Fprintf(c.out, "Failed: %v:%v\n", data["host"], data["port"])
+		_, _ = fmt.Fprintf(c.out, "Failed: %s\n", host)
 		c.printError(data)
 	}
 }

@@ -14,10 +14,15 @@ import (
 )
 
 // EncodePrefix encodes a netip.Prefix into compact bytes.
-// The address is always unmapped before encoding.
+// The address is always unmapped before encoding. If unmapping produces a v4
+// address, the prefix length is clamped to 32.
 func EncodePrefix(p netip.Prefix) []byte {
 	addr := p.Addr().Unmap()
-	return append(addr.AsSlice(), byte(p.Bits()))
+	bits := p.Bits()
+	if addr.Is4() && bits > 32 {
+		bits = 32
+	}
+	return append(addr.AsSlice(), byte(bits))
 }
 
 // DecodePrefix decodes compact bytes into a netip.Prefix.

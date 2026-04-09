@@ -1271,7 +1271,7 @@ func addPeerInfoToEventMeta(meta map[string]any, peer *nbpeer.Peer) map[string]a
 		return meta
 	}
 	meta["peer_name"] = peer.Name
-	if peer.IP != nil {
+	if peer.IP.IsValid() {
 		meta["peer_ip"] = peer.IP.String()
 	}
 	return meta

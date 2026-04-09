@@ -158,7 +158,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 				"peer-1": {
 					ID:       peerID1,
 					Key:      "peer-1-key",
-					IP:       net.IP{100, 64, 0, 1},
+					IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
+					IPv6:     netip.MustParseAddr("fd00::6440:1"),
 					Name:     peerID1,
 					DNSLabel: peerID1,
 					Status: &nbpeer.PeerStatus{
@@ -172,7 +173,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 				"peer-2": {
 					ID:       peerID2,
 					Key:      "peer-2-key",
-					IP:       net.IP{100, 64, 0, 1},
+					IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
+					IPv6:     netip.MustParseAddr("fd00::6440:1"),
 					Name:     peerID2,
 					DNSLabel: peerID2,
 					Status: &nbpeer.PeerStatus{
@@ -196,7 +198,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 				"peer-1": {
 					ID:       peerID1,
 					Key:      "peer-1-key",
-					IP:       net.IP{100, 64, 0, 1},
+					IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
+					IPv6:     netip.MustParseAddr("fd00::6440:1"),
 					Name:     peerID1,
 					DNSLabel: peerID1,
 					Status: &nbpeer.PeerStatus{
@@ -211,7 +214,8 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 				"peer-2": {
 					ID:       peerID2,
 					Key:      "peer-2-key",
-					IP:       net.IP{100, 64, 0, 1},
+					IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
+					IPv6:     netip.MustParseAddr("fd00::6440:1"),
 					Name:     peerID2,
 					DNSLabel: peerID2,
 					Status: &nbpeer.PeerStatus{
@@ -235,7 +239,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-1": {
 		// 			ID:       peerID1,
 		// 			Key:      "peer-1-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID1,
 		// 			DNSLabel: peerID1,
 		// 			Status: &PeerStatus{
@@ -249,7 +253,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-2": {
 		// 			ID:       peerID2,
 		// 			Key:      "peer-2-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID2,
 		// 			DNSLabel: peerID2,
 		// 			Status: &PeerStatus{
@@ -263,7 +267,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-3": {
 		// 			ID:       peerID3,
 		// 			Key:      "peer-3-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID3,
 		// 			DNSLabel: peerID3,
 		// 			Status: &PeerStatus{
@@ -286,7 +290,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-1": {
 		// 			ID:       peerID1,
 		// 			Key:      "peer-1-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID1,
 		// 			DNSLabel: peerID1,
 		// 			Status: &PeerStatus{
@@ -300,7 +304,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-2": {
 		// 			ID:       peerID2,
 		// 			Key:      "peer-2-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID2,
 		// 			DNSLabel: peerID2,
 		// 			Status: &PeerStatus{
@@ -314,7 +318,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-3": {
 		// 			ID:       peerID3,
 		// 			Key:      "peer-3-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID3,
 		// 			DNSLabel: peerID3,
 		// 			Status: &PeerStatus{
@@ -337,7 +341,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-1": {
 		// 			ID:       peerID1,
 		// 			Key:      "peer-1-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID1,
 		// 			DNSLabel: peerID1,
 		// 			Status: &PeerStatus{
@@ -351,7 +355,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-2": {
 		// 			ID:       peerID2,
 		// 			Key:      "peer-2-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID2,
 		// 			DNSLabel: peerID2,
 		// 			Status: &PeerStatus{
@@ -365,7 +369,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		// 		"peer-3": {
 		// 			ID:       peerID3,
 		// 			Key:      "peer-3-key",
-		// 			IP:       net.IP{100, 64, 0, 1},
+		// 			IP:       netip.AddrFrom4([4]byte{100, 64, 0, 1}),
 		// 			Name:     peerID3,
 		// 			DNSLabel: peerID3,
 		// 			Status: &PeerStatus{
@@ -1082,7 +1086,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
 	}
 
-	if !account.Network.Net.Contains(peer.IP) {
+	if !account.Network.Net.Contains(peer.IP.AsSlice()) {
 		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
 	}
 
@@ -1146,7 +1150,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
 	}
 
-	if !account.Network.Net.Contains(peer.IP) {
+	if !account.Network.Net.Contains(peer.IP.AsSlice()) {
 		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
 	}
 
@@ -2852,11 +2856,46 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	account := &types.Account{
 		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
-			"peer1": {ID: "peer1", Key: "key1", UserID: "user1", IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"},
-			"peer2": {ID: "peer2", Key: "key2", UserID: "user1", IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"},
-			"peer3": {ID: "peer3", Key: "key3", UserID: "user1", IP: net.IP{3, 3, 3, 3}, DNSLabel: "peer3.domain.test"},
-			"peer4": {ID: "peer4", Key: "key4", UserID: "user2", IP: net.IP{4, 4, 4, 4}, DNSLabel: "peer4.domain.test"},
-			"peer5": {ID: "peer5", Key: "key5", UserID: "user2", IP: net.IP{5, 5, 5, 5}, DNSLabel: "peer5.domain.test"},
+			"peer1": {
+				ID:       "peer1",
+				Key:      "key1",
+				UserID:   "user1",
+				IP:       netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+				IPv6:     netip.MustParseAddr("fd00::1"),
+				DNSLabel: "peer1.domain.test",
+			},
+			"peer2": {
+				ID:       "peer2",
+				Key:      "key2",
+				UserID:   "user1",
+				IP:       netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+				IPv6:     netip.MustParseAddr("fd00::2"),
+				DNSLabel: "peer2.domain.test",
+			},
+			"peer3": {
+				ID:       "peer3",
+				Key:      "key3",
+				UserID:   "user1",
+				IP:       netip.AddrFrom4([4]byte{3, 3, 3, 3}),
+				IPv6:     netip.MustParseAddr("fd00::3"),
+				DNSLabel: "peer3.domain.test",
+			},
+			"peer4": {
+				ID:       "peer4",
+				Key:      "key4",
+				UserID:   "user2",
+				IP:       netip.AddrFrom4([4]byte{4, 4, 4, 4}),
+				IPv6:     netip.MustParseAddr("fd00::4"),
+				DNSLabel: "peer4.domain.test",
+			},
+			"peer5": {
+				ID:       "peer5",
+				Key:      "key5",
+				UserID:   "user2",
+				IP:       netip.AddrFrom4([4]byte{5, 5, 5, 5}),
+				IPv6:     netip.MustParseAddr("fd00::5"),
+				DNSLabel: "peer5.domain.test",
+			},
 		},
 		Groups: map[string]*types.Group{
 			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
@@ -3601,11 +3640,27 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	account, err := manager.GetOrCreateAccountByUser(ctx, auth.UserAuth{UserId: initiatorId, Domain: domain})
 	require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, Key: "key1", UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
+	peer1 := &nbpeer.Peer{
+		ID:        "peer1",
+		AccountID: account.Id,
+		Key:       "key1",
+		UserID:    initiatorId,
+		IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1"),
+		DNSLabel:  "peer1.domain.test",
+	}
 	err = manager.Store.AddPeerToAccount(ctx, peer1)
 	require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, Key: "key2", UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
+	peer2 := &nbpeer.Peer{
+		ID:        "peer2",
+		AccountID: account.Id,
+		Key:       "key2",
+		UserID:    initiatorId,
+		IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+		IPv6:      netip.MustParseAddr("fd00::2"),
+		DNSLabel:  "peer2.domain.test",
+	}
 	err = manager.Store.AddPeerToAccount(ctx, peer2)
 	require.NoError(t, err)
 
@@ -3806,11 +3861,10 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		account, err := manager.Store.GetAccount(context.Background(), accountID)
 		require.NoError(t, err, "unable to get account")
 
-		newIP, err := types.AllocatePeerIP(account.Network.Net, []net.IP{peer1.IP, peer2.IP})
+		newIP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), []netip.Addr{peer1.IP, peer2.IP})
 		require.NoError(t, err, "unable to allocate new IP")
 
-		newAddr := netip.MustParseAddr(newIP.String())
-		err = manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, newAddr)
+		err = manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, newIP)
 		require.NoError(t, err, "unable to update peer IP")
 
 		updatedPeer, err := manager.GetPeer(context.Background(), accountID, peer1.ID, userID)
@@ -3966,6 +4020,109 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 	case <-time.After(10 * time.Second):
 		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
 	}
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_IPv6EnabledGroups(t *testing.T) {
+	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	ctx := context.Background()
+	accountID := account.Id
+
+	// New accounts default to All group in IPv6EnabledGroups, so all 3 peers should have IPv6.
+	settings, err := manager.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+	require.NotEmpty(t, settings.IPv6EnabledGroups, "new account should have IPv6 enabled for All group")
+
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.True(t, p.IPv6.IsValid(), "peer %s should have IPv6 with All group enabled", p.ID)
+	}
+
+	// Create a group with only peer1 and peer2.
+	partialGroup := &types.Group{
+		ID:        "ipv6-partial-group",
+		AccountID: accountID,
+		Name:      "IPv6Partial",
+	}
+	err = manager.Store.CreateGroup(ctx, partialGroup)
+	require.NoError(t, err)
+	require.NoError(t, manager.Store.AddPeerToGroup(ctx, accountID, peer1.ID, partialGroup.ID))
+	require.NoError(t, manager.Store.AddPeerToGroup(ctx, accountID, peer2.ID, partialGroup.ID))
+
+	// Switch IPv6EnabledGroups to only the partial group.
+	updatedSettings, err := manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		PeerLoginExpirationEnabled: true,
+		IPv6EnabledGroups:          []string{partialGroup.ID},
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{partialGroup.ID}, updatedSettings.IPv6EnabledGroups)
+
+	// peer1 and peer2 should have IPv6; peer3 should not.
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	require.NoError(t, err)
+	peerMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, p := range peers {
+		peerMap[p.ID] = p
+	}
+	assert.True(t, peerMap[peer1.ID].IPv6.IsValid(), "peer1 in partial group should keep IPv6")
+	assert.True(t, peerMap[peer2.ID].IPv6.IsValid(), "peer2 in partial group should keep IPv6")
+	assert.False(t, peerMap[peer3.ID].IPv6.IsValid(), "peer3 not in partial group should lose IPv6")
+
+	// Clearing all groups disables IPv6 for everyone.
+	updatedSettings, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		PeerLoginExpirationEnabled: true,
+		IPv6EnabledGroups:          []string{},
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, updatedSettings.IPv6EnabledGroups)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.False(t, p.IPv6.IsValid(), "peer %s should have no IPv6 when groups cleared", p.ID)
+	}
+
+	// Re-enabling with the partial group should allocate IPv6 only for peer1 and peer2.
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		PeerLoginExpirationEnabled: true,
+		IPv6EnabledGroups:          []string{partialGroup.ID},
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	require.NoError(t, err)
+	peerMap = make(map[string]*nbpeer.Peer, len(peers))
+	for _, p := range peers {
+		peerMap[p.ID] = p
+	}
+	assert.True(t, peerMap[peer1.ID].IPv6.IsValid(), "peer1 should get IPv6 back")
+	assert.True(t, peerMap[peer2.ID].IPv6.IsValid(), "peer2 should get IPv6 back")
+	assert.False(t, peerMap[peer3.ID].IPv6.IsValid(), "peer3 still excluded")
+
+	// No-op update with the same groups should not cause errors.
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		PeerLoginExpirationEnabled: true,
+		IPv6EnabledGroups:          []string{partialGroup.ID},
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	// Setting a nonexistent group ID should fail.
+	_, err = manager.UpdateAccountSettings(ctx, accountID, userID, &types.Settings{
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		PeerLoginExpirationEnabled: true,
+		IPv6EnabledGroups:          []string{"nonexistent-group-id"},
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
 }
 
 func TestUpdateUserAuthWithSingleMode(t *testing.T) {

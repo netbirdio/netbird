@@ -672,9 +672,19 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
 			BlockInbound:          meta.GetFlags().GetBlockInbound(),
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+			DisableIPv6:           meta.GetFlags().GetDisableIPv6(),
 		},
-		Files: files,
+		Files:        files,
+		Capabilities: capabilitiesToInt32(meta.GetCapabilities()),
 	}
+}
+
+func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
+	result := make([]int32, len(caps))
+	for i, c := range caps {
+		result[i] = int32(c)
+	}
+	return result
 }
 
 func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {

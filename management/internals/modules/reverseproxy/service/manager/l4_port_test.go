@@ -2,7 +2,7 @@ package manager
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -56,7 +56,8 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 				Key:       "test-key",
 				DNSLabel:  "test-peer",
 				Name:      "test-peer",
-				IP:        net.ParseIP("100.64.0.1"),
+				IP:        netip.MustParseAddr("100.64.0.1"),
+				IPv6:      netip.MustParseAddr("fd00::1"),
 				Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 				Meta:      nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 			},

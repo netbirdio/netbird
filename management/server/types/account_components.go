@@ -544,10 +544,15 @@ func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*nbp
 		return nil
 	}
 
-	peerIPs := make(map[string]struct{}, len(peers))
+	// Include both v4 and v6 addresses so AAAA records (whose RData is an IPv6
+	// address) are not filtered out when peers have IPv6 assigned.
+	peerIPs := make(map[string]struct{}, len(peers)*2)
 	for _, peer := range peers {
 		if peer != nil {
 			peerIPs[peer.IP.String()] = struct{}{}
+			if peer.IPv6.IsValid() {
+				peerIPs[peer.IPv6.String()] = struct{}{}
+			}
 		}
 	}
 
