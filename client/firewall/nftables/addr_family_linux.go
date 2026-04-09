@@ -10,26 +10,6 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
-// addrFamily holds protocol-specific constants for nftables expression building.
-type addrFamily struct {
-	// protoOffset is the IP header offset for the protocol/next-header field (9 for v4, 6 for v6)
-	protoOffset uint32
-	// srcAddrOffset is the IP header offset for the source address (12 for v4, 8 for v6)
-	srcAddrOffset uint32
-	// dstAddrOffset is the IP header offset for the destination address (16 for v4, 24 for v6)
-	dstAddrOffset uint32
-	// addrLen is the byte length of addresses (4 for v4, 16 for v6)
-	addrLen uint32
-	// totalBits is the address size in bits (32 for v4, 128 for v6)
-	totalBits int
-	// setKeyType is the nftables set data type for addresses
-	setKeyType nftables.SetDatatype
-	// tableFamily is the nftables table family
-	tableFamily nftables.TableFamily
-	// icmpProto is the ICMP protocol number for this family (1 for v4, 58 for v6)
-	icmpProto uint8
-}
-
 var (
 	// afIPv4 defines IPv4 header layout and nftables types.
 	afIPv4 = addrFamily{
@@ -54,6 +34,26 @@ var (
 		icmpProto:     unix.IPPROTO_ICMPV6,
 	}
 )
+
+// addrFamily holds protocol-specific constants for nftables expression building.
+type addrFamily struct {
+	// protoOffset is the IP header offset for the protocol/next-header field (9 for v4, 6 for v6)
+	protoOffset uint32
+	// srcAddrOffset is the IP header offset for the source address (12 for v4, 8 for v6)
+	srcAddrOffset uint32
+	// dstAddrOffset is the IP header offset for the destination address (16 for v4, 24 for v6)
+	dstAddrOffset uint32
+	// addrLen is the byte length of addresses (4 for v4, 16 for v6)
+	addrLen uint32
+	// totalBits is the address size in bits (32 for v4, 128 for v6)
+	totalBits int
+	// setKeyType is the nftables set data type for addresses
+	setKeyType nftables.SetDatatype
+	// tableFamily is the nftables table family
+	tableFamily nftables.TableFamily
+	// icmpProto is the ICMP protocol number for this family (1 for v4, 58 for v6)
+	icmpProto uint8
+}
 
 // familyForAddr returns the address family for the given IP.
 func familyForAddr(is4 bool) addrFamily {

@@ -46,6 +46,8 @@ type Settings struct {
 
 	// NetworkRange is the custom network range for that account
 	NetworkRange netip.Prefix `gorm:"serializer:json"`
+	// NetworkRangeV6 is the custom IPv6 network range for that account
+	NetworkRangeV6 netip.Prefix `gorm:"serializer:json"`
 
 	// PeerExposeEnabled enables or disables peer-initiated service expose
 	PeerExposeEnabled bool
@@ -64,6 +66,12 @@ type Settings struct {
 	// AutoUpdateAlways when true, updates are installed automatically in the background;
 	// when false, updates require user interaction from the UI
 	AutoUpdateAlways bool `gorm:"default:false"`
+
+	// IPv6EnabledGroups is the list of group IDs whose peers receive IPv6 overlay addresses.
+	// Peers not in any of these groups will not be allocated an IPv6 address.
+	// Empty list means IPv6 is disabled for the account.
+	// For new accounts this defaults to the All group.
+	IPv6EnabledGroups []string `gorm:"serializer:json"`
 
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
@@ -94,8 +102,10 @@ func (s *Settings) Copy() *Settings {
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
+		NetworkRangeV6:                  s.NetworkRangeV6,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
 		AutoUpdateAlways:                s.AutoUpdateAlways,
+		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 	}
