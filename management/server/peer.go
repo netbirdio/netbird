@@ -6,6 +6,7 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -561,6 +562,27 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 	return account.Network.Copy(), err
 }
 
+// peerWillHaveIPv6 checks whether the peer's future group memberships
+// (auto-groups + allGroupID) overlap with IPv6EnabledGroups.
+func peerWillHaveIPv6(settings *types.Settings, groupsToAdd []string, allGroupID string) bool {
+	enabledSet := make(map[string]struct{}, len(settings.IPv6EnabledGroups))
+	for _, gid := range settings.IPv6EnabledGroups {
+		enabledSet[gid] = struct{}{}
+	}
+
+	if allGroupID != "" {
+		if _, ok := enabledSet[allGroupID]; ok {
+			return true
+		}
+	}
+	for _, gid := range groupsToAdd {
+		if _, ok := enabledSet[gid]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 type peerAddAuthConfig struct {
 	AccountID           string
 	SetupKeyID          string
@@ -755,8 +777,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		var freeIP net.IP
-		freeIP, err = types.AllocateRandomPeerIP(network.Net)
+		netPrefix, err := netip.ParsePrefix(network.Net.String())
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("parse network prefix: %w", err)
+		}
+		freeIP, err := types.AllocateRandomPeerIP(netPrefix)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get free IP: %w", err)
 		}
@@ -775,6 +800,28 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
+
+		if len(settings.IPv6EnabledGroups) > 0 && network.NetV6.IP != nil {
+			var allGroupID string
+			if !peer.ProxyMeta.Embedded {
+				allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("get All group: %w", err)
+				}
+				allGroupID = allGroup.ID
+			}
+			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {
+				v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("parse IPv6 prefix: %w", err)
+				}
+				freeIPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("allocate peer IPv6: %w", err)
+				}
+				newPeer.IPv6 = freeIPv6
+			}
+		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
@@ -845,10 +892,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database: %w", err)
 	}
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -871,15 +914,18 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	return p, nmap, pc, err
 }
 
-func getPeerIPDNSLabel(ip net.IP, peerHostName string) (string, error) {
-	ip = ip.To4()
+func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
+	if !ip.Is4() {
+		return "", fmt.Errorf("DNS label generation requires an IPv4 address, got %s", ip)
+	}
+	b := ip.As4()
 
 	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
 	}
 
-	return fmt.Sprintf("%s-%d-%d", dnsName, ip[2], ip[3]), nil
+	return fmt.Sprintf("%s-%d-%d", dnsName, b[2], b[3]), nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
