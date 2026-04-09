@@ -308,6 +308,15 @@ func parseECKeyFromCertificate(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
 	if !ok {
 		return nil, fmt.Errorf("x5c certificate does not contain EC public key (kid: %s)", jwk.Kid)
 	}
+	
+	curveName := ""
+	if ecKey.Curve != nil && ecKey.Curve.Params() != nil {
+		curveName = ecKey.Curve.Params().Name
+	}
+	
+	if !isSupportedECCurve(curveName) {
+		return nil, fmt.Errorf("unsupported EC curve in x5c certificate: %s (kid: %s)", curveName, jwk.Kid)
+	}
  
 	return ecKey, nil
 }
