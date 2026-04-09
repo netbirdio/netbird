@@ -88,6 +88,10 @@ func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
 		return fmt.Errorf("create v6 router: %w", err)
 	}
 
+	// Share the same IP forwarding state with the v4 router, since
+	// EnableIPForwarding controls both v4 and v6 sysctls.
+	m.router6.ipFwdState = m.router.ipFwdState
+
 	m.aclMgr6, err = newAclManager(ip6Client, wgIface)
 	if err != nil {
 		return fmt.Errorf("create v6 acl manager: %w", err)
