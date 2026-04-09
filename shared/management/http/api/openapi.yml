@@ -9046,6 +9046,165 @@ paths:
           description: The tenant was not found
         "500":
           $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/msps/{id}/subscription:
+    post:
+      summary: Create MSP subscription under reseller
+      description: Creates a managed Stripe subscription for an MSP managed by the reseller
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                price_id:
+                  type: string
+                  description: The Stripe price ID for the plan
+              required:
+                - price_id
+      responses:
+        "200":
+          description: Subscription created successfully
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found or not managed by this reseller
+        "412":
+          description: MSP already has an active subscription or reseller has no subscription
+        "500":
+          $ref: "#/components/responses/internal_error"
+    put:
+      summary: Change MSP subscription plan
+      description: Changes the plan of an MSP subscription managed by the reseller
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                price_id:
+                  type: string
+                  description: The new Stripe price ID
+              required:
+                - price_id
+      responses:
+        "200":
+          description: Subscription updated successfully
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found or not managed by this reseller
+        "412":
+          description: Subscription was recently updated
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/invoices:
+    get:
+      summary: List reseller invoices
+      description: Returns paid invoices for the reseller account
+      tags:
+        - MSP
+      responses:
+        "200":
+          description: List of paid invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InvoiceResponse"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: No invoices found
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/invoices/{invoiceId}/pdf:
+    get:
+      summary: Get reseller invoice PDF
+      description: Returns the Stripe hosted URL for a reseller invoice
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: invoiceId
+          required: true
+          schema:
+            type: string
+          description: The Stripe invoice ID
+      responses:
+        "200":
+          description: Invoice PDF URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoicePDFResponse"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: Invoice not found
+        "500":
+          $ref: "#/components/responses/internal_error"
+  /api/integrations/msp/reseller/invoices/{invoiceId}/csv:
+    get:
+      summary: Get reseller invoice CSV
+      description: Returns the invoice data as CSV
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: invoiceId
+          required: true
+          schema:
+            type: string
+          description: The Stripe invoice ID
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: Invoice not found
+        "500":
+          $ref: "#/components/responses/internal_error"
   /api/integrations/edr/intune:
     post:
       tags:

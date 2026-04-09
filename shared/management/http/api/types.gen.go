@@ -4681,6 +4681,18 @@ type PutApiIntegrationsMspResellerMspsIdInviteJSONBody struct {
 // PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue defines parameters for PutApiIntegrationsMspResellerMspsIdInvite.
 type PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue string
 
+// PostApiIntegrationsMspResellerMspsIdSubscriptionJSONBody defines parameters for PostApiIntegrationsMspResellerMspsIdSubscription.
+type PostApiIntegrationsMspResellerMspsIdSubscriptionJSONBody struct {
+	// PriceId The Stripe price ID for the plan
+	PriceId string `json:"price_id"`
+}
+
+// PutApiIntegrationsMspResellerMspsIdSubscriptionJSONBody defines parameters for PutApiIntegrationsMspResellerMspsIdSubscription.
+type PutApiIntegrationsMspResellerMspsIdSubscriptionJSONBody struct {
+	// PriceId The new Stripe price ID
+	PriceId string `json:"price_id"`
+}
+
 // PutApiIntegrationsMspTenantsIdInviteJSONBody defines parameters for PutApiIntegrationsMspTenantsIdInvite.
 type PutApiIntegrationsMspTenantsIdInviteJSONBody struct {
 	// Value Accept or decline the invitation.
@@ -4818,6 +4830,12 @@ type PostApiIntegrationsMspResellerMspsJSONRequestBody = CreateResellerMSPReques
 
 // PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody defines body for PutApiIntegrationsMspResellerMspsIdInvite for application/json ContentType.
 type PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody PutApiIntegrationsMspResellerMspsIdInviteJSONBody
+
+// PostApiIntegrationsMspResellerMspsIdSubscriptionJSONRequestBody defines body for PostApiIntegrationsMspResellerMspsIdSubscription for application/json ContentType.
+type PostApiIntegrationsMspResellerMspsIdSubscriptionJSONRequestBody PostApiIntegrationsMspResellerMspsIdSubscriptionJSONBody
+
+// PutApiIntegrationsMspResellerMspsIdSubscriptionJSONRequestBody defines body for PutApiIntegrationsMspResellerMspsIdSubscription for application/json ContentType.
+type PutApiIntegrationsMspResellerMspsIdSubscriptionJSONRequestBody PutApiIntegrationsMspResellerMspsIdSubscriptionJSONBody
 
 // PostApiIntegrationsMspTenantsJSONRequestBody defines body for PostApiIntegrationsMspTenants for application/json ContentType.
 type PostApiIntegrationsMspTenantsJSONRequestBody = CreateTenantRequest
