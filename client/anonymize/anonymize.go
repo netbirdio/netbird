@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -97,6 +98,11 @@ func (a *Anonymizer) isInAnonymizedRange(ip netip.Addr) bool {
 }
 
 func (a *Anonymizer) AnonymizeIPString(ip string) string {
+	// Handle CIDR notation (e.g. "2001:db8::/32")
+	if prefix, err := netip.ParsePrefix(ip); err == nil {
+		return a.AnonymizeIP(prefix.Addr()).String() + "/" + strconv.Itoa(prefix.Bits())
+	}
+
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ip
