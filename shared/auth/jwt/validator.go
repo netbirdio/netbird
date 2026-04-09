@@ -243,8 +243,26 @@ func isSupportedECCurve(crv string) bool {
 		return false
 	}
 }
+
+ func getPublicKeyForEC(jwk JSONWebKey) (interface{}, error) {
+	// For EC, prefer x, y, crv fields if present and curve is supported
+	if jwk.X != "" && jwk.Y != "" && jwk.Crv != "" {
+		// Validate curve is supported before calling getPublicKeyFromECDSA
+		if !isSupportedECCurve(jwk.Crv) {
+			return nil, fmt.Errorf("unsupported EC curve: %s (kid: %s)", jwk.Crv, jwk.Kid)
+		}
+		return getPublicKeyFromECDSA(jwk)
+	}
  
-// Sostituisci la funzione getPublicKey con questa versione aggiornata
+	// Fallback to x5c if x/y/crv are missing
+	if len(jwk.X5c) != 0 {
+		return parseECKeyFromCertificate(jwk)
+	}
+ 
+	// Neither x/y/crv nor x5c available
+	return nil, fmt.Errorf("EC key incomplete: missing both x/y/crv fields and x5c certificate (kid: %s)", jwk.Kid)
+}
+
 func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 	for k := range jwks.Keys {
@@ -263,22 +281,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 			return getPublicKeyFromRSA(jwks.Keys[k])
  
 		case "EC":
-			// For EC, prefer x, y, crv fields if present and curve is supported
-			if jwks.Keys[k].X != "" && jwks.Keys[k].Y != "" && jwks.Keys[k].Crv != "" {
-				// Validate curve is supported before calling getPublicKeyFromECDSA
-				if !isSupportedECCurve(jwks.Keys[k].Crv) {
-					return nil, fmt.Errorf("unsupported EC curve: %s (kid: %s)", jwks.Keys[k].Crv, jwks.Keys[k].Kid)
-				}
-				return getPublicKeyFromECDSA(jwks.Keys[k])
-			}
- 
-			// Fallback to x5c if x/y/crv are missing
-			if len(jwks.Keys[k].X5c) != 0 {
-				return parseECKeyFromCertificate(jwks.Keys[k])
-			}
- 
-			// Neither x/y/crv nor x5c available
-			return nil, fmt.Errorf("EC key incomplete: missing both x/y/crv fields and x5c certificate (kid: %s)", jwks.Keys[k].Kid)
+			return getPublicKeyForEC(jwks.Keys[k])
  
 		default:
 			// Key type not supported
@@ -289,6 +292,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	// No key with matching kid found
 	return nil, errKeyNotFound
 }
+
 
 // parseECKeyFromCertificate extracts EC public key from x5c certificate
 func parseECKeyFromCertificate(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
@@ -307,15 +311,6 @@ func parseECKeyFromCertificate(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
 	ecKey, ok := certificate.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, fmt.Errorf("x5c certificate does not contain EC public key (kid: %s)", jwk.Kid)
-	}
-	
-	curveName := ""
-	if ecKey.Curve != nil && ecKey.Curve.Params() != nil {
-		curveName = ecKey.Curve.Params().Name
-	}
-	
-	if !isSupportedECCurve(curveName) {
-		return nil, fmt.Errorf("unsupported EC curve in x5c certificate: %s (kid: %s)", curveName, jwk.Kid)
 	}
  
 	return ecKey, nil
