@@ -105,7 +105,20 @@ func (r *SysOps) FlushMarkedRoutes() error {
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return r.routeSocket(unix.RTM_ADD, prefix, nexthop)
+	if err := r.routeSocket(unix.RTM_ADD, prefix, nexthop); err != nil {
+		if !errors.Is(err, unix.EEXIST) {
+			return err
+		}
+
+		// Route already exists from a previous session that wasn't cleaned up properly
+		// (e.g. macOS sleep/wake). Remove the stale route and retry.
+		log.Infof("Route for %s already exists, replacing with new route", prefix)
+		if err := r.routeSocket(unix.RTM_DELETE, prefix, nexthop); err != nil {
+			log.Warnf("Failed to remove stale route for %s: %v", prefix, err)
+		}
+		return r.routeSocket(unix.RTM_ADD, prefix, nexthop)
+	}
+	return nil
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
