@@ -2100,7 +2100,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
 		var terminated, portAutoAssigned sql.NullBool
-		var listenPort sql.NullInt16
+		var listenPort sql.NullInt64
 		err := row.Scan(
 			&s.ID,
 			&s.AccountID,
