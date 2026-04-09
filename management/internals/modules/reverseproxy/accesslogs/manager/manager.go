@@ -107,7 +107,7 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 // StartPeriodicCleanup starts a background goroutine that periodically cleans up old access logs
 func (m *managerImpl) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
 	if retentionDays < 0 {
-		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is 0 or negative")
+		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is negative")
 		return
 	}
 
