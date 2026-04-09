@@ -27,6 +27,7 @@ import (
 	"github.com/pires/go-proxyproto"
 	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/otlptranslator"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -237,7 +238,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.lastMappings = make(map[types.ServiceID]*proto.ProxyMapping)
 
 	exporter, err := prometheus.New(
-		prometheus.WithoutUnits(),
+		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithoutSuffixes),
 	)
 	if err != nil {
 		return fmt.Errorf("create prometheus exporter: %w", err)

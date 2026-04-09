@@ -8,6 +8,7 @@ import (
 
 	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/otlptranslator"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	api "go.opentelemetry.io/otel/metric"
@@ -28,7 +29,7 @@ type Metrics struct {
 // NewServer initializes and returns a new Metrics instance
 func NewServer(port int, endpoint string) (*Metrics, error) {
 	exporter, err := prometheus.New(
-		prometheus.WithoutUnits(),
+		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithoutSuffixes),
 	)
 	if err != nil {
 		return nil, err

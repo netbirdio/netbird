@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/prometheus/otlptranslator"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 
@@ -52,7 +53,7 @@ func TestMetrics_RoundTripper(t *testing.T) {
 	}
 
 	exporter, err := prometheus.New(
-		prometheus.WithoutUnits(),
+		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithoutSuffixes),
 	)
 	if err != nil {
 		t.Fatalf("create prometheus exporter: %v", err)

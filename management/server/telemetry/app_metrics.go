@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	prometheus2 "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/otlptranslator"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	metric2 "go.opentelemetry.io/otel/metric"
@@ -207,7 +208,7 @@ func (appMetrics *defaultAppMetrics) GetMeter() metric2.Meter {
 // NewDefaultAppMetrics and expose them via defaultEndpoint on a given HTTP port
 func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 	exporter, err := prometheus.New(
-		prometheus.WithoutUnits(),
+		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithoutSuffixes),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
