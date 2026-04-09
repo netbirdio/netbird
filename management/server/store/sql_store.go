@@ -2169,7 +2169,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			s.PortAutoAssigned = portAutoAssigned.Bool
 		}
 		if listenPort.Valid {
-			s.ListenPort = uint16(listenPort.Int16)
+			s.ListenPort = uint16(listenPort.Int64)
 		}
 		s.Targets = []*rpservice.Target{}
 		return &s, nil
